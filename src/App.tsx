@@ -18,6 +18,7 @@ import {
   FiShield,
   FiSliders,
   FiTag,
+  FiTrash2,
   FiX,
 } from "solid-icons/fi";
 import {
@@ -54,6 +55,7 @@ import {
   type LocalLibraryJob,
   type LocalLibrarySnapshotResult,
 } from "~/content/libraryUpdate/browserClient";
+import {findBlacklistedTagMatches} from "~/content/libraryUpdate/tagPurge";
 import {
   loadBootFetchPreference,
   saveBootFetchPreference,
@@ -226,6 +228,9 @@ const TagBlacklistControl = (props: {
   availableTags: readonly string[];
   blacklistedTags: readonly string[];
   onChange: (tags: readonly string[]) => void;
+  onPurge: () => void;
+  purgeDisabled: boolean;
+  purgeWorkCount: number;
 }) => {
   const [query, setQuery] = createSignal("");
   const [open, setOpen] = createSignal(false);
@@ -263,19 +268,32 @@ const TagBlacklistControl = (props: {
 
   return (
     <div class="flex flex-col gap-4 border border-white/8 bg-[#151e1c] px-4 py-4 sm:px-5">
-      <div class="flex gap-4">
+      <div class="flex items-start gap-4">
         <span class="grid size-9 shrink-0 place-items-center bg-[#d94c3f]/10 text-[#dc6156]">
           <FiTag size={15} />
         </span>
-        <div class="min-w-0">
+        <div class="min-w-0 flex-1">
           <p class="text-[10px] font-semibold tracking-[0.12em] text-[#c5cec9] uppercase">
             Blacklisted tags
           </p>
           <p class="mt-1 text-[9px] leading-4 text-[#65716c]">
             Skip matching publications during future downloads. Books already in
-            your library stay catalogued.
+            your library stay catalogued until purged.
           </p>
         </div>
+        <button
+          class="flex shrink-0 items-center gap-2 border border-[#d94c3f]/35 bg-[#d94c3f]/10 px-3 py-2 text-[9px] font-semibold tracking-[0.12em] text-[#df776e] uppercase transition hover:border-[#d94c3f]/60 hover:bg-[#d94c3f]/20 hover:text-[#f3a098] disabled:cursor-not-allowed disabled:opacity-35"
+          disabled={props.purgeDisabled}
+          title={
+            props.purgeWorkCount === 0
+              ? "No catalogued works match the blacklisted tags"
+              : `Purge ${props.purgeWorkCount} matching ${props.purgeWorkCount === 1 ? "work" : "works"}`
+          }
+          type="button"
+          onClick={() => props.onPurge()}
+        >
+          <FiTrash2 size={12} /> Purge
+        </button>
       </div>
 
       <form
@@ -411,8 +429,11 @@ const OptionsPanel = (props: {
   onBlacklistedTagsChange: (tags: readonly string[]) => void;
   onDefaultReadingDirectionChange: (value: ReadingDirection) => void;
   onMouseSensitivityChange: (value: number) => void;
+  onPurgeBlacklistedWorks: () => void;
   onRespectBookReadingDirectionChange: (value: boolean) => void;
   onUnstuck: () => void;
+  purgeDisabled: boolean;
+  purgeWorkCount: number;
   respectBookReadingDirection: boolean;
 }) => (
   <section class="min-w-0 overflow-y-auto px-4 pt-7 pb-12 sm:px-7 lg:px-10 lg:pt-9 xl:col-span-2">
@@ -463,10 +484,94 @@ const OptionsPanel = (props: {
           availableTags={props.availableTags}
           blacklistedTags={props.blacklistedTags}
           onChange={props.onBlacklistedTagsChange}
+          onPurge={props.onPurgeBlacklistedWorks}
+          purgeDisabled={props.purgeDisabled}
+          purgeWorkCount={props.purgeWorkCount}
         />
       </div>
     </div>
   </section>
+);
+
+const PurgeBlacklistedWorksDialog = (props: {
+  blacklistedTags: readonly string[];
+  busy: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+  workCount: number;
+}) => (
+  <div
+    class="fixed inset-0 z-[70] grid place-items-center bg-black/80 p-4 backdrop-blur-md"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="purge-blacklisted-title"
+    onClick={() => {
+      if (!props.busy) props.onCancel();
+    }}
+  >
+    <div
+      class="w-full max-w-md border border-[#d94c3f]/35 bg-[#151d1b] p-6 shadow-[0_30px_100px_#000] sm:p-8"
+      onClick={(event) => event.stopPropagation()}
+    >
+      <div class="flex items-start gap-4">
+        <span class="grid size-11 shrink-0 place-items-center border border-[#d94c3f]/35 bg-[#d94c3f]/10 text-[#e16458]">
+          <FiTrash2 size={17} />
+        </span>
+        <div>
+          <p class="text-[9px] font-bold tracking-[0.2em] text-[#d55247] uppercase">
+            Destructive action
+          </p>
+          <h2
+            id="purge-blacklisted-title"
+            class="mt-2 font-serif text-2xl text-[#f0ebdf]"
+          >
+            Purge blacklisted works?
+          </h2>
+        </div>
+      </div>
+
+      <p class="mt-5 text-xs leading-5 text-[#929e99]">
+        This will remove {props.workCount} catalogued{" "}
+        {props.workCount === 1 ? "work" : "works"} matching any blacklisted tag,
+        discard their managed source files, and rebuild the local library.
+      </p>
+      <div class="mt-4 flex flex-wrap gap-2" aria-label="Tags to purge">
+        <For each={props.blacklistedTags}>
+          {(tag) => (
+            <span class="bg-[#251d1c] px-2.5 py-1.5 text-[9px] text-[#d9aaa5]">
+              {tag}
+            </span>
+          )}
+        </For>
+      </div>
+      <p class="mt-5 border border-[#d94c3f]/25 bg-[#d94c3f]/8 p-3 text-[10px] leading-4 text-[#d9aaa5]">
+        This cannot be undone. Confirm only if you want these works removed from
+        this library.
+      </p>
+
+      <div class="mt-7 flex justify-end gap-3">
+        <button
+          class="border border-white/10 px-4 py-2.5 text-[10px] font-semibold tracking-[0.12em] text-[#9da7a2] uppercase transition hover:border-white/20 hover:bg-white/5 hover:text-white disabled:cursor-wait disabled:opacity-40"
+          disabled={props.busy}
+          type="button"
+          onClick={() => props.onCancel()}
+        >
+          Cancel
+        </button>
+        <button
+          class="flex items-center gap-2 bg-[#d94c3f] px-4 py-2.5 text-[10px] font-bold tracking-[0.12em] text-white uppercase transition hover:bg-[#e45a4e] disabled:cursor-wait disabled:opacity-50"
+          disabled={props.busy}
+          type="button"
+          onClick={() => props.onConfirm()}
+        >
+          <FiTrash2 size={12} />
+          {props.busy
+            ? "Purging…"
+            : `Purge ${props.workCount} ${props.workCount === 1 ? "work" : "works"}`}
+        </button>
+      </div>
+    </div>
+  </div>
 );
 
 const AdultGate = (props: {onEnter: () => void}) => (
@@ -980,6 +1085,7 @@ export const App = () => {
   const [tag, setTag] = createSignal<string | null>(null);
   const [menuOpen, setMenuOpen] = createSignal(false);
   const [menuTab, setMenuTab] = createSignal<MenuTab>("library");
+  const [purgeBlacklistedOpen, setPurgeBlacklistedOpen] = createSignal(false);
   const [unstuckRequest, setUnstuckRequest] = createSignal(0);
   const [selectedId, setSelectedId] = createSignal("");
   const [mobileDetailOpen, setMobileDetailOpen] = createSignal(false);
@@ -1094,6 +1200,9 @@ export const App = () => {
     activeLibrary().publications.filter(
       (publication) => !blacklistedPublicationIds().has(publication.id),
     ),
+  );
+  const blacklistedTagWorkCandidates = createMemo(() =>
+    findBlacklistedTagMatches(publicationLibrary(), blacklistedTags()),
   );
   const availableTags = createMemo(() =>
     [...new Set(publicationLibrary().flatMap((item) => item.tags))].sort(
@@ -1462,6 +1571,53 @@ export const App = () => {
     return true;
   };
 
+  const purgeBlacklistedWorks = async () => {
+    const candidates = blacklistedTagWorkCandidates();
+    if (
+      candidates.length === 0 ||
+      libraryUpdating() ||
+      unavailableBookPathCount() > 0
+    )
+      return;
+
+    beginLibraryUpdate("scan");
+    setLibraryUpdateNotice(undefined);
+    setLibraryUpdateTotalSteps(candidates.length + 3);
+    const purgedPublicationIds: string[] = [];
+    try {
+      for (const [index, publication] of candidates.entries()) {
+        setLibraryUpdateCompletedSteps(index);
+        setLibraryUpdateProgressMessage(
+          `Purging ${publication.title} (${index + 1} of ${candidates.length})`,
+        );
+        await blacklistPublication({publicationId: publication.id});
+        purgedPublicationIds.push(publication.id);
+      }
+      setPurgeBlacklistedOpen(false);
+      setBlacklistedPublications((current = []) => [
+        ...new Set([...current, ...purgedPublicationIds]),
+      ]);
+      setLibraryUpdateCompletedSteps(0);
+      setLibraryUpdateTotalSteps(3);
+      setLibraryUpdateProgressMessage("Rebuilding the purged library");
+      const job = await scanLocalLibrary();
+      monitorLibraryJob(job, false);
+    } catch (error) {
+      if (purgedPublicationIds.length > 0)
+        setBlacklistedPublications((current = []) => [
+          ...new Set([...current, ...purgedPublicationIds]),
+        ]);
+      reportLibraryFailure(
+        "scan",
+        false,
+        error instanceof Error
+          ? `Could not finish purging blacklisted works: ${error.message}`
+          : "Could not finish purging blacklisted works.",
+      );
+      finishLibraryUpdate();
+    }
+  };
+
   const updateMouseSensitivity = (value: number) => {
     const preferences = saveControlPreferences({
       defaultReadingDirection: defaultReadingDirection(),
@@ -1505,6 +1661,10 @@ export const App = () => {
       (event) => {
         if (event.key === "Escape") {
           event.preventDefault();
+          if (purgeBlacklistedOpen()) {
+            if (!libraryUpdating()) setPurgeBlacklistedOpen(false);
+            return;
+          }
           if (libraryUpdateOpen()) {
             if (!libraryUpdating()) closeLibraryUpdate();
             return;
@@ -2030,6 +2190,9 @@ export const App = () => {
                         updateDefaultReadingDirection
                       }
                       onMouseSensitivityChange={updateMouseSensitivity}
+                      onPurgeBlacklistedWorks={() =>
+                        setPurgeBlacklistedOpen(true)
+                      }
                       onUnstuck={() => {
                         setUnstuckRequest((request) => request + 1);
                         setMenuOpen(false);
@@ -2037,6 +2200,12 @@ export const App = () => {
                       onRespectBookReadingDirectionChange={
                         updateRespectBookReadingDirection
                       }
+                      purgeDisabled={
+                        libraryUpdating() ||
+                        unavailableBookPathCount() > 0 ||
+                        blacklistedTagWorkCandidates().length === 0
+                      }
+                      purgeWorkCount={blacklistedTagWorkCandidates().length}
                       respectBookReadingDirection={respectBookReadingDirection()}
                     />
                   </Show>
@@ -2068,6 +2237,16 @@ export const App = () => {
                 </div>
               )}
             </Show>
+          </Show>
+
+          <Show when={purgeBlacklistedOpen()}>
+            <PurgeBlacklistedWorksDialog
+              blacklistedTags={blacklistedTags()}
+              busy={libraryUpdating()}
+              workCount={blacklistedTagWorkCandidates().length}
+              onCancel={() => setPurgeBlacklistedOpen(false)}
+              onConfirm={() => void purgeBlacklistedWorks()}
+            />
           </Show>
 
           <Show when={libraryUpdateOpen()}>
