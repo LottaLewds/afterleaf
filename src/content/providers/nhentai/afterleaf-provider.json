@@ -1,0 +1,19 @@
+{
+  "$schema": "../../../../docs/schemas/afterleaf-provider.schema.json",
+  "apiVersion": 1,
+  "kind": "afterleaf-content-provider",
+  "entry": "plugin.ts",
+  "descriptor": {
+    "contentKinds": ["doujinshi"],
+    "defaultBlockedTags": [],
+    "defaultLanguages": ["english", "japanese"],
+    "defaultQuery": "big breasts",
+    "id": "nhentai",
+    "name": "nHentai",
+    "queryHelp": "A tag or nHentai search expression. Provider-specific syntax is accepted when needed.",
+    "queryLabel": "Search tags",
+    "queryPlaceholder": "big breasts",
+    "requiresLanguageTag": true,
+    "summary": "Adult doujinshi from nHentai"
+  }
+}

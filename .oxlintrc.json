@@ -1,0 +1,58 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "env": {
+    "browser": true,
+    "node": true,
+    "es2024": true
+  },
+  "jsPlugins": ["eslint-plugin-solid"],
+  "plugins": ["typescript", "oxc", "import"],
+  "ignorePatterns": ["dist/**", "node_modules/**", ".bun-cache/**"],
+  "rules": {
+    "import/no-cycle": "error",
+    "eslint/no-unassigned-vars": "off",
+    "eslint/no-unused-vars": [
+      "error",
+      {
+        "vars": "all",
+        "args": "all",
+        "ignoreRestSiblings": true,
+        "argsIgnorePattern": "^_",
+        "varsIgnorePattern": "^_"
+      }
+    ],
+    "typescript/no-explicit-any": "error",
+    "typescript/no-floating-promises": "error",
+    "typescript/no-non-null-assertion": "warn",
+    "typescript/no-redundant-type-constituents": "warn",
+    "typescript/no-unnecessary-condition": "error",
+    "typescript/prefer-optional-chain": "error",
+    "typescript/restrict-template-expressions": "off",
+    "typescript/strict-boolean-expressions": [
+      "error",
+      {
+        "allowNumber": false,
+        "allowNullableObject": true,
+        "allowNullableBoolean": true,
+        "allowNullableString": true,
+        "allowNullableNumber": false,
+        "allowAny": true
+      }
+    ],
+    "typescript/unbound-method": "off",
+    "eslint/eqeqeq": ["error", "always"],
+    "eslint/no-implicit-coercion": "error",
+    "solid/reactivity": "warn",
+    "solid/components-return-once": "warn",
+    "solid/no-innerhtml": "warn"
+  },
+  "overrides": [
+    {
+      "files": ["**/*.test.ts", "**/*.test.tsx"],
+      "rules": {
+        "typescript/no-non-null-assertion": "off",
+        "typescript/no-explicit-any": "off"
+      }
+    }
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "$schema": "./node_modules/oxfmt/configuration_schema.json",
+  "bracketSpacing": false,
+  "arrowParens": "always",
+  "trailingComma": "all",
+  "semi": true,
+  "singleQuote": false,
+  "tabWidth": 2,
+  "useTabs": false,
+  "sortTailwindcss": {},
+  "printWidth": 80,
+  "sortPackageJson": false,
+  "ignorePatterns": ["**/.bun-cache/**"]
+}

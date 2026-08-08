@@ -1,0 +1,30 @@
+stages:
+  - test
+
+workflow:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH && $CI_OPEN_MERGE_REQUESTS && $CI_PIPELINE_SOURCE == "push"
+      when: never
+    - if: $CI_COMMIT_BRANCH
+
+default:
+  interruptible: true
+  image: oven/bun:1.3.10
+
+variables:
+  BUN_INSTALL_CACHE_DIR: .bun-cache
+
+cache:
+  key:
+    files:
+      - bun.lock
+  paths:
+    - node_modules/
+    - .bun-cache/
+
+test-and-lint:
+  stage: test
+  script:
+    - bun install --frozen-lockfile
+    - bun run check:ci

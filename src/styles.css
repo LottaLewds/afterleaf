@@ -1,0 +1,121 @@
+@import "tailwindcss";
+
+@theme {
+  --font-serif:
+    "Iowan Old Style", "Yu Mincho", "Hiragino Mincho ProN", Georgia, serif;
+  --font-sans:
+    Inter, "Yu Gothic", "Hiragino Kaku Gothic ProN", ui-sans-serif, system-ui,
+    sans-serif;
+}
+
+:root {
+  color-scheme: dark;
+  font-family: var(--font-sans);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  background: #101716;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  min-width: 320px;
+  min-height: 100%;
+  background: #101716;
+}
+
+body {
+  min-width: 320px;
+  min-height: 100vh;
+  margin: 0;
+}
+
+button,
+input {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+.gate-card::before {
+  position: absolute;
+  inset: 8px;
+  border: 1px solid rgb(255 255 255 / 4%);
+  content: "";
+  pointer-events: none;
+}
+
+.brand-mark {
+  box-shadow: 4px 4px 0 #743128;
+}
+
+.cover-frame::after {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    105deg,
+    rgb(255 255 255 / 14%),
+    transparent 15%,
+    transparent 75%,
+    rgb(0 0 0 / 16%)
+  );
+  box-shadow:
+    inset 2px 0 rgb(255 255 255 / 12%),
+    inset -2px 0 rgb(0 0 0 / 30%);
+  content: "";
+  pointer-events: none;
+}
+
+.shelf-grid {
+  position: relative;
+}
+
+.shelf-grid::before {
+  position: absolute;
+  right: -4px;
+  bottom: -22px;
+  left: -4px;
+  z-index: 0;
+  height: 14px;
+  border-top: 1px solid #714f38;
+  background: linear-gradient(#4f3527, #2b211c);
+  box-shadow: 0 8px 18px #020504aa;
+  content: "";
+}
+
+.detail-panel {
+  box-shadow: -18px 0 55px rgb(0 0 0 / 20%);
+}
+
+.no-scrollbar {
+  scrollbar-width: none;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #111817;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #303a37;
+}
+
+@media (min-width: 1280px) {
+  .detail-panel {
+    height: calc(100vh - 72px);
+    position: sticky;
+    top: 0;
+  }
+}

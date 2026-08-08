@@ -1,0 +1,307 @@
+import {describe, expect, test} from "bun:test";
+import {
+  emptyLibrary,
+  loadRuntimeCatalog,
+  loadRuntimeLibraryWithFetcher,
+} from "~/catalog";
+import {ACTIVE_LIBRARY_CATALOG_ENDPOINT} from "~/content/libraryUpdate/activeLibraryRoutes";
+
+const catalogResponse = (publications: unknown[]) =>
+  Response.json({
+    contentHash: "catalog-hash-42",
+    id: "runtime-pack",
+    publications,
+  });
+
+describe("loadRuntimeCatalog", () => {
+  test("maps a generated content pack into the application catalog", async () => {
+    const fetcher: typeof fetch = async (input) => {
+      expect(
+        String(input).startsWith(
+          `${ACTIVE_LIBRARY_CATALOG_ENDPOINT}?afterleaf=`,
+        ),
+      ).toBe(true);
+      return catalogResponse([
+        {
+          id: "nhentai-42",
+          groupId: "comic-night",
+          issue: {number: 7},
+          kind: "magazine",
+          title: "Comic Night 07",
+          language: "japanese",
+          tags: ["big breasts", "magazine"],
+          originalTags: ["big breasts"],
+          alternates: [
+            {
+              id: "nhentai-41",
+              originalTags: ["magazine"],
+              page0:
+                "publications/nhentai-42/alternates/nhentai-41/page-000.webp",
+              title: "Comic Night #7",
+            },
+          ],
+          physical: {
+            aspectRatio: 0.72,
+            readingDirection: "ltr",
+            thicknessMm: 12.4,
+            trim: "A5",
+          },
+          source: {retrievedAt: "2026-07-29T10:00:00.000Z"},
+          assets: {
+            front: "publications/nhentai-42/front.webp",
+            frontDetail: "publications/nhentai-42/front-detail.webp",
+            back: "publications/nhentai-42/back.webp",
+            spine: "publications/nhentai-42/spine.webp",
+            pages: [
+              "publications/nhentai-42/pages/001.webp",
+              "publications/nhentai-42/pages/002.webp",
+            ],
+          },
+        },
+      ]);
+    };
+
+    await expect(loadRuntimeCatalog(fetcher)).resolves.toEqual([
+      expect.objectContaining({
+        id: "nhentai-42",
+        collection: "comic-night",
+        issue: 7,
+        language: "japanese",
+        originalTags: ["big breasts"],
+        alternates: [
+          {
+            id: "nhentai-41",
+            originalTags: ["magazine"],
+            page0:
+              "/__afterleaf/active-library/publications/nhentai-42/alternates/nhentai-41/page-000.webp?afterleaf=runtime-pack%3Acatalog-hash-42",
+            title: "Comic Night #7",
+          },
+        ],
+        cover:
+          "/__afterleaf/active-library/publications/nhentai-42/front.webp?afterleaf=runtime-pack%3Acatalog-hash-42",
+        detailCover:
+          "/__afterleaf/active-library/publications/nhentai-42/front-detail.webp?afterleaf=runtime-pack%3Acatalog-hash-42",
+        back: "/__afterleaf/active-library/publications/nhentai-42/back.webp?afterleaf=runtime-pack%3Acatalog-hash-42",
+        spine:
+          "/__afterleaf/active-library/publications/nhentai-42/spine.webp?afterleaf=runtime-pack%3Acatalog-hash-42",
+        pages: [
+          "/__afterleaf/active-library/publications/nhentai-42/pages/001.webp?afterleaf=runtime-pack%3Acatalog-hash-42",
+          "/__afterleaf/active-library/publications/nhentai-42/pages/002.webp?afterleaf=runtime-pack%3Acatalog-hash-42",
+        ],
+        trim: "A5",
+        thicknessMm: 12.4,
+        aspectRatio: 0.72,
+        direction: "LTR",
+      }),
+    ]);
+  });
+
+  test("uses an empty library when a pack is absent or unsafe", async () => {
+    const missingFetcher: typeof fetch = async () =>
+      new Response("missing", {status: 404});
+    const unsafeFetcher: typeof fetch = async () =>
+      catalogResponse([
+        {
+          id: "unsafe",
+          title: "Unsafe",
+          language: "english",
+          tags: ["magazine"],
+          physical: {readingDirection: "ltr"},
+          assets: {front: "../private.webp", pages: ["../private.webp"]},
+        },
+      ]);
+
+    expect(await loadRuntimeCatalog(missingFetcher)).toEqual([]);
+    expect(await loadRuntimeCatalog(unsafeFetcher)).toEqual([]);
+  });
+
+  test("fills sparse previews with on-demand page URLs", async () => {
+    const publications = await loadRuntimeCatalog(async () =>
+      catalogResponse([
+        {
+          id: "nhentai-99",
+          title: "Sparse Shelf",
+          language: "english",
+          pageCount: 5,
+          tags: ["office"],
+          physical: {readingDirection: "ltr"},
+          assets: {
+            front: "publications/nhentai-99/front.webp",
+            pages: [
+              "publications/nhentai-99/pages/001.webp",
+              "publications/nhentai-99/pages/002.webp",
+              "publications/nhentai-99/pages/003.webp",
+            ],
+          },
+        },
+      ]),
+    );
+
+    expect(publications[0]?.pages).toHaveLength(5);
+    expect(publications[0]?.pages[2]).toContain("/pages/003.webp");
+    expect(publications[0]?.pages[3]).toBe(
+      "/api/library/publications/nhentai-99/pages/4?afterleaf=runtime-pack%3Acatalog-hash-42",
+    );
+    expect(publications[0]?.pages[4]).toContain(
+      "/api/library/publications/nhentai-99/pages/5",
+    );
+  });
+
+  test("maps every CBZ reader page to the sparse endpoint", async () => {
+    const publications = await loadRuntimeCatalog(async () =>
+      catalogResponse([
+        {
+          id: "local-cbz",
+          title: "Local CBZ",
+          language: "english",
+          pageCount: 2,
+          tags: ["unclassified"],
+          physical: {aspectRatio: 0.7},
+          assets: {
+            front: "publications/local-cbz/front.webp",
+            pages: [],
+          },
+        },
+      ]),
+    );
+
+    expect(publications[0]?.pages).toEqual([
+      "/api/library/publications/local-cbz/pages/1?afterleaf=runtime-pack%3Acatalog-hash-42",
+      "/api/library/publications/local-cbz/pages/2?afterleaf=runtime-pack%3Acatalog-hash-42",
+    ]);
+    expect(publications[0]).toMatchObject({
+      direction: "LTR",
+      readingDirectionUnspecified: true,
+    });
+  });
+
+  test("exposes immutable pack identity with the mapped publications", async () => {
+    const runtime = await loadRuntimeLibraryWithFetcher(async () => {
+      const response = catalogResponse([
+        {
+          id: "nhentai-84",
+          title: "Night Shelf",
+          language: "english",
+          tags: ["big breasts"],
+          physical: {readingDirection: "ltr"},
+          assets: {
+            front: "publications/nhentai-84/front.webp",
+            pages: ["publications/nhentai-84/pages/001.webp"],
+          },
+        },
+      ]);
+      response.headers.set("X-Afterleaf-Snapshot-Id", "snapshot-2026-07-29");
+      return response;
+    });
+
+    expect(runtime.identity).toEqual({
+      catalogContentHash: "catalog-hash-42",
+      packId: "runtime-pack",
+      snapshotId: "snapshot-2026-07-29",
+    });
+    expect(runtime.publications[0]?.id).toBe("nhentai-84");
+    expect(runtime.publications[0]?.cover).toBe(
+      "/__afterleaf/active-library/publications/nhentai-84/front.webp?afterleaf=snapshot-2026-07-29",
+    );
+    expect(runtime.publications[0]?.pages).toEqual([
+      "/__afterleaf/active-library/publications/nhentai-84/pages/001.webp?afterleaf=snapshot-2026-07-29",
+    ]);
+
+    const missingIdentity = await loadRuntimeLibraryWithFetcher(async () =>
+      Response.json({publications: []}),
+    );
+    expect(missingIdentity).toBe(emptyLibrary);
+  });
+
+  test("maps generated shelf atlases and publication cells", async () => {
+    const runtime = await loadRuntimeLibraryWithFetcher(async () =>
+      Response.json({
+        atlases: {
+          back: [
+            {
+              cellHeight: 384,
+              cellWidth: 256,
+              columns: 8,
+              firstPublicationIndex: 0,
+              height: 384,
+              path: "atlases/back-001.webp",
+              publicationCount: 2,
+              rows: 1,
+              width: 2048,
+            },
+          ],
+          front: [
+            {
+              cellHeight: 384,
+              cellWidth: 256,
+              columns: 8,
+              firstPublicationIndex: 0,
+              height: 384,
+              path: "atlases/front-001.webp",
+              publicationCount: 2,
+              rows: 1,
+              width: 2048,
+            },
+          ],
+          spine: [
+            {
+              cellHeight: 384,
+              cellWidth: 48,
+              columns: 8,
+              firstPublicationIndex: 0,
+              height: 768,
+              path: "atlases/spine-001.webp",
+              publicationCount: 2,
+              regions: [
+                {height: 768, width: 24, x: 0, y: 0},
+                {height: 768, width: 30, x: 24, y: 0},
+              ],
+              rows: 1,
+              width: 54,
+            },
+          ],
+        },
+        contentHash: "atlas-catalog-hash",
+        id: "atlas-pack",
+        publications: [
+          {
+            assets: {front: "front-a.webp", pages: ["page-a.webp"]},
+            id: "atlas-a",
+            language: "english",
+            physical: {},
+            shelfAtlasIndex: 0,
+            tags: [],
+            title: "Atlas A",
+          },
+          {
+            assets: {front: "front-b.webp", pages: ["page-b.webp"]},
+            id: "atlas-b",
+            language: "english",
+            physical: {},
+            shelfAtlasIndex: 1,
+            tags: [],
+            title: "Atlas B",
+          },
+        ],
+      }),
+    );
+
+    expect(runtime.atlases.front[0]).toEqual({
+      cellHeight: 384,
+      cellWidth: 256,
+      columns: 8,
+      firstPublicationIndex: 0,
+      height: 384,
+      publicationCount: 2,
+      rows: 1,
+      url: "/__afterleaf/active-library/atlases/front-001.webp?afterleaf=atlas-pack%3Aatlas-catalog-hash",
+      width: 2048,
+    });
+    expect(
+      runtime.publications.map((publication) => publication.shelfAtlas),
+    ).toEqual([
+      {cellIndex: 0, index: 0},
+      {cellIndex: 1, index: 0},
+    ]);
+  });
+});
