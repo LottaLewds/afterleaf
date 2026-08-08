@@ -1,5 +1,7 @@
 # Afterleaf
 
+![A shelf of manga in the Afterleaf shop](screenshots/shelves.webp)
+
 ## Prerequisites
 
 Install the latest version of [Bun](https://bun.sh/) and use a current
@@ -50,6 +52,8 @@ machine. Concurrent sessions are not live-synchronized; the most recently
 received save becomes the state restored by later connections.
 
 ## Books
+
+![Reading manga in Afterleaf](screenshots/reader-view.webp)
 
 Place local book archives beneath `content/books`, grouped by their reading
 format:
@@ -107,6 +111,8 @@ persistent shop state.
 
 ## Digital art frames
 
+![A digital art frame displayed in the shop](screenshots/digital-art-frame.webp)
+
 Digital art frames (also called digital picture frames) display local image
 channels from `content/art-frames`. Each immediate child
 directory is a channel, and each image directly inside it is part of that
@@ -156,6 +162,8 @@ channel, current image, fit mode, timer, locked dimensions, rotation, and
 position.
 
 ## Television channels
+
+![The in-shop television](screenshots/tv.webp)
 
 The in-shop television plays local `.mp4` and `.webm` files from named channel
 directories. From the repository root, create a directory beneath
