@@ -8,6 +8,7 @@ import {
 } from "solid-icons/fi";
 import {
   DEV,
+  For,
   Show,
   createEffect,
   createSignal,
@@ -26,6 +27,7 @@ import {artFrameChannelId} from "~/artFrames/protocol";
 import {
   ShopScene,
   type ShopGameSnapshot,
+  type ShopInteraction,
   type ShopSignEditRequest,
 } from "~/game/ShopScene";
 import {
@@ -35,6 +37,13 @@ import {
 import type {WorldSaveV1} from "~/game/worldSave";
 import {importPoster, loadPosters} from "~/posters/browserClient";
 import {importTvVideo, loadTvChannels} from "~/tv/browserClient";
+
+const keycapParts = (key: string) =>
+  key
+    .split(/\s*(?:\/|\+)\s*/)
+    .flatMap((part) =>
+      part.startsWith("Hold ") ? ["Hold", part.slice("Hold ".length)] : [part],
+    );
 
 export type ShopViewportProps = {
   catalogAtlases: Accessor<CatalogAtlases>;
@@ -332,6 +341,46 @@ export const ShopViewport = (props: ShopViewportProps) => {
           </div>
         </Show>
 
+        <Show when={gameState().interactions}>
+          {(interactions) => (
+            <div class="pointer-events-none absolute bottom-5 left-4 z-10 w-max max-w-[min(18rem,calc(100vw-2rem))] border-l-2 border-[#d94c3f] bg-[#08100f]/88 px-3 py-2 text-sm text-[#e5e0d5] shadow-lg backdrop-blur-sm sm:bottom-6 sm:left-5">
+              <p class="mb-1 text-[8px] font-bold tracking-[0.18em] text-[#8da098] uppercase">
+                Interact
+              </p>
+              <Show when={gameState().interactionContext}>
+                {(context) => (
+                  <p class="mb-1 max-w-56 truncate text-[10px] font-semibold tracking-[0.04em] text-[#e7dcc4] normal-case">
+                    {context()}
+                  </p>
+                )}
+              </Show>
+              <div class="grid gap-1">
+                <For each={interactions()}>
+                  {(interaction: ShopInteraction) => (
+                    <div class="flex items-center gap-2 leading-tight">
+                      <span
+                        class="flex shrink-0 items-center gap-1"
+                        aria-label={interaction.key}
+                      >
+                        <For each={keycapParts(interaction.key)}>
+                          {(key) => (
+                            <span class="inline-flex min-h-5 min-w-6 items-center justify-center rounded-[3px] border border-b-2 border-[#52605b] bg-gradient-to-b from-[#394742] to-[#18211f] px-1.5 py-0.5 font-mono text-[9px] font-bold tracking-wide text-[#f1eadc] uppercase shadow-[0_1px_2px_rgb(0_0_0_/_0.65),inset_0_1px_0_rgb(255_255_255_/_0.16)]">
+                              {key}
+                            </span>
+                          )}
+                        </For>
+                      </span>
+                      <span class="text-[11px] text-[#c4cec8]">
+                        {interaction.label}
+                      </span>
+                    </div>
+                  )}
+                </For>
+              </div>
+            </div>
+          )}
+        </Show>
+
         <div class="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-[#06100f]/90 via-[#06100f]/35 to-transparent p-4 pt-24 sm:p-5 sm:pt-28">
           <div class="flex items-end justify-end">
             <Show when={carriedTitle()}>
@@ -360,7 +409,7 @@ export const ShopViewport = (props: ShopViewportProps) => {
               </div>
             </div>
           </Show>
-          <Show when={gameState().prompt}>
+          <Show when={gameState().prompt && !gameState().interactions}>
             {(prompt) => (
               <p class="absolute bottom-8 left-1/2 max-w-[min(40rem,90vw)] -translate-x-1/2 bg-[#08100f]/75 px-5 py-3 text-center text-sm font-semibold tracking-[0.06em] text-[#e5e0d5] uppercase backdrop-blur-sm sm:text-base">
                 {prompt()}

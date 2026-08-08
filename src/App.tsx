@@ -1660,6 +1660,7 @@ export const App = () => {
       "keydown",
       (event) => {
         if (event.key === "Escape") {
+          if (event.defaultPrevented) return;
           event.preventDefault();
           if (purgeBlacklistedOpen()) {
             if (!libraryUpdating()) setPurgeBlacklistedOpen(false);

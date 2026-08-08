@@ -382,6 +382,7 @@ type PosterRecord = {
 type PosterPlacementSession = {
   assetIndex: number;
   desiredHeight: number;
+  gridSnap: boolean;
   movingPosterId?: string;
   rotation: number;
 };
@@ -421,6 +422,7 @@ type DigitalArtFramePlacementSession = {
   channelId: string;
   desiredHeight: number;
   fit: ArtFrameFit;
+  gridSnap: boolean;
   intervalSeconds: number;
   movingFrameId?: string;
   rotation: number;
@@ -443,6 +445,8 @@ type PropMaterialSwap = {
 type MovablePropRecord = {
   currentPosition: Vector3;
   currentRotation: Quaternion;
+  placementStartPosition?: Vector3;
+  placementStartRotation?: Quaternion;
   ghostMaterialSwaps: PropMaterialSwap[];
   halfDepth: number;
   halfHeight: number;
@@ -616,7 +620,14 @@ type RetainedBookGameplay = Pick<
   baseRotation: Vector3;
 };
 
+export type ShopInteraction = {
+  key: string;
+  label: string;
+};
+
 export type ShopGameSnapshot = {
+  interactionContext?: string;
+  interactions?: readonly ShopInteraction[];
   carriedPublicationId?: string;
   discardBusy?: boolean;
   discardError?: string;
@@ -1188,6 +1199,12 @@ export class ShopScene {
   #artFramePlacementRevision = 0;
   #artFramePlacementSelection: DigitalArtFramePlacementSelection | undefined;
   #artFramePreview: DigitalArtFrame | undefined;
+  #artFramePreviewMaterialStates: Array<{
+    depthWrite: boolean;
+    material: Material;
+    opacity: number;
+    transparent: boolean;
+  }> = [];
   #artFrameTargetImportChannel:
     | {channelId: string; frameId: string}
     | undefined;
@@ -2398,7 +2415,16 @@ export class ShopScene {
 
   #pickUpProp(record: MovablePropRecord) {
     if (this.#carriedPublicationId || this.#carriedProp) return;
+    record.object.updateMatrixWorld(true);
+    const placementStartPosition = record.object.getWorldPosition(
+      new Vector3(),
+    );
+    const placementStartRotation = record.object.getWorldQuaternion(
+      new Quaternion(),
+    );
     if (!this.#physicsWorld.holdProp(record.id)) return;
+    record.placementStartPosition = placementStartPosition;
+    record.placementStartRotation = placementStartRotation;
     this.#beginPropPlacement(
       record.object,
       Math.abs(record.heldLocalPosition.z),
@@ -2442,6 +2468,22 @@ export class ShopScene {
     this.#restoreGhostedObject(record.ghostMaterialSwaps);
     this.#carriedProp = undefined;
     this.#propPlacementRotationMode = false;
+    this.#worldStateDirty = true;
+    this.#emitGameState();
+  }
+
+  #cancelCarriedProp() {
+    const record = this.#carriedProp;
+    const position = record?.placementStartPosition;
+    const rotation = record?.placementStartRotation;
+    if (!record || !position || !rotation) return;
+    this.#dropCarriedProp();
+    this.#physicsWorld.updatePropPose(record.id, {
+      position: {x: position.x, y: position.y, z: position.z},
+      rotation: {w: rotation.w, x: rotation.x, y: rotation.y, z: rotation.z},
+    });
+    record.placementStartPosition = undefined;
+    record.placementStartRotation = undefined;
     this.#worldStateDirty = true;
     this.#emitGameState();
   }
@@ -4940,6 +4982,7 @@ export class ShopScene {
       channelId,
       desiredHeight,
       fit,
+      gridSnap: true,
       intervalSeconds,
       ...(movingFrameId ? {movingFrameId} : {}),
       rotation,
@@ -4965,6 +5008,7 @@ export class ShopScene {
       return;
     }
     preview.object.name = `digital-art-frame-preview-${asset.id}`;
+    this.#ghostDigitalArtFramePreview(preview);
     preview.object.visible = false;
     this.#artFramePreview = preview;
     this.#scene.add(preview.object);
@@ -4981,6 +5025,7 @@ export class ShopScene {
       channelId: "pasted",
       desiredHeight: DEFAULT_POSTER_HEIGHT,
       fit: "contain",
+      gridSnap: true,
       intervalSeconds: DIGITAL_ART_FRAME_DEFAULT_INTERVAL_SECONDS,
       rotation: 0,
     };
@@ -5006,6 +5051,7 @@ export class ShopScene {
   #disposeDigitalArtFramePreview() {
     const preview = this.#artFramePreview;
     if (!preview) return;
+    this.#restoreDigitalArtFramePreview();
     this.#artFramePreview = undefined;
     preview.dispose();
   }
@@ -5026,6 +5072,47 @@ export class ShopScene {
     this.#artFramePlacementSelection =
       height === undefined ? undefined : {height};
     this.#emitGameState();
+  }
+
+  #ghostDigitalArtFramePreview(preview: DigitalArtFrame) {
+    this.#artFramePreviewMaterialStates = [];
+    preview.object.traverse((child) => {
+      if (!(child instanceof Mesh)) return;
+      const materials = Array.isArray(child.material)
+        ? child.material
+        : [child.material];
+      for (const material of materials) {
+        this.#artFramePreviewMaterialStates.push({
+          depthWrite: material.depthWrite,
+          material,
+          opacity: material.opacity,
+          transparent: material.transparent,
+        });
+        material.transparent = true;
+        material.opacity *= 0.62;
+        material.depthWrite = false;
+      }
+    });
+  }
+
+  #restoreDigitalArtFramePreview() {
+    for (const state of this.#artFramePreviewMaterialStates) {
+      state.material.depthWrite = state.depthWrite;
+      state.material.opacity = state.opacity;
+      state.material.transparent = state.transparent;
+    }
+    this.#artFramePreviewMaterialStates = [];
+  }
+
+  #showDigitalArtFramePlacementGhost(
+    preview: DigitalArtFrame,
+    placement: DigitalArtFramePlacementSession,
+  ) {
+    this.#camera.add(preview.object);
+    preview.object.position.set(0, -0.1, -1.5);
+    preview.object.quaternion.identity();
+    preview.object.scale.setScalar(placement.desiredHeight);
+    preview.object.visible = true;
   }
 
   #updateDigitalArtFramePlacementTarget() {
@@ -5050,50 +5137,25 @@ export class ShopScene {
       intersection.distance > POSTER_PLACEMENT_DISTANCE ||
       !surface
     ) {
-      preview.object.visible = false;
+      this.#showDigitalArtFramePlacementGhost(preview, placement);
       this.#setDigitalArtFramePlacementSelection();
       return;
     }
-    const framedAspectRatio = placement.aspectRatio + DIGITAL_ART_FRAME_BORDER;
-    const framedHeight = 1 + DIGITAL_ART_FRAME_BORDER;
-    const cosine = Math.abs(Math.cos(placement.rotation));
-    const sine = Math.abs(Math.sin(placement.rotation));
-    const boundingWidthPerHeight =
-      cosine * framedAspectRatio + sine * framedHeight;
-    const boundingHeightPerHeight =
-      sine * framedAspectRatio + cosine * framedHeight;
-    const maximumHeight = Math.min(
-      MAX_POSTER_HEIGHT,
-      (surface.height - POSTER_SURFACE_MARGIN) / boundingHeightPerHeight,
-      (surface.width - POSTER_SURFACE_MARGIN) / boundingWidthPerHeight,
-    );
-    if (maximumHeight < MIN_POSTER_HEIGHT) {
-      preview.object.visible = false;
-      this.#setDigitalArtFramePlacementSelection();
-      return;
-    }
-    const height = MathUtils.clamp(
+    const height = this.#resolveWallPlacement(
+      surface,
+      intersection.point,
+      placement.aspectRatio,
       placement.desiredHeight,
-      MIN_POSTER_HEIGHT,
-      maximumHeight,
+      placement.rotation,
+      DIGITAL_ART_FRAME_BORDER,
+      placement.gridSnap,
     );
-    const halfWidth = (boundingWidthPerHeight * height) / 2;
-    const halfHeight = (boundingHeightPerHeight * height) / 2;
-    const point = this.#posterLocalPoint.copy(intersection.point);
-    surface.target.worldToLocal(point);
-    point.x = MathUtils.clamp(
-      point.x,
-      -surface.width / 2 + halfWidth + POSTER_SURFACE_MARGIN / 2,
-      surface.width / 2 - halfWidth - POSTER_SURFACE_MARGIN / 2,
-    );
-    point.y = MathUtils.clamp(
-      point.y,
-      -surface.height / 2 + halfHeight + POSTER_SURFACE_MARGIN / 2,
-      surface.height / 2 - halfHeight - POSTER_SURFACE_MARGIN / 2,
-    );
-    point.z = POSTER_SURFACE_OFFSET + 0.025;
-    surface.target.localToWorld(this.#posterPlacementPosition.copy(point));
-    surface.target.getWorldQuaternion(this.#posterPlacementRotation);
+    if (height === undefined) {
+      this.#showDigitalArtFramePlacementGhost(preview, placement);
+      this.#setDigitalArtFramePlacementSelection();
+      return;
+    }
+    this.#scene.attach(preview.object);
     preview.object.position.copy(this.#posterPlacementPosition);
     preview.object.quaternion.copy(this.#posterPlacementRotation);
     preview.object.rotateZ(placement.rotation);
@@ -5107,6 +5169,7 @@ export class ShopScene {
     const selection = this.#artFramePlacementSelection;
     const preview = this.#artFramePreview;
     if (!placement || !selection || !preview || !preview.object.visible) return;
+    this.#restoreDigitalArtFramePreview();
     preview.setIntervalSeconds(placement.intervalSeconds);
     const existing = placement.movingFrameId
       ? this.#digitalArtFrameRecords.get(placement.movingFrameId)
@@ -5494,6 +5557,7 @@ export class ShopScene {
     this.#posterPlacement = {
       assetIndex: normalizedIndex,
       desiredHeight,
+      gridSnap: true,
       ...(movingPosterId ? {movingPosterId} : {}),
       rotation,
     };
@@ -5535,6 +5599,7 @@ export class ShopScene {
     this.#posterPlacement = {
       assetIndex: -1,
       desiredHeight: DEFAULT_POSTER_HEIGHT,
+      gridSnap: true,
       rotation: 0,
     };
     this.#posterPlacementSelection = undefined;
@@ -5578,6 +5643,67 @@ export class ShopScene {
     this.#emitGameState();
   }
 
+  /** Resolves both poster and digital-frame placement against the same wall snap. */
+  #resolveWallPlacement(
+    surface: PosterSurface,
+    worldPoint: Vector3,
+    aspectRatio: number,
+    desiredHeight: number,
+    rotation: number,
+    border = 0,
+    gridSnap = true,
+  ) {
+    const framedAspectRatio = aspectRatio + border;
+    const framedHeight = 1 + border;
+    const cosine = Math.abs(Math.cos(rotation));
+    const sine = Math.abs(Math.sin(rotation));
+    const boundingWidthPerHeight =
+      cosine * framedAspectRatio + sine * framedHeight;
+    const boundingHeightPerHeight =
+      sine * framedAspectRatio + cosine * framedHeight;
+    const maximumHeight = Math.min(
+      MAX_POSTER_HEIGHT,
+      (surface.height - POSTER_SURFACE_MARGIN) / boundingHeightPerHeight,
+      (surface.width - POSTER_SURFACE_MARGIN) / boundingWidthPerHeight,
+    );
+    if (maximumHeight < MIN_POSTER_HEIGHT) return;
+    const height = MathUtils.clamp(
+      desiredHeight,
+      MIN_POSTER_HEIGHT,
+      maximumHeight,
+    );
+    const halfWidth = (boundingWidthPerHeight * height) / 2;
+    const halfHeight = (boundingHeightPerHeight * height) / 2;
+    const point = this.#posterLocalPoint.copy(worldPoint);
+    surface.target.worldToLocal(point);
+    point.x = MathUtils.clamp(
+      point.x,
+      -surface.width / 2 + halfWidth + POSTER_SURFACE_MARGIN / 2,
+      surface.width / 2 - halfWidth - POSTER_SURFACE_MARGIN / 2,
+    );
+    if (gridSnap)
+      point.x = MathUtils.clamp(
+        Math.round(point.x / 0.25) * 0.25,
+        -surface.width / 2 + halfWidth + POSTER_SURFACE_MARGIN / 2,
+        surface.width / 2 - halfWidth - POSTER_SURFACE_MARGIN / 2,
+      );
+    point.y = MathUtils.clamp(
+      point.y,
+      -surface.height / 2 + halfHeight + POSTER_SURFACE_MARGIN / 2,
+      surface.height / 2 - halfHeight - POSTER_SURFACE_MARGIN / 2,
+    );
+    if (gridSnap)
+      point.y = MathUtils.clamp(
+        Math.round(point.y / 0.25) * 0.25,
+        -surface.height / 2 + halfHeight + POSTER_SURFACE_MARGIN / 2,
+        surface.height / 2 - halfHeight - POSTER_SURFACE_MARGIN / 2,
+      );
+    point.z = POSTER_SURFACE_OFFSET + (border > 0 ? 0.025 : 0);
+    surface.target.localToWorld(this.#posterPlacementPosition.copy(point));
+    surface.target.getWorldQuaternion(this.#posterPlacementRotation);
+    return height;
+  }
+
   #updatePosterPlacementTarget() {
     const placement = this.#posterPlacement;
     const preview = this.#posterPreview;
@@ -5606,42 +5732,20 @@ export class ShopScene {
       this.#setPosterPlacementSelection();
       return;
     }
-    const cosine = Math.abs(Math.cos(placement.rotation));
-    const sine = Math.abs(Math.sin(placement.rotation));
-    const boundingWidthPerHeight = cosine * asset.aspectRatio + sine;
-    const boundingHeightPerHeight = sine * asset.aspectRatio + cosine;
-    const maximumHeight = Math.min(
-      MAX_POSTER_HEIGHT,
-      (surface.height - POSTER_SURFACE_MARGIN) / boundingHeightPerHeight,
-      (surface.width - POSTER_SURFACE_MARGIN) / boundingWidthPerHeight,
+    const height = this.#resolveWallPlacement(
+      surface,
+      intersection.point,
+      asset.aspectRatio,
+      placement.desiredHeight,
+      placement.rotation,
+      0,
+      placement.gridSnap,
     );
-    if (maximumHeight < MIN_POSTER_HEIGHT) {
+    if (height === undefined) {
       preview.visible = false;
       this.#setPosterPlacementSelection();
       return;
     }
-    const height = MathUtils.clamp(
-      placement.desiredHeight,
-      MIN_POSTER_HEIGHT,
-      maximumHeight,
-    );
-    const halfWidth = (boundingWidthPerHeight * height) / 2;
-    const halfHeight = (boundingHeightPerHeight * height) / 2;
-    const point = this.#posterLocalPoint.copy(intersection.point);
-    surface.target.worldToLocal(point);
-    point.x = MathUtils.clamp(
-      point.x,
-      -surface.width / 2 + halfWidth + POSTER_SURFACE_MARGIN / 2,
-      surface.width / 2 - halfWidth - POSTER_SURFACE_MARGIN / 2,
-    );
-    point.y = MathUtils.clamp(
-      point.y,
-      -surface.height / 2 + halfHeight + POSTER_SURFACE_MARGIN / 2,
-      surface.height / 2 - halfHeight - POSTER_SURFACE_MARGIN / 2,
-    );
-    point.z = POSTER_SURFACE_OFFSET;
-    surface.target.localToWorld(this.#posterPlacementPosition.copy(point));
-    surface.target.getWorldQuaternion(this.#posterPlacementRotation);
     preview.position.copy(this.#posterPlacementPosition);
     preview.quaternion.copy(this.#posterPlacementRotation);
     preview.rotateZ(placement.rotation);
@@ -5659,6 +5763,9 @@ export class ShopScene {
       : undefined;
     if (!placement || !selection || !preview || !asset || !preview.visible)
       return;
+    preview.material.opacity = 1;
+    preview.material.transparent = false;
+    preview.material.depthWrite = true;
     const existing = placement.movingPosterId
       ? this.#posterRecords.get(placement.movingPosterId)
       : undefined;
@@ -6082,10 +6189,7 @@ export class ShopScene {
     if (this.#inspectionMode === "closing") return;
     if (event.code === "KeyV") {
       event.preventDefault();
-      if (this.#artFramePlacement) {
-        this.#cancelDigitalArtFramePlacement();
-        return;
-      }
+      if (this.#artFramePlacement) return;
       if (
         !this.#posterPlacement &&
         !this.#carriedPublicationId &&
@@ -6120,10 +6224,7 @@ export class ShopScene {
     }
     if (event.code === "KeyP") {
       event.preventDefault();
-      if (this.#posterPlacement) {
-        this.#cancelPosterPlacement();
-        return;
-      }
+      if (this.#posterPlacement) return;
       if (
         !this.#artFramePlacement &&
         !this.#carriedPublicationId &&
@@ -6151,7 +6252,7 @@ export class ShopScene {
       this.#emitGameState();
       return;
     }
-    if (event.code === "KeyT" && this.#artFramePlacement) {
+    if (event.code === "KeyI" && this.#artFramePlacement) {
       event.preventDefault();
       const intervalIndex = DIGITAL_ART_FRAME_INTERVALS.indexOf(
         this.#artFramePlacement
@@ -6187,23 +6288,82 @@ export class ShopScene {
       this.#emitGameState();
       return;
     }
+    if (event.code === "Delete" || event.code === "Backspace") {
+      if (this.#targetedDigitalArtFrameId) {
+        event.preventDefault();
+        this.#removeTargetedDigitalArtFrame();
+        return;
+      }
+      if (this.#targetedPosterId) {
+        event.preventDefault();
+        this.#removeTargetedPoster();
+        return;
+      }
+    }
+    if (
+      event.code === "KeyX" &&
+      (this.#artFramePlacement || this.#posterPlacement)
+    ) {
+      event.preventDefault();
+      const placement = this.#artFramePlacement ?? this.#posterPlacement;
+      if (placement) placement.gridSnap = !placement.gridSnap;
+      this.#updateDigitalArtFramePlacementTarget();
+      this.#updatePosterPlacementTarget();
+      this.#emitGameState();
+      return;
+    }
+    if (event.code === "KeyT") {
+      if (this.#artFramePlacement) {
+        event.preventDefault();
+        this.#cancelDigitalArtFramePlacement();
+        return;
+      }
+      if (this.#posterPlacement) {
+        event.preventDefault();
+        this.#cancelPosterPlacement();
+        return;
+      }
+      if (this.#carriedProp) {
+        event.preventDefault();
+        this.#cancelCarriedProp();
+        return;
+      }
+      if (this.#televisionTargeted) {
+        event.preventDefault();
+        if (
+          this.#movableTelevision &&
+          this.#targetedTelevision === this.#movableTelevision &&
+          this.#movableTelevisionProp
+        )
+          this.#pickUpProp(this.#movableTelevisionProp);
+        return;
+      }
+      if (this.#targetedProp) {
+        event.preventDefault();
+        this.#pickUpProp(this.#targetedProp);
+        return;
+      }
+      if (this.#targetedDigitalArtFrameId || this.#targetedPosterId) {
+        event.preventDefault();
+        this.#interact();
+        return;
+      }
+    }
+    if (
+      this.#targetedDigitalArtFrameId &&
+      (event.code === "KeyQ" || event.code === "KeyE")
+    ) {
+      event.preventDefault();
+      this.#digitalArtFrameRecords
+        .get(this.#targetedDigitalArtFrameId)
+        ?.frame.changeChannel(event.code === "KeyQ" ? -1 : 1);
+      this.#worldStateDirty = true;
+      this.#emitGameState();
+      return;
+    }
     if (event.code === "KeyQ" && this.#televisionTargeted) {
       event.preventDefault();
       this.#targetedTelevision?.previousChannel();
-      return;
-    }
-    if (event.code === "KeyC" && this.#targetedDigitalArtFrameId) {
-      event.preventDefault();
-      if (
-        this.#artFrameTargetImportChannel?.frameId ===
-        this.#targetedDigitalArtFrameId
-      )
-        this.#artFrameTargetImportChannel = undefined;
-      this.#digitalArtFrameRecords
-        .get(this.#targetedDigitalArtFrameId)
-        ?.frame.changeChannel(1);
-      this.#worldStateDirty = true;
-      this.#emitGameState();
       return;
     }
     if (event.code === "KeyQ" && this.#carriedPublicationId) {
@@ -6216,14 +6376,16 @@ export class ShopScene {
     if (event.code === "KeyE") {
       event.preventDefault();
       if (this.#televisionTargeted) {
-        if (this.#televisionInteraction === "body") this.#interact();
-        else this.#targetedTelevision?.nextChannel();
+        if (this.#targetedTelevision?.powered())
+          this.#targetedTelevision.nextChannel();
+        else this.#targetedTelevision?.togglePower();
         return;
       }
       if (this.#carriedProp) {
         this.#dropCarriedProp();
         return;
       }
+      if (this.#targetedProp || this.#targetedPosterId) return;
       this.#interact();
       return;
     }
@@ -6246,16 +6408,15 @@ export class ShopScene {
     }
     if (event.code === "KeyG") {
       event.preventDefault();
-      if (this.#artFramePlacement) this.#cancelDigitalArtFramePlacement();
-      else if (this.#posterPlacement) this.#cancelPosterPlacement();
-      else if (this.#targetedDigitalArtFrameId)
+      if (this.#artFramePlacement || this.#posterPlacement) return;
+      if (this.#targetedDigitalArtFrameId)
         this.#removeTargetedDigitalArtFrame();
       else if (this.#targetedPosterId) this.#removeTargetedPoster();
       else if (this.#carriedProp) this.#dropCarriedProp();
       else this.#dropCarriedBook();
       return;
     }
-    if (event.code === "KeyT" && this.#targetedDigitalArtFrameId) {
+    if (event.code === "KeyI" && this.#targetedDigitalArtFrameId) {
       event.preventDefault();
       this.#cycleTargetedDigitalArtFrameInterval();
       return;
@@ -10416,6 +10577,8 @@ export class ShopScene {
       ? this.#booksById.get(this.#hoveredPublicationId)
       : undefined;
     let prompt: string | undefined;
+    let interactionContext: string | undefined;
+    let interactions: ShopInteraction[] = [];
     if (this.#inspectionMode === "spread") {
       const shelfInspection =
         inspectionPublication?.id !== this.#carriedPublicationId;
@@ -10444,24 +10607,24 @@ export class ShopScene {
       );
       const interval = this.#artFramePlacement.intervalSeconds;
       if (!asset)
-        prompt = `Paste the first digital art image · N channel (${this.#artFramePlacement.channelId}) · V/G exit`;
+        prompt = `Paste the first digital art image · N channel (${this.#artFramePlacement.channelId}) · T exit`;
       else
         prompt = this.#artFramePlacementSelection
-          ? `Click to place ${asset.label} · Q/E image · Wheel resize${size ? ` (${size.toFixed(2)} m)` : ""} · Shift+wheel rotate (${rotation}°) · F ${this.#artFramePlacement.fit} · T ${interval === 0 ? "timer off" : `${interval}s timer`} · N channel (${this.#artFramePlacement.channelId}) · Paste image · V/G exit`
-          : `Aim ${asset.label} at a wall or shelf end · Q/E image · Wheel resize · F ${this.#artFramePlacement.fit} · T ${interval === 0 ? "timer off" : `${interval}s timer`} · N channel (${this.#artFramePlacement.channelId}) · Paste image · V/G exit`;
+          ? `Click to place ${asset.label} · Q/E image · Wheel resize${size ? ` (${size.toFixed(2)} m)` : ""} · Shift+wheel rotate (${rotation}°) · F ${this.#artFramePlacement.fit} · I ${interval === 0 ? "timer off" : `${interval}s timer`} · N channel (${this.#artFramePlacement.channelId}) · Paste image · T exit`
+          : `Aim ${asset.label} at a wall or shelf end · Q/E image · Wheel resize · F ${this.#artFramePlacement.fit} · I ${interval === 0 ? "timer off" : `${interval}s timer`} · N channel (${this.#artFramePlacement.channelId}) · Paste image · T exit`;
     } else if (this.#posterPlacement) {
       const asset = this.#posterAssets[this.#posterPlacement.assetIndex];
       const size = this.#posterPlacementSelection?.height;
       const rotation = Math.round(
         MathUtils.radToDeg(this.#posterPlacement.rotation),
       );
-      if (!asset) prompt = "Paste an image to add the first poster · P/G exit";
+      if (!asset) prompt = "Paste an image to add the first poster · T exit";
       else
         prompt = this.#posterPlacementSelection
-          ? `Click to place ${asset.label} · Q/E previous/next · Wheel resize${size ? ` (${size.toFixed(2)} m)` : ""} · Shift+wheel rotate (${rotation}°) · Paste image · P/G exit`
-          : `Aim ${asset.label} at a wall or shelf end · Q/E previous/next · Wheel resize · Shift+wheel rotate · Paste image · P/G exit`;
+          ? `Click to place ${asset.label} · Q/E previous/next · Wheel resize${size ? ` (${size.toFixed(2)} m)` : ""} · Shift+wheel rotate (${rotation}°) · Paste image · T exit`
+          : `Aim ${asset.label} at a wall or shelf end · Q/E previous/next · Wheel resize · Shift+wheel rotate · Paste image · T exit`;
     } else if (this.#carriedProp)
-      prompt = `Click/E/G place ${this.#carriedProp.label} · F throw · Wheel project (${this.#propPlacementDistance.toFixed(1)} m) · Q grid snap ${this.#propPlacementSnapping ? "on" : "off"} · R ${this.#propPlacementRotationMode ? "position mode" : "rotation mode"} · ${this.#propPlacementRotationMode ? "Mouse rotate" : "Mouse aim"}`;
+      prompt = `Click/E place ${this.#carriedProp.label} · T cancel · G drop · F throw · Wheel project (${this.#propPlacementDistance.toFixed(1)} m) · Q grid snap ${this.#propPlacementSnapping ? "on" : "off"} · R ${this.#propPlacementRotationMode ? "position mode" : "rotation mode"} · ${this.#propPlacementRotationMode ? "Mouse rotate" : "Mouse aim"}`;
     else if (carriedRecord && this.#throwChargeActive)
       prompt = `Throw charged ${Math.round(this.#throwChargeProgress() * 100)}% · Release F to launch upstairs`;
     else if (carriedRecord && this.#discardBusy)
@@ -10471,7 +10634,7 @@ export class ShopScene {
     else if (carriedRecord && this.#trashTargeted)
       prompt = `E discard ${carriedRecord.publicationTitle} · Hold F charge throw · G keep`;
     else if (carriedRecord && this.#shelfTargeted)
-      prompt = `E shelve ${this.#shelfTargetSelection?.presentation ?? this.#shelfPresentation}-out · Q switch presentation · Hold F charge throw · G drop · R inspect`;
+      prompt = `E shelve ${this.#shelfTargetSelection?.presentation ?? this.#shelfPresentation}-out · Q switch shelf presentation · Hold F charge throw · G drop · R inspect`;
     else if (carriedRecord)
       prompt = `Q ${this.#shelfPresentation}-out · Aim at a shelf · Hold F charge throw · G drop · R inspect`;
     else if (this.#televisionTargeted) {
@@ -10481,7 +10644,7 @@ export class ShopScene {
         : undefined;
       prompt = [televisionPrompt, pastePrompt].filter(Boolean).join(" · ");
     } else if (this.#targetedProp)
-      prompt = `E project ${this.#targetedProp.label} for placement`;
+      prompt = `T project ${this.#targetedProp.label} for placement`;
     else if (this.#targetedSignKey !== undefined)
       prompt = `E customize ${this.#signSlots.get(this.#targetedSignKey)?.label ?? "shop sign"}`;
     else if (this.#targetedDigitalArtFrameId) {
@@ -10494,17 +10657,151 @@ export class ShopScene {
         pendingChannel?.frameId === this.#targetedDigitalArtFrameId
           ? pendingChannel.channelId
           : (frame?.channelLabel() ?? "unavailable");
-      prompt = `Paste → ${pasteChannel} · N new channel · E move · G remove · C channel · F shuffle · R ${frame?.fit() ?? "contain"} · T ${interval === 0 ? "timer off" : `${interval}s timer`}`;
+      prompt = `Paste → ${pasteChannel} · N new channel · T move · Del remove · Q/E channel · F shuffle · R ${frame?.fit() ?? "contain"} · I ${interval === 0 ? "timer off" : `${interval}s timer`}`;
     } else if (this.#targetedPosterId) {
       const poster = this.#posterRecords.get(this.#targetedPosterId);
-      prompt = `E move ${poster?.asset.label ?? "poster"} · G remove`;
+      prompt = `T move ${poster?.asset.label ?? "poster"} · Del remove`;
     } else if (hoveredRecord)
       prompt =
         hoveredRecord.state.status === "shelved"
           ? `Hold F + wheel browse · E pick up ${hoveredRecord.publicationTitle} · R read in place`
           : `E pick up ${hoveredRecord.publicationTitle} · then R inspect`;
 
+    if (this.#inspectionMode === "spread") {
+      const shelfInspection =
+        inspectionPublication?.id !== this.#carriedPublicationId;
+      interactions = [
+        {key: "A / D", label: "Turn page"},
+        {key: "Wheel", label: "Zoom"},
+        ...(shelfInspection
+          ? [{key: "R", label: "Return to shelf"}]
+          : [
+              {key: "F", label: "Throw book"},
+              {key: "G", label: "Drop book"},
+              {key: "R", label: "Return to hand"},
+            ]),
+      ];
+    } else if (this.#artFramePlacement) {
+      interactionContext = this.#artFramePlacement.channelId;
+      interactions = [
+        {key: "Click", label: "Place frame"},
+        {key: "Q / E", label: "Change image"},
+        {key: "F", label: `Fit: ${this.#artFramePlacement.fit}`},
+        {
+          key: "I",
+          label: `Timing: ${this.#artFramePlacement.intervalSeconds === 0 ? "Off" : `${this.#artFramePlacement.intervalSeconds}s`}`,
+        },
+        {key: "N", label: "New channel"},
+        {key: "T", label: "Cancel move"},
+        {
+          key: "X",
+          label: `Grid snap: ${this.#artFramePlacement.gridSnap ? "On" : "Off"}`,
+        },
+        {key: "Wheel", label: "Resize"},
+        {key: "Shift + Wheel", label: "Rotate"},
+      ];
+    } else if (this.#posterPlacement)
+      interactions = [
+        {key: "Click", label: "Place poster"},
+        {key: "Q / E", label: "Change image"},
+        {key: "T", label: "Cancel move"},
+        {
+          key: "X",
+          label: `Grid snap: ${this.#posterPlacement.gridSnap ? "On" : "Off"}`,
+        },
+        {key: "Wheel", label: "Resize"},
+        {key: "Shift + Wheel", label: "Rotate"},
+      ];
+    else if (this.#carriedProp)
+      interactions = [
+        {key: "Click / E", label: "Place prop"},
+        {key: "G", label: "Drop prop"},
+        {key: "T", label: "Cancel move"},
+        {key: "F", label: "Throw prop"},
+        {
+          key: "Q",
+          label: `Grid snap: ${this.#propPlacementSnapping ? "On" : "Off"}`,
+        },
+        {
+          key: "R",
+          label: `Mode: ${this.#propPlacementRotationMode ? "Rotate" : "Aim"}`,
+        },
+        {key: "Wheel", label: "Adjust distance"},
+      ];
+    else if (carriedRecord) {
+      interactions = [
+        {key: "F", label: "Throw book"},
+        {key: "G", label: "Drop book"},
+        {key: "R", label: "Inspect book"},
+        {key: "Q", label: "Switch shelf presentation"},
+      ];
+      if (this.#shelfTargeted)
+        interactions.push({key: "Hold F + Wheel", label: "Browse shelf"});
+      if (this.#shelfTargeted)
+        interactions.unshift({key: "E", label: "Shelve book"});
+      if (this.#trashTargeted)
+        interactions.unshift({key: "E", label: "Discard book"});
+    } else if (this.#televisionTargeted) {
+      interactionContext =
+        this.#targetedTelevision?.selectedChannelLabel() ??
+        this.#targetedTelevision?.selectedChannelId();
+      interactions = [
+        {
+          key: "E",
+          label: this.#targetedTelevision?.powered()
+            ? "Next channel"
+            : "Turn on",
+        },
+        {key: "T", label: "Move TV"},
+        {key: "Q", label: "Previous channel"},
+        {key: "F", label: "Skip"},
+        {
+          key: "M",
+          label: `Mute (${this.#targetedTelevision?.volumePercent() ?? 0}%)`,
+        },
+        {key: "Wheel", label: "Scrub video"},
+        {
+          key: "Ctrl + Wheel",
+          label: `Volume: ${this.#targetedTelevision?.volumePercent() ?? 0}%`,
+        },
+      ];
+    } else if (this.#targetedProp)
+      interactions = [{key: "T", label: "Move prop"}];
+    else if (this.#targetedPosterId)
+      interactions = [
+        {key: "T", label: "Move poster"},
+        {key: "Del", label: "Remove poster"},
+      ];
+    else if (this.#targetedDigitalArtFrameId) {
+      const frame = this.#digitalArtFrameRecords.get(
+        this.#targetedDigitalArtFrameId,
+      )?.frame;
+      const interval = frame?.intervalSeconds() ?? 0;
+      interactionContext = frame?.channelLabel();
+      interactions = [
+        {key: "T", label: "Move frame"},
+        {key: "Del", label: "Remove frame"},
+        {key: "Q / E", label: "Previous / next channel"},
+        {key: "F", label: "Next image"},
+        {key: "I", label: `Timing: ${interval === 0 ? "Off" : `${interval}s`}`},
+        {key: "R", label: `Fit: ${frame?.fit() ?? "contain"}`},
+        {key: "N", label: "New channel"},
+      ];
+    } else if (this.#targetedSignKey !== undefined)
+      interactions = [{key: "E", label: "Customize sign"}];
+    else if (hoveredRecord)
+      interactions =
+        hoveredRecord.state.status === "shelved"
+          ? [
+              {key: "E", label: "Pick up book"},
+              {key: "R", label: "Read book"},
+              {key: "Hold F + Wheel", label: "Browse shelf"},
+            ]
+          : [{key: "E", label: "Pick up book"}];
+
     const snapshot: ShopGameSnapshot = {
+      ...(interactionContext ? {interactionContext} : {}),
+      ...(interactions.length > 0 ? {interactions} : {}),
       ...(this.#carriedPublicationId
         ? {carriedPublicationId: this.#carriedPublicationId}
         : {}),

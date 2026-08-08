@@ -752,6 +752,14 @@ uniform sampler2D afterleafScreenOverlay;\n${shader.fragmentShader}`;
     this.#changeChannel(1);
   }
 
+  volumePercent() {
+    return Math.round(this.#volume * 100);
+  }
+
+  powered() {
+    return this.#powered;
+  }
+
   selectedChannelId() {
     return this.#channels[this.#channelIndex]?.id ?? this.#initialChannelId;
   }
