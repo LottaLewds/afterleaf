@@ -1,6 +1,10 @@
 # Afterleaf
 
-![A shelf of manga in the Afterleaf shop](screenshots/shelves.webp)
+![Afterleaf night library](screenshots/afterleaf.webp)
+
+Afterleaf is a local-first, three-dimensional manga library: You play as a
+manga shop proprietor who is re-shelving their collection after an earthquake.
+Every book is readable! Make the space yours with posters, digital art frames, and TVs.
 
 ## Prerequisites
 
@@ -51,7 +55,26 @@ the same server origin restores the shared copy, including browsers on another
 machine. Concurrent sessions are not live-synchronized; the most recently
 received save becomes the state restored by later connections.
 
+## Paste anything into the shop
+
+Afterleaf turns clipboard pastes into content imports:
+
+- **nHentai:** Copy a gallery URL such as `https://nhentai.net/g/12345/`, then
+  paste it while Afterleaf is open. The matching publication is fetched and added
+  to the library.
+- **Posters:** Press `P` to enter poster placement, aim at a wall or shelf end,
+  then paste an image.
+- **Digital art frames:** Press `V`, aim at a frame (or choose a channel), and
+  paste an image. Press `N` first to create a new channel from the next paste.
+- **Television:** Aim at the TV and paste an HTTP or HTTPS video URL. Any URL
+  supported by [yt-dlp](https://github.com/yt-dlp/yt-dlp) can be used, including
+  supported video pages as well as direct video files.
+
+The poster, art-frame, and TV workflows are described in more detail below.
+
 ## Books
+
+![A shelf of manga in the Afterleaf shop](screenshots/shelves.webp)
 
 ![Reading manga in Afterleaf](screenshots/reader-view.webp)
 
