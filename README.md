@@ -59,8 +59,8 @@ received save becomes the state restored by later connections.
 
 Afterleaf turns clipboard pastes into content imports:
 
-- **nHentai:** Copy a gallery URL such as `https://nhentai.net/g/12345/`, then
-  paste it while Afterleaf is open. The matching publication is fetched and added
+- **Books:** Plugin providers can expose paste handlers for URLs. If you paste a URL for a provider
+  that Afterleaf supports into the game, the matching publication will be fetched and added
   to the library.
 - **Posters:** Press `P` to enter poster placement, aim at a wall or shelf end,
   then paste an image.
