@@ -6189,7 +6189,10 @@ export class ShopScene {
     if (this.#inspectionMode === "closing") return;
     if (event.code === "KeyV") {
       event.preventDefault();
-      if (this.#artFramePlacement) return;
+      if (this.#artFramePlacement) {
+        this.#cancelDigitalArtFramePlacement();
+        return;
+      }
       if (
         !this.#posterPlacement &&
         !this.#carriedPublicationId &&
@@ -6224,7 +6227,10 @@ export class ShopScene {
     }
     if (event.code === "KeyP") {
       event.preventDefault();
-      if (this.#posterPlacement) return;
+      if (this.#posterPlacement) {
+        this.#cancelPosterPlacement();
+        return;
+      }
       if (
         !this.#artFramePlacement &&
         !this.#carriedPublicationId &&
@@ -10692,7 +10698,8 @@ export class ShopScene {
           label: `Timing: ${this.#artFramePlacement.intervalSeconds === 0 ? "Off" : `${this.#artFramePlacement.intervalSeconds}s`}`,
         },
         {key: "N", label: "New channel"},
-        {key: "T", label: "Cancel move"},
+        {key: "T", label: "Cancel placement"},
+        {key: "V", label: "Cancel placement"},
         {
           key: "X",
           label: `Grid snap: ${this.#artFramePlacement.gridSnap ? "On" : "Off"}`,
@@ -10704,7 +10711,7 @@ export class ShopScene {
       interactions = [
         {key: "Click", label: "Place poster"},
         {key: "Q / E", label: "Change image"},
-        {key: "T", label: "Cancel move"},
+        {key: "T", label: "Cancel placement"},
         {
           key: "X",
           label: `Grid snap: ${this.#posterPlacement.gridSnap ? "On" : "Off"}`,
@@ -10716,7 +10723,7 @@ export class ShopScene {
       interactions = [
         {key: "Click / E", label: "Place prop"},
         {key: "G", label: "Drop prop"},
-        {key: "T", label: "Cancel move"},
+        {key: "T", label: "Cancel placement"},
         {key: "F", label: "Throw prop"},
         {
           key: "Q",
@@ -10798,6 +10805,17 @@ export class ShopScene {
               {key: "Hold F + Wheel", label: "Browse shelf"},
             ]
           : [{key: "E", label: "Pick up book"}];
+
+    if (
+      interactions.length === 0 &&
+      this.#pointerLocked &&
+      this.#inspectionMode === "none"
+    )
+      interactions = [
+        {key: "P", label: "Posters"},
+        {key: "V", label: "Digital art frames"},
+        {key: "Space", label: "Jump"},
+      ];
 
     const snapshot: ShopGameSnapshot = {
       ...(interactionContext ? {interactionContext} : {}),

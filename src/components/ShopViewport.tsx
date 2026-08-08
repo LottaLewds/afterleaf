@@ -258,9 +258,6 @@ export const ShopViewport = (props: ShopViewportProps) => {
               ? "Physical stock active"
               : "Waking stock…"}
           </p>
-          <p class="mt-2 border-t border-white/8 pt-2 text-[8px] tracking-[0.12em] text-[#8ca098] uppercase">
-            P posters · V digital art frames · Space jump
-          </p>
         </div>
         <button
           class="pointer-events-auto flex h-9 items-center gap-2 border border-white/12 bg-[#0b1312]/75 px-3 text-[9px] font-semibold tracking-[0.14em] text-[#b3c0bb] uppercase backdrop-blur-sm transition hover:border-white/25 hover:bg-[#15201e] hover:text-white"
