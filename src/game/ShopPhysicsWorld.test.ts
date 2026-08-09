@@ -269,6 +269,63 @@ describe("ShopPhysicsWorld", () => {
     }
   }, 10_000);
 
+  test("lands a released book on floor books while ignoring held books", async () => {
+    const physics = new ShopPhysicsWorld();
+    try {
+      expect(
+        physics.addBook({
+          pose: flatPose(0, 0.05, 0),
+          publicationId: "floor-book",
+          thickness: 0.1,
+        }),
+      ).toBe(true);
+      expect(
+        physics.addBook({
+          pose: flatPose(0, 0.35, 0),
+          publicationId: "held-book",
+          thickness: 0.1,
+        }),
+      ).toBe(true);
+      expect(
+        physics.addBook({
+          pose: flatPose(0, 0.55, 0),
+          publicationId: "released-book",
+          thickness: 0.1,
+        }),
+      ).toBe(true);
+      expect(await physics.initialize()).toBe(true);
+      expect(physics.holdBook("held-book")).toBe(true);
+      expect(physics.snapHeldBook("held-book", flatPose(0, 0.35, 0))).toBe(
+        true,
+      );
+      expect(physics.holdBook("released-book")).toBe(true);
+      expect(
+        physics.dropBook("released-book", {pose: flatPose(0, 0.55, 0)}),
+      ).toBe(true);
+      expect(physics.setBookCollisionlessWithHeld("released-book", true)).toBe(
+        true,
+      );
+      for (let frame = 0; frame < 180; frame += 1) physics.step(1 / 60);
+
+      const floorSample = createSample();
+      const heldSample = createSample();
+      const releasedSample = createSample();
+      expect(physics.sampleBookTransform("floor-book", floorSample)).toBe(true);
+      expect(physics.sampleBookTransform("held-book", heldSample)).toBe(true);
+      expect(physics.sampleBookTransform("released-book", releasedSample)).toBe(
+        true,
+      );
+      expect(
+        releasedSample.position.y - floorSample.position.y,
+      ).toBeGreaterThan(0.07);
+      expect(heldSample.position.y - releasedSample.position.y).toBeGreaterThan(
+        0.07,
+      );
+    } finally {
+      physics.dispose();
+    }
+  }, 10_000);
+
   test("lets an extracted held book disturb books stacked above it", async () => {
     const physics = new ShopPhysicsWorld();
     try {
