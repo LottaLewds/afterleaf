@@ -1,4 +1,4 @@
-import {isAbsolute, relative, resolve} from "node:path";
+import {isAbsolute, relative, resolve, sep} from "node:path";
 import {
   CONTENT_SCHEMA_VERSION,
   PUBLICATION_KINDS,
@@ -201,6 +201,8 @@ export const parseLocalPublicationDocument = (
 };
 
 export const resolveContainedPath = (root: string, candidate: string) => {
+  if (candidate.includes("\\"))
+    throw new Error(`Asset path must use portable separators: ${candidate}`);
   if (isAbsolute(candidate))
     throw new Error(`Asset path must be relative: ${candidate}`);
   const resolvedRoot = resolve(root);
@@ -209,7 +211,7 @@ export const resolveContainedPath = (root: string, candidate: string) => {
   if (
     relativePath === "" ||
     relativePath === ".." ||
-    relativePath.startsWith(`..${process.platform === "win32" ? "\\" : "/"}`) ||
+    relativePath.startsWith(`..${sep}`) ||
     isAbsolute(relativePath)
   )
     throw new Error(`Asset path escapes publication directory: ${candidate}`);

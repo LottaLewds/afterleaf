@@ -10,6 +10,8 @@ import path from "node:path";
 
 import {
   LIBRARY_BLACKLIST_ENDPOINT,
+  LIBRARY_CONFIG_ENDPOINT,
+  LIBRARY_BROWSE_ENDPOINT,
   LIBRARY_FETCH_MORE_ENDPOINT,
   LIBRARY_PASTE_RESOLVE_ENDPOINT,
   LIBRARY_PROVIDERS_ENDPOINT,
@@ -44,6 +46,7 @@ import {materializeArchiveReaderPage} from "./src/content/archiveSparsePage";
 import {
   readAfterleafLibraryConfig,
   readAfterleafLibraryConfigSync,
+  writeAfterleafLibraryConfig,
   unavailableLibraryPaths,
 } from "./src/content/libraryConfig";
 import type {PackedPublication} from "./src/content/schema";
@@ -110,6 +113,17 @@ const acquisitionDirectory = path.resolve(
   import.meta.dirname,
   "content-sources",
 );
+const generatedLibraryDirectories = [libraryDirectory, acquisitionDirectory];
+const ignoreGeneratedLibraryPath = (filePath: string) =>
+  generatedLibraryDirectories.some((directory) => {
+    const relativePath = path.relative(directory, path.resolve(filePath));
+    return (
+      relativePath === "" ||
+      (relativePath !== ".." &&
+        !relativePath.startsWith(`..${path.sep}`) &&
+        !path.isAbsolute(relativePath))
+    );
+  });
 const configuredLibraryPaths = readAfterleafLibraryConfigSync(
   import.meta.dirname,
 );
@@ -689,9 +703,121 @@ const localLibraryOperationsPlugin = (): Plugin => ({
         pathname !== LIBRARY_PROVIDERS_ENDPOINT &&
         pathname !== LIBRARY_BLACKLIST_ENDPOINT &&
         pathname !== LIBRARY_SOURCE_STATUS_ENDPOINT &&
+        pathname !== LIBRARY_CONFIG_ENDPOINT &&
+        pathname !== LIBRARY_BROWSE_ENDPOINT &&
         pathname !== LIBRARY_STATUS_ENDPOINT
       )
         return next();
+      if (pathname === LIBRARY_CONFIG_ENDPOINT) {
+        if (!hasSameOrigin(request)) {
+          sendJson(
+            response,
+            403,
+            libraryOperationFailure(
+              "forbidden_origin",
+              "Library configuration requires a same-origin loopback request",
+            ),
+          );
+          return;
+        }
+        if (request.method === "GET") {
+          sendJson(response, 200, {
+            ok: true,
+            config: await readAfterleafLibraryConfig(import.meta.dirname),
+          });
+          return;
+        }
+        if (request.method !== "PUT") {
+          response.setHeader("Allow", "GET, PUT");
+          sendJson(
+            response,
+            405,
+            libraryOperationFailure(
+              "method_not_allowed",
+              "Use GET or PUT for library configuration",
+            ),
+          );
+          return;
+        }
+        try {
+          const body = await readBoundedJsonBody(request);
+          if (
+            !body ||
+            typeof body !== "object" ||
+            Array.isArray(body) ||
+            !("config" in body)
+          )
+            throw new Error(
+              "Library configuration request must contain config",
+            );
+          const config = await writeAfterleafLibraryConfig(
+            import.meta.dirname,
+            (body as {config: unknown}).config as Parameters<
+              typeof writeAfterleafLibraryConfig
+            >[1],
+          );
+          sendJson(response, 200, {ok: true, config});
+        } catch (error) {
+          sendJson(
+            response,
+            422,
+            libraryOperationFailure(
+              "invalid_config",
+              error instanceof Error
+                ? error.message
+                : "Invalid library configuration",
+            ),
+          );
+        }
+        return;
+      }
+      if (pathname === LIBRARY_BROWSE_ENDPOINT) {
+        if (request.method !== "GET" || !hasSameOrigin(request)) {
+          response.statusCode = 403;
+          return response.end();
+        }
+        try {
+          const requestedPath = requestUrl.searchParams.get("path");
+          const directory = requestedPath
+            ? path.resolve(requestedPath)
+            : import.meta.dirname;
+          const entries = (await readdir(directory, {withFileTypes: true}))
+            .filter((entry) => entry.isDirectory() && !entry.isSymbolicLink())
+            .sort((left, right) =>
+              left.name.localeCompare(right.name, undefined, {
+                numeric: true,
+                sensitivity: "base",
+              }),
+            )
+            .slice(0, 500)
+            .map((entry) => ({
+              name: entry.name,
+              path: path.resolve(directory, entry.name),
+            }));
+          sendJson(response, 200, {
+            ok: true,
+            path: directory,
+            parent:
+              path.dirname(directory) === directory
+                ? undefined
+                : path.dirname(directory),
+            entries,
+          });
+        } catch (error) {
+          sendJson(
+            response,
+            422,
+            libraryOperationFailure(
+              "browse_failed",
+              error instanceof Error
+                ? error.message
+                : "Could not read that folder",
+            ),
+          );
+        }
+        return;
+      }
+
       if (pathname === LIBRARY_SOURCE_STATUS_ENDPOINT) {
         if (request.method !== "GET") {
           response.setHeader("Allow", "GET");
@@ -2043,5 +2169,9 @@ export default defineConfig(({command}) => ({
   },
   server: {
     hmr: false,
+    // Library commands atomically rename freshly generated directories. Vite
+    // serves these paths through custom middleware and does not need to watch
+    // them; on Windows, watcher handles can otherwise make rename() fail.
+    watch: {ignored: ignoreGeneratedLibraryPath},
   },
 }));

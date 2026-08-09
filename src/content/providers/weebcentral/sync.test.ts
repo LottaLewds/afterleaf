@@ -247,7 +247,9 @@ test("WeebCentral keeps remote ULIDs but canonicalizes and repairs local IDs", a
 
   expect(repaired).toMatchObject({addedCount: 0, updatedCount: 1});
   await expect(stat(publicationDirectory)).resolves.toBeDefined();
-  await expect(stat(legacyDirectory)).rejects.toThrow();
+  if (process.platform === "win32")
+    expect(await readdir(root)).toContain(publicationId);
+  else await expect(stat(legacyDirectory)).rejects.toThrow();
 });
 
 test("WeebCentral dry run does not fetch pages or write", async () => {

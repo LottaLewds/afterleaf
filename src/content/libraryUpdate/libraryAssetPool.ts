@@ -3,6 +3,7 @@ import {resolve} from "node:path";
 import type {Dirent} from "node:fs";
 import {assertSnapshotId} from "~/content/libraryUpdate/snapshotIndex";
 import {scheduleSnapshotGarbageCollection} from "~/content/libraryUpdate/snapshotGarbageCollector";
+import {replaceDirectory} from "~/content/replaceDirectory";
 import type {ContentPackCatalog} from "~/content/schema";
 
 const isMissing = (error: unknown) =>
@@ -20,16 +21,16 @@ export const promoteLibraryAssetSet = async (
   const pooledAssets = resolve(assetPoolDirectory, safeRevisionId);
   await mkdir(assetPoolDirectory, {recursive: true});
   try {
-    await rename(candidateAssets, pooledAssets);
+    await replaceDirectory(candidateAssets, pooledAssets);
+    await rm(resolve(revisionDirectory, "assets"), {
+      force: true,
+      recursive: true,
+    }).catch(() => {});
+    return true;
   } catch (error) {
-    if (!isMissing(error)) throw error;
-    return false;
+    if (isMissing(error)) return false;
+    throw error;
   }
-  await rm(resolve(revisionDirectory, "assets"), {
-    force: true,
-    recursive: true,
-  });
-  return true;
 };
 
 export const discardLibraryAssetSet = (

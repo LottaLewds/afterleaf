@@ -33,7 +33,11 @@ describe("snapshot garbage collection", () => {
       mkdir(resolve(garbageDirectory, ".keep"), {recursive: true}),
       mkdir(outsideDirectory),
     ]);
-    await symlink(outsideDirectory, resolve(garbageDirectory, "snapshot-link"));
+    await symlink(
+      outsideDirectory,
+      resolve(garbageDirectory, "snapshot-link"),
+      process.platform === "win32" ? "junction" : undefined,
+    );
 
     pruneSnapshotGarbage(garbageDirectory);
 
@@ -55,11 +59,15 @@ describe("snapshot garbage collection", () => {
     const garbageDirectory = resolve(root, "source-garbage");
     const outsideFile = resolve(root, "outside.cbz");
     await mkdir(resolve(garbageDirectory, "Retired Book"), {recursive: true});
-    await Promise.all([
+    const setup = [
       writeFile(resolve(garbageDirectory, "book.cbz"), "archive"),
       writeFile(outsideFile, "outside"),
-      symlink(outsideFile, resolve(garbageDirectory, "outside-link.cbz")),
-    ]);
+    ];
+    if (process.platform !== "win32")
+      setup.push(
+        symlink(outsideFile, resolve(garbageDirectory, "outside-link.cbz")),
+      );
+    await Promise.all(setup);
 
     pruneSnapshotGarbage(garbageDirectory);
 

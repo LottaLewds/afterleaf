@@ -36,8 +36,8 @@ test("library update CLI separates snapshot storage from the acquisition catalog
   );
 
   expect(parsed).toMatchObject({
-    catalogDirectory: "/workspace/afterleaf/sources",
-    libraryDirectory: "/workspace/afterleaf/packs/library",
+    catalogDirectory: resolve("/workspace/afterleaf/sources"),
+    libraryDirectory: resolve("/workspace/afterleaf/packs/library"),
     mediaPaths: [],
     providerId: "nhentai",
     sync: {
@@ -54,8 +54,8 @@ test("library update CLI accepts repeatable media paths", () => {
   );
 
   expect(parsed.mediaPaths).toEqual([
-    "/workspace/comics",
-    "/workspace/afterleaf/single-book.cbr",
+    resolve("/workspace/comics"),
+    resolve("/workspace/afterleaf/single-book.cbr"),
   ]);
 });
 

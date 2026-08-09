@@ -361,8 +361,8 @@ test("archive import creates sparse English/Japanese catalogs and skips Chinese"
 test("archive CLI parses preview defaults", () => {
   const defaults = parseArchiveImportCliOptions([], "/workspace/afterleaf");
   expect(defaults.importOptions).toMatchObject({
-    archivesDirectory: "/workspace/afterleaf/content/books",
-    outputDirectory: "/workspace/afterleaf/content-sources/catalog",
+    archivesDirectory: resolve("/workspace/afterleaf/content/books"),
+    outputDirectory: resolve("/workspace/afterleaf/content-sources/catalog"),
     tags: [],
     write: false,
   });
@@ -372,8 +372,8 @@ test("archive CLI parses preview defaults", () => {
     "/workspace/afterleaf",
   );
   expect(options.importOptions).toMatchObject({
-    archivesDirectory: "/workspace/afterleaf/cbz",
-    outputDirectory: "/workspace/afterleaf/catalog",
+    archivesDirectory: resolve("/workspace/afterleaf/cbz"),
+    outputDirectory: resolve("/workspace/afterleaf/catalog"),
     tags: ["big-breasts"],
     write: false,
   });

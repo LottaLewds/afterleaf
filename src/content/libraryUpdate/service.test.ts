@@ -1,4 +1,5 @@
 import {describe, expect, test} from "bun:test";
+import {resolve} from "node:path";
 import type {
   LibraryFetchMoreRequest,
   LibrarySnapshotDescriptor,
@@ -107,7 +108,7 @@ const seedResult: SeedContentPackResult = {
   catalog: generatedCatalog,
   report: {
     diagnostics: [],
-    outputDirectory: "/library/revisions/next",
+    outputDirectory: resolve("/library/revisions/next"),
     outputWritten: true,
     packId: "afterleaf-library",
     requestedLimit: 20,
@@ -121,7 +122,7 @@ const seedResult: SeedContentPackResult = {
 const syncReport = {
   addedCount: 2,
   diagnostics: [],
-  outputDirectory: "/source",
+  outputDirectory: resolve("/source"),
   providerId: "nhentai",
   query: 'tag:"big breasts"',
   requestedLimit: 20,
@@ -192,12 +193,12 @@ describe("LibraryUpdateService", () => {
       readBlacklist: async () => ["blacklisted-publication"],
       runSeed: async (catalogDirectory, options, excludedPublicationIds) => {
         calls.push("seed");
-        expect(catalogDirectory).toBe("/source");
+        expect(catalogDirectory).toBe(resolve("/source"));
         expect(options.force).toBe(false);
         expect(options.dryRun).toBe(false);
         expect(options.excludedTags).toEqual([]);
         expect(options.assetPathPrefix).toBe("assets/next");
-        expect(options.persistentAssetDirectory).toBe("/library");
+        expect(options.persistentAssetDirectory).toBe(resolve("/library"));
         expect(options.languages).toEqual(["english", "japanese"]);
         expect([...excludedPublicationIds]).toEqual([
           "blacklisted-publication",
@@ -235,7 +236,7 @@ describe("LibraryUpdateService", () => {
     });
 
     expect(calls).toEqual(["sync", "seed", "activate:next"]);
-    expect(seededOutputDirectory).toBe("/library/revisions/next");
+    expect(seededOutputDirectory).toBe(resolve("/library/revisions/next"));
     expect(result.previousSnapshot).toEqual(previousSnapshot);
     expect(result.blacklistedPublicationIds).toEqual([
       "blacklisted-publication",
@@ -393,7 +394,7 @@ describe("LibraryUpdateService", () => {
       "index write failed",
     );
 
-    expect(discarded).toEqual(["/library/revisions/next"]);
+    expect(discarded).toEqual([resolve("/library/revisions/next")]);
     expect(service.getState()).toMatchObject({
       activeSnapshot: previousSnapshot,
       completedSteps: 2,
@@ -470,7 +471,7 @@ describe("LibraryUpdateService", () => {
           reusableSnapshot,
         ) => {
           calls.push("seed");
-          expect(catalogDirectory).toBe("/catalog");
+          expect(catalogDirectory).toBe(resolve("/catalog"));
           expect(options.limit).toBe(Number.MAX_SAFE_INTEGER);
           expect(options.tags).toEqual([]);
           expect([...excludedIds]).toEqual(["removed"]);
@@ -522,7 +523,7 @@ describe("LibraryUpdateService", () => {
         }),
         promoteAssetSet: async (revisionDirectory, revisionId) => {
           calls.push("promote");
-          expect(revisionDirectory).toBe("/library/revisions/next");
+          expect(revisionDirectory).toBe(resolve("/library/revisions/next"));
           expect(revisionId).toBe("next");
         },
       }),
@@ -555,14 +556,14 @@ describe("LibraryUpdateService", () => {
         readBlacklist: async () => ["nhentai-99"],
         runSeed: async (catalogDirectory, options, excludedIds) => {
           calls.push("seed");
-          expect(catalogDirectory).toBe("/catalog");
+          expect(catalogDirectory).toBe(resolve("/catalog"));
           expect(options.limit).toBe(Number.MAX_SAFE_INTEGER);
           expect([...excludedIds]).toEqual(["nhentai-99"]);
           return seedResult;
         },
         runSync: async (options) => {
           calls.push("sync");
-          expect(options.outputDirectory).toBe("/source");
+          expect(options.outputDirectory).toBe(resolve("/source"));
           expect(options.selectionMode).toBe("unseen");
           expect(options.limit).toBe(20);
           expect(options.excludedPublicationIds).toEqual(["nhentai-99"]);

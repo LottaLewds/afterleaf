@@ -9,7 +9,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import {basename, extname, relative, resolve, sep} from "node:path";
-import sharp from "sharp";
+import sharp, {type Metadata} from "~/media/sharpRuntime";
 
 import {ART_FRAME_MAX_DIMENSION} from "./image";
 import type {ArtFrameChannel, ArtFrameImage} from "~/artFrames/protocol";
@@ -47,7 +47,7 @@ const displayLabel = (value: string) =>
     .map((word) => `${word[0]?.toUpperCase() ?? ""}${word.slice(1)}`)
     .join(" ");
 
-const metadataAspectRatio = (metadata: sharp.Metadata) => {
+const metadataAspectRatio = (metadata: Metadata) => {
   if (!metadata.width || !metadata.height) return;
   const rotated =
     metadata.orientation !== undefined && metadata.orientation >= 5;

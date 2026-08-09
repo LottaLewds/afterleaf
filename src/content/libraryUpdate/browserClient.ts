@@ -1,5 +1,7 @@
 import {
   LIBRARY_BLACKLIST_ENDPOINT,
+  LIBRARY_CONFIG_ENDPOINT,
+  LIBRARY_BROWSE_ENDPOINT,
   LIBRARY_FETCH_MORE_ENDPOINT,
   LIBRARY_PASTE_RESOLVE_ENDPOINT,
   LIBRARY_PROVIDERS_ENDPOINT,
@@ -21,6 +23,7 @@ import {
   type LibrarySnapshotOperation,
 } from "~/content/libraryUpdate/httpProtocol";
 import type {LibraryProviderDescriptor} from "~/content/providers/types";
+import type {AfterleafLibraryConfig} from "~/content/libraryConfig";
 
 export type LibraryOperationFetch = (
   input: string,
@@ -370,4 +373,91 @@ export const loadBlacklistedPublications = async (
       response.status,
     );
   return result.publicationIds;
+};
+
+export const loadLibraryConfig = async (
+  fetcher: LibraryOperationFetch = fetch,
+): Promise<AfterleafLibraryConfig> => {
+  const {response, value} = await requestJson(
+    LIBRARY_CONFIG_ENDPOINT,
+    {method: "GET"},
+    fetcher,
+  );
+  if (
+    !response.ok ||
+    !value ||
+    typeof value !== "object" ||
+    !("config" in value)
+  )
+    throw new BrowserLibraryOperationError(
+      "Could not load library locations",
+      "config_failed",
+      response.status,
+    );
+  return (value as {config: AfterleafLibraryConfig}).config;
+};
+
+export const saveLibraryConfig = async (
+  config: AfterleafLibraryConfig,
+  fetcher: LibraryOperationFetch = fetch,
+): Promise<AfterleafLibraryConfig> => {
+  const {response, value} = await requestJson(
+    LIBRARY_CONFIG_ENDPOINT,
+    {
+      body: JSON.stringify({config}),
+      headers: {"Content-Type": "application/json"},
+      method: "PUT",
+    },
+    fetcher,
+  );
+  if (
+    !response.ok ||
+    !value ||
+    typeof value !== "object" ||
+    !("config" in value)
+  )
+    throw new BrowserLibraryOperationError(
+      "Could not save library locations",
+      "config_failed",
+      response.status,
+    );
+  return (value as {config: AfterleafLibraryConfig}).config;
+};
+
+export type LibraryDirectoryEntry = {name: string; path: string};
+export type LibraryDirectoryListing = {
+  entries: readonly LibraryDirectoryEntry[];
+  parent?: string;
+  path: string;
+};
+
+export const browseLibraryLocation = async (
+  directory?: string,
+  fetcher: LibraryOperationFetch = fetch,
+): Promise<LibraryDirectoryListing> => {
+  const endpoint = directory
+    ? `${LIBRARY_BROWSE_ENDPOINT}?path=${encodeURIComponent(directory)}`
+    : LIBRARY_BROWSE_ENDPOINT;
+  const {response, value} = await requestJson(
+    endpoint,
+    {method: "GET"},
+    fetcher,
+  );
+  if (
+    !response.ok ||
+    !value ||
+    typeof value !== "object" ||
+    !Array.isArray((value as {entries?: unknown}).entries)
+  )
+    throw new BrowserLibraryOperationError(
+      "Could not browse that folder",
+      "browse_failed",
+      response.status,
+    );
+  const listing = value as {
+    entries: LibraryDirectoryEntry[];
+    parent?: string;
+    path: string;
+  };
+  return listing;
 };

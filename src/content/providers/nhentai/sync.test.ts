@@ -1083,7 +1083,7 @@ test("nHentai CLI defaults to a non-writing 20-item English/Japanese preview", (
     languages: ["english", "japanese"],
     limit: 20,
     maxSearchPages: 10,
-    outputDirectory: "/work/afterleaf/content-sources/nhentai",
+    outputDirectory: resolve("/work/afterleaf/content-sources/nhentai"),
     query: 'tag:"big breasts"',
     write: false,
   });

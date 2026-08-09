@@ -20,8 +20,9 @@ import {
   resolve,
   sep,
 } from "node:path";
-import sharp, {type FitEnum} from "sharp";
+import sharp, {type FitEnum} from "~/media/sharpRuntime";
 import {normalizeTags} from "~/content/normalize";
+import {replaceDirectory} from "~/content/replaceDirectory";
 import {
   CONTENT_SCHEMA_VERSION,
   type ContentPackCatalog,
@@ -1315,8 +1316,9 @@ const createAtlas = async (
         : persistentAssetDirectory
           ? resolveReusableAsset(persistentAssetDirectory, assetPath)
           : stagedPath;
-      if (surface === "spine") return readFile(sourcePath);
-      return sharp(sourcePath)
+      const source = await readFile(sourcePath);
+      if (surface === "spine") return source;
+      return sharp(source)
         .resize({
           width: cellWidth,
           height: cellHeight,
@@ -1475,15 +1477,15 @@ const commitStagingDirectory = async (
       `Output directory already exists: ${outputDirectory}. Pass --force to replace it.`,
     );
   if (!outputExists) {
-    await rename(stagingDirectory, outputDirectory);
+    await replaceDirectory(stagingDirectory, outputDirectory);
     return;
   }
 
   const backupDirectory = `${outputDirectory}.backup-${randomUUID()}`;
   await rename(outputDirectory, backupDirectory);
   try {
-    await rename(stagingDirectory, outputDirectory);
-    await rm(backupDirectory, {recursive: true, force: true});
+    await replaceDirectory(stagingDirectory, outputDirectory);
+    await rm(backupDirectory, {recursive: true, force: true}).catch(() => {});
   } catch (error) {
     if (!(await fileExists(outputDirectory)))
       await rename(backupDirectory, outputDirectory);
@@ -1698,7 +1700,7 @@ export const seedContentPack = async (
     );
     return {catalog, report};
   } catch (error) {
-    await rm(stagingDirectory, {recursive: true, force: true});
+    await rm(stagingDirectory, {recursive: true, force: true}).catch(() => {});
     throw error;
   }
 };

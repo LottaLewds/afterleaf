@@ -12,6 +12,31 @@ const SNAPSHOT_ID_PATTERN = /^[a-z0-9][a-z0-9._-]*$/u;
 const RETAINED_SNAPSHOT_COUNT = 1;
 const SNAPSHOT_GARBAGE_DIRECTORY = "snapshot-garbage";
 
+const replaceSnapshotIndex = async (
+  temporaryPath: string,
+  indexPath: string,
+) => {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    try {
+      await rename(temporaryPath, indexPath);
+      return;
+    } catch (error) {
+      lastError = error;
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code !== "EPERM" && code !== "EBUSY" && code !== "EACCES")
+        throw error;
+      await new Promise((resolve) => setTimeout(resolve, 100 * (attempt + 1)));
+    }
+  }
+  try {
+    await rm(indexPath, {force: true});
+    await rename(temporaryPath, indexPath);
+  } catch {
+    throw lastError;
+  }
+};
+
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
@@ -211,7 +236,7 @@ export class LibrarySnapshotIndexStore {
       await writeFile(temporaryPath, `${JSON.stringify(next, null, 2)}\n`, {
         flag: "wx",
       });
-      await rename(temporaryPath, this.#indexPath);
+      await replaceSnapshotIndex(temporaryPath, this.#indexPath);
       await Promise.allSettled(
         evictedSnapshots.map((entry) =>
           rename(
@@ -224,7 +249,7 @@ export class LibrarySnapshotIndexStore {
         this.#scheduleGarbageCollection(garbageDirectory);
       } catch {}
     } catch (error) {
-      await rm(temporaryPath, {force: true});
+      await rm(temporaryPath, {force: true}).catch(() => {});
       throw error;
     }
     return next;

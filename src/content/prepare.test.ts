@@ -86,7 +86,7 @@ describe("catalog preparation inference", () => {
       "/workspace/afterleaf",
     );
     expect(options.prepareOptions).toMatchObject({
-      rootDirectory: "/workspace/afterleaf/raw",
+      rootDirectory: resolve("/workspace/afterleaf/raw"),
       tags: ["big-breasts", "magazine"],
       write: false,
     });

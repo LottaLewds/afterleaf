@@ -9,6 +9,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import {basename, parse, resolve} from "node:path";
+import {replaceDirectory} from "~/content/replaceDirectory";
 import {
   CONTENT_SCHEMA_VERSION,
   createConcurrentAcquisitionPipeline,
@@ -239,13 +240,13 @@ const commitPublication = async (
   publicationDirectory: string,
 ) => {
   if (!(await fileExists(publicationDirectory))) {
-    await rename(stagingDirectory, publicationDirectory);
+    await replaceDirectory(stagingDirectory, publicationDirectory);
     return "added" as const;
   }
   const backupDirectory = `${publicationDirectory}.backup-${randomUUID()}`;
   await rename(publicationDirectory, backupDirectory);
   try {
-    await rename(stagingDirectory, publicationDirectory);
+    await replaceDirectory(stagingDirectory, publicationDirectory);
     await rm(backupDirectory, {recursive: true, force: true});
     return "updated" as const;
   } catch (error) {
@@ -284,8 +285,13 @@ const materializeChapter = async (
     outputDirectory,
     remotePublicationId(series.id, chapter.id),
   );
+  const legacyAndCanonicalAreSame =
+    process.platform === "win32"
+      ? legacyPublicationDirectory.toLowerCase() ===
+        publicationDirectory.toLowerCase()
+      : legacyPublicationDirectory === publicationDirectory;
   const hasLegacyPublication =
-    legacyPublicationDirectory !== publicationDirectory &&
+    !legacyAndCanonicalAreSame &&
     (await fileExists(legacyPublicationDirectory));
   const existing = await existingManifest(publicationDirectory);
   if (
