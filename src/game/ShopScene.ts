@@ -267,6 +267,7 @@ const LEGACY_MODEL_TELEVISION_ROTATION = new Quaternion().setFromAxisAngle(
   Math.PI,
 );
 const DISCARD_TOSS_DURATION_SECONDS = 0.52;
+const SHELVE_BOOK_DURATION_SECONDS = 0.34;
 const LOOK_SENSITIVITY = 0.0021;
 const LOOK_SMOOTHING = 32;
 const MAX_LOOK_DELTA_PER_FRAME = (Math.PI / 180) * 10;
@@ -518,6 +519,17 @@ type DiscardAnimation = {
   publicationId: string;
   startPosition: Vector3;
   startRotation: Quaternion;
+};
+
+type ShelveAnimation = {
+  elapsedSeconds: number;
+  placements: readonly SpineShelfPlacement[] | undefined;
+  publicationId: string;
+  shelfId: string;
+  startPosition: Vector3;
+  startRotation: Quaternion;
+  targetPosition: Vector3;
+  targetRotation: Quaternion;
 };
 
 type InspectionCloseAction = "drop" | "return" | "throw";
@@ -1115,6 +1127,7 @@ export class ShopScene {
   readonly #carriedPublicationIds: string[] = [];
   #carriedPublicationId: string | undefined;
   #discardAnimation: DiscardAnimation | undefined;
+  #shelveAnimation: ShelveAnimation | undefined;
   #discardBusy = false;
   #discardError: string | undefined;
   readonly #discardedPublicationIds = new Set<string>();
@@ -1591,6 +1604,7 @@ export class ShopScene {
     for (const record of this.#digitalArtFrameRecords.values())
       record.frame.update(deltaSeconds);
     this.#animateBooks(deltaSeconds);
+    this.#animateShelve(deltaSeconds);
     this.#syncBookAtlasBatches();
     this.#animateDiscard(deltaSeconds);
     this.#renderer.render(this.#scene, this.#camera);
@@ -5999,7 +6013,7 @@ export class ShopScene {
   }
 
   readonly #handleWheel = (event: WheelEvent) => {
-    if (this.#paused()) return;
+    if (this.#paused() || this.#shelveAnimation) return;
     if (this.#inspectionMode === "spread") {
       if (event.deltaY === 0) return;
       event.preventDefault();
@@ -6244,7 +6258,7 @@ export class ShopScene {
     }
     if (event.code === "KeyV" && (event.ctrlKey || event.metaKey)) return;
     if (event.repeat) return;
-    if (this.#inspectionMode === "closing") return;
+    if (this.#inspectionMode === "closing" || this.#shelveAnimation) return;
     if (event.code === "KeyV") {
       event.preventDefault();
       if (this.#artFramePlacement) {
@@ -6880,11 +6894,10 @@ export class ShopScene {
       return true;
     });
     const arrivalIds = new Set(unobservedArrivalIds);
-    const retainedIds = new Set<string>(
-      this.#discardAnimation
-        ? [this.#discardAnimation.publicationId]
-        : undefined,
-    );
+    const retainedIds = new Set<string>([
+      ...(this.#discardAnimation ? [this.#discardAnimation.publicationId] : []),
+      ...(this.#shelveAnimation ? [this.#shelveAnimation.publicationId] : []),
+    ]);
     const displayItems = items.filter(
       (item) => !this.#discardedPublicationIds.has(item.id),
     );
@@ -7175,7 +7188,8 @@ export class ShopScene {
         record.mesh.parent !== this.#scene ||
         record.state.status === "carried" ||
         publicationId === this.#inspectionPublicationId ||
-        publicationId === this.#discardAnimation?.publicationId;
+        publicationId === this.#discardAnimation?.publicationId ||
+        publicationId === this.#shelveAnimation?.publicationId;
       const readyStandalone =
         record.standaloneTexturesReady &&
         (publicationId === this.#hoveredPublicationId ||
@@ -9729,6 +9743,20 @@ export class ShopScene {
       this.#updateShelfTargetVisuals();
       return;
     }
+    if (this.#shelveAnimation) {
+      this.#setHoveredPublicationId(undefined);
+      this.#shelfTargeted = false;
+      this.#shelfTargetSelection = undefined;
+      this.#targetedSignKey = undefined;
+      this.#targetedPosterId = undefined;
+      this.#setDigitalArtFrameTargeted();
+      this.#setPropTargeted(undefined);
+      this.#setTrashTargeted(false);
+      this.#setTelevisionTargeted(false);
+      this.#updateShelfTargetVisuals();
+      this.#updateSignTargetVisuals();
+      return;
+    }
     if (!this.#pointerLocked) {
       this.#updatePosterPlacementTarget();
       this.#updateDigitalArtFramePlacementTarget();
@@ -10041,7 +10069,7 @@ export class ShopScene {
   }
 
   #interact(allowNonBookPropPickup = true) {
-    if (this.#discardBusy) return;
+    if (this.#discardBusy || this.#shelveAnimation) return;
     if (this.#artFramePlacement) {
       this.#placeDigitalArtFrame();
       return;
@@ -10164,7 +10192,7 @@ export class ShopScene {
   }
 
   #shelveCarriedBook() {
-    if (this.#discardBusy) return;
+    if (this.#discardBusy || this.#shelveAnimation) return;
     const publicationId = this.#carriedPublicationId;
     if (!publicationId) return;
     const record = this.#booksById.get(publicationId);
@@ -10178,23 +10206,44 @@ export class ShopScene {
     });
     if (!transition.ok) return;
 
+    record.mesh.updateMatrixWorld(true);
+    const startPosition = record.mesh.getWorldPosition(new Vector3());
+    const startRotation = record.mesh.getWorldQuaternion(new Quaternion());
     this.#scene.attach(record.mesh);
+    record.mesh.position.copy(startPosition);
+    record.mesh.quaternion.copy(startRotation);
     record.state = transition.state;
     record.shelfPresentation = selection.presentation;
-    this.#restoreCompactBookCoverTexture(record);
     record.slotIndex = selection.slotIndex;
     record.shelfOffset = selection.offset;
-    if (selection.placements)
-      this.#applySpineShelfPlacements(selection.shelfId, selection.placements);
-    else {
-      this.#setShelfPosition(record);
-      record.basePosition.copy(record.shelfPosition);
-      this.#setShelfRotation(record, publicationId);
-      this.#physicsWorld.shelveBook(
-        publicationId,
-        this.#setPhysicsPose(record.shelfPosition, record.baseRotation),
-      );
+    const insertedPlacement = selection.placements?.find(
+      (placement) => placement.id === publicationId,
+    );
+    if (insertedPlacement) {
+      record.slotIndex = insertedPlacement.slotIndex;
+      record.shelfOffset = insertedPlacement.center;
     }
+    this.#setShelfPosition(record);
+    this.#setShelfRotation(record, publicationId);
+    const targetPosition = record.shelfPosition.clone();
+    const targetRotation = new Quaternion().setFromEuler(
+      new Euler(
+        record.baseRotation.x,
+        record.baseRotation.y,
+        record.baseRotation.z,
+        "XYZ",
+      ),
+    );
+    this.#shelveAnimation = {
+      elapsedSeconds: 0,
+      placements: selection.placements,
+      publicationId,
+      shelfId: selection.shelfId,
+      startPosition,
+      startRotation,
+      targetPosition,
+      targetRotation,
+    };
     this.#removeCarriedPublication(publicationId);
     this.#discardError = undefined;
     this.#shelfTargeted = false;
@@ -10465,6 +10514,62 @@ export class ShopScene {
     this.#worldStateDirty = true;
     this.#emitGameState();
     this.#flushWorldSave();
+  }
+
+  #finishShelveAnimation() {
+    const animation = this.#shelveAnimation;
+    if (!animation) return;
+    const record = this.#booksById.get(animation.publicationId);
+    this.#shelveAnimation = undefined;
+    if (!record) return;
+
+    record.mesh.position.copy(animation.targetPosition);
+    record.mesh.quaternion.copy(animation.targetRotation);
+    record.mesh.scale.setScalar(1);
+    record.shelfPreview = 0;
+    this.#restoreCompactBookCoverTexture(record);
+    if (animation.placements)
+      this.#applySpineShelfPlacements(animation.shelfId, animation.placements);
+    else {
+      record.basePosition.copy(record.shelfPosition);
+      this.#physicsWorld.shelveBook(
+        animation.publicationId,
+        this.#setPhysicsPose(record.shelfPosition, record.baseRotation),
+      );
+    }
+    this.#syncInteractiveMeshes();
+    this.#applyBookStates();
+    this.#updateShelfTargetVisuals();
+    this.#worldStateDirty = true;
+    this.#emitGameState();
+  }
+
+  #animateShelve(deltaSeconds: number) {
+    const animation = this.#shelveAnimation;
+    if (!animation) return;
+    const record = this.#booksById.get(animation.publicationId);
+    if (!record) {
+      this.#shelveAnimation = undefined;
+      return;
+    }
+    animation.elapsedSeconds = Math.min(
+      SHELVE_BOOK_DURATION_SECONDS,
+      animation.elapsedSeconds + deltaSeconds,
+    );
+    const progress = animation.elapsedSeconds / SHELVE_BOOK_DURATION_SECONDS;
+    const eased = 1 - (1 - progress) ** 3;
+    record.mesh.position.lerpVectors(
+      animation.startPosition,
+      animation.targetPosition,
+      eased,
+    );
+    record.mesh.quaternion.slerpQuaternions(
+      animation.startRotation,
+      animation.targetRotation,
+      eased,
+    );
+    record.mesh.scale.setScalar(1);
+    if (progress >= 1) this.#finishShelveAnimation();
   }
 
   #animateDiscard(deltaSeconds: number) {
@@ -10893,6 +10998,7 @@ export class ShopScene {
           : this.#inspectionCloseAction === "throw"
             ? "Closing book before throwing…"
             : "Closing book…";
+    else if (this.#shelveAnimation) prompt = "Shelving book…";
     else if (this.#artFramePlacement) {
       const asset = this.#artFrameAssets[this.#artFramePlacement.assetIndex];
       const size = this.#artFramePlacementSelection?.height;
@@ -10982,7 +11088,8 @@ export class ShopScene {
               {key: "R", label: "Return to hand"},
             ]),
       ];
-    } else if (this.#artFramePlacement) {
+    } else if (this.#shelveAnimation) interactions = [];
+    else if (this.#artFramePlacement) {
       interactionContext = this.#artFramePlacement.channelId;
       interactions = [
         {key: "Click", label: "Place frame"},
@@ -11108,7 +11215,8 @@ export class ShopScene {
     if (
       interactions.length === 0 &&
       this.#pointerLocked &&
-      this.#inspectionMode === "none"
+      this.#inspectionMode === "none" &&
+      !this.#shelveAnimation
     )
       interactions = [
         {key: "P", label: "Posters"},
@@ -11224,6 +11332,7 @@ export class ShopScene {
   #animateBooks(deltaSeconds: number) {
     let interactionStateChanged = false;
     for (const [publicationId, record] of this.#booksById) {
+      if (this.#shelveAnimation?.publicationId === publicationId) continue;
       const inspectionFocused =
         publicationId === this.#inspectionPublicationId &&
         this.#inspectionMode === "spread";
