@@ -433,22 +433,35 @@ const AdditionalLocationsControl = (props: {
 }) => {
   const [kind, setKind] =
     createSignal<keyof AfterleafLibraryConfig>("mediaPaths");
+  const [listing, setListing] = createSignal<{
+    entries: readonly {name: string; path: string}[];
+    parent?: string;
+    path: string;
+  }>();
+  const [browserOpen, setBrowserOpen] = createSignal(false);
+  const [browserError, setBrowserError] = createSignal("");
   const labels: Record<keyof AfterleafLibraryConfig, string> = {
     mediaPaths: "Books",
     posterPaths: "Posters",
     tvChannelPaths: "TV",
     artFramePaths: "Art frames",
   };
-  const add = async () => {
-    const selected = await browseLibraryLocation().catch(() => undefined);
-    const path = selected ?? window.prompt("Enter a folder path");
-    if (!path?.trim()) return;
+  const openBrowser = async (directory?: string) => {
+    setBrowserError("");
+    try {
+      setListing(await browseLibraryLocation(directory));
+      setBrowserOpen(true);
+    } catch (error) {
+      setBrowserError(
+        error instanceof Error ? error.message : "Could not browse that folder",
+      );
+    }
+  };
+  const choose = (path: string) => {
     const key = kind();
-    if (props.config[key].includes(path.trim())) return;
-    props.onChange({
-      ...props.config,
-      [key]: [...props.config[key], path.trim()],
-    });
+    if (!props.config[key].includes(path))
+      props.onChange({...props.config, [key]: [...props.config[key], path]});
+    setBrowserOpen(false);
   };
   const remove = (key: keyof AfterleafLibraryConfig, path: string) =>
     props.onChange({
@@ -457,7 +470,7 @@ const AdditionalLocationsControl = (props: {
     });
   return (
     <div class="border border-white/8 bg-[#151e1c] px-4 py-4 sm:px-5">
-      <div class="flex items-start gap-4">
+      <div class="flex flex-wrap items-start gap-4">
         <span class="grid size-9 shrink-0 place-items-center bg-[#d94c3f]/10 text-[#dc6156]">
           <FiSettings size={15} />
         </span>
@@ -466,7 +479,7 @@ const AdditionalLocationsControl = (props: {
             Additional content locations
           </p>
           <p class="mt-1 text-[9px] leading-4 text-[#65716c]">
-            Add folders on any mounted drive. Changes apply to the next scan.
+            Browse folders on any mounted drive. Changes apply to the next scan.
           </p>
         </div>
         <select
@@ -485,31 +498,31 @@ const AdditionalLocationsControl = (props: {
         <button
           class="bg-[#ece6d8] px-3 py-2 text-[9px] font-semibold text-[#1b2321] uppercase"
           type="button"
-          onClick={() => void add()}
+          onClick={() => void openBrowser()}
         >
-          Add folder
+          Browse folders
         </button>
       </div>
       <div class="mt-4 space-y-2">
         <For each={Object.keys(labels) as Array<keyof AfterleafLibraryConfig>}>
           {(key) => (
             <For each={props.config[key]}>
-              {(path) => (
+              {(location) => (
                 <div class="flex items-center gap-3 bg-[#0c1312] px-3 py-2">
                   <span class="shrink-0 text-[8px] font-semibold tracking-[0.08em] text-[#d55247] uppercase">
                     {labels[key]}
                   </span>
                   <span
                     class="min-w-0 flex-1 truncate text-[10px] text-[#aeb8b3]"
-                    title={path}
+                    title={location}
                   >
-                    {path}
+                    {location}
                   </span>
                   <button
                     class="text-[#df776e]"
                     type="button"
-                    aria-label={`Remove ${path}`}
-                    onClick={() => remove(key, path)}
+                    aria-label={`Remove ${location}`}
+                    onClick={() => remove(key, location)}
                   >
                     <FiX size={13} />
                   </button>
@@ -519,6 +532,51 @@ const AdditionalLocationsControl = (props: {
           )}
         </For>
       </div>
+      <Show when={browserError()}>
+        <p class="mt-3 text-[10px] text-[#df776e]">{browserError()}</p>
+      </Show>
+      <Show when={browserOpen() && listing()}>
+        {(current) => (
+          <div class="mt-4 border border-white/10 bg-[#0c1312] p-3">
+            <div class="flex items-center gap-2">
+              <button
+                class="px-2 py-1 text-[10px] text-[#d9b9a9] disabled:opacity-30"
+                disabled={!current().parent}
+                onClick={() => void openBrowser(current().parent)}
+                type="button"
+              >
+                ← Up
+              </button>
+              <span
+                class="min-w-0 flex-1 truncate text-[10px] text-[#c5cec9]"
+                title={current().path}
+              >
+                {current().path}
+              </span>
+              <button
+                class="bg-[#d94c3f] px-3 py-2 text-[9px] font-semibold text-white uppercase"
+                onClick={() => choose(current().path)}
+                type="button"
+              >
+                Choose this folder
+              </button>
+            </div>
+            <div class="mt-3 max-h-56 overflow-y-auto border-t border-white/8 pt-2">
+              <For each={current().entries}>
+                {(entry) => (
+                  <button
+                    class="block w-full truncate px-2 py-2 text-left text-[10px] text-[#aeb8b3] hover:bg-white/5 hover:text-white"
+                    onClick={() => void openBrowser(entry.path)}
+                    type="button"
+                  >
+                    📁 {entry.name}
+                  </button>
+                )}
+              </For>
+            </div>
+          </div>
+        )}
+      </Show>
     </div>
   );
 };

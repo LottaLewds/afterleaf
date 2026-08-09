@@ -1,7 +1,7 @@
 import tailwindcss from "@tailwindcss/vite";
 import {defineConfig, type Plugin} from "vite";
 import solid from "vite-plugin-solid";
-import {execFile, spawn} from "node:child_process";
+import {spawn} from "node:child_process";
 import {randomUUID} from "node:crypto";
 import {createReadStream, existsSync, readFileSync, statSync} from "node:fs";
 import {mkdir, readdir, rename, rm, writeFile} from "node:fs/promises";
@@ -765,44 +765,45 @@ const localLibraryOperationsPlugin = (): Plugin => ({
           response.statusCode = 403;
           return response.end();
         }
-        const command =
-          process.platform === "win32"
-            ? [
-                "powershell.exe",
-                [
-                  "-NoProfile",
-                  "-Command",
-                  "Add-Type -AssemblyName System.Windows.Forms; $d=New-Object System.Windows.Forms.FolderBrowserDialog; if($d.ShowDialog() -eq 'OK'){[Console]::Write($d.SelectedPath)}",
-                ],
-              ]
-            : process.platform === "darwin"
-              ? [
-                  "osascript",
-                  [
-                    "-e",
-                    'POSIX path of (choose folder with prompt "Choose an Afterleaf content folder")',
-                  ],
-                ]
-              : [
-                  "zenity",
-                  [
-                    "--file-selection",
-                    "--directory",
-                    "--title=Choose an Afterleaf content folder",
-                  ],
-                ];
-        execFile(
-          command[0],
-          command[1],
-          {encoding: "utf8"},
-          (error, stdout) => {
-            if (error || !stdout.trim()) {
-              sendJson(response, 200, {ok: true});
-              return;
-            }
-            sendJson(response, 200, {ok: true, path: stdout.trim()});
-          },
-        );
+        try {
+          const requestedPath = requestUrl.searchParams.get("path");
+          const directory = requestedPath
+            ? path.resolve(requestedPath)
+            : import.meta.dirname;
+          const entries = (await readdir(directory, {withFileTypes: true}))
+            .filter((entry) => entry.isDirectory() && !entry.isSymbolicLink())
+            .sort((left, right) =>
+              left.name.localeCompare(right.name, undefined, {
+                numeric: true,
+                sensitivity: "base",
+              }),
+            )
+            .slice(0, 500)
+            .map((entry) => ({
+              name: entry.name,
+              path: path.resolve(directory, entry.name),
+            }));
+          sendJson(response, 200, {
+            ok: true,
+            path: directory,
+            parent:
+              path.dirname(directory) === directory
+                ? undefined
+                : path.dirname(directory),
+            entries,
+          });
+        } catch (error) {
+          sendJson(
+            response,
+            422,
+            libraryOperationFailure(
+              "browse_failed",
+              error instanceof Error
+                ? error.message
+                : "Could not read that folder",
+            ),
+          );
+        }
         return;
       }
 

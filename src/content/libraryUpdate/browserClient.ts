@@ -428,21 +428,40 @@ export const saveLibraryConfig = async (
   return (value as {config: AfterleafLibraryConfig}).config;
 };
 
+export type LibraryDirectoryEntry = {name: string; path: string};
+export type LibraryDirectoryListing = {
+  entries: readonly LibraryDirectoryEntry[];
+  parent?: string;
+  path: string;
+};
+
 export const browseLibraryLocation = async (
+  directory?: string,
   fetcher: LibraryOperationFetch = fetch,
-): Promise<string | undefined> => {
+): Promise<LibraryDirectoryListing> => {
+  const endpoint = directory
+    ? `${LIBRARY_BROWSE_ENDPOINT}?path=${encodeURIComponent(directory)}`
+    : LIBRARY_BROWSE_ENDPOINT;
   const {response, value} = await requestJson(
-    LIBRARY_BROWSE_ENDPOINT,
+    endpoint,
     {method: "GET"},
     fetcher,
   );
-  if (response.status === 204) return undefined;
   if (
     !response.ok ||
     !value ||
     typeof value !== "object" ||
-    typeof (value as {path?: unknown}).path !== "string"
+    !Array.isArray((value as {entries?: unknown}).entries)
   )
-    return undefined;
-  return (value as {path: string}).path;
+    throw new BrowserLibraryOperationError(
+      "Could not browse that folder",
+      "browse_failed",
+      response.status,
+    );
+  const listing = value as {
+    entries: LibraryDirectoryEntry[];
+    parent?: string;
+    path: string;
+  };
+  return listing;
 };
