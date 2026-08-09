@@ -99,6 +99,11 @@ import {
   type ShopCollisionWorld,
 } from "~/game/shopGameplay";
 import {
+  formatInteractionKey,
+  keyboardLayoutEntry,
+  readKeyboardLayout,
+} from "~/game/keyboardLayout";
+import {
   createStackableStairBoxes,
   SHOP_ATRIUM,
   SHOP_ATRIUM_RAIL_FLOOR_INSET,
@@ -973,6 +978,7 @@ export class ShopScene {
     signal: AbortSignal,
   ) => Promise<readonly ArtFrameChannel[]>;
   readonly #keysDown = new Set<string>();
+  readonly #keyboardLayout = new Map<string, string>();
   readonly #lookAngles: LookAngles = {pitch: 0, yaw: 0};
   readonly #lookDelta: LookAngles = {pitch: 0, yaw: 0};
   readonly #lookTarget: LookAngles = {pitch: 0, yaw: 0};
@@ -1345,6 +1351,7 @@ export class ShopScene {
     this.#configureScene();
     this.#createShopInterior();
     this.#bindInput();
+    void this.#loadKeyboardLayout();
     this.#observeSize();
     const unsubscribeFromWidePages = subscribeToWideReaderPages((url) =>
       this.#handleDetectedWidePage(url),
@@ -5917,6 +5924,32 @@ export class ShopScene {
     window.addEventListener("blur", this.#handleWindowBlur, passiveOptions);
   }
 
+  async #loadKeyboardLayout() {
+    const layout = await readKeyboardLayout();
+    if (!layout || this.#disposed) return;
+    let changed = false;
+    for (const [code, label] of layout) {
+      const normalizedLabel = label.toLowerCase();
+      if (
+        !normalizedLabel ||
+        this.#keyboardLayout.get(code) === normalizedLabel
+      )
+        continue;
+      this.#keyboardLayout.set(code, normalizedLabel);
+      changed = true;
+    }
+    if (changed) this.#emitGameState();
+  }
+
+  #observeKeyboardEvent(event: KeyboardEvent) {
+    const entry = keyboardLayoutEntry(event);
+    if (!entry) return;
+    const [code, label] = entry;
+    if (this.#keyboardLayout.get(code) === label) return;
+    this.#keyboardLayout.set(code, label);
+    this.#emitGameState();
+  }
+
   readonly #handleCanvasPointerDown = (event: PointerEvent) => {
     if (event.button !== 0 || this.#paused()) return;
     if (this.#inspectionMode === "spread") {
@@ -6211,6 +6244,7 @@ export class ShopScene {
 
   readonly #handleKeyDown = (event: KeyboardEvent) => {
     if (this.#paused()) return;
+    this.#observeKeyboardEvent(event);
     if (this.#inspectionMode === "spread") {
       if (event.repeat) return;
       const inspectingCarriedBook =
@@ -11233,9 +11267,15 @@ export class ShopScene {
         {key: "Space", label: "Jump"},
       ];
 
+    const displayedInteractions = interactions.map((interaction) => ({
+      ...interaction,
+      key: formatInteractionKey(interaction.key, this.#keyboardLayout),
+    }));
     const snapshot: ShopGameSnapshot = {
       ...(interactionContext ? {interactionContext} : {}),
-      ...(interactions.length > 0 ? {interactions} : {}),
+      ...(displayedInteractions.length > 0
+        ? {interactions: displayedInteractions}
+        : {}),
       ...(this.#carriedPublicationId
         ? {
             carriedBookCount: this.#carriedPublicationIds.length,
