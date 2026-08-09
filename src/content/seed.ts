@@ -1464,6 +1464,35 @@ const assertSafeOutputDirectory = (outputDirectory: string) => {
   return resolvedOutput;
 };
 
+const replaceSeedDirectory = async (
+  stagingDirectory: string,
+  outputDirectory: string,
+) => {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    try {
+      await rename(stagingDirectory, outputDirectory);
+      return;
+    } catch (error) {
+      lastError = error;
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code !== "EPERM" && code !== "EBUSY" && code !== "EACCES")
+        throw error;
+      await new Promise((resolve) => setTimeout(resolve, 100 * (attempt + 1)));
+    }
+  }
+  try {
+    await rm(outputDirectory, {recursive: true, force: true});
+    await cp(stagingDirectory, outputDirectory, {
+      recursive: true,
+      force: false,
+    });
+    await rm(stagingDirectory, {recursive: true, force: true}).catch(() => {});
+  } catch {
+    throw lastError;
+  }
+};
+
 const commitStagingDirectory = async (
   stagingDirectory: string,
   outputDirectory: string,
@@ -1475,15 +1504,15 @@ const commitStagingDirectory = async (
       `Output directory already exists: ${outputDirectory}. Pass --force to replace it.`,
     );
   if (!outputExists) {
-    await rename(stagingDirectory, outputDirectory);
+    await replaceSeedDirectory(stagingDirectory, outputDirectory);
     return;
   }
 
   const backupDirectory = `${outputDirectory}.backup-${randomUUID()}`;
   await rename(outputDirectory, backupDirectory);
   try {
-    await rename(stagingDirectory, outputDirectory);
-    await rm(backupDirectory, {recursive: true, force: true});
+    await replaceSeedDirectory(stagingDirectory, outputDirectory);
+    await rm(backupDirectory, {recursive: true, force: true}).catch(() => {});
   } catch (error) {
     if (!(await fileExists(outputDirectory)))
       await rename(backupDirectory, outputDirectory);
@@ -1698,7 +1727,7 @@ export const seedContentPack = async (
     );
     return {catalog, report};
   } catch (error) {
-    await rm(stagingDirectory, {recursive: true, force: true});
+    await rm(stagingDirectory, {recursive: true, force: true}).catch(() => {});
     throw error;
   }
 };
