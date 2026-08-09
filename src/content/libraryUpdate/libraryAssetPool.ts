@@ -1,8 +1,9 @@
-import {cp, mkdir, readdir, rename, rm} from "node:fs/promises";
+import {mkdir, readdir, rename, rm} from "node:fs/promises";
 import {resolve} from "node:path";
 import type {Dirent} from "node:fs";
 import {assertSnapshotId} from "~/content/libraryUpdate/snapshotIndex";
 import {scheduleSnapshotGarbageCollection} from "~/content/libraryUpdate/snapshotGarbageCollector";
+import {replaceDirectory} from "~/content/replaceDirectory";
 import type {ContentPackCatalog} from "~/content/schema";
 
 const isMissing = (error: unknown) =>
@@ -19,34 +20,16 @@ export const promoteLibraryAssetSet = async (
   const candidateAssets = resolve(revisionDirectory, "assets", safeRevisionId);
   const pooledAssets = resolve(assetPoolDirectory, safeRevisionId);
   await mkdir(assetPoolDirectory, {recursive: true});
-  let lastError: unknown;
-  for (let attempt = 0; attempt < 6; attempt += 1) {
-    try {
-      await rename(candidateAssets, pooledAssets);
-      await rm(resolve(revisionDirectory, "assets"), {
-        force: true,
-        recursive: true,
-      });
-      return true;
-    } catch (error) {
-      if (isMissing(error)) return false;
-      lastError = error;
-      const code = (error as NodeJS.ErrnoException).code;
-      if (code !== "EPERM" && code !== "EBUSY" && code !== "EACCES")
-        throw error;
-      await new Promise((resolve) => setTimeout(resolve, 100 * (attempt + 1)));
-    }
-  }
   try {
-    await rm(pooledAssets, {force: true, recursive: true});
-    await cp(candidateAssets, pooledAssets, {force: false, recursive: true});
+    await replaceDirectory(candidateAssets, pooledAssets);
     await rm(resolve(revisionDirectory, "assets"), {
       force: true,
       recursive: true,
     }).catch(() => {});
     return true;
-  } catch {
-    throw lastError;
+  } catch (error) {
+    if (isMissing(error)) return false;
+    throw error;
   }
 };
 

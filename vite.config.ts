@@ -113,6 +113,17 @@ const acquisitionDirectory = path.resolve(
   import.meta.dirname,
   "content-sources",
 );
+const generatedLibraryDirectories = [libraryDirectory, acquisitionDirectory];
+const ignoreGeneratedLibraryPath = (filePath: string) =>
+  generatedLibraryDirectories.some((directory) => {
+    const relativePath = path.relative(directory, path.resolve(filePath));
+    return (
+      relativePath === "" ||
+      (relativePath !== ".." &&
+        !relativePath.startsWith(`..${path.sep}`) &&
+        !path.isAbsolute(relativePath))
+    );
+  });
 const configuredLibraryPaths = readAfterleafLibraryConfigSync(
   import.meta.dirname,
 );
@@ -2158,5 +2169,9 @@ export default defineConfig(({command}) => ({
   },
   server: {
     hmr: false,
+    // Library commands atomically rename freshly generated directories. Vite
+    // serves these paths through custom middleware and does not need to watch
+    // them; on Windows, watcher handles can otherwise make rename() fail.
+    watch: {ignored: ignoreGeneratedLibraryPath},
   },
 }));

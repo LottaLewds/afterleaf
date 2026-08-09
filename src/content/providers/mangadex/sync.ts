@@ -1,7 +1,6 @@
 import {createHash, randomUUID} from "node:crypto";
 import {
   access,
-  cp,
   mkdir,
   readdir,
   readFile,
@@ -10,6 +9,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import {basename, parse, resolve} from "node:path";
+import {replaceDirectory} from "~/content/replaceDirectory";
 import {
   CONTENT_SCHEMA_VERSION,
   createConcurrentAcquisitionPipeline,
@@ -260,37 +260,6 @@ const cachedPublicationState = async (outputDirectory: string) => {
     if (logicalKey) completeLogicalChapterKeys.add(logicalKey);
   }
   return {completeLogicalChapterKeys, completePublicationIds};
-};
-
-const replaceDirectory = async (
-  stagingDirectory: string,
-  publicationDirectory: string,
-) => {
-  let lastError: unknown;
-  for (let attempt = 0; attempt < 6; attempt += 1) {
-    try {
-      await rename(stagingDirectory, publicationDirectory);
-      return;
-    } catch (error) {
-      lastError = error;
-      const code = (error as NodeJS.ErrnoException).code;
-      if (code !== "EPERM" && code !== "EBUSY" && code !== "EACCES")
-        throw error;
-      await new Promise((resolve) => setTimeout(resolve, 100 * (attempt + 1)));
-    }
-  }
-  // Filesystem watchers, indexers, and antivirus tools can briefly block a
-  // rename. Use the same atomic-first, copy-fallback behavior on every host.
-  try {
-    await rm(publicationDirectory, {recursive: true, force: true});
-    await cp(stagingDirectory, publicationDirectory, {
-      recursive: true,
-      force: false,
-    });
-    await rm(stagingDirectory, {recursive: true, force: true});
-  } catch {
-    throw lastError;
-  }
 };
 
 const commitPublication = async (

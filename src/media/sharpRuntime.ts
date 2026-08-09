@@ -1,16 +1,13 @@
-import {availableParallelism} from "node:os";
 import sharp from "sharp";
 
-// Sharp can process four images concurrently through the runtime worker queue.
-// Divide the host CPU budget between those images so Windows and glibc Linux
-// use the same policy without oversubscribing high-core-count machines.
-const threadsPerImage = Math.max(1, Math.ceil(availableParallelism() / 4));
-
-// Sharp 0.34.5's Windows binary (GLib 2.86.1) could abort in
-// g_system_thread_free during Bun teardown. The failure no longer reproduces
-// with Sharp 0.35.3's newer native stack, including at 20 threads per image.
-// Do not add a Windows-only worker limit here.
-sharp.concurrency(threadsPerImage);
+// sharp.concurrency() controls libvips threads per image, not how many images
+// Sharp processes concurrently through the runtime worker queue. Bun on
+// Windows can intermittently abort in GLib's g_system_thread_free when an
+// image uses multiple libvips threads, including with Sharp 0.35.3 / GLib
+// 2.89.0. Use one thread per image on every host: image jobs remain parallel,
+// Linux and Windows share one policy, and higher values did not improve our
+// import benchmark.
+sharp.concurrency(1);
 
 // Sharp's default libvips cache retains up to 20 open files. These pipelines
 // atomically rename completed asset trees, so keep memory/operation caching
