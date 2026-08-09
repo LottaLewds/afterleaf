@@ -1,7 +1,7 @@
 import tailwindcss from "@tailwindcss/vite";
 import {defineConfig, type Plugin} from "vite";
 import solid from "vite-plugin-solid";
-import {spawn} from "node:child_process";
+import {execFile, spawn} from "node:child_process";
 import {randomUUID} from "node:crypto";
 import {createReadStream, existsSync, readFileSync, statSync} from "node:fs";
 import {mkdir, readdir, rename, rm, writeFile} from "node:fs/promises";
@@ -10,6 +10,8 @@ import path from "node:path";
 
 import {
   LIBRARY_BLACKLIST_ENDPOINT,
+  LIBRARY_CONFIG_ENDPOINT,
+  LIBRARY_BROWSE_ENDPOINT,
   LIBRARY_FETCH_MORE_ENDPOINT,
   LIBRARY_PASTE_RESOLVE_ENDPOINT,
   LIBRARY_PROVIDERS_ENDPOINT,
@@ -44,6 +46,7 @@ import {materializeArchiveReaderPage} from "./src/content/archiveSparsePage";
 import {
   readAfterleafLibraryConfig,
   readAfterleafLibraryConfigSync,
+  writeAfterleafLibraryConfig,
   unavailableLibraryPaths,
 } from "./src/content/libraryConfig";
 import type {PackedPublication} from "./src/content/schema";
@@ -689,9 +692,120 @@ const localLibraryOperationsPlugin = (): Plugin => ({
         pathname !== LIBRARY_PROVIDERS_ENDPOINT &&
         pathname !== LIBRARY_BLACKLIST_ENDPOINT &&
         pathname !== LIBRARY_SOURCE_STATUS_ENDPOINT &&
+        pathname !== LIBRARY_CONFIG_ENDPOINT &&
+        pathname !== LIBRARY_BROWSE_ENDPOINT &&
         pathname !== LIBRARY_STATUS_ENDPOINT
       )
         return next();
+      if (pathname === LIBRARY_CONFIG_ENDPOINT) {
+        if (!hasSameOrigin(request)) {
+          sendJson(
+            response,
+            403,
+            libraryOperationFailure(
+              "forbidden_origin",
+              "Library configuration requires a same-origin loopback request",
+            ),
+          );
+          return;
+        }
+        if (request.method === "GET") {
+          sendJson(response, 200, {
+            ok: true,
+            config: await readAfterleafLibraryConfig(import.meta.dirname),
+          });
+          return;
+        }
+        if (request.method !== "PUT") {
+          response.setHeader("Allow", "GET, PUT");
+          sendJson(
+            response,
+            405,
+            libraryOperationFailure(
+              "method_not_allowed",
+              "Use GET or PUT for library configuration",
+            ),
+          );
+          return;
+        }
+        try {
+          const body = await readBoundedJsonBody(request);
+          if (
+            !body ||
+            typeof body !== "object" ||
+            Array.isArray(body) ||
+            !("config" in body)
+          )
+            throw new Error(
+              "Library configuration request must contain config",
+            );
+          const config = await writeAfterleafLibraryConfig(
+            import.meta.dirname,
+            (body as {config: unknown}).config as Parameters<
+              typeof writeAfterleafLibraryConfig
+            >[1],
+          );
+          sendJson(response, 200, {ok: true, config});
+        } catch (error) {
+          sendJson(
+            response,
+            422,
+            libraryOperationFailure(
+              "invalid_config",
+              error instanceof Error
+                ? error.message
+                : "Invalid library configuration",
+            ),
+          );
+        }
+        return;
+      }
+      if (pathname === LIBRARY_BROWSE_ENDPOINT) {
+        if (request.method !== "GET" || !hasSameOrigin(request)) {
+          response.statusCode = 403;
+          return response.end();
+        }
+        const command =
+          process.platform === "win32"
+            ? [
+                "powershell.exe",
+                [
+                  "-NoProfile",
+                  "-Command",
+                  "Add-Type -AssemblyName System.Windows.Forms; $d=New-Object System.Windows.Forms.FolderBrowserDialog; if($d.ShowDialog() -eq 'OK'){[Console]::Write($d.SelectedPath)}",
+                ],
+              ]
+            : process.platform === "darwin"
+              ? [
+                  "osascript",
+                  [
+                    "-e",
+                    'POSIX path of (choose folder with prompt "Choose an Afterleaf content folder")',
+                  ],
+                ]
+              : [
+                  "zenity",
+                  [
+                    "--file-selection",
+                    "--directory",
+                    "--title=Choose an Afterleaf content folder",
+                  ],
+                ];
+        execFile(
+          command[0],
+          command[1],
+          {encoding: "utf8"},
+          (error, stdout) => {
+            if (error || !stdout.trim()) {
+              sendJson(response, 200, {ok: true});
+              return;
+            }
+            sendJson(response, 200, {ok: true, path: stdout.trim()});
+          },
+        );
+        return;
+      }
+
       if (pathname === LIBRARY_SOURCE_STATUS_ENDPOINT) {
         if (request.method !== "GET") {
           response.setHeader("Allow", "GET");

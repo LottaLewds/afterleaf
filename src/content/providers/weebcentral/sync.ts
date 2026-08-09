@@ -234,6 +234,19 @@ const cachedPublicationState = async (outputDirectory: string) => {
   return {completeLogicalChapterKeys, completePublicationIds};
 };
 
+const replaceDirectoryOnWindows = async (
+  stagingDirectory: string,
+  publicationDirectory: string,
+) => {
+  try {
+    await rename(stagingDirectory, publicationDirectory);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "EPERM") throw error;
+    await rm(publicationDirectory, {recursive: true, force: true});
+    await rename(stagingDirectory, publicationDirectory);
+  }
+};
+
 const commitPublication = async (
   stagingDirectory: string,
   publicationDirectory: string,
@@ -245,7 +258,7 @@ const commitPublication = async (
   const backupDirectory = `${publicationDirectory}.backup-${randomUUID()}`;
   await rename(publicationDirectory, backupDirectory);
   try {
-    await rename(stagingDirectory, publicationDirectory);
+    await replaceDirectoryOnWindows(stagingDirectory, publicationDirectory);
     await rm(backupDirectory, {recursive: true, force: true});
     return "updated" as const;
   } catch (error) {

@@ -9,7 +9,7 @@ export const LIBRARY_PROVIDER_MANIFEST_NAME = "afterleaf-provider.json";
 
 const providerIdPattern = /^[a-z][a-z0-9-]{0,63}$/u;
 const entryPattern =
-  /^(?!\/)(?!.*(?:^|\/)\.\.(?:\/|$)).+\.(?:mjs|cjs|js|mts|cts|ts)$/u;
+  /^(?![\/])(?![A-Za-z]:)(?!\\)(?!.*\\)(?!.*(?:^|\/)\.\.(?:\/|$)).+\.(?:mjs|cjs|js|mts|cts|ts)$/u;
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);

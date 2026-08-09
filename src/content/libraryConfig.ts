@@ -1,5 +1,5 @@
 import {readFileSync} from "node:fs";
-import {readFile, readdir, stat} from "node:fs/promises";
+import {readFile, readdir, stat, writeFile, rename, rm} from "node:fs/promises";
 import {extname, resolve} from "node:path";
 
 export const LIBRARY_CONFIG_FILE_NAME = "afterleaf.library.json";
@@ -14,6 +14,8 @@ const PATH_PROPERTIES = [
 type PathProperty = (typeof PATH_PROPERTIES)[number];
 
 export type AfterleafLibraryConfig = Record<PathProperty, readonly string[]>;
+
+export const LIBRARY_CONFIG_PROPERTIES = PATH_PROPERTIES;
 
 const emptyLibraryConfig = (): AfterleafLibraryConfig => ({
   artFramePaths: [],
@@ -79,6 +81,29 @@ const resolveLibraryConfig = (
     resolve(workingDirectory, path),
   ),
 });
+
+export const writeAfterleafLibraryConfig = async (
+  workingDirectory: string,
+  config: AfterleafLibraryConfig,
+) => {
+  const configPath = resolve(workingDirectory, LIBRARY_CONFIG_FILE_NAME);
+  const parsed = parseLibraryConfig(config, configPath);
+  const temporaryPath = `${configPath}.staging-${process.pid}-${Date.now()}`;
+  await writeFile(
+    temporaryPath,
+    `${JSON.stringify(parsed, null, 2)}\n`,
+    "utf8",
+  );
+  try {
+    // Windows does not replace an existing directory entry with rename().
+    await rm(configPath, {force: true});
+    await rename(temporaryPath, configPath);
+  } catch (error) {
+    await rm(temporaryPath, {force: true}).catch(() => {});
+    throw error;
+  }
+  return parsed;
+};
 
 export const readAfterleafLibraryConfig = async (workingDirectory: string) => {
   const configPath = resolve(workingDirectory, LIBRARY_CONFIG_FILE_NAME);

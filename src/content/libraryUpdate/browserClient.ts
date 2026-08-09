@@ -1,5 +1,7 @@
 import {
   LIBRARY_BLACKLIST_ENDPOINT,
+  LIBRARY_CONFIG_ENDPOINT,
+  LIBRARY_BROWSE_ENDPOINT,
   LIBRARY_FETCH_MORE_ENDPOINT,
   LIBRARY_PASTE_RESOLVE_ENDPOINT,
   LIBRARY_PROVIDERS_ENDPOINT,
@@ -21,6 +23,7 @@ import {
   type LibrarySnapshotOperation,
 } from "~/content/libraryUpdate/httpProtocol";
 import type {LibraryProviderDescriptor} from "~/content/providers/types";
+import type {AfterleafLibraryConfig} from "~/content/libraryConfig";
 
 export type LibraryOperationFetch = (
   input: string,
@@ -316,6 +319,8 @@ export const blacklistPublication = async (
 ): Promise<LocalLibraryBlacklistResult> => {
   const {response, value} = await requestJson(
     LIBRARY_BLACKLIST_ENDPOINT,
+    LIBRARY_CONFIG_ENDPOINT,
+    LIBRARY_BROWSE_ENDPOINT,
     {
       body: JSON.stringify(request),
       headers: {"Content-Type": "application/json"},
@@ -349,6 +354,8 @@ export const loadBlacklistedPublications = async (
 ): Promise<readonly string[]> => {
   const {response, value} = await requestJson(
     LIBRARY_BLACKLIST_ENDPOINT,
+    LIBRARY_CONFIG_ENDPOINT,
+    LIBRARY_BROWSE_ENDPOINT,
     {method: "GET"},
     fetcher,
   );
@@ -370,4 +377,72 @@ export const loadBlacklistedPublications = async (
       response.status,
     );
   return result.publicationIds;
+};
+
+export const loadLibraryConfig = async (
+  fetcher: LibraryOperationFetch = fetch,
+): Promise<AfterleafLibraryConfig> => {
+  const {response, value} = await requestJson(
+    LIBRARY_CONFIG_ENDPOINT,
+    {method: "GET"},
+    fetcher,
+  );
+  if (
+    !response.ok ||
+    !value ||
+    typeof value !== "object" ||
+    !("config" in value)
+  )
+    throw new BrowserLibraryOperationError(
+      "Could not load library locations",
+      "config_failed",
+      response.status,
+    );
+  return (value as {config: AfterleafLibraryConfig}).config;
+};
+
+export const saveLibraryConfig = async (
+  config: AfterleafLibraryConfig,
+  fetcher: LibraryOperationFetch = fetch,
+): Promise<AfterleafLibraryConfig> => {
+  const {response, value} = await requestJson(
+    LIBRARY_CONFIG_ENDPOINT,
+    {
+      body: JSON.stringify({config}),
+      headers: {"Content-Type": "application/json"},
+      method: "PUT",
+    },
+    fetcher,
+  );
+  if (
+    !response.ok ||
+    !value ||
+    typeof value !== "object" ||
+    !("config" in value)
+  )
+    throw new BrowserLibraryOperationError(
+      "Could not save library locations",
+      "config_failed",
+      response.status,
+    );
+  return (value as {config: AfterleafLibraryConfig}).config;
+};
+
+export const browseLibraryLocation = async (
+  fetcher: LibraryOperationFetch = fetch,
+): Promise<string | undefined> => {
+  const {response, value} = await requestJson(
+    LIBRARY_BROWSE_ENDPOINT,
+    {method: "GET"},
+    fetcher,
+  );
+  if (response.status === 204) return undefined;
+  if (
+    !response.ok ||
+    !value ||
+    typeof value !== "object" ||
+    typeof (value as {path?: unknown}).path !== "string"
+  )
+    return undefined;
+  return (value as {path: string}).path;
 };
