@@ -188,7 +188,12 @@ import {
   getReaderSpreadSides,
   type ReaderNavigation,
 } from "~/reader/pagination";
-import {tvVideoImportUrl, type TvChannel, type TvVideo} from "~/tv/protocol";
+import {
+  DEFAULT_TV_CHANNEL_ID,
+  tvVideoImportUrl,
+  type TvChannel,
+  type TvVideo,
+} from "~/tv/protocol";
 import type {PosterAsset} from "~/posters/protocol";
 
 const FACE_DISPLAY_COLUMNS = 8;
@@ -5274,8 +5279,10 @@ export class ShopScene {
     void this.#handlePastedText(
       clipboardText,
       television,
-      channelId,
-      television?.selectedChannelLabel() ?? channelId,
+      channelId ?? (television ? DEFAULT_TV_CHANNEL_ID : undefined),
+      television?.selectedChannelLabel() ??
+        channelId ??
+        (television ? "Afterleaf TV" : undefined),
     );
   };
 
@@ -5319,7 +5326,7 @@ export class ShopScene {
         this.#abortController.signal,
       );
       if (this.#disposed) return;
-      television.playVideoIfChannelSelected(channelId, video);
+      television.playVideoIfChannelSelected(channelId, video, channelLabel);
       this.#tvVideoImportMessage = `Added ${video.id} to ${channelLabel}`;
       this.#tvVideoImportMessageTimer = window.setTimeout(() => {
         this.#tvVideoImportMessageTimer = undefined;
@@ -10629,7 +10636,7 @@ export class ShopScene {
       prompt = `Q ${this.#shelfPresentation}-out · Aim at a shelf · Hold F charge throw · G drop · R inspect`;
     else if (this.#televisionTargeted) {
       const televisionPrompt = this.#targetedTelevision?.prompt;
-      const pastePrompt = this.#targetedTelevision?.selectedChannelId()
+      const pastePrompt = this.#targetedTelevision
         ? "Paste video URL"
         : undefined;
       prompt = [televisionPrompt, pastePrompt].filter(Boolean).join(" · ");
@@ -10735,7 +10742,8 @@ export class ShopScene {
     } else if (this.#televisionTargeted) {
       interactionContext =
         this.#targetedTelevision?.selectedChannelLabel() ??
-        this.#targetedTelevision?.selectedChannelId();
+        this.#targetedTelevision?.selectedChannelId() ??
+        (this.#targetedTelevision ? "Afterleaf TV" : undefined);
       interactions = [
         {
           key: "E",

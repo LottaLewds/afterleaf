@@ -39,7 +39,11 @@ import {
   TV_SCREEN_ASPECT,
 } from "~/tv/aspect";
 import {createShuffleBag, type RandomSource} from "~/tv/shuffleBag";
-import type {TvChannel, TvVideo} from "~/tv/protocol";
+import {
+  DEFAULT_TV_CHANNEL_ID,
+  type TvChannel,
+  type TvVideo,
+} from "~/tv/protocol";
 
 const SCREEN_WIDTH = 2.52;
 const SCREEN_HEIGHT = SCREEN_WIDTH / TV_SCREEN_ASPECT;
@@ -772,9 +776,18 @@ uniform sampler2D afterleafScreenOverlay;\n${shader.fragmentShader}`;
     return this.#volume;
   }
 
-  playVideoIfChannelSelected(channelId: string, importedVideo: TvVideo) {
+  playVideoIfChannelSelected(
+    channelId: string,
+    importedVideo: TvVideo,
+    channelLabel = channelId,
+  ) {
     if (this.#disposed) return false;
-    const channel = this.#channels[this.#channelIndex];
+    let channel = this.#channels[this.#channelIndex];
+    if (!channel && channelId === DEFAULT_TV_CHANNEL_ID) {
+      channel = {id: channelId, label: channelLabel, videos: []};
+      this.#channels = [channel];
+      this.#channelIndex = 0;
+    }
     if (!channel || channel.id !== channelId) return false;
     const existingVideo = channel.videos.find(
       (video) => video.id === importedVideo.id,
