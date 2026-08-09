@@ -1,6 +1,7 @@
 import {createHash, randomUUID} from "node:crypto";
 import {
   access,
+  cp,
   mkdir,
   readdir,
   readFile,
@@ -291,12 +292,30 @@ const replaceDirectoryOnWindows = async (
   stagingDirectory: string,
   publicationDirectory: string,
 ) => {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    try {
+      await rename(stagingDirectory, publicationDirectory);
+      return;
+    } catch (error) {
+      lastError = error;
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code !== "EPERM" && code !== "EBUSY" && code !== "EACCES")
+        throw error;
+      await new Promise((resolve) => setTimeout(resolve, 100 * (attempt + 1)));
+    }
+  }
+  // Antivirus/indexing tools can keep a freshly-written directory open on Windows.
+  // Copying is slower, but preserves imports when rename remains temporarily blocked.
   try {
-    await rename(stagingDirectory, publicationDirectory);
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "EPERM") throw error;
     await rm(publicationDirectory, {recursive: true, force: true});
-    await rename(stagingDirectory, publicationDirectory);
+    await cp(stagingDirectory, publicationDirectory, {
+      recursive: true,
+      force: false,
+    });
+    await rm(stagingDirectory, {recursive: true, force: true});
+  } catch {
+    throw lastError;
   }
 };
 
