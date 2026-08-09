@@ -891,22 +891,86 @@ const LibraryUpdateDialog = (props: {
               </select>
             </label>
           </Show>
-          <label class="block border border-white/8 bg-white/[0.025] p-4 text-xs leading-5 text-[#b7c0bb]">
-            <span class="mb-2 block text-[9px] font-bold tracking-[0.16em] text-[#7f8c87] uppercase">
-              {provider()?.queryLabel ?? "Search"}
-            </span>
-            <input
-              class="w-full border border-white/10 bg-[#0c1312] px-3 py-2.5 text-xs text-[#eee8dc] outline-none placeholder:text-[#53605b] focus:border-[#d55247]/70"
-              value={query()}
-              maxlength={100}
-              placeholder={provider()?.queryPlaceholder ?? "Search"}
-              disabled={props.busy}
-              onInput={(event) => setQuery(event.currentTarget.value)}
-            />
-            <span class="mt-2 block text-[9px] leading-4 text-[#65716c]">
-              {provider()?.queryHelp}
-            </span>
-          </label>
+          <div class="border border-white/8 bg-white/[0.025] p-4 text-xs leading-5 text-[#b7c0bb]">
+            <label>
+              <span class="mb-2 block text-[9px] font-bold tracking-[0.16em] text-[#7f8c87] uppercase">
+                {provider()?.queryLabel ?? "Search"}
+              </span>
+              <input
+                class="w-full border border-white/10 bg-[#0c1312] px-3 py-2.5 text-xs text-[#eee8dc] outline-none placeholder:text-[#53605b] focus:border-[#d55247]/70"
+                value={query()}
+                maxlength={100}
+                placeholder={provider()?.queryPlaceholder ?? "Search"}
+                disabled={props.busy}
+                onInput={(event) => setQuery(event.currentTarget.value)}
+              />
+              <span class="mt-2 block text-[9px] leading-4 text-[#65716c]">
+                {provider()?.queryHelp}
+              </span>
+            </label>
+            <Show when={provider()?.queryGuide}>
+              {(guide) => (
+                <details class="group mt-3 border-t border-white/8 pt-3">
+                  <summary class="flex cursor-pointer list-none items-center justify-between gap-4 text-[9px] font-bold tracking-[0.16em] text-[#8e9b96] uppercase transition hover:text-[#d5d9d6]">
+                    <span>{provider()?.name} search syntax</span>
+                    <span class="text-[#d55247] group-open:hidden">Show</span>
+                    <span class="hidden text-[#d55247] group-open:inline">
+                      Hide
+                    </span>
+                  </summary>
+                  <div class="pt-4">
+                    <p class="text-[10px] leading-4 text-[#77837e]">
+                      {guide().introduction}
+                    </p>
+                    <div class="mt-4">
+                      <div class="grid grid-cols-[minmax(0,1fr)_minmax(0,1.25fr)_minmax(0,1.25fr)] gap-x-3 gap-y-2 text-[10px]">
+                        <span class="font-bold tracking-[0.1em] text-[#5f6c67] uppercase">
+                          Filter
+                        </span>
+                        <span class="font-bold tracking-[0.1em] text-[#5f6c67] uppercase">
+                          Include
+                        </span>
+                        <span class="font-bold tracking-[0.1em] text-[#5f6c67] uppercase">
+                          Exclude
+                        </span>
+                        <For each={guide().entries}>
+                          {(entry) => (
+                            <>
+                              <span class="text-[#919c97]">
+                                {entry.description}
+                              </span>
+                              <code class="break-words text-[#d7d1c6]">
+                                {entry.expression}
+                              </code>
+                              <code class="break-words text-[#c7837c]">
+                                {entry.exclusion}
+                              </code>
+                            </>
+                          )}
+                        </For>
+                      </div>
+                    </div>
+                    <Show when={guide().examples.length > 0}>
+                      <div class="mt-4 border-t border-white/8 pt-4">
+                        <p class="text-[9px] font-bold tracking-[0.12em] text-[#68746f] uppercase">
+                          Examples
+                        </p>
+                        <div class="mt-2 flex flex-col gap-1.5">
+                          <For each={guide().examples}>
+                            {(example) => (
+                              <code class="bg-[#0c1312] px-2.5 py-2 text-[10px] break-words text-[#bfc8c3]">
+                                {example}
+                              </code>
+                            )}
+                          </For>
+                        </div>
+                      </div>
+                    </Show>
+                  </div>
+                </details>
+              )}
+            </Show>
+          </div>
           <div class="grid gap-3 sm:grid-cols-2">
             <label class="block border border-white/8 bg-white/[0.025] p-4 text-xs leading-5 text-[#b7c0bb]">
               <span class="mb-2 block text-[9px] font-bold tracking-[0.16em] text-[#7f8c87] uppercase">

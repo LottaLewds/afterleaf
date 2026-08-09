@@ -41,6 +41,8 @@ export {
   type LibraryProviderManifest,
   type LibraryProviderPluginContext,
   type LibraryProviderPluginModule,
+  type LibraryProviderQueryGuide,
+  type LibraryProviderQueryGuideEntry,
   type LibraryProviderPasteImport,
   type LibraryProviderSparsePageRequest,
   type LibraryProviderSyncOptions,

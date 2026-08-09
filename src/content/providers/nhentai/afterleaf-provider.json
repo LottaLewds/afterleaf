@@ -10,7 +10,62 @@
     "defaultQuery": "big breasts",
     "id": "nhentai",
     "name": "nHentai",
-    "queryHelp": "A tag or nHentai search expression. Provider-specific syntax is accepted when needed.",
+    "queryGuide": {
+      "entries": [
+        {
+          "description": "Tag",
+          "exclusion": "-tag:\"…\"",
+          "expression": "tag:\"…\""
+        },
+        {
+          "description": "Artist",
+          "exclusion": "-artist:\"…\"",
+          "expression": "artist:\"…\""
+        },
+        {
+          "description": "Parody / series",
+          "exclusion": "-parody:\"…\"",
+          "expression": "parody:\"…\""
+        },
+        {
+          "description": "Character",
+          "exclusion": "-character:\"…\"",
+          "expression": "character:\"…\""
+        },
+        {
+          "description": "Group / circle",
+          "exclusion": "-group:\"…\"",
+          "expression": "group:\"…\""
+        },
+        {
+          "description": "Page count",
+          "exclusion": "-pages:N",
+          "expression": "pages:N"
+        },
+        {
+          "description": "Favorites",
+          "exclusion": "-favorites:N",
+          "expression": "favorites:N"
+        },
+        {
+          "description": "Title",
+          "exclusion": "-title:\"…\"",
+          "expression": "title:\"…\""
+        },
+        {
+          "description": "Japanese title",
+          "exclusion": "-jtitle:\"…\"",
+          "expression": "jtitle:\"…\""
+        }
+      ],
+      "examples": [
+        "tag:\"big breasts\" tag:\"full color\"",
+        "artist:\"artist name\" -tag:schoolgirl",
+        "title:\"some title\" -parody:\"series name\""
+      ],
+      "introduction": "Separate expressions with spaces to require all of them. Quote multi-word values. Prefix a whole expression with - to exclude it."
+    },
+    "queryHelp": "Combine nHentai expressions such as tag:, artist:, parody:, character:, group:, title:, and jtitle:. Quote values containing spaces and prefix an expression with - to exclude it.",
     "queryLabel": "Search tags",
     "queryPlaceholder": "big breasts",
     "requiresLanguageTag": true,

@@ -23,6 +23,17 @@ const descriptor = {
   defaultQuery: "new",
   id: "fixture-provider",
   name: "Fixture Provider",
+  queryGuide: {
+    entries: [
+      {
+        description: "Title",
+        exclusion: '-title:"…"',
+        expression: 'title:"…"',
+      },
+    ],
+    examples: ['title:"Example"'],
+    introduction: "Search fixture titles.",
+  },
   queryHelp: "Search fixture publications",
   queryLabel: "Search",
   queryPlaceholder: "Title",

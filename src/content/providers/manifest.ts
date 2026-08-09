@@ -40,6 +40,49 @@ const boundedString = (value: unknown, field: string, allowEmpty = false) => {
   return value;
 };
 
+const parseQueryGuide = (
+  value: unknown,
+  field: string,
+): NonNullable<LibraryProviderDescriptor["queryGuide"]> => {
+  const guide = requireExactKeys(
+    value,
+    ["entries", "examples", "introduction"],
+    [],
+    field,
+  );
+  if (
+    !Array.isArray(guide.entries) ||
+    guide.entries.length === 0 ||
+    guide.entries.length > 20
+  )
+    throw new Error(`${field}.entries must contain 1-20 entries`);
+  if (!Array.isArray(guide.examples) || guide.examples.length > 10)
+    throw new Error(`${field}.examples must contain at most 10 examples`);
+  return {
+    entries: guide.entries.map((value, index) => {
+      const entryField = `${field}.entries[${index}]`;
+      const entry = requireExactKeys(
+        value,
+        ["description", "exclusion", "expression"],
+        [],
+        entryField,
+      );
+      return {
+        description: boundedString(
+          entry.description,
+          `${entryField}.description`,
+        ),
+        exclusion: boundedString(entry.exclusion, `${entryField}.exclusion`),
+        expression: boundedString(entry.expression, `${entryField}.expression`),
+      };
+    }),
+    examples: guide.examples.map((example, index) =>
+      boundedString(example, `${field}.examples[${index}]`),
+    ),
+    introduction: boundedString(guide.introduction, `${field}.introduction`),
+  };
+};
+
 export const parseLibraryProviderDescriptor = (
   value: unknown,
   field = "descriptor",
@@ -59,7 +102,7 @@ export const parseLibraryProviderDescriptor = (
       "requiresLanguageTag",
       "summary",
     ],
-    [],
+    ["queryGuide"],
     field,
   );
   const contentKinds = descriptor.contentKinds;
@@ -112,6 +155,14 @@ export const parseLibraryProviderDescriptor = (
     defaultQuery,
     id,
     name: boundedString(descriptor.name, `${field}.name`),
+    ...(descriptor.queryGuide === undefined
+      ? {}
+      : {
+          queryGuide: parseQueryGuide(
+            descriptor.queryGuide,
+            `${field}.queryGuide`,
+          ),
+        }),
     queryHelp: boundedString(descriptor.queryHelp, `${field}.queryHelp`),
     queryLabel: boundedString(descriptor.queryLabel, `${field}.queryLabel`),
     queryPlaceholder: boundedString(

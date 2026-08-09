@@ -6,6 +6,18 @@ import type {
 
 export const LIBRARY_PROVIDER_API_VERSION = 1 as const;
 
+export interface LibraryProviderQueryGuideEntry {
+  description: string;
+  exclusion: string;
+  expression: string;
+}
+
+export interface LibraryProviderQueryGuide {
+  entries: readonly LibraryProviderQueryGuideEntry[];
+  examples: readonly string[];
+  introduction: string;
+}
+
 export interface LibraryProviderDescriptor {
   contentKinds: readonly PublicationKind[];
   defaultBlockedTags: readonly string[];
@@ -13,6 +25,7 @@ export interface LibraryProviderDescriptor {
   defaultQuery: string;
   id: string;
   name: string;
+  queryGuide?: LibraryProviderQueryGuide;
   queryHelp: string;
   queryLabel: string;
   queryPlaceholder: string;

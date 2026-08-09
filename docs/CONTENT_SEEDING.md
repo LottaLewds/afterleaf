@@ -38,6 +38,65 @@ bun run content:sync:nhentai \
 
 No tag is blocked unless supplied with `--blocked-tags`.
 
+### nHentai search expressions
+
+The **Fetch more** dialog and `--query` accept nHentai search expressions.
+Separate expressions with spaces to combine them, and quote values containing
+spaces. Prefix any expression with `-` to exclude its matches instead of
+requiring them.
+
+The expressions most useful for Afterleaf acquisition are:
+
+| Include expression           | Exclude expression            | Filter                        |
+| ---------------------------- | ----------------------------- | ----------------------------- |
+| `tag:"full color"`           | `-tag:"full color"`           | Tag                           |
+| `artist:"artist name"`       | `-artist:"artist name"`       | Artist                        |
+| `parody:"series name"`       | `-parody:"series name"`       | Parody or source series       |
+| `character:"character name"` | `-character:"character name"` | Character                     |
+| `group:"group name"`         | `-group:"group name"`         | Group or circle               |
+| `pages:20`                   | `-pages:20`                   | Page count (`N`)              |
+| `favorites:1000`             | `-favorites:1000`             | Favorites count (`N`)         |
+| `title:"some title"`         | `-title:"some title"`         | English or display title text |
+| `jtitle:"Japanese title"`    | `-jtitle:"Japanese title"`    | Japanese title text           |
+
+nHentai also accepts the following expressions, but Afterleaf normally does
+not need them:
+
+| Include expression   | Exclude expression    | Filter                    | Why it is usually redundant                                                                             |
+| -------------------- | --------------------- | ------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `language:english`   | `-language:english`   | Language                  | The fetch dialog already selects allowed languages, and the importer validates every result's language. |
+| `category:doujinshi` | `-category:doujinshi` | Category                  | This provider is registered for doujinshi acquisition.                                                  |
+| `uploaded:30d`       | `-uploaded:30d`       | Upload age in days (`Nd`) | Afterleaf requests newest-first results and stops at its configured search-page limit.                  |
+
+For example, require two tags:
+
+```text
+tag:"big breasts" tag:"full color"
+```
+
+Search a title while excluding a tag and language:
+
+```text
+title:"some title" -tag:schoolgirl -language:chinese
+```
+
+Combine creator and publication filters:
+
+```text
+artist:"artist name" character:"character name" -parody:"series name"
+```
+
+Search Japanese title text with count filters:
+
+```text
+jtitle:"Japanese title" pages:20 favorites:1000
+```
+
+The leading `-` belongs before the whole expression (`-tag:schoolgirl`, not
+`tag:-schoolgirl`). Afterleaf passes expressions containing `:` through to the
+provider. Plain input without `:` is normalized as one tag, so use explicit
+prefixes when combining fields.
+
 The sync uses nhentai's current public API v2 and a descriptive default
 user-agent. If Cloudflare rejects an API request, a local
 [FlareSolverr](https://github.com/FlareSolverr/FlareSolverr) instance can provide
