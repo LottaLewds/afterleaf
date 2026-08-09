@@ -4,10 +4,17 @@ import {
   findAdjacentShelfBook,
   findSpineShelfBookAtOffset,
   insertSpineShelfBook,
+  spineShelfBookNormalOffset,
 } from "~/game/shelfPlacement";
 
 describe("spine shelf targeting", () => {
-  test("gives a thin spine a practical minimum target width", () => {
+  test("keeps every book's rear edge on the shelf back plane", () => {
+    expect(spineShelfBookNormalOffset(0.5, 0.5)).toBeCloseTo(-0.25);
+    expect(spineShelfBookNormalOffset(1.1, 0.5)).toBeCloseTo(0.05);
+    expect(spineShelfBookNormalOffset(0.35, 0.5)).toBeCloseTo(-0.325);
+  });
+
+  test("gives a thin spine a practical minimum pointer target", () => {
     const books = [{center: 0, id: "thin", width: 0.04}];
 
     expect(findSpineShelfBookAtOffset(books, 0.08, 0.18)?.id).toBe("thin");

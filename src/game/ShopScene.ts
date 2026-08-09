@@ -120,6 +120,7 @@ import {
 import {
   findAdjacentShelfBook,
   insertSpineShelfBook,
+  spineShelfBookNormalOffset,
   type ShelfPresentation,
   type SpineShelfPlacement,
 } from "~/game/shelfPlacement";
@@ -208,6 +209,8 @@ const FACE_OUT_SHELF_INSET = 0.1;
 const SHOP_PLAYER_START_X = 0;
 const SHOP_PLAYER_START_Z = 25;
 const SPINE_SHELF_GAP = 0.018;
+const SPINE_SHELF_FRONT_OFFSET = 0.57;
+const TELEVISION_TABLE_SHELF_BACK_INSET = 0.91;
 const HELD_BOOK_STACK_GAP = 0.012;
 const HELD_BOOK_FAN_X_SPACING = 0.105;
 const HELD_BOOK_FAN_Y_SPACING = 0.008;
@@ -353,6 +356,7 @@ type ReadingFurnitureMaterials = Record<
 
 type SpineShelfDefinition = {
   axis: Vector3;
+  backInset: number;
   faceInset: number;
   faceTilt: number;
   frontCenter: Vector3;
@@ -2079,6 +2083,7 @@ export class ShopScene {
       );
       this.#spineShelfDefinitions.set(shelfId, {
         axis: new Vector3(1, 0, 0),
+        backInset: 0.55,
         faceInset: FACE_DISPLAY_SHELF_INSET,
         faceTilt: -0.1,
         frontCenter,
@@ -2106,6 +2111,7 @@ export class ShopScene {
     const frontCenter = new Vector3(0, 0.2 + BOOK_HEIGHT / 2, 26.76);
     this.#spineShelfDefinitions.set(TELEVISION_TABLE_SHELF_ID, {
       axis: new Vector3(1, 0, 0),
+      backInset: TELEVISION_TABLE_SHELF_BACK_INSET,
       faceInset: 0.08,
       faceTilt: 0,
       frontCenter,
@@ -2643,12 +2649,13 @@ export class ShopScene {
           const shelfId = `${fixtureId}:${face}:${row}:${bay}`;
           const bayCenter = -length / 2 + bayWidth * (bay + 0.5);
           const frontCenter = new Vector3(
-            alongX ? x + bayCenter : x + normal * 0.57,
+            alongX ? x + bayCenter : x + normal * SPINE_SHELF_FRONT_OFFSET,
             elevation + 0.25 + row * 0.92 + BOOK_HEIGHT / 2,
-            alongX ? z + normal * 0.57 : z + bayCenter,
+            alongX ? z + normal * SPINE_SHELF_FRONT_OFFSET : z + bayCenter,
           );
           const definition: SpineShelfDefinition = {
             axis: shelfAxis,
+            backInset: SPINE_SHELF_FRONT_OFFSET - backingThickness / 2,
             faceInset: FACE_OUT_SHELF_INSET,
             faceTilt: 0,
             frontCenter,
@@ -7561,15 +7568,14 @@ export class ShopScene {
       -shelf.halfWidth + shelfWidth / 2,
       shelf.halfWidth - shelfWidth / 2,
     );
+    const normalOffset =
+      record.shelfPresentation === "face"
+        ? -record.thickness / 2 - shelf.faceInset
+        : spineShelfBookNormalOffset(record.width, shelf.backInset);
     record.shelfPosition
       .copy(shelf.frontCenter)
       .addScaledVector(shelf.axis, record.shelfOffset)
-      .addScaledVector(
-        shelf.normal,
-        record.shelfPresentation === "face"
-          ? -record.thickness / 2 - shelf.faceInset
-          : -record.width / 2,
-      );
+      .addScaledVector(shelf.normal, normalOffset);
   }
 
   #setShelfRotation(record: BookRecord, publicationId: string) {
@@ -10925,13 +10931,16 @@ export class ShopScene {
       this.#shelfSnapMesh.visible = false;
       return;
     }
+    const normalOffset =
+      selection.presentation === "face"
+        ? -shelf.faceInset
+        : spineShelfBookNormalOffset(carriedRecord.width, shelf.backInset) +
+          carriedRecord.width / 2 +
+          0.012;
     this.#shelfSnapMesh.position
       .copy(shelf.frontCenter)
       .addScaledVector(shelf.axis, selection.offset)
-      .addScaledVector(
-        shelf.normal,
-        selection.presentation === "face" ? -shelf.faceInset : 0.012,
-      );
+      .addScaledVector(shelf.normal, normalOffset);
     this.#shelfSnapMesh.rotation.set(
       selection.presentation === "face" ? shelf.faceTilt : 0,
       Math.atan2(shelf.normal.x, shelf.normal.z),

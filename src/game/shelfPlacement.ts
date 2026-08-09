@@ -24,6 +24,12 @@ export type SpineShelfBounds = {
 const safeWidth = (width: number) =>
   Number.isFinite(width) ? Math.max(0, width) : 0;
 
+/** Places a spine book so its rear edge stays on the shelf's back plane. */
+export const spineShelfBookNormalOffset = (
+  bookWidth: number,
+  backInset: number,
+) => safeWidth(bookWidth) / 2 - safeWidth(backInset);
+
 /**
  * Finds the closest spine at a shelf coordinate while giving thin books a
  * practical minimum pointer target. The visual book width remains unchanged.
