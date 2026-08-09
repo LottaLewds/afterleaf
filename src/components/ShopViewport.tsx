@@ -51,7 +51,6 @@ export type ShopViewportProps = {
   mouseSensitivity?: Accessor<number>;
   newPublicationIds?: Accessor<readonly string[]>;
   pageIndexForPublication?: (publicationId: string) => number;
-  pauseOnPointerUnlock?: Accessor<boolean>;
   publications: Accessor<readonly CatalogItem[]>;
   selectedPublicationId: Accessor<string | undefined>;
   unstuckRequest?: Accessor<number>;
@@ -168,12 +167,8 @@ export const ShopViewport = (props: ShopViewportProps) => {
           ...(props.newPublicationIds === undefined
             ? {}
             : {newPublicationIds: props.newPublicationIds}),
-          ...(props.pauseOnPointerUnlock === undefined
-            ? {}
-            : {pauseOnPointerUnlock: props.pauseOnPointerUnlock}),
           selectedPublicationId: props.selectedPublicationId,
           onGameStateChange: setGameState,
-          onPauseRequest: () => props.onOpenMenu?.(),
           onTextPaste: (text) => props.onPasteText?.(text) ?? false,
           onPageIndexChange: (publicationId, pageIndex) =>
             props.onPageIndexChange?.(publicationId, pageIndex),

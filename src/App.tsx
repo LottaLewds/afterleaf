@@ -1236,9 +1236,6 @@ const DetailPanel = (props: {
 );
 
 export const App = () => {
-  const unattendedProfiling =
-    import.meta.env.DEV &&
-    new URLSearchParams(window.location.search).get("profile") === "1";
   const bootFetchWasEnabled = loadBootFetchPreference()?.enabled === true;
   const initialControlPreferences = loadControlPreferences();
   const initialLibraryFetchPreferences = loadLibraryFetchPreferences();
@@ -1894,7 +1891,6 @@ export const App = () => {
                     pageIndexForPublication={(publicationId) =>
                       bookmarks()[publicationId] ?? 0
                     }
-                    pauseOnPointerUnlock={() => !unattendedProfiling}
                     publications={library}
                     selectedPublicationId={() => selectedItem()?.id}
                     unstuckRequest={unstuckRequest}

@@ -685,7 +685,6 @@ export type ShopSceneOptions = {
   onDiscardPublication?: (publicationId: string) => Promise<boolean>;
   onArtFrameChannelCreateRequest?: (currentChannelLabel: string) => void;
   onGameStateChange?: (snapshot: ShopGameSnapshot) => void;
-  onPauseRequest?: () => void;
   onPageIndexChange?: (publicationId: string, pageIndex: number) => void;
   onSignEditRequest?: (request: ShopSignEditRequest) => void;
   onTextPaste?: (text: string) => boolean | Promise<boolean>;
@@ -693,7 +692,6 @@ export type ShopSceneOptions = {
   selectedPublicationId: () => string | null | undefined;
   onSelectPublication: (publicationId: string) => void;
   onReady?: () => void;
-  pauseOnPointerUnlock?: () => boolean;
   paused?: () => boolean;
 };
 
@@ -1004,7 +1002,6 @@ export class ShopScene {
   readonly #onGameStateChange:
     | ((snapshot: ShopGameSnapshot) => void)
     | undefined;
-  readonly #onPauseRequest: (() => void) | undefined;
   readonly #onPageIndexChange:
     | ((publicationId: string, pageIndex: number) => void)
     | undefined;
@@ -1016,7 +1013,6 @@ export class ShopScene {
     | ((save: WorldSaveV1) => boolean | void | Promise<boolean | void>)
     | undefined;
   readonly #observedArrivalIds = new Set<string>();
-  readonly #pauseOnPointerUnlock: () => boolean;
   readonly #paused: () => boolean;
   readonly #physicsPoseEuler = new Euler();
   readonly #physicsPosePosition = new Vector3();
@@ -1283,11 +1279,9 @@ export class ShopScene {
     this.#onArtFrameChannelCreateRequest =
       options.onArtFrameChannelCreateRequest;
     this.#onGameStateChange = options.onGameStateChange;
-    this.#onPauseRequest = options.onPauseRequest;
     this.#onPageIndexChange = options.onPageIndexChange;
     this.#onSignEditRequest = options.onSignEditRequest;
     this.#onWorldSave = options.onWorldSave;
-    this.#pauseOnPointerUnlock = options.pauseOnPointerUnlock ?? (() => true);
     this.#pendingWorldSave = options.initialWorldSave;
     this.#onReady = options.onReady;
     this.#paused = options.paused ?? (() => false);
@@ -6118,16 +6112,6 @@ export class ShopScene {
     }
     this.#canvas.style.cursor = this.#pointerLocked ? "none" : "pointer";
     this.#emitGameState();
-    if (
-      wasPointerLocked &&
-      !this.#pointerLocked &&
-      !suppressPause &&
-      this.#pauseOnPointerUnlock() &&
-      this.#inspectionMode === "none" &&
-      !this.#paused() &&
-      !this.#disposed
-    )
-      this.#onPauseRequest?.();
   };
 
   readonly #handleKeyDown = (event: KeyboardEvent) => {
