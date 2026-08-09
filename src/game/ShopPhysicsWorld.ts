@@ -43,6 +43,8 @@ const PHYSICS_PROP_PREFIX = "prop:";
 const WORLD_COLLISION_GROUP = 0x0001;
 const BOOK_COLLISION_GROUP = 0x0002;
 const PLAYER_COLLISION_GROUP = 0x0004;
+const HELD_BOOK_COLLISION_GROUP = 0x0008;
+const RELEASED_BOOK_COLLISION_GROUP = 0x0010;
 const ALL_COLLISION_GROUPS = 0xffff;
 const interactionGroups = (membership: number, filter: number) =>
   ((membership << 16) | filter) >>> 0;
@@ -55,13 +57,20 @@ const DYNAMIC_BOOK_COLLISION_GROUPS = interactionGroups(
   ALL_COLLISION_GROUPS,
 );
 const HELD_BOOK_COLLISION_GROUPS = interactionGroups(
-  BOOK_COLLISION_GROUP,
-  BOOK_COLLISION_GROUP,
+  HELD_BOOK_COLLISION_GROUP,
+  WORLD_COLLISION_GROUP | PLAYER_COLLISION_GROUP | BOOK_COLLISION_GROUP,
+);
+const RELEASED_BOOK_COLLISION_GROUPS = interactionGroups(
+  RELEASED_BOOK_COLLISION_GROUP,
+  WORLD_COLLISION_GROUP | PLAYER_COLLISION_GROUP,
 );
 const GHOST_PROP_COLLISION_GROUPS = interactionGroups(BOOK_COLLISION_GROUP, 0);
 const PLAYER_COLLISION_GROUPS = interactionGroups(
   PLAYER_COLLISION_GROUP,
-  WORLD_COLLISION_GROUP | BOOK_COLLISION_GROUP,
+  WORLD_COLLISION_GROUP |
+    BOOK_COLLISION_GROUP |
+    HELD_BOOK_COLLISION_GROUP |
+    RELEASED_BOOK_COLLISION_GROUP,
 );
 const PLAYER_CAPSULE_HALF_HEIGHT =
   (SHOP_PHYSICS_PLAYER_BODY_HEIGHT - SHOP_PHYSICS_PLAYER_RADIUS * 2) * 0.5;
@@ -180,6 +189,7 @@ type BookPhysicsRecord = {
   colliderParts: readonly PhysicsPropColliderDefinition[] | undefined;
   colliders: Collider[];
   collisionlessWhileHeld: boolean;
+  releasedCollisionless: boolean;
   density: number;
   staticWhenPlaced: boolean;
   height: number;
@@ -553,6 +563,7 @@ export class ShopPhysicsWorld {
           record.density,
           held,
           record.collisionlessWhileHeld,
+          record.releasedCollisionless,
         ).setTranslation(part.position.x, part.position.y, part.position.z);
         record.colliders.push(world.createCollider(collider, body));
       }
@@ -567,6 +578,7 @@ export class ShopPhysicsWorld {
             record.density,
             held,
             record.collisionlessWhileHeld,
+            record.releasedCollisionless,
           ),
           body,
         ),
@@ -582,6 +594,7 @@ export class ShopPhysicsWorld {
     density = DEFAULT_BOOK_DENSITY,
     held = false,
     collisionlessWhileHeld = false,
+    releasedCollisionless = false,
   ) {
     return rapier.ColliderDesc.cuboid(
       width * 0.5,
@@ -593,7 +606,9 @@ export class ShopPhysicsWorld {
           ? collisionlessWhileHeld
             ? GHOST_PROP_COLLISION_GROUPS
             : HELD_BOOK_COLLISION_GROUPS
-          : DYNAMIC_BOOK_COLLISION_GROUPS,
+          : releasedCollisionless
+            ? RELEASED_BOOK_COLLISION_GROUPS
+            : DYNAMIC_BOOK_COLLISION_GROUPS,
       )
       .setDensity(density)
       .setFriction(0.82)
@@ -605,7 +620,9 @@ export class ShopPhysicsWorld {
       ? record.collisionlessWhileHeld
         ? GHOST_PROP_COLLISION_GROUPS
         : HELD_BOOK_COLLISION_GROUPS
-      : DYNAMIC_BOOK_COLLISION_GROUPS;
+      : record.releasedCollisionless
+        ? RELEASED_BOOK_COLLISION_GROUPS
+        : DYNAMIC_BOOK_COLLISION_GROUPS;
     for (const collider of record.colliders)
       collider.setCollisionGroups(collisionGroups);
   }
@@ -722,6 +739,7 @@ export class ShopPhysicsWorld {
       colliderParts,
       colliders: [],
       collisionlessWhileHeld: definition.collisionlessWhileHeld ?? false,
+      releasedCollisionless: false,
       density: definition.density ?? DEFAULT_BOOK_DENSITY,
       staticWhenPlaced,
       height: definition.height ?? SHOP_PHYSICS_BOOK_HEIGHT,
@@ -855,6 +873,7 @@ export class ShopPhysicsWorld {
               record.density,
               record.mode === "held",
               record.collisionlessWhileHeld,
+              record.releasedCollisionless,
             ),
             body,
           ),
@@ -879,6 +898,7 @@ export class ShopPhysicsWorld {
     const record = this.#books.get(publicationId);
     if (!record || record.mode === "held") return false;
     record.mode = "held";
+    record.releasedCollisionless = false;
     const body = record.body;
     if (!body) {
       copyPose(record.target, record.pose);
@@ -912,6 +932,15 @@ export class ShopPhysicsWorld {
     if (!record || record.mode !== "held") return false;
     copyPose(record.target, pose);
     record.body?.wakeUp();
+    return true;
+  }
+
+  setBookCollisionlessWithHeld(publicationId: string, collisionless: boolean) {
+    if (this.#disposed) return false;
+    const record = this.#books.get(publicationId);
+    if (!record) return false;
+    record.releasedCollisionless = collisionless;
+    if (record.mode !== "held") this.#setBookColliderHeld(record, false);
     return true;
   }
 

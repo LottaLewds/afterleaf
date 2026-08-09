@@ -1,6 +1,7 @@
 import type {ShelfPresentation} from "./shelfPlacement";
 
 export const WORLD_SAVE_SCHEMA_VERSION = 1 as const;
+export const MAX_CARRIED_BOOKS = 5;
 
 const MAX_BOOK_COUNT = 10_000;
 const MAX_IDENTIFIER_LENGTH = 512;
@@ -529,8 +530,13 @@ export const parseWorldSave = (value: unknown): WorldSaveV1 => {
   const copyIds = new Set(books.map((book) => book.copyId));
   if (copyIds.size !== books.length)
     throw new Error("World save contains duplicate copy IDs");
-  if (books.filter((book) => book.state === "carried").length > 1)
-    throw new Error("World save cannot contain multiple carried books");
+  const carriedBookCount = books.filter(
+    (book) => book.state === "carried",
+  ).length;
+  if (carriedBookCount > MAX_CARRIED_BOOKS)
+    throw new Error(
+      `World save cannot contain more than ${MAX_CARRIED_BOOKS} carried books`,
+    );
   if (
     value.pendingArrivalIds !== undefined &&
     (!Array.isArray(value.pendingArrivalIds) ||

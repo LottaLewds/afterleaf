@@ -201,7 +201,7 @@ describe("world save validation", () => {
     ).toThrow("presentation must be face or spine");
   });
 
-  test("rejects duplicate copies and multiple carried books", () => {
+  test("accepts multiple carried books and rejects more than five", () => {
     const base = saveFixture();
     expect(() =>
       parseWorldSave({...base, books: [base.books[0], base.books[0]]}),
@@ -214,7 +214,18 @@ describe("world save validation", () => {
           {...base.books[1], copyId: "carried-b", state: "carried"},
         ],
       }),
-    ).toThrow("multiple carried books");
+    ).not.toThrow();
+    expect(() =>
+      parseWorldSave({
+        ...base,
+        books: Array.from({length: 6}, (_, index) => ({
+          ...base.books[index % base.books.length],
+          copyId: `carried-${index}`,
+          shelf: undefined,
+          state: "carried" as const,
+        })),
+      }),
+    ).toThrow("more than 5 carried books");
   });
 
   test("rejects malformed or duplicate shelf signs", () => {

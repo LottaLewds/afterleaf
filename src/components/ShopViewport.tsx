@@ -254,6 +254,7 @@ export const ShopViewport = (props: ShopViewportProps) => {
     return props.publications().find((item) => item.id === publicationId)
       ?.title;
   };
+  const carriedBookCount = () => gameState().carriedBookCount ?? 1;
 
   return (
     <section
@@ -410,6 +411,9 @@ export const ShopViewport = (props: ShopViewportProps) => {
               {(title) => (
                 <p class="max-w-64 truncate border-l-2 border-[#d94c3f] bg-black/35 px-3 py-2 text-right text-[10px] text-[#d9d2c6]">
                   Carrying {title()}
+                  <Show when={carriedBookCount() > 1}>
+                    <span> (+{carriedBookCount() - 1} more)</span>
+                  </Show>
                 </p>
               )}
             </Show>
