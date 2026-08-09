@@ -271,7 +271,7 @@ const commitPublication = async (
   publicationDirectory: string,
 ) => {
   if (!(await fileExists(publicationDirectory))) {
-    await rename(stagingDirectory, publicationDirectory);
+    await replaceDirectoryOnWindows(stagingDirectory, publicationDirectory);
     return "added" as const;
   }
   const backupDirectory = `${publicationDirectory}.backup-${randomUUID()}`;
