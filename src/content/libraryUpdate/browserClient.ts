@@ -426,6 +426,7 @@ export const saveLibraryConfig = async (
 
 export type LibraryDirectoryEntry = {name: string; path: string};
 export type LibraryDirectoryListing = {
+  drives: readonly LibraryDirectoryEntry[];
   entries: readonly LibraryDirectoryEntry[];
   parent?: string;
   path: string;
@@ -455,9 +456,10 @@ export const browseLibraryLocation = async (
       response.status,
     );
   const listing = value as {
+    drives?: LibraryDirectoryEntry[];
     entries: LibraryDirectoryEntry[];
     parent?: string;
     path: string;
   };
-  return listing;
+  return {...listing, drives: listing.drives ?? []};
 };

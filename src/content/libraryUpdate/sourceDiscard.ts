@@ -124,11 +124,13 @@ export const discardManagedPublicationSources = async (
   );
   const managedMediaDirectories = [
     managedSourceDirectory,
-    ...configuredMediaPaths.filter(
-      (path) =>
-        path !== resolvedWorkingDirectory &&
-        pathIsWithin(resolvedWorkingDirectory, path),
-    ),
+    ...configuredMediaPaths
+      .map(({path}) => path)
+      .filter(
+        (path) =>
+          path !== resolvedWorkingDirectory &&
+          pathIsWithin(resolvedWorkingDirectory, path),
+      ),
   ];
   const matches = (
     await Promise.all(

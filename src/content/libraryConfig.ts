@@ -5,21 +5,30 @@ import {extname, resolve} from "node:path";
 export const LIBRARY_CONFIG_FILE_NAME = "afterleaf.library.json";
 
 const PATH_PROPERTIES = [
+  "mangaPaths",
+  "comicPaths",
   "mediaPaths",
   "tvChannelPaths",
   "posterPaths",
   "artFramePaths",
 ] as const;
 
-type PathProperty = (typeof PATH_PROPERTIES)[number];
-
-export type AfterleafLibraryConfig = Record<PathProperty, readonly string[]>;
+export interface AfterleafLibraryConfig {
+  mangaPaths: readonly string[];
+  comicPaths: readonly string[];
+  /** @deprecated Use mangaPaths or comicPaths so reading direction is explicit. */
+  mediaPaths?: readonly string[];
+  tvChannelPaths: readonly string[];
+  posterPaths: readonly string[];
+  artFramePaths: readonly string[];
+}
 
 export const LIBRARY_CONFIG_PROPERTIES = PATH_PROPERTIES;
 
 const emptyLibraryConfig = (): AfterleafLibraryConfig => ({
   artFramePaths: [],
-  mediaPaths: [],
+  comicPaths: [],
+  mangaPaths: [],
   posterPaths: [],
   tvChannelPaths: [],
 });
@@ -49,7 +58,8 @@ const parseLibraryConfig = (
       !paths.every((path) => typeof path === "string" && path.trim().length > 0)
     )
       throw new Error(`${configPath} ${property} must be an array of paths`);
-    parsed[property] = paths;
+    if (property === "mediaPaths") parsed.mediaPaths = paths;
+    else parsed[property] = paths;
   }
   return parsed;
 };
@@ -69,18 +79,40 @@ const parseLibraryConfigText = (text: string, configPath: string) => {
 const resolveLibraryConfig = (
   workingDirectory: string,
   config: AfterleafLibraryConfig,
-): AfterleafLibraryConfig => ({
-  artFramePaths: config.artFramePaths.map((path) =>
+): AfterleafLibraryConfig => {
+  const comicPaths = config.comicPaths.map((path) =>
     resolve(workingDirectory, path),
-  ),
-  mediaPaths: config.mediaPaths.map((path) => resolve(workingDirectory, path)),
-  posterPaths: config.posterPaths.map((path) =>
+  );
+  const mangaPaths = config.mangaPaths.map((path) =>
     resolve(workingDirectory, path),
-  ),
-  tvChannelPaths: config.tvChannelPaths.map((path) =>
-    resolve(workingDirectory, path),
-  ),
-});
+  );
+  const comicPathSet = new Set(comicPaths);
+  const conflictingPath = mangaPaths.find((path) => comicPathSet.has(path));
+  if (conflictingPath)
+    throw new Error(
+      `${conflictingPath} cannot be configured as both a comic and manga path`,
+    );
+  return {
+    artFramePaths: config.artFramePaths.map((path) =>
+      resolve(workingDirectory, path),
+    ),
+    comicPaths,
+    mangaPaths,
+    ...(config.mediaPaths === undefined
+      ? {}
+      : {
+          mediaPaths: config.mediaPaths.map((path) =>
+            resolve(workingDirectory, path),
+          ),
+        }),
+    posterPaths: config.posterPaths.map((path) =>
+      resolve(workingDirectory, path),
+    ),
+    tvChannelPaths: config.tvChannelPaths.map((path) =>
+      resolve(workingDirectory, path),
+    ),
+  };
+};
 
 export const writeAfterleafLibraryConfig = async (
   workingDirectory: string,
@@ -88,6 +120,7 @@ export const writeAfterleafLibraryConfig = async (
 ) => {
   const configPath = resolve(workingDirectory, LIBRARY_CONFIG_FILE_NAME);
   const parsed = parseLibraryConfig(config, configPath);
+  resolveLibraryConfig(workingDirectory, parsed);
   const temporaryPath = `${configPath}.staging-${process.pid}-${Date.now()}`;
   await writeFile(
     temporaryPath,

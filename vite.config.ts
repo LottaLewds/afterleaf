@@ -128,6 +128,13 @@ const configuredLibraryPaths = readAfterleafLibraryConfigSync(
   import.meta.dirname,
 );
 const uniquePaths = (paths: readonly string[]) => [...new Set(paths)];
+const availableWindowsDrives = () => {
+  if (process.platform !== "win32") return [];
+  return Array.from({length: 26}, (_, index) => {
+    const name = `${String.fromCharCode(65 + index)}:`;
+    return {name, path: `${name}\\`};
+  }).filter((drive) => existsSync(drive.path));
+};
 const tvChannelsDirectory = path.resolve(
   import.meta.dirname,
   "content/channels",
@@ -199,9 +206,13 @@ const readBoundedWorldSaveBody = (request: IncomingMessage) =>
     });
   });
 
-const unavailableBookPathsAtStartup = await unavailableLibraryPaths(
-  configuredLibraryPaths.mediaPaths,
-);
+const configuredBookPaths = [
+  ...configuredLibraryPaths.comicPaths,
+  ...configuredLibraryPaths.mangaPaths,
+  ...(configuredLibraryPaths.mediaPaths ?? []),
+];
+const unavailableBookPathsAtStartup =
+  await unavailableLibraryPaths(configuredBookPaths);
 if (unavailableBookPathsAtStartup.length > 0)
   console.warn(
     `\x1b[31m[afterleaf] ${unavailableBookPathsAtStartup.length} configured book ${unavailableBookPathsAtStartup.length === 1 ? "path is" : "paths are"} unavailable. Library scans are locked to protect the current catalog:\n${unavailableBookPathsAtStartup.join("\n")}\x1b[0m`,
@@ -797,6 +808,7 @@ const localLibraryOperationsPlugin = (): Plugin => ({
           sendJson(response, 200, {
             ok: true,
             path: directory,
+            drives: availableWindowsDrives(),
             parent:
               path.dirname(directory) === directory
                 ? undefined
@@ -848,7 +860,11 @@ const localLibraryOperationsPlugin = (): Plugin => ({
         sendJson(response, 200, {
           ok: true,
           unavailableBookPathCount: (
-            await unavailableLibraryPaths(currentLibraryPaths.mediaPaths)
+            await unavailableLibraryPaths([
+              ...currentLibraryPaths.comicPaths,
+              ...currentLibraryPaths.mangaPaths,
+              ...(currentLibraryPaths.mediaPaths ?? []),
+            ])
           ).length,
         });
         return;

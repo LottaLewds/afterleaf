@@ -21,9 +21,13 @@ const DEFAULT_MEDIA_PATHS = [
   "content-sources/catalog",
 ] as const;
 
-interface ConfiguredMediaPath {
-  optional: boolean;
+interface ConfiguredMediaRoot {
   path: string;
+  readingDirection?: "ltr" | "rtl";
+}
+
+interface ConfiguredMediaPath extends ConfiguredMediaRoot {
+  optional: boolean;
   protectsExistingLibrary: boolean;
 }
 
@@ -35,9 +39,21 @@ export interface LocalMediaImportResult {
   mediaPaths: string[];
 }
 
-export const configuredLibraryMediaPaths = async (workingDirectory: string) => {
+export const configuredLibraryMediaPaths = async (
+  workingDirectory: string,
+): Promise<readonly ConfiguredMediaRoot[]> => {
   const config = await readAfterleafLibraryConfig(workingDirectory);
-  return config.mediaPaths;
+  return [
+    ...config.comicPaths.map((path) => ({
+      path,
+      readingDirection: "ltr" as const,
+    })),
+    ...config.mangaPaths.map((path) => ({
+      path,
+      readingDirection: "rtl" as const,
+    })),
+    ...(config.mediaPaths?.map((path) => ({path})) ?? []),
+  ];
 };
 
 export class UnavailableLibraryMediaPathsError extends Error {
@@ -56,18 +72,19 @@ const uniqueMediaPaths = (paths: readonly ConfiguredMediaPath[]) => {
   const unique = new Map<string, ConfiguredMediaPath>();
   for (const mediaPath of paths) {
     const existing = unique.get(mediaPath.path);
-    unique.set(
-      mediaPath.path,
-      existing
-        ? {
-            optional: existing.optional && mediaPath.optional,
-            path: mediaPath.path,
-            protectsExistingLibrary:
-              existing.protectsExistingLibrary ||
-              mediaPath.protectsExistingLibrary,
-          }
-        : mediaPath,
-    );
+    if (!existing) {
+      unique.set(mediaPath.path, mediaPath);
+      continue;
+    }
+    const readingDirection =
+      existing.readingDirection ?? mediaPath.readingDirection;
+    unique.set(mediaPath.path, {
+      optional: existing.optional && mediaPath.optional,
+      path: mediaPath.path,
+      protectsExistingLibrary:
+        existing.protectsExistingLibrary || mediaPath.protectsExistingLibrary,
+      ...(readingDirection === undefined ? {} : {readingDirection}),
+    });
   }
   return [...unique.values()];
 };
@@ -149,10 +166,13 @@ export const importLocalMedia = async (
       path,
       protectsExistingLibrary: false,
     })),
-    ...configMediaPaths.map((path) => ({
+    ...configMediaPaths.map((entry) => ({
       optional: true,
-      path,
-      protectsExistingLibrary: !defaultMediaPathSet.has(path),
+      path: entry.path,
+      protectsExistingLibrary: !defaultMediaPathSet.has(entry.path),
+      ...(entry.readingDirection === undefined
+        ? {}
+        : {readingDirection: entry.readingDirection}),
     })),
     ...cliMediaPaths.map((path) => ({
       optional: false,
@@ -169,9 +189,9 @@ export const importLocalMedia = async (
     throw new UnavailableLibraryMediaPathsError(unavailableProtectedPaths);
 
   const catalogDirectories: string[] = [];
-  const availableMediaPaths: string[] = [];
   const availableMedia: Array<{
     path: string;
+    readingDirection?: "ltr" | "rtl";
     stat: Awaited<ReturnType<typeof stat>>;
   }> = [];
   let imageFolderPreparedCount = 0;
@@ -199,8 +219,13 @@ export const importLocalMedia = async (
         `Library media path is not a file or folder: ${mediaPath.path}`,
       );
 
-    availableMediaPaths.push(mediaPath.path);
-    availableMedia.push({path: mediaPath.path, stat: mediaStat});
+    availableMedia.push({
+      path: mediaPath.path,
+      ...(mediaPath.readingDirection === undefined
+        ? {}
+        : {readingDirection: mediaPath.readingDirection}),
+      stat: mediaStat,
+    });
   }
 
   for (const mediaPath of availableMedia) {
@@ -213,13 +238,19 @@ export const importLocalMedia = async (
       rootDirectory: mediaPath.path,
       tags: [],
       write: true,
+      ...(mediaPath.readingDirection === undefined
+        ? {}
+        : {readingDirection: mediaPath.readingDirection}),
     });
     imageFolderPreparedCount += folderReport.preparedCount;
     catalogDirectories.push(mediaPath.path);
   }
 
   const archiveReport = await importContentArchives({
-    archivePaths: availableMediaPaths,
+    archivePaths: availableMedia.map(({path, readingDirection}) => ({
+      path,
+      ...(readingDirection === undefined ? {} : {readingDirection}),
+    })),
     archivesDirectory: defaultArchiveDirectory,
     defaultLanguage: "english",
     force: false,

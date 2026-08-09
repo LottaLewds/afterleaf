@@ -147,3 +147,29 @@ test("prepareLocalCatalog writes natural page order and skips Chinese folders", 
   );
   expect(japaneseManifest.physical?.readingDirection).toBeUndefined();
 });
+
+test("prepareLocalCatalog removes a configured reading direction on refresh", async () => {
+  const root = await mkdtemp(join(tmpdir(), "afterleaf-prepare-direction-"));
+  temporaryDirectories.push(root);
+  const publicationDirectory = resolve(root, "Book");
+  await createImage(resolve(publicationDirectory, "001.png"), "#404040");
+  const options = {
+    defaultLanguage: "english" as const,
+    force: false,
+    refreshExisting: true,
+    rootDirectory: root,
+    tags: [],
+    write: true,
+  };
+
+  await prepareLocalCatalog({...options, readingDirection: "rtl"});
+  await prepareLocalCatalog(options);
+
+  const document = parseLocalPublicationDocument(
+    JSON.parse(
+      await readFile(resolve(publicationDirectory, "publication.json"), "utf8"),
+    ) as unknown,
+    "publication.json",
+  );
+  expect(document.physical?.readingDirection).toBeUndefined();
+});

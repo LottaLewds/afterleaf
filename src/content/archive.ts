@@ -50,8 +50,13 @@ const NATURAL_COLLATOR = new Intl.Collator("en-US", {
 const FRONT_SOURCE_FILE = "front.webp";
 const BACK_SOURCE_FILE = "back.webp";
 
+export interface ArchivePath {
+  path: string;
+  readingDirection?: "ltr" | "rtl";
+}
+
 export interface ArchiveImportOptions {
-  archivePaths?: readonly string[];
+  archivePaths?: readonly (string | ArchivePath)[];
   archivesDirectory: string;
   defaultLanguage: SupportedLanguage;
   force: boolean;
@@ -146,6 +151,7 @@ const DIRECTION_DIRECTORIES = {
 const findArchives = async (
   archivesDirectory: string,
   diagnostics: ArchiveImportDiagnostic[],
+  configuredReadingDirection?: "ltr" | "rtl",
 ) => {
   const archives: DiscoveredArchive[] = [];
   const scanDirectory = async (
@@ -194,9 +200,12 @@ const findArchives = async (
       archives.push({
         archiveName: basename(archivesDirectory),
         archivePath: archivesDirectory,
+        ...(configuredReadingDirection === undefined
+          ? {}
+          : {readingDirection: configuredReadingDirection}),
       });
     } else if (sourceStat.isDirectory()) {
-      await scanDirectory(archivesDirectory, "", undefined);
+      await scanDirectory(archivesDirectory, "", configuredReadingDirection);
     }
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
@@ -402,12 +411,19 @@ export const importContentArchives = async (
   const archivesDirectory = resolve(options.archivesDirectory);
   const outputDirectory = resolve(options.outputDirectory);
   const diagnostics: ArchiveImportDiagnostic[] = [];
-  const archivePaths = options.archivePaths?.map((path) => resolve(path)) ?? [
-    archivesDirectory,
-  ];
+  const archivePaths = options.archivePaths ?? [archivesDirectory];
   const archives: DiscoveredArchive[] = [];
-  for (const archivePath of archivePaths)
-    archives.push(...(await findArchives(archivePath, diagnostics)));
+  for (const archiveEntry of archivePaths) {
+    const archivePath =
+      typeof archiveEntry === "string" ? {path: archiveEntry} : archiveEntry;
+    archives.push(
+      ...(await findArchives(
+        resolve(archivePath.path),
+        diagnostics,
+        archivePath.readingDirection,
+      )),
+    );
+  }
   archives.sort((left, right) =>
     NATURAL_COLLATOR.compare(left.archiveName, right.archiveName),
   );

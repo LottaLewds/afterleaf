@@ -1,7 +1,8 @@
 import {afterEach, describe, expect, test} from "bun:test";
-import {mkdir, mkdtemp, rm, writeFile} from "node:fs/promises";
+import {mkdir, mkdtemp, readFile, rm, writeFile} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {resolve} from "node:path";
+import {zipSync} from "fflate";
 import sharp from "sharp";
 
 import {
@@ -36,7 +37,8 @@ describe("Afterleaf library config", () => {
 
     expect(await readAfterleafLibraryConfig(root)).toEqual({
       artFramePaths: [],
-      mediaPaths: [],
+      comicPaths: [],
+      mangaPaths: [],
       posterPaths: [],
       tvChannelPaths: [],
     });
@@ -48,7 +50,8 @@ describe("Afterleaf library config", () => {
       resolve(root, "afterleaf.library.json"),
       JSON.stringify({
         artFramePaths: ["external/art"],
-        mediaPaths: ["external/books"],
+        comicPaths: ["external/comics"],
+        mangaPaths: ["external/manga"],
         posterPaths: ["external/posters"],
         tvChannelPaths: ["external/tv"],
       }),
@@ -56,7 +59,8 @@ describe("Afterleaf library config", () => {
 
     const expected = {
       artFramePaths: [resolve(root, "external/art")],
-      mediaPaths: [resolve(root, "external/books")],
+      comicPaths: [resolve(root, "external/comics")],
+      mangaPaths: [resolve(root, "external/manga")],
       posterPaths: [resolve(root, "external/posters")],
       tvChannelPaths: [resolve(root, "external/tv")],
     };
@@ -76,6 +80,47 @@ describe("Afterleaf library config", () => {
     await expect(readAfterleafLibraryConfig(root)).rejects.toThrow(
       "posterPaths must be an array of paths",
     );
+  });
+
+  test("rejects paths configured as both comics and manga", async () => {
+    const root = await createRoot();
+    await writeFile(
+      resolve(root, "afterleaf.library.json"),
+      JSON.stringify({
+        comicPaths: ["external/books"],
+        mangaPaths: ["external/other/../books"],
+      }),
+    );
+
+    await expect(readAfterleafLibraryConfig(root)).rejects.toThrow(
+      "cannot be configured as both a comic and manga path",
+    );
+  });
+
+  test("applies the configured manga direction to archive books", async () => {
+    const root = await createRoot();
+    const mangaPath = resolve(root, "manga");
+    await writeFile(
+      resolve(root, "afterleaf.library.json"),
+      JSON.stringify({mangaPaths: ["manga"]}),
+    );
+    await mkdir(mangaPath, {recursive: true});
+    const page = await sharp({
+      create: {background: "#446688", channels: 3, height: 96, width: 64},
+    })
+      .png()
+      .toBuffer();
+    await writeFile(resolve(mangaPath, "Book.cbz"), zipSync({"001.png": page}));
+
+    await importLocalMedia(root, resolve(root, "content-sources/catalog"));
+
+    const document = JSON.parse(
+      await readFile(
+        resolve(root, "content-sources/catalog/Book/publication.json"),
+        "utf8",
+      ),
+    ) as {physical?: {readingDirection?: string}};
+    expect(document.physical?.readingDirection).toBe("rtl");
   });
 
   test("locks a scan while a configured book path is unavailable", async () => {

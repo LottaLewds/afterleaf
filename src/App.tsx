@@ -7,6 +7,7 @@ import {
   FiClock,
   FiCrosshair,
   FiDownload,
+  FiFolder,
   FiGrid,
   FiLock,
   FiMapPin,
@@ -24,6 +25,7 @@ import {
 import {
   For,
   Suspense,
+  batch,
   createEffect,
   createResource,
   lazy,
@@ -57,6 +59,7 @@ import {
   saveLibraryConfig,
   type LocalLibraryJob,
   type LocalLibrarySnapshotResult,
+  type LibraryDirectoryListing,
 } from "~/content/libraryUpdate/browserClient";
 import {findBlacklistedTagMatches} from "~/content/libraryUpdate/tagPurge";
 import {
@@ -428,46 +431,166 @@ const TagBlacklistControl = (props: {
   );
 };
 
+type AdditionalLocationKind =
+  | "mangaPaths"
+  | "comicPaths"
+  | "mediaPaths"
+  | "posterPaths"
+  | "tvChannelPaths"
+  | "artFramePaths";
+
 const AdditionalLocationsControl = (props: {
   config: AfterleafLibraryConfig;
   onChange: (config: AfterleafLibraryConfig) => void;
 }) => {
-  const [kind, setKind] =
-    createSignal<keyof AfterleafLibraryConfig>("mediaPaths");
-  const [listing, setListing] = createSignal<{
-    entries: readonly {name: string; path: string}[];
-    parent?: string;
-    path: string;
-  }>();
+  const [kind, setKind] = createSignal<AdditionalLocationKind>("comicPaths");
+  const [listing, setListing] = createSignal<LibraryDirectoryListing>();
   const [browserOpen, setBrowserOpen] = createSignal(false);
   const [browserError, setBrowserError] = createSignal("");
-  const labels: Record<keyof AfterleafLibraryConfig, string> = {
-    mediaPaths: "Books",
+  const [browserPending, setBrowserPending] = createSignal(false);
+  const [confirmedPathInput, setConfirmedPathInput] = createSignal("");
+  const [pathInput, setPathInput] = createSignal("");
+  let browseRequest = 0;
+  let browseTimer: ReturnType<typeof setTimeout> | undefined;
+  const labels: Record<AdditionalLocationKind, string> = {
+    artFramePaths: "Art frames",
+    comicPaths: "Comics",
+    mangaPaths: "Manga",
+    mediaPaths: "Books (legacy)",
     posterPaths: "Posters",
     tvChannelPaths: "TV",
-    artFramePaths: "Art frames",
   };
-  const openBrowser = async (directory?: string) => {
+  const locationKeys = Object.keys(labels) as AdditionalLocationKind[];
+  const selectableLocationKeys = locationKeys.filter(
+    (key) => key !== "mediaPaths",
+  );
+  const bookLocationKeys = ["comicPaths", "mangaPaths", "mediaPaths"] as const;
+  const locationsFor = (key: AdditionalLocationKind) => props.config[key] ?? [];
+  const withBookLocation = (
+    config: AfterleafLibraryConfig,
+    key: AdditionalLocationKind,
+    path: string,
+  ) => {
+    if (!bookLocationKeys.includes(key as (typeof bookLocationKeys)[number]))
+      return config;
+    const nextConfig = {...config};
+    for (const bookKey of bookLocationKeys)
+      if (bookKey !== key)
+        nextConfig[bookKey] = (config[bookKey] ?? []).filter(
+          (entry) => entry !== path,
+        );
+    return nextConfig;
+  };
+  const matchingEntries = createMemo(() => {
+    const current = listing();
+    if (!current) return [];
+    const input = pathInput().trim();
+    if (input === current.path || /[\\/]$/u.test(input)) return current.entries;
+    const separatorIndex = Math.max(
+      input.lastIndexOf("/"),
+      input.lastIndexOf("\\"),
+    );
+    const fragment = input.slice(separatorIndex + 1).toLocaleLowerCase();
+    if (!fragment) return current.entries;
+    const rank = (entry: (typeof current.entries)[number]) => {
+      const name = entry.name.toLocaleLowerCase();
+      if (name.startsWith(fragment)) return 0;
+      if (name.includes(fragment)) return 1;
+      return 2;
+    };
+    return current.entries.toSorted((left, right) => rank(left) - rank(right));
+  });
+  const moveLocation = (
+    from: AdditionalLocationKind,
+    path: string,
+    to: AdditionalLocationKind,
+  ) => {
+    if (from === to) return;
+    const nextConfig = withBookLocation(props.config, to, path);
+    nextConfig[from] = locationsFor(from).filter((entry) => entry !== path);
+    const targetLocations = locationsFor(to);
+    nextConfig[to] = targetLocations.includes(path)
+      ? targetLocations
+      : [...targetLocations, path];
+    props.onChange(nextConfig);
+  };
+  const openBrowser = async (
+    directory?: string,
+    options: {
+      preserveTrailingSeparator?: boolean;
+      reportError?: boolean;
+    } = {},
+  ) => {
+    const request = ++browseRequest;
+    if (browseTimer) clearTimeout(browseTimer);
+    browseTimer = undefined;
     setBrowserError("");
+    setBrowserPending(true);
     try {
-      setListing(await browseLibraryLocation(directory));
-      setBrowserOpen(true);
+      const nextListing = await browseLibraryLocation(directory);
+      if (request !== browseRequest) return;
+      const displayedPath =
+        options.preserveTrailingSeparator &&
+        directory &&
+        /[\\/]$/u.test(directory)
+          ? directory
+          : nextListing.path;
+      batch(() => {
+        setListing(nextListing);
+        setPathInput(displayedPath);
+        setConfirmedPathInput(displayedPath);
+        setBrowserOpen(true);
+      });
     } catch (error) {
+      if (request !== browseRequest || options.reportError === false) return;
       setBrowserError(
         error instanceof Error ? error.message : "Could not browse that folder",
       );
+    } finally {
+      if (request === browseRequest) setBrowserPending(false);
     }
   };
+  const navigateToPath = () => {
+    const path = pathInput().trim();
+    if (!path) return;
+    void openBrowser(path, {
+      preserveTrailingSeparator: true,
+      reportError: false,
+    });
+  };
+  const schedulePathNavigation = () => {
+    if (browseTimer) clearTimeout(browseTimer);
+    browseRequest += 1;
+    setBrowserPending(false);
+    setBrowserError("");
+    const path = pathInput().trim();
+    if (!path) return;
+    if (path === listing()?.path) {
+      setConfirmedPathInput(path);
+      return;
+    }
+    browseTimer = setTimeout(navigateToPath, 300);
+  };
+  const canChooseCurrentFolder = () =>
+    !browserPending() && pathInput().trim() === confirmedPathInput();
+  onCleanup(() => {
+    if (browseTimer) clearTimeout(browseTimer);
+    browseRequest += 1;
+  });
   const choose = (path: string) => {
     const key = kind();
-    if (!props.config[key].includes(path))
-      props.onChange({...props.config, [key]: [...props.config[key], path]});
+    const locations = locationsFor(key);
+    if (!locations.includes(path))
+      props.onChange({
+        ...withBookLocation(props.config, key, path),
+        [key]: [...locations, path],
+      });
     setBrowserOpen(false);
   };
-  const remove = (key: keyof AfterleafLibraryConfig, path: string) =>
+  const remove = (key: AdditionalLocationKind, path: string) =>
     props.onChange({
       ...props.config,
-      [key]: props.config[key].filter((entry) => entry !== path),
+      [key]: locationsFor(key).filter((entry) => entry !== path),
     });
   return (
     <div class="border border-white/8 bg-[#151e1c] px-4 py-4 sm:px-5">
@@ -480,22 +603,10 @@ const AdditionalLocationsControl = (props: {
             Additional content locations
           </p>
           <p class="mt-1 text-[9px] leading-4 text-[#65716c]">
-            Browse folders on any mounted drive. Changes apply to the next scan.
+            Browse folders on any mounted drive. Choose a media type so the
+            location is scanned during the next refresh.
           </p>
         </div>
-        <select
-          class="bg-[#1b2422] px-2 py-2 text-[9px] text-[#c5cec9]"
-          value={kind()}
-          onChange={(event) =>
-            setKind(event.currentTarget.value as keyof AfterleafLibraryConfig)
-          }
-        >
-          <For
-            each={Object.keys(labels) as Array<keyof AfterleafLibraryConfig>}
-          >
-            {(key) => <option value={key}>{labels[key]}</option>}
-          </For>
-        </select>
         <button
           class="bg-[#ece6d8] px-3 py-2 text-[9px] font-semibold text-[#1b2321] uppercase"
           type="button"
@@ -505,14 +616,40 @@ const AdditionalLocationsControl = (props: {
         </button>
       </div>
       <div class="mt-4 space-y-2">
-        <For each={Object.keys(labels) as Array<keyof AfterleafLibraryConfig>}>
+        <For each={locationKeys}>
           {(key) => (
-            <For each={props.config[key]}>
+            <For each={locationsFor(key)}>
               {(location) => (
                 <div class="flex items-center gap-3 bg-[#0c1312] px-3 py-2">
-                  <span class="shrink-0 text-[8px] font-semibold tracking-[0.08em] text-[#d55247] uppercase">
-                    {labels[key]}
-                  </span>
+                  <select
+                    aria-label={`Media type for ${location}`}
+                    class="h-8 shrink-0 border border-white/8 bg-[#1b2422] px-2 text-[9px] text-[#c5cec9] [color-scheme:dark]"
+                    onChange={(event) =>
+                      moveLocation(
+                        key,
+                        location,
+                        event.currentTarget.value as AdditionalLocationKind,
+                      )
+                    }
+                  >
+                    <For
+                      each={
+                        key === "mediaPaths"
+                          ? locationKeys
+                          : selectableLocationKeys
+                      }
+                    >
+                      {(locationKind) => (
+                        <option
+                          class="bg-[#1b2422] text-[#f0ecdf]"
+                          selected={locationKind === key}
+                          value={locationKind}
+                        >
+                          {labels[locationKind]}
+                        </option>
+                      )}
+                    </For>
+                  </select>
                   <span
                     class="min-w-0 flex-1 truncate text-[10px] text-[#aeb8b3]"
                     title={location}
@@ -539,23 +676,81 @@ const AdditionalLocationsControl = (props: {
       <Show when={browserOpen() && listing()}>
         {(current) => (
           <div class="mt-4 border border-white/10 bg-[#0c1312] p-3">
-            <div class="flex items-center gap-2">
+            <div class="flex flex-wrap items-center gap-2">
               <button
-                class="px-2 py-1 text-[10px] text-[#d9b9a9] disabled:opacity-30"
+                class="h-8 px-2 text-[10px] text-[#d9b9a9] disabled:opacity-30"
                 disabled={!current().parent}
                 onClick={() => void openBrowser(current().parent)}
                 type="button"
               >
                 ← Up
               </button>
-              <span
-                class="min-w-0 flex-1 truncate text-[10px] text-[#c5cec9]"
-                title={current().path}
+              <Show when={current().drives.length > 1}>
+                <select
+                  aria-label="Drive"
+                  class="h-8 bg-[#1b2422] px-2 text-[10px] text-[#c5cec9] [color-scheme:dark]"
+                  value={
+                    current().drives.find((drive) =>
+                      current().path.startsWith(drive.path),
+                    )?.path
+                  }
+                  onChange={(event) =>
+                    void openBrowser(event.currentTarget.value)
+                  }
+                >
+                  <For each={current().drives}>
+                    {(drive) => (
+                      <option
+                        class="bg-[#1b2422] text-[#f0ecdf]"
+                        value={drive.path}
+                      >
+                        {drive.name}
+                      </option>
+                    )}
+                  </For>
+                </select>
+              </Show>
+              <form
+                class="h-8 min-w-48 flex-1"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  navigateToPath();
+                }}
               >
-                {current().path}
-              </span>
+                <input
+                  aria-label="Folder path"
+                  autocomplete="off"
+                  class="h-8 w-full border border-white/8 bg-[#151e1c] px-3 text-[10px] text-[#c5cec9] outline-none focus:border-[#d94c3f]/70"
+                  spellcheck={false}
+                  value={pathInput()}
+                  onInput={(event) => {
+                    setPathInput(event.currentTarget.value);
+                    schedulePathNavigation();
+                  }}
+                />
+              </form>
+              <select
+                aria-label="Media type"
+                class="h-8 border border-[#d94c3f]/35 bg-[#d94c3f]/10 px-3 text-[9px] font-semibold text-[#e4a098] uppercase [color-scheme:dark] outline-none"
+                onChange={(event) =>
+                  setKind(event.currentTarget.value as AdditionalLocationKind)
+                }
+              >
+                <For each={selectableLocationKeys}>
+                  {(key) => (
+                    <option
+                      class="bg-[#1b2422] text-[#f0ecdf]"
+                      selected={key === kind()}
+                      value={key}
+                    >
+                      {labels[key]}
+                    </option>
+                  )}
+                </For>
+              </select>
               <button
-                class="bg-[#d94c3f] px-3 py-2 text-[9px] font-semibold text-white uppercase"
+                class="h-8 bg-[#d94c3f] px-3 text-[9px] font-semibold text-white uppercase disabled:cursor-not-allowed disabled:opacity-35"
+                disabled={!canChooseCurrentFolder()}
                 onClick={() => choose(current().path)}
                 type="button"
               >
@@ -563,17 +758,23 @@ const AdditionalLocationsControl = (props: {
               </button>
             </div>
             <div class="mt-3 max-h-56 overflow-y-auto border-t border-white/8 pt-2">
-              <For each={current().entries}>
+              <For each={matchingEntries()}>
                 {(entry) => (
                   <button
-                    class="block w-full truncate px-2 py-2 text-left text-[10px] text-[#aeb8b3] hover:bg-white/5 hover:text-white"
+                    class="flex w-full items-center gap-2 px-2 py-2 text-left text-[10px] text-[#aeb8b3] hover:bg-white/5 hover:text-white"
                     onClick={() => void openBrowser(entry.path)}
                     type="button"
                   >
-                    📁 {entry.name}
+                    <FiFolder class="shrink-0" size={12} />
+                    <span class="truncate">{entry.name}</span>
                   </button>
                 )}
               </For>
+              <Show when={browserPending()}>
+                <p class="px-2 py-2 text-[9px] text-[#65716c]">
+                  Opening folder…
+                </p>
+              </Show>
             </div>
           </div>
         )}
@@ -1308,7 +1509,8 @@ export const App = () => {
   const [libraryConfig, setLibraryConfig] =
     createSignal<AfterleafLibraryConfig>({
       artFramePaths: [],
-      mediaPaths: [],
+      comicPaths: [],
+      mangaPaths: [],
       posterPaths: [],
       tvChannelPaths: [],
     });
@@ -2014,9 +2216,11 @@ export const App = () => {
                 <FiAlertTriangle class="mt-0.5 shrink-0" size={16} />
                 <p class="text-[11px] leading-5">
                   {count()} configured book{" "}
-                  {count() === 1 ? "path is" : "paths are"}
-                  unavailable. Library updates are locked so the current books
-                  cannot be removed. Remount the missing storage to continue.
+                  {count() === 1 ? "path is" : "paths are"} unavailable. Library
+                  updates are locked so the current books cannot be removed.
+                  Remount the missing storage to continue. Unlike TV, poster,
+                  and art-frame paths, each configured book path must contain at
+                  least one supported archive, image, or publication.json file.
                 </p>
               </aside>
             )}

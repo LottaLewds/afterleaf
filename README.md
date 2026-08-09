@@ -319,11 +319,13 @@ the page is read. Recent converted pages share a bounded 128 MiB memory cache.
 
 Edit `afterleaf.library.json` beside this README to add content stored elsewhere.
 Every property is an array accepting zero or more paths, and every configured
-path is additive to its default repo folder:
+path is additive to its default repo folder. Put books in `comicPaths` or
+`mangaPaths` to set their reading direction:
 
 ```json
 {
-  "mediaPaths": ["/mnt/d/Comics", "/mnt/e/Manga/Single Book.cbr"],
+  "comicPaths": ["/mnt/d/Comics"],
+  "mangaPaths": ["/mnt/e/Manga"],
   "tvChannelPaths": ["/mnt/d/Afterleaf/TV"],
   "posterPaths": ["/mnt/d/Afterleaf/Posters"],
   "artFramePaths": ["/mnt/d/Afterleaf/Art Frames"]
@@ -337,21 +339,23 @@ gitignored so machine-specific paths are not committed:
 cp afterleaf.library.example.json afterleaf.library.json
 ```
 
-| Property         | Default repo content                          |
-| ---------------- | --------------------------------------------- |
-| `mediaPaths`     | `content/books` and `content-sources/catalog` |
-| `tvChannelPaths` | `content/channels`                            |
-| `posterPaths`    | `content/posters`                             |
-| `artFramePaths`  | `content/art-frames`                          |
+| Property         | Default repo content   |
+| ---------------- | ---------------------- |
+| `comicPaths`     | `content/books/comics` |
+| `mangaPaths`     | `content/books/manga`  |
+| `tvChannelPaths` | `content/channels`     |
+| `posterPaths`    | `content/posters`      |
+| `artFramePaths`  | `content/art-frames`   |
 
-Each `mediaPaths` entry may point to:
+Each `comicPaths` or `mangaPaths` entry may point to:
 
 - one `.cbz`, `.zip`, `.cbr`, or `.rar` file;
 - a directory containing archives at any depth; or
 - a directory containing one immediate subfolder per image-folder publication.
 
 If a configured book directory itself contains images, it is treated as one
-publication. TV and art-frame roots use the same named-channel layout as their
+publication. The old `mediaPaths` property remains accepted for migration but
+leaves direction unspecified. TV and art-frame roots use the same named-channel layout as their
 default folders; poster roots are scanned recursively. Relative paths are
 resolved from the repository root; absolute paths use the filesystem syntax of the
 runtime starting Afterleaf. For example, use `/mnt/d/...` when running Bun in
@@ -367,7 +371,7 @@ mount points whose underlying empty directory remains after an unmount.
 Remounting the path clears the warning and unlocks updates.
 
 Restart the local server after changing the configured visual-media path lists.
-After changing `mediaPaths` or its books, choose **Import & scan** again. The
+After changing `comicPaths`, `mangaPaths`, or their books, choose **Import & scan** again. The
 browser receives only the number of unavailable book roots, never their
 filesystem paths.
 

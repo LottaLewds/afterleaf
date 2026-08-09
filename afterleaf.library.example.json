@@ -1,6 +1,7 @@
 {
-  "mediaPaths": [],
-  "tvChannelPaths": [],
+  "comicPaths": [],
+  "mangaPaths": [],
   "posterPaths": [],
+  "tvChannelPaths": [],
   "artFramePaths": []
 }

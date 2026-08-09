@@ -3,6 +3,7 @@ import {describe, expect, test} from "bun:test";
 import {
   BrowserLibraryOperationError,
   blacklistPublication,
+  browseLibraryLocation,
   fetchMorePublications,
   loadBlacklistedPublications,
   loadLibraryOperationStatus,
@@ -77,6 +78,48 @@ const response = (
 });
 
 describe("browser library operation client", () => {
+  test("browses an encoded folder path and exposes drive choices", async () => {
+    let requestInput: string | undefined;
+    const fetcher: LibraryOperationFetch = async (input) => {
+      requestInput = input;
+      return response({
+        drives: [
+          {name: "C:", path: "C:\\"},
+          {name: "D:", path: "D:\\"},
+        ],
+        entries: [{name: "Comics", path: "D:\\Comics"}],
+        ok: true,
+        parent: "D:\\",
+        path: "D:\\Media & Books",
+      });
+    };
+
+    await expect(
+      browseLibraryLocation("D:\\Media & Books", fetcher),
+    ).resolves.toMatchObject({
+      drives: [
+        {name: "C:", path: "C:\\"},
+        {name: "D:", path: "D:\\"},
+      ],
+      path: "D:\\Media & Books",
+    });
+    expect(requestInput).toBe(
+      "/api/library/browse?path=D%3A%5CMedia%20%26%20Books",
+    );
+  });
+
+  test("supports browse responses from servers without drive metadata", async () => {
+    const fetcher: LibraryOperationFetch = async () =>
+      response({entries: [], ok: true, path: "/media"});
+
+    await expect(browseLibraryLocation("/media", fetcher)).resolves.toEqual({
+      drives: [],
+      entries: [],
+      ok: true,
+      path: "/media",
+    });
+  });
+
   test("scans disk with an empty POST request", async () => {
     let requestInput: string | undefined;
     let requestInit: RequestInit | undefined;

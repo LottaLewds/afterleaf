@@ -92,6 +92,7 @@ export interface PreparedPublicationIdentity {
 
 export interface ContentPrepareDiagnostic {
   code:
+    | "conflicting-reading-direction"
     | "existing-manifest"
     | "inferred-magazine"
     | "missing-tags"
@@ -105,6 +106,7 @@ export interface ContentPrepareDiagnostic {
 export interface ContentPrepareOptions {
   defaultLanguage: SupportedLanguage;
   force: boolean;
+  readingDirection?: "ltr" | "rtl";
   rootDirectory: string;
   refreshExisting?: boolean;
   tags: string[];
@@ -389,9 +391,24 @@ export const prepareLocalCatalog = async (
         directory: portableDirectory,
         message: `Assigned the fallback tag "unclassified" to ${portableDirectory}`,
       });
-    const readingDirection = detectPreparedPublicationReadingDirection(
+    const filenameReadingDirection = detectPreparedPublicationReadingDirection(
       basename(publicationDirectory),
     );
+    if (
+      options.readingDirection !== undefined &&
+      filenameReadingDirection !== undefined &&
+      options.readingDirection !== filenameReadingDirection
+    ) {
+      skippedCount += 1;
+      diagnostics.push({
+        code: "conflicting-reading-direction",
+        directory: portableDirectory,
+        message: `Skipped ${portableDirectory} because its configured and filename reading-direction directives conflict`,
+      });
+      continue;
+    }
+    const readingDirection =
+      filenameReadingDirection ?? options.readingDirection;
     let document = createDocument(
       publicationDirectory,
       images,
@@ -413,9 +430,13 @@ export const prepareLocalCatalog = async (
         });
         continue;
       }
+      const readingDirectionChanged =
+        existingDocument.physical?.readingDirection !==
+        document.physical?.readingDirection;
       if (
         JSON.stringify(existingDocument.assets) ===
-        JSON.stringify(document.assets)
+          JSON.stringify(document.assets) &&
+        !readingDirectionChanged
       ) {
         skippedCount += 1;
         diagnostics.push({
@@ -425,7 +446,17 @@ export const prepareLocalCatalog = async (
         });
         continue;
       }
-      document = {...existingDocument, assets: document.assets};
+      const physical = {...(existingDocument.physical ?? {})};
+      if (document.physical?.readingDirection === undefined)
+        delete physical.readingDirection;
+      else physical.readingDirection = document.physical.readingDirection;
+      const {physical: _physical, ...existingDocumentWithoutPhysical} =
+        existingDocument;
+      document = {
+        ...existingDocumentWithoutPhysical,
+        assets: document.assets,
+        ...(Object.keys(physical).length === 0 ? {} : {physical}),
+      };
     }
     if (options.write) {
       if (manifestExists && (options.force || options.refreshExisting)) {

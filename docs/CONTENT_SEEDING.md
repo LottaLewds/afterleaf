@@ -251,7 +251,9 @@ right-to-left books. Archive names supply the same language and magazine
 inference hints as image-folder names.
 
 The `comics` and `manga` direction applies recursively. Files placed directly
-under `content/books` have unspecified reading direction. An explicit `[LTR]` or
+under `content/books` have unspecified reading direction. External archive roots
+can use `comicPaths` or `mangaPaths` in `afterleaf.library.json` to apply the
+same direction to every publication below that root. An explicit `[LTR]` or
 `[RTL]` filename hint is also accepted; a conflict between the filename and
 direction directory rejects that archive.
 

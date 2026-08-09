@@ -251,7 +251,8 @@ updates the persistent derived-asset pool, and atomically advances the active
 catalog revision.
 
 Repeat --media-path <file-or-directory> to add media for this run. Import & scan
-also reads mediaPaths from afterleaf.library.json in the Afterleaf directory.
+also reads comicPaths and mangaPaths from afterleaf.library.json in the Afterleaf
+directory.
 `;
 
 export const LIBRARY_FETCH_MORE_HELP = `Fetch unseen publications from a discovered provider, then update and activate the library catalog.
