@@ -11,6 +11,8 @@ import {
   For,
   Show,
   createEffect,
+  createMemo,
+  createRenderEffect,
   createSignal,
   on,
   onCleanup,
@@ -45,11 +47,16 @@ const keycapParts = (key: string) =>
       part.startsWith("Hold ") ? ["Hold", part.slice("Hold ".length)] : [part],
     );
 
+export type ShopViewportControls = {
+  requestPointerLock: () => void;
+};
+
 export type ShopViewportProps = {
   catalogAtlases: Accessor<CatalogAtlases>;
   catalogIdentity: Accessor<CatalogIdentity>;
   mouseSensitivity?: Accessor<number>;
   newPublicationIds?: Accessor<readonly string[]>;
+  onControlsChange?: (controls: ShopViewportControls | undefined) => void;
   pageIndexForPublication?: (publicationId: string) => number;
   publications: Accessor<readonly CatalogItem[]>;
   selectedPublicationId: Accessor<string | undefined>;
@@ -88,6 +95,16 @@ export const ShopViewport = (props: ShopViewportProps) => {
   let signTitleInput: HTMLInputElement | undefined;
   let shopScene: ShopScene | undefined;
   const worldSaveAbortController = new AbortController();
+  const shouldBePointerLocked = createMemo(
+    () =>
+      props.paused?.() !== true &&
+      signEditor() === undefined &&
+      !artFrameChannelEditor() &&
+      gameState().inspectionMode !== "spread",
+  );
+  const controls: ShopViewportControls = {
+    requestPointerLock: () => shopScene?.requestPointerLock(),
+  };
 
   const openSignEditor = (request: ShopSignEditRequest) => {
     setSignTitle(request.title);
@@ -132,6 +149,7 @@ export const ShopViewport = (props: ShopViewportProps) => {
   };
 
   onMount(() => {
+    props.onControlsChange?.(controls);
     const sceneCanvas = canvas;
     if (!sceneCanvas) return;
 
@@ -169,6 +187,7 @@ export const ShopViewport = (props: ShopViewportProps) => {
             : {newPublicationIds: props.newPublicationIds}),
           selectedPublicationId: props.selectedPublicationId,
           onGameStateChange: setGameState,
+          onPauseRequest: () => props.onOpenMenu?.(),
           onTextPaste: (text) => props.onPasteText?.(text) ?? false,
           onPageIndexChange: (publicationId, pageIndex) =>
             props.onPageIndexChange?.(publicationId, pageIndex),
@@ -192,6 +211,7 @@ export const ShopViewport = (props: ShopViewportProps) => {
             artFrameChannelEditor(),
           onReady: () => setReady(true),
         });
+        if (!shouldBePointerLocked()) shopScene.releasePointerLock();
         shopScene.start();
       } catch (cause) {
         if (worldSaveAbortController.signal.aborted) return;
@@ -205,9 +225,20 @@ export const ShopViewport = (props: ShopViewportProps) => {
   });
 
   onCleanup(() => {
+    props.onControlsChange?.(undefined);
     worldSaveAbortController.abort();
     shopScene?.dispose();
   });
+
+  createRenderEffect(
+    on(
+      shouldBePointerLocked,
+      (shouldLock) => {
+        if (!shouldLock) shopScene?.releasePointerLock();
+      },
+      {defer: true},
+    ),
+  );
 
   createEffect(
     on(

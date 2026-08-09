@@ -690,6 +690,7 @@ export type ShopSceneOptions = {
   onDiscardPublication?: (publicationId: string) => Promise<boolean>;
   onArtFrameChannelCreateRequest?: (currentChannelLabel: string) => void;
   onGameStateChange?: (snapshot: ShopGameSnapshot) => void;
+  onPauseRequest?: () => void;
   onPageIndexChange?: (publicationId: string, pageIndex: number) => void;
   onSignEditRequest?: (request: ShopSignEditRequest) => void;
   onTextPaste?: (text: string) => boolean | Promise<boolean>;
@@ -1007,6 +1008,7 @@ export class ShopScene {
   readonly #onGameStateChange:
     | ((snapshot: ShopGameSnapshot) => void)
     | undefined;
+  readonly #onPauseRequest: (() => void) | undefined;
   readonly #onPageIndexChange:
     | ((publicationId: string, pageIndex: number) => void)
     | undefined;
@@ -1173,7 +1175,10 @@ export class ShopScene {
   #lastSelectedPublicationId: string | null | undefined;
   #moonEnvironment: Texture | undefined;
   #onReady: (() => void) | undefined;
+  #inputSuspended = false;
   #pointerLocked = false;
+  #pointerLockReleasePending = false;
+  #resumePointerLockAfterRelease = false;
   #jumpQueued = false;
   #jumpQueuedAt = Number.NEGATIVE_INFINITY;
   #lastPlayerGroundedAt = Number.NEGATIVE_INFINITY;
@@ -1284,6 +1289,7 @@ export class ShopScene {
     this.#onArtFrameChannelCreateRequest =
       options.onArtFrameChannelCreateRequest;
     this.#onGameStateChange = options.onGameStateChange;
+    this.#onPauseRequest = options.onPauseRequest;
     this.#onPageIndexChange = options.onPageIndexChange;
     this.#onSignEditRequest = options.onSignEditRequest;
     this.#onWorldSave = options.onWorldSave;
@@ -1342,6 +1348,22 @@ export class ShopScene {
       void this.#refreshArtFrameCatalog();
     }, POSTER_CATALOG_REFRESH_INTERVAL_MS);
     this.#frameHandle = requestAnimationFrame(this.#animate);
+  }
+
+  requestPointerLock() {
+    if (this.#disposed) return;
+    this.#inputSuspended = false;
+    if (this.#inspectionMode === "spread") return;
+    this.#requestPointerLock();
+  }
+
+  releasePointerLock() {
+    if (this.#disposed) return;
+    if (this.#inputSuspended) return;
+    this.#inputSuspended = true;
+    if (document.pointerLockElement === this.#canvas)
+      this.#suppressNextPointerUnlockPause = true;
+    this.#suspendInput();
   }
 
   unstuckPlayer() {
@@ -1523,10 +1545,14 @@ export class ShopScene {
     const paused = this.#paused();
     for (const television of this.#televisions) television.setSuspended(paused);
     if (paused) {
-      this.#suspendInput();
+      if (!this.#inputSuspended) {
+        this.#inputSuspended = true;
+        this.#suspendInput();
+      }
       this.#frameHandle = requestAnimationFrame(this.#animate);
       return;
     }
+    this.#inputSuspended = false;
 
     this.#consumePointerMovement(deltaSeconds);
     this.#updateCameraLook(deltaSeconds);
@@ -5879,7 +5905,7 @@ export class ShopScene {
       this.#interact(false);
       return;
     }
-    void this.#canvas.requestPointerLock().catch(() => {});
+    this.requestPointerLock();
   };
 
   readonly #handlePointerMove = (event: PointerEvent) => {
@@ -6104,6 +6130,14 @@ export class ShopScene {
   readonly #handlePointerLockChange = () => {
     const wasPointerLocked = this.#pointerLocked;
     this.#pointerLocked = document.pointerLockElement === this.#canvas;
+    const releaseCompleted =
+      !this.#pointerLocked && this.#pointerLockReleasePending;
+    const resumePointerLock =
+      releaseCompleted && this.#resumePointerLockAfterRelease;
+    if (releaseCompleted) {
+      this.#pointerLockReleasePending = false;
+      this.#resumePointerLockAfterRelease = false;
+    }
     this.#resetPointerMovement();
     this.#ignoreNextLockedPointerMove =
       this.#pointerLocked && !wasPointerLocked;
@@ -6119,6 +6153,23 @@ export class ShopScene {
     }
     this.#canvas.style.cursor = this.#pointerLocked ? "none" : "pointer";
     this.#emitGameState();
+    if (
+      wasPointerLocked &&
+      !this.#pointerLocked &&
+      !suppressPause &&
+      document.hasFocus() &&
+      this.#inspectionMode === "none" &&
+      !this.#paused() &&
+      !this.#disposed
+    )
+      this.#onPauseRequest?.();
+    if (
+      resumePointerLock &&
+      !this.#paused() &&
+      this.#inspectionMode !== "spread" &&
+      !this.#disposed
+    )
+      this.#requestPointerLock();
   };
 
   readonly #handleKeyDown = (event: KeyboardEvent) => {
@@ -6462,9 +6513,27 @@ export class ShopScene {
     this.#lookTarget.pitch = this.#lookAngles.pitch;
   }
 
+  #requestPointerLock() {
+    if (this.#disposed || document.pointerLockElement === this.#canvas) return;
+    if (this.#pointerLockReleasePending) {
+      this.#resumePointerLockAfterRelease = true;
+      return;
+    }
+    this.#resumePointerLockAfterRelease = false;
+    void this.#canvas.requestPointerLock().catch((cause) => {
+      if (DEV) console.warn("Afterleaf could not acquire pointer lock.", cause);
+    });
+  }
+
   #releasePointerLock() {
-    if (document.pointerLockElement === this.#canvas)
-      document.exitPointerLock();
+    this.#resumePointerLockAfterRelease = false;
+    if (
+      this.#pointerLockReleasePending ||
+      document.pointerLockElement !== this.#canvas
+    )
+      return;
+    this.#pointerLockReleasePending = true;
+    document.exitPointerLock();
   }
 
   #suspendInput() {
@@ -8115,7 +8184,7 @@ export class ShopScene {
     const record = this.#booksById.get(publication.id);
     if (!record) return;
     this.#inspectionShelfFocusPending = false;
-    void this.#canvas.requestPointerLock().catch(() => {});
+    this.#requestPointerLock();
     if (record.state.status === "shelved") {
       this.#scene.attach(record.mesh);
       this.#inspectionShelfWorldRotation.setFromEuler(

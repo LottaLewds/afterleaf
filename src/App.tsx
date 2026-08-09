@@ -93,6 +93,7 @@ import {
 import {loadReaderBookmarks, saveReaderBookmark} from "~/reader/bookmarks";
 import type {LibraryProviderDescriptor} from "~/content/providers/types";
 import type {AfterleafLibraryConfig} from "~/content/libraryConfig";
+import type {ShopViewportControls} from "~/components/ShopViewport";
 
 const ShopViewport = lazy(async () => {
   const module = await import("~/components/ShopViewport");
@@ -1265,6 +1266,16 @@ export const App = () => {
   const [language, setLanguage] = createSignal<LanguageFilter>("all");
   const [tag, setTag] = createSignal<string | null>(null);
   const [menuOpen, setMenuOpen] = createSignal(false);
+  let shopViewportControls: ShopViewportControls | undefined;
+  const openMenu = () => {
+    if (menuOpen()) return;
+    setMenuOpen(true);
+  };
+  const closeMenu = (requestPointerLock = true) => {
+    if (!menuOpen()) return;
+    setMenuOpen(false);
+    if (requestPointerLock) shopViewportControls?.requestPointerLock();
+  };
   const [menuTab, setMenuTab] = createSignal<MenuTab>("library");
   const [purgeBlacklistedOpen, setPurgeBlacklistedOpen] = createSignal(false);
   const [unstuckRequest, setUnstuckRequest] = createSignal(0);
@@ -1636,7 +1647,7 @@ export const App = () => {
     }
     if (!options.automatic) {
       setLibraryUpdateOpen(false);
-      setMenuOpen(false);
+      closeMenu();
     }
     try {
       const blockedTags = blacklistedTags();
@@ -1841,7 +1852,7 @@ export const App = () => {
       "keydown",
       (event) => {
         if (event.key === "Escape") {
-          if (event.defaultPrevented) return;
+          if (event.defaultPrevented || event.repeat) return;
           event.preventDefault();
           if (purgeBlacklistedOpen()) {
             if (!libraryUpdating()) setPurgeBlacklistedOpen(false);
@@ -1855,7 +1866,8 @@ export const App = () => {
             setMobileDetailOpen(false);
             return;
           }
-          setMenuOpen((current) => !current);
+          if (menuOpen()) closeMenu(false);
+          else openMenu();
         }
       },
       {signal: abortController.signal},
@@ -1888,6 +1900,9 @@ export const App = () => {
                     catalogIdentity={() => runtime().identity}
                     mouseSensitivity={mouseSensitivity}
                     newPublicationIds={newPublicationIds}
+                    onControlsChange={(controls) => {
+                      shopViewportControls = controls;
+                    }}
                     pageIndexForPublication={(publicationId) =>
                       bookmarks()[publicationId] ?? 0
                     }
@@ -1895,7 +1910,7 @@ export const App = () => {
                     selectedPublicationId={() => selectedItem()?.id}
                     unstuckRequest={unstuckRequest}
                     paused={menuOpen}
-                    onOpenMenu={() => setMenuOpen(true)}
+                    onOpenMenu={openMenu}
                     onPasteText={importPastedPublication}
                     onDiscardPublication={discardPublication}
                     onPageIndexChange={(publicationId, pageIndex) =>
@@ -1974,7 +1989,10 @@ export const App = () => {
                       class="grid size-9 place-items-center text-[#8d9893] transition hover:bg-white/5 hover:text-white"
                       aria-label="Close menu and return to shop"
                       title="Return to shop (Escape)"
-                      onClick={() => setMenuOpen(false)}
+                      on:pointerdown={(event) => {
+                        if (event.button === 0) closeMenu();
+                      }}
+                      onClick={() => closeMenu()}
                     >
                       <FiX size={17} />
                     </button>
@@ -2354,7 +2372,7 @@ export const App = () => {
                         <DetailPanel
                           item={item()}
                           onClose={() => setSelectedId("")}
-                          onInspect={() => setMenuOpen(false)}
+                          onInspect={() => closeMenu()}
                         />
                       </div>
                     )}
@@ -2380,7 +2398,7 @@ export const App = () => {
                       }
                       onUnstuck={() => {
                         setUnstuckRequest((request) => request + 1);
-                        setMenuOpen(false);
+                        closeMenu();
                       }}
                       onRespectBookReadingDirectionChange={
                         updateRespectBookReadingDirection
@@ -2415,7 +2433,7 @@ export const App = () => {
                       onClose={() => setMobileDetailOpen(false)}
                       onInspect={() => {
                         setMobileDetailOpen(false);
-                        setMenuOpen(false);
+                        closeMenu();
                       }}
                     />
                   </div>
