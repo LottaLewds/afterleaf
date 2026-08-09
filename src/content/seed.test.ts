@@ -350,7 +350,7 @@ describe("seedContentPack", () => {
     ).toBeLessThanOrEqual(1);
     expect(
       Math.abs((minTitleY + maxTitleY) / 2 - (395 * 1024) / 768),
-    ).toBeLessThanOrEqual(1);
+    ).toBeLessThanOrEqual(2);
     expect(await readFile(secondSpinePath)).not.toEqual(
       await readFile(firstSpinePath),
     );

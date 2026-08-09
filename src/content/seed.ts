@@ -20,11 +20,7 @@ import {
   resolve,
   sep,
 } from "node:path";
-import sharp, {type FitEnum} from "sharp";
-
-// Bun + libvips can hit a GLib worker-handle teardown bug on Windows. Keep the
-// native image worker pool single-threaded there so the CLI exits cleanly.
-if (process.platform === "win32") sharp.concurrency(1);
+import sharp, {type FitEnum} from "~/media/sharpRuntime";
 import {normalizeTags} from "~/content/normalize";
 import {
   CONTENT_SCHEMA_VERSION,
@@ -1319,8 +1315,9 @@ const createAtlas = async (
         : persistentAssetDirectory
           ? resolveReusableAsset(persistentAssetDirectory, assetPath)
           : stagedPath;
-      if (surface === "spine") return readFile(sourcePath);
-      return sharp(sourcePath)
+      const source = await readFile(sourcePath);
+      if (surface === "spine") return source;
+      return sharp(source)
         .resize({
           width: cellWidth,
           height: cellHeight,

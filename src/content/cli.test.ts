@@ -1,4 +1,5 @@
 import {describe, expect, test} from "bun:test";
+import {resolve} from "node:path";
 import {parseContentSeedCliOptions} from "~/content/cli";
 
 describe("parseContentSeedCliOptions", () => {
@@ -25,7 +26,9 @@ describe("parseContentSeedCliOptions", () => {
       "/workspace/afterleaf",
     );
 
-    expect(options.catalogDirectory).toBe("/workspace/afterleaf/fixtures");
+    expect(options.catalogDirectory).toBe(
+      resolve("/workspace/afterleaf/fixtures"),
+    );
     expect(options.seedOptions.tags).toEqual(["big-breasts", "comic-magazine"]);
     expect(options.seedOptions.excludedTags).toEqual(["chinese"]);
     expect(options.seedOptions.languages).toEqual(["english", "japanese"]);

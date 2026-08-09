@@ -319,8 +319,6 @@ export const blacklistPublication = async (
 ): Promise<LocalLibraryBlacklistResult> => {
   const {response, value} = await requestJson(
     LIBRARY_BLACKLIST_ENDPOINT,
-    LIBRARY_CONFIG_ENDPOINT,
-    LIBRARY_BROWSE_ENDPOINT,
     {
       body: JSON.stringify(request),
       headers: {"Content-Type": "application/json"},
@@ -354,8 +352,6 @@ export const loadBlacklistedPublications = async (
 ): Promise<readonly string[]> => {
   const {response, value} = await requestJson(
     LIBRARY_BLACKLIST_ENDPOINT,
-    LIBRARY_CONFIG_ENDPOINT,
-    LIBRARY_BROWSE_ENDPOINT,
     {method: "GET"},
     fetcher,
   );

@@ -262,7 +262,7 @@ const cachedPublicationState = async (outputDirectory: string) => {
   return {completeLogicalChapterKeys, completePublicationIds};
 };
 
-const replaceDirectoryOnWindows = async (
+const replaceDirectory = async (
   stagingDirectory: string,
   publicationDirectory: string,
 ) => {
@@ -279,8 +279,8 @@ const replaceDirectoryOnWindows = async (
       await new Promise((resolve) => setTimeout(resolve, 100 * (attempt + 1)));
     }
   }
-  // Antivirus/indexing tools can keep a freshly-written directory open on Windows.
-  // Copying is slower, but preserves imports when rename remains temporarily blocked.
+  // Filesystem watchers, indexers, and antivirus tools can briefly block a
+  // rename. Use the same atomic-first, copy-fallback behavior on every host.
   try {
     await rm(publicationDirectory, {recursive: true, force: true});
     await cp(stagingDirectory, publicationDirectory, {
@@ -298,13 +298,13 @@ const commitPublication = async (
   publicationDirectory: string,
 ) => {
   if (!(await fileExists(publicationDirectory))) {
-    await replaceDirectoryOnWindows(stagingDirectory, publicationDirectory);
+    await replaceDirectory(stagingDirectory, publicationDirectory);
     return "added" as const;
   }
   const backupDirectory = `${publicationDirectory}.backup-${randomUUID()}`;
   await rename(publicationDirectory, backupDirectory);
   try {
-    await replaceDirectoryOnWindows(stagingDirectory, publicationDirectory);
+    await replaceDirectory(stagingDirectory, publicationDirectory);
     await rm(backupDirectory, {recursive: true, force: true});
     return "updated" as const;
   } catch (error) {

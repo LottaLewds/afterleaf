@@ -1,6 +1,4 @@
-import sharp from "sharp";
-
-if (process.platform === "win32") sharp.concurrency(1);
+import sharp from "~/media/sharpRuntime";
 
 const READER_MAX_DIMENSION = 2_048;
 const READER_WEBP_QUALITY = 88;

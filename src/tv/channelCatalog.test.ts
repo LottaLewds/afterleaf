@@ -104,17 +104,19 @@ describe("TV channel catalog", () => {
     const root = await createRoot();
     await mkdir(resolve(root, "afterleaf"));
     await writeFile(resolve(root, "afterleaf", "sample.mp4"), "video");
-    await symlink(
-      resolve(root, "afterleaf", "sample.mp4"),
-      resolve(root, "afterleaf", "linked.mp4"),
-    );
+    if (process.platform !== "win32")
+      await symlink(
+        resolve(root, "afterleaf", "sample.mp4"),
+        resolve(root, "afterleaf", "linked.mp4"),
+      );
 
     expect(
       await resolveTvVideoPath([root], "afterleaf", "sample.mp4"),
     ).toMatchObject({size: 5});
-    expect(await resolveTvVideoPath([root], "afterleaf", "linked.mp4")).toBe(
-      undefined,
-    );
+    if (process.platform !== "win32")
+      expect(await resolveTvVideoPath([root], "afterleaf", "linked.mp4")).toBe(
+        undefined,
+      );
     expect(await resolveTvVideoPath([root], "..", "sample.mp4")).toBe(
       undefined,
     );
