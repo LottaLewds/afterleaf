@@ -1,4 +1,4 @@
-import type {LibraryProviderDescriptor} from "~/content/providers/types";
+import type {LibraryProviderDescriptor} from "../providers/types";
 import {parseLibraryProviderDescriptor} from "../providers/manifest";
 
 export const LIBRARY_SCAN_ENDPOINT = "/api/library/scan";

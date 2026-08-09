@@ -9,10 +9,10 @@ import {
   writeFile,
 } from "node:fs/promises";
 import {basename, extname, relative, resolve, sep} from "node:path";
-import sharp, {type Metadata} from "~/media/sharpRuntime";
+import sharp, {type Metadata} from "../media/sharpRuntime";
 
 import {ART_FRAME_MAX_DIMENSION} from "./image";
-import type {ArtFrameChannel, ArtFrameImage} from "~/artFrames/protocol";
+import type {ArtFrameChannel, ArtFrameImage} from "./protocol";
 import {renderWebpImage, type WebpDerivativeCreator} from "../media/webp";
 
 export type ArtFrameMediaUrlBuilder = (imageId: string) => string;

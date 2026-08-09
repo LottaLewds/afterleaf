@@ -1,8 +1,8 @@
 import {lstat, readdir} from "node:fs/promises";
 import {extname, relative, resolve} from "node:path";
 
-import type {ActivePictureRect} from "~/tv/activePicture";
-import type {TvChannel, TvChannelManifest, TvVideo} from "~/tv/protocol";
+import type {ActivePictureRect} from "./activePicture";
+import type {TvChannel, TvChannelManifest, TvVideo} from "./protocol";
 
 export type TvMediaUrlBuilder = (channelId: string, videoId: string) => string;
 export type TvVideoAnalyzer = (

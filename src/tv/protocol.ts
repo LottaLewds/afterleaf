@@ -1,4 +1,4 @@
-import type {ActivePictureRect} from "~/tv/activePicture";
+import type {ActivePictureRect} from "./activePicture";
 
 export const TV_CHANNELS_ENDPOINT = "/api/tv/channels";
 export const TV_IMPORT_ENDPOINT = "/api/tv/import";

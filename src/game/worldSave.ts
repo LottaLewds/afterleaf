@@ -1,4 +1,4 @@
-import type {ShelfPresentation} from "~/game/shelfPlacement";
+import type {ShelfPresentation} from "./shelfPlacement";
 
 export const WORLD_SAVE_SCHEMA_VERSION = 1 as const;
 

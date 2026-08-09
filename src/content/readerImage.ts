@@ -1,4 +1,4 @@
-import sharp from "~/media/sharpRuntime";
+import sharp from "../media/sharpRuntime";
 
 const READER_MAX_DIMENSION = 2_048;
 const READER_WEBP_QUALITY = 88;

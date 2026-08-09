@@ -1,5 +1,5 @@
 import {readFile} from "node:fs/promises";
-import sharp from "~/media/sharpRuntime";
+import sharp from "./sharpRuntime";
 
 export type WebpDerivativeCreator = (source: Uint8Array) => Promise<Buffer>;
 
