@@ -21,6 +21,10 @@ import {
   sep,
 } from "node:path";
 import sharp, {type FitEnum} from "sharp";
+
+// Bun + libvips can hit a GLib worker-handle teardown bug on Windows. Keep the
+// native image worker pool single-threaded there so the CLI exits cleanly.
+if (process.platform === "win32") sharp.concurrency(1);
 import {normalizeTags} from "~/content/normalize";
 import {
   CONTENT_SCHEMA_VERSION,
