@@ -27,8 +27,31 @@ ffmpeg to merge separate video and audio streams or remux the result.
 Keep yt-dlp current. One supported installation method is:
 
 ```sh
-python -m pip install --upgrade "yt-dlp[default]"
+python -m pip install --upgrade --pre "yt-dlp[default,curl-cffi]"
 ```
+
+The `curl_cffi` extra provides browser-like TLS impersonation, which can avoid
+YouTube rejecting yt-dlp's request before cookies or browser profiles are
+involved. Verify it is available with `yt-dlp --list-impersonate-targets`.
+
+On Windows, first check `python --version`. Only if Python is unavailable,
+install it from PowerShell, then close and reopen PowerShell so the new command
+is available:
+
+```powershell
+winget install --exact --id Python.Python.3.13 --source winget
+```
+
+With Python available, install yt-dlp with impersonation support:
+
+```powershell
+python -m pip install --upgrade --pre "yt-dlp[default,curl-cffi]"
+```
+
+Close and reopen PowerShell once more before starting Afterleaf, then confirm
+that `yt-dlp --list-impersonate-targets` lists concrete browser targets. Avoid
+installing the separate `yt-dlp.yt-dlp` winget package alongside this version,
+since it may take precedence on `PATH` without the Python optional dependencies.
 
 The [yt-dlp installation guide](https://github.com/yt-dlp/yt-dlp/wiki/Installation)
 lists standalone binaries and platform package options. Install ffmpeg through
@@ -226,7 +249,7 @@ if it is still tuned to the channel that received the import.
 current in your preferred Python environment:
 
 ```sh
-python -m pip install --upgrade "yt-dlp[default]"
+python -m pip install --upgrade --pre "yt-dlp[default,curl-cffi]"
 ```
 
 `content/channels` is gitignored local content. See [the television guide](docs/TV.md#adding-custom-channels)

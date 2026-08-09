@@ -87,8 +87,32 @@ playlists, and has no Afterleaf file-size or duration limit.
 current in your preferred Python environment:
 
 ```sh
-python -m pip install --upgrade "yt-dlp[default]"
+python -m pip install --upgrade --pre "yt-dlp[default,curl-cffi]"
 ```
+
+`curl_cffi` supplies browser-like TLS impersonation for sites that fingerprint
+requests, including YouTube. It does not require Chrome or browser cookies.
+Verify it is available with `yt-dlp --list-impersonate-targets`.
+
+On Windows, first check `python --version`. Only if Python is unavailable,
+install it from PowerShell:
+
+```powershell
+winget install --exact --id Python.Python.3.13 --source winget
+```
+
+After installing Python, close and reopen PowerShell so the new command is
+available. Skip that installation and restart when Python already works. With
+Python available, install yt-dlp:
+
+```powershell
+python -m pip install --upgrade --pre "yt-dlp[default,curl-cffi]"
+```
+
+Close and reopen PowerShell again before starting Afterleaf. Confirm that
+`yt-dlp --list-impersonate-targets` lists concrete browser targets. Do not also
+install the standalone `yt-dlp.yt-dlp` winget package: it can take precedence on
+`PATH` while lacking the Python installation's optional dependencies.
 
 Downloads are staged in `content/channels/.imports`, which the channel index
 excludes until finalization. A completed
