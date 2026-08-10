@@ -88,10 +88,12 @@ Afterleaf turns clipboard pastes into content imports:
 - **Posters:** Press `P` to enter poster placement, aim at a wall or shelf end,
   then paste an image.
 - **Digital art frames:** Press `V`, aim at a frame (or choose a channel), and
-  paste an image. Press `N` first to create a new channel from the next paste.
+  paste an image. Press `N`, name a new channel, and paste its first image in
+  the dialog to create it.
 - **Television:** Aim at the TV and paste an HTTP or HTTPS video URL. Any URL
   supported by [yt-dlp](https://github.com/yt-dlp/yt-dlp) can be used, including
-  supported video pages as well as direct video files.
+  supported video pages as well as direct video files. Press `N`, name a new
+  channel, and paste its first video URL in the dialog to create it.
 
 The poster, art-frame, and TV workflows are described in more detail below.
 
@@ -198,18 +200,19 @@ between fit modes and `I` to cycle the slideshow timer through off, 10 seconds,
 30 seconds, 1 minute, and 5 minutes.
 
 While frame placement is active, paste a clipboard image to optimize it and add
-it to the currently selected channel. Press `N` first to name a new channel;
-the next pasted image creates its folder beneath `content/art-frames` and
-becomes the channel's first image. A moved frame keeps its locked physical
-aspect ratio when its displayed image is replaced by a paste.
+it to the currently selected channel. Press `N` to name a new channel, then
+paste its first image in the dialog. The paste creates its folder beneath
+`content/art-frames` and becomes the channel's first image. A moved frame keeps
+its locked physical aspect ratio when its displayed image is replaced by a
+paste.
 
 Aim at a placed frame and press `E` to move it or `G` to remove it. Press `C` to
 change channel, `F` to shuffle immediately, `R` to switch contain/cover, or `T`
 to change its timer. Paste while aiming at a frame to add the image to its
 current channel and display it immediately. Press `N` while aiming at it to name
-a new channel, then paste that channel's first image. Each frame persists its
-channel, current image, fit mode, timer, locked dimensions, rotation, and
-position.
+a new channel, then paste that channel's first image in the dialog. Each frame
+persists its channel, current image, fit mode, timer, locked dimensions,
+rotation, and position.
 
 ## Television channels
 
@@ -249,6 +252,10 @@ single video into the television's selected channel. Afterleaf passes the URL to
 completed `.mp4` or `.webm` atomically. Playlists and live streams are not
 imported. When the download finishes, the television switches to the new video
 if it is still tuned to the channel that received the import.
+
+Press `N` while aiming at a television to name a new channel, then paste its
+first video URL in the dialog. The successful download creates the channel and
+tunes that television to it.
 
 `yt-dlp` and `ffmpeg` must be available on `PATH`. Install and keep yt-dlp
 current in your preferred Python environment:

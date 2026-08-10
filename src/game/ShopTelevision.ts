@@ -813,6 +813,35 @@ uniform sampler2D afterleafScreenOverlay;\n${shader.fragmentShader}`;
     return true;
   }
 
+  playImportedChannel(
+    channelId: string,
+    importedVideo: TvVideo,
+    channelLabel = channelId,
+  ) {
+    if (this.#disposed) return false;
+    const previousChannelId = this.#channels[this.#channelIndex]?.id;
+    const channelIndex = this.#channels.findIndex(
+      (channel) => channel.id === channelId,
+    );
+    if (channelIndex >= 0) this.#channelIndex = channelIndex;
+    else {
+      this.#channels = [
+        ...this.#channels,
+        {id: channelId, label: channelLabel, videos: []},
+      ];
+      this.#channelIndex = this.#channels.length - 1;
+    }
+    const played = this.playVideoIfChannelSelected(
+      channelId,
+      importedVideo,
+      channelLabel,
+    );
+    if (!played) return false;
+    if (previousChannelId !== channelId) this.#onChannelChange?.(channelId);
+    this.#emitStateChange();
+    return true;
+  }
+
   #changeChannel(direction: -1 | 1) {
     if (this.#disposed || this.#channels.length <= 1) return;
     this.#pressButton("channel");

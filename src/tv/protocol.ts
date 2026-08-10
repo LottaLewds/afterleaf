@@ -48,6 +48,16 @@ export const isSafeTvPathSegment = (value: string) =>
 
 export const isSafeTvChannelId = isSafeTvPathSegment;
 
+export const tvChannelId = (label: string) =>
+  label
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/gu, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/gu, "-")
+    .replace(/^-+|-+$/gu, "")
+    .slice(0, 64)
+    .replace(/-+$/gu, "");
+
 export const tvVideoImportUrl = (value: string) => {
   const trimmed = value.trim();
   if (!trimmed || trimmed.length > 16_384) return;

@@ -5,11 +5,17 @@ import {
   parseTvVideoImportResponse,
   parseTvChannelManifest,
   parseTvMediaRequest,
+  tvChannelId,
   tvMediaUrl,
   tvVideoImportUrl,
 } from "~/tv/protocol";
 
 describe("TV protocol", () => {
+  test("creates stable folder IDs from channel names", () => {
+    expect(tvChannelId("  Café After Hours!  ")).toBe("cafe-after-hours");
+    expect(tvChannelId("---")).toBe("");
+  });
+
   test("round-trips encoded channel media paths", () => {
     const url = tvMediaUrl("after leaf", "少女A.webm");
     expect(parseTvMediaRequest(url)).toEqual({

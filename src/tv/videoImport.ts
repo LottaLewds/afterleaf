@@ -136,7 +136,7 @@ export const downloadTvVideoWithYtDlp: TvVideoDownloader = (
     });
   });
 
-const existingChannelDirectory = async (
+const ensureChannelDirectory = async (
   channelsDirectory: string,
   channelId: string,
 ) => {
@@ -151,6 +151,7 @@ const existingChannelDirectory = async (
     resolve(root, channelRelativePath) !== channelDirectory
   )
     throw new TvVideoImportInputError("TV channel is invalid");
+  await mkdir(channelDirectory, {recursive: true});
   try {
     const channel = await lstat(channelDirectory);
     if (!channel.isDirectory() || channel.isSymbolicLink())
@@ -212,10 +213,8 @@ export const importTvVideoToChannel = async (options: {
   const url = tvVideoImportUrl(options.url);
   if (!url)
     throw new TvVideoImportInputError("Paste a valid HTTP or HTTPS video URL");
-  const channelDirectory = await existingChannelDirectory(
-    options.channelsDirectory,
-    options.channelId,
-  );
+  if (!isSafeTvChannelId(options.channelId))
+    throw new TvVideoImportInputError("TV channel is invalid");
   const stagingRoot = resolve(options.channelsDirectory, ".imports");
   await mkdir(stagingRoot, {recursive: true});
   const stagingDirectory = await mkdtemp(resolve(stagingRoot, "video-"));
@@ -225,6 +224,10 @@ export const importTvVideoToChannel = async (options: {
       stagingDirectory,
     );
     const sourcePath = await downloadedVideoPath(stagingDirectory, outputPath);
+    const channelDirectory = await ensureChannelDirectory(
+      options.channelsDirectory,
+      options.channelId,
+    );
     const videoId = await publishVideo(sourcePath, channelDirectory);
     return {
       id: videoId,

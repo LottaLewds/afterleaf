@@ -39,6 +39,9 @@ import {
 import type {WorldSaveV1} from "~/game/worldSave";
 import {importPoster, loadPosters} from "~/posters/browserClient";
 import {importTvVideo, loadTvChannels} from "~/tv/browserClient";
+import {tvChannelId, tvVideoImportUrl} from "~/tv/protocol";
+
+type MediaChannelKind = "art-frame" | "tv";
 
 const keycapParts = (key: string) =>
   key
@@ -75,8 +78,10 @@ export type ShopViewportProps = {
  * in Solid; the Three runtime samples only the two narrow accessors it needs.
  */
 export const ShopViewport = (props: ShopViewportProps) => {
-  const [artFrameChannelEditor, setArtFrameChannelEditor] = createSignal(false);
-  const [artFrameChannelName, setArtFrameChannelName] = createSignal("");
+  const [mediaChannelEditor, setMediaChannelEditor] =
+    createSignal<MediaChannelKind>();
+  const [mediaChannelError, setMediaChannelError] = createSignal<string>();
+  const [mediaChannelName, setMediaChannelName] = createSignal("");
   const [error, setError] = createSignal<string>();
   const [gameState, setGameState] = createSignal<ShopGameSnapshot>({
     inspectionMode: "none",
@@ -91,7 +96,7 @@ export const ShopViewport = (props: ShopViewportProps) => {
   const [signSubtitle, setSignSubtitle] = createSignal("");
   const [signTitle, setSignTitle] = createSignal("");
   let canvas: HTMLCanvasElement | undefined;
-  let artFrameChannelInput: HTMLInputElement | undefined;
+  let mediaChannelInput: HTMLInputElement | undefined;
   let signTitleInput: HTMLInputElement | undefined;
   let shopScene: ShopScene | undefined;
   const worldSaveAbortController = new AbortController();
@@ -99,7 +104,7 @@ export const ShopViewport = (props: ShopViewportProps) => {
     () =>
       props.paused?.() !== true &&
       signEditor() === undefined &&
-      !artFrameChannelEditor() &&
+      mediaChannelEditor() === undefined &&
       gameState().inspectionMode !== "spread",
   );
   const controls: ShopViewportControls = {
@@ -134,18 +139,61 @@ export const ShopViewport = (props: ShopViewportProps) => {
     closeSignEditor();
   };
 
-  const openArtFrameChannelEditor = () => {
-    setArtFrameChannelName("");
-    setArtFrameChannelEditor(true);
-    queueMicrotask(() => artFrameChannelInput?.focus());
+  const openMediaChannelEditor = (kind: MediaChannelKind) => {
+    setMediaChannelName("");
+    setMediaChannelError(undefined);
+    setMediaChannelEditor(kind);
+    queueMicrotask(() => mediaChannelInput?.focus());
   };
 
-  const closeArtFrameChannelEditor = () => setArtFrameChannelEditor(false);
+  const closeMediaChannelEditor = () => setMediaChannelEditor(undefined);
 
-  const saveArtFrameChannel = () => {
-    if (!artFrameChannelId(artFrameChannelName())) return;
-    if (!shopScene?.setArtFrameImportChannel(artFrameChannelName())) return;
-    closeArtFrameChannelEditor();
+  const mediaChannelId = () =>
+    mediaChannelEditor() === "tv"
+      ? tvChannelId(mediaChannelName())
+      : artFrameChannelId(mediaChannelName());
+
+  const pasteIntoMediaChannel = (event: ClipboardEvent) => {
+    const kind = mediaChannelEditor();
+    if (!kind) return;
+    event.preventDefault();
+    if (!mediaChannelId()) {
+      setMediaChannelError("Name the channel before pasting its first item.");
+      mediaChannelInput?.focus();
+      return;
+    }
+    let importChannel: (() => Promise<boolean | undefined>) | undefined;
+    if (kind === "art-frame") {
+      const image =
+        Array.from(event.clipboardData?.items ?? [])
+          .find(
+            (item) => item.kind === "file" && item.type.startsWith("image/"),
+          )
+          ?.getAsFile() ?? undefined;
+      if (image)
+        importChannel = () =>
+          shopScene?.importArtFrameChannelImage(mediaChannelName(), image) ??
+          Promise.resolve(undefined);
+    } else {
+      const text =
+        event.clipboardData?.getData("text/plain") ||
+        event.clipboardData?.getData("text/uri-list");
+      if (text && tvVideoImportUrl(text))
+        importChannel = () =>
+          shopScene?.importTvChannelVideo(mediaChannelName(), text) ??
+          Promise.resolve(undefined);
+    }
+    if (!importChannel) {
+      setMediaChannelError(
+        kind === "tv"
+          ? "Paste a valid HTTP or HTTPS video URL."
+          : "Paste an image to create this channel.",
+      );
+      return;
+    }
+    setMediaChannelError(undefined);
+    setMediaChannelEditor(undefined);
+    void importChannel();
   };
 
   onMount(() => {
@@ -196,7 +244,7 @@ export const ShopViewport = (props: ShopViewportProps) => {
             Promise.resolve(false),
           onSelectPublication: (publicationId) =>
             props.onSelectPublication?.(publicationId),
-          onArtFrameChannelCreateRequest: openArtFrameChannelEditor,
+          onMediaChannelCreateRequest: openMediaChannelEditor,
           onSignEditRequest: openSignEditor,
           onWorldSave: queueServerWorldSave,
           loadTvChannels,
@@ -208,7 +256,7 @@ export const ShopViewport = (props: ShopViewportProps) => {
           paused: () =>
             props.paused?.() === true ||
             signEditor() !== undefined ||
-            artFrameChannelEditor(),
+            mediaChannelEditor() !== undefined,
           onReady: () => setReady(true),
         });
         if (!shouldBePointerLocked()) shopScene.releasePointerLock();
@@ -516,95 +564,103 @@ export const ShopViewport = (props: ShopViewportProps) => {
         </Show>
       </Show>
 
-      <Show when={artFrameChannelEditor()}>
-        <div
-          class="absolute inset-0 z-30 grid place-items-center bg-[#07100f]/78 p-4 backdrop-blur-sm"
-          role="dialog"
-          aria-modal="true"
-          aria-label="Create digital art channel"
-          onKeyDown={(event) => {
-            if (event.key !== "Escape") return;
-            event.preventDefault();
-            closeArtFrameChannelEditor();
-          }}
-        >
-          <form
-            class="w-full max-w-md border border-white/12 bg-[#101716] shadow-[0_30px_100px_#000]"
-            onSubmit={(event) => {
+      <Show when={mediaChannelEditor()}>
+        {(kind) => (
+          <div
+            class="absolute inset-0 z-30 grid place-items-center bg-[#07100f]/78 p-4 backdrop-blur-sm"
+            role="dialog"
+            aria-modal="true"
+            aria-label={`Create ${kind() === "tv" ? "TV" : "digital art"} channel`}
+            onKeyDown={(event) => {
+              if (event.key !== "Escape") return;
               event.preventDefault();
-              saveArtFrameChannel();
+              closeMediaChannelEditor();
             }}
+            onPaste={pasteIntoMediaChannel}
           >
-            <header class="flex items-start gap-4 border-b border-white/8 px-5 py-4">
-              <div class="min-w-0">
-                <p class="text-[9px] font-bold tracking-[0.2em] text-[#d05b50] uppercase">
-                  Digital art frame
-                </p>
-                <h2 class="mt-1 font-serif text-xl text-[#eee8dc]">
-                  Create image channel
-                </h2>
-              </div>
-              <button
-                class="ml-auto grid size-9 shrink-0 place-items-center text-[#87938e] transition hover:bg-white/5 hover:text-white"
-                aria-label="Close channel editor"
-                type="button"
-                onClick={closeArtFrameChannelEditor}
-              >
-                <FiX size={17} />
-              </button>
-            </header>
+            <form
+              class="w-full max-w-md border border-white/12 bg-[#101716] shadow-[0_30px_100px_#000]"
+              onSubmit={(event) => event.preventDefault()}
+            >
+              <header class="flex items-start gap-4 border-b border-white/8 px-5 py-4">
+                <div class="min-w-0">
+                  <p class="text-[9px] font-bold tracking-[0.2em] text-[#d05b50] uppercase">
+                    {kind() === "tv" ? "Television" : "Digital art frame"}
+                  </p>
+                  <h2 class="mt-1 font-serif text-xl text-[#eee8dc]">
+                    Create {kind() === "tv" ? "video" : "image"} channel
+                  </h2>
+                </div>
+                <button
+                  class="ml-auto grid size-9 shrink-0 place-items-center text-[#87938e] transition hover:bg-white/5 hover:text-white"
+                  aria-label="Close channel editor"
+                  type="button"
+                  onClick={closeMediaChannelEditor}
+                >
+                  <FiX size={17} />
+                </button>
+              </header>
 
-            <div class="space-y-4 px-5 py-5">
-              <label class="block">
-                <span class="text-[9px] font-bold tracking-[0.14em] text-[#8f9b96] uppercase">
-                  Channel name
-                </span>
-                <input
-                  ref={(element) => {
-                    artFrameChannelInput = element;
-                  }}
-                  class="mt-2 h-11 w-full border border-white/12 bg-[#0a1110] px-3 text-sm text-[#f0ebdf] transition outline-none placeholder:text-[#4f5b57] focus:border-[#c7554b]"
-                  maxLength={64}
-                  onInput={(event) =>
-                    setArtFrameChannelName(event.currentTarget.value)
-                  }
-                  placeholder="Night Scenes"
-                  value={artFrameChannelName()}
-                />
-              </label>
-              <div class="border border-white/8 bg-[#0b1211] px-4 py-3">
-                <p class="text-[8px] font-semibold tracking-[0.12em] text-[#89958f] uppercase">
-                  Folder ID
-                </p>
-                <p class="mt-1 font-mono text-xs text-[#d9d2c6]">
-                  {artFrameChannelId(artFrameChannelName()) || "channel-name"}
-                </p>
+              <div class="space-y-4 px-5 py-5">
+                <label class="block">
+                  <span class="text-[9px] font-bold tracking-[0.14em] text-[#8f9b96] uppercase">
+                    Channel name
+                  </span>
+                  <input
+                    ref={(element) => {
+                      mediaChannelInput = element;
+                    }}
+                    class="mt-2 h-11 w-full border border-white/12 bg-[#0a1110] px-3 text-sm text-[#f0ebdf] transition outline-none placeholder:text-[#4f5b57] focus:border-[#c7554b]"
+                    maxLength={64}
+                    onInput={(event) => {
+                      setMediaChannelName(event.currentTarget.value);
+                      setMediaChannelError(undefined);
+                    }}
+                    placeholder={
+                      kind() === "tv" ? "Late Night" : "Night Scenes"
+                    }
+                    value={mediaChannelName()}
+                  />
+                </label>
+                <div class="border border-white/8 bg-[#0b1211] px-4 py-3">
+                  <p class="text-[8px] font-semibold tracking-[0.12em] text-[#89958f] uppercase">
+                    Folder ID
+                  </p>
+                  <p class="mt-1 font-mono text-xs text-[#d9d2c6]">
+                    {mediaChannelId() || "channel-name"}
+                  </p>
+                </div>
+                <div class="border border-dashed border-[#c7554b]/45 bg-[#c7554b]/6 px-4 py-4 text-center">
+                  <p class="text-xs font-semibold text-[#eee8dc]">
+                    Paste {kind() === "tv" ? "a video URL" : "an image"} to
+                    create the channel
+                  </p>
+                  <p class="mt-1 text-[10px] leading-4 text-[#8f9b96]">
+                    The import continues in the background and tunes this{" "}
+                    {kind() === "tv" ? "TV" : "frame"} when it is ready.
+                  </p>
+                </div>
+                <Show when={mediaChannelError()}>
+                  {(message) => (
+                    <p class="text-xs leading-5 text-[#e47a70]" role="alert">
+                      {message()}
+                    </p>
+                  )}
+                </Show>
               </div>
-              <p class="text-xs leading-5 text-[#8f9b96]">
-                The channel is created when you paste its first image. Later
-                pastes while this channel is selected are added to the same
-                folder.
-              </p>
-            </div>
 
-            <footer class="flex items-center justify-end gap-2 border-t border-white/8 px-5 py-4">
-              <button
-                class="h-10 px-4 text-[10px] font-bold tracking-[0.08em] text-[#98a39e] uppercase transition hover:bg-white/5 hover:text-white"
-                type="button"
-                onClick={closeArtFrameChannelEditor}
-              >
-                Cancel
-              </button>
-              <button
-                class="flex h-10 items-center gap-2 bg-[#ece6d8] px-4 text-[10px] font-bold tracking-[0.08em] text-[#17201e] uppercase transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-40"
-                disabled={!artFrameChannelId(artFrameChannelName())}
-                type="submit"
-              >
-                <FiCheck size={14} /> Use channel
-              </button>
-            </footer>
-          </form>
-        </div>
+              <footer class="flex items-center justify-end border-t border-white/8 px-5 py-4">
+                <button
+                  class="h-10 px-4 text-[10px] font-bold tracking-[0.08em] text-[#98a39e] uppercase transition hover:bg-white/5 hover:text-white"
+                  type="button"
+                  onClick={closeMediaChannelEditor}
+                >
+                  Cancel
+                </button>
+              </footer>
+            </form>
+          </div>
+        )}
       </Show>
 
       <Show when={signEditor()}>

@@ -197,6 +197,7 @@ import {
 } from "~/reader/pagination";
 import {
   DEFAULT_TV_CHANNEL_ID,
+  tvChannelId,
   tvVideoImportUrl,
   type TvChannel,
   type TvVideo,
@@ -720,7 +721,7 @@ export type ShopSceneOptions = {
   mouseSensitivity?: () => number;
   newPublicationIds?: () => readonly string[];
   onDiscardPublication?: (publicationId: string) => Promise<boolean>;
-  onArtFrameChannelCreateRequest?: (currentChannelLabel: string) => void;
+  onMediaChannelCreateRequest?: (kind: "art-frame" | "tv") => void;
   onGameStateChange?: (snapshot: ShopGameSnapshot) => void;
   onPauseRequest?: () => void;
   onPageIndexChange?: (publicationId: string, pageIndex: number) => void;
@@ -1038,8 +1039,8 @@ export class ShopScene {
   readonly #onDiscardPublication:
     | ((publicationId: string) => Promise<boolean>)
     | undefined;
-  readonly #onArtFrameChannelCreateRequest:
-    | ((currentChannelLabel: string) => void)
+  readonly #onMediaChannelCreateRequest:
+    | ((kind: "art-frame" | "tv") => void)
     | undefined;
   readonly #onGameStateChange:
     | ((snapshot: ShopGameSnapshot) => void)
@@ -1282,6 +1283,8 @@ export class ShopScene {
   #targetedSignKey: string | undefined;
   #targetedPosterId: string | undefined;
   #targetedDigitalArtFrameId: string | undefined;
+  #channelEditorDigitalArtFrameId: string | undefined;
+  #channelEditorTelevision: ShopTelevision | undefined;
   #targetedProp: MovablePropRecord | undefined;
   #televisionInteraction: ShopTelevisionInteraction | undefined;
   #televisionTargeted = false;
@@ -1325,8 +1328,7 @@ export class ShopScene {
     this.#selectedPublicationId = options.selectedPublicationId;
     this.#onSelectPublication = options.onSelectPublication;
     this.#onDiscardPublication = options.onDiscardPublication;
-    this.#onArtFrameChannelCreateRequest =
-      options.onArtFrameChannelCreateRequest;
+    this.#onMediaChannelCreateRequest = options.onMediaChannelCreateRequest;
     this.#onGameStateChange = options.onGameStateChange;
     this.#onPauseRequest = options.onPauseRequest;
     this.#onPageIndexChange = options.onPageIndexChange;
@@ -4472,6 +4474,39 @@ export class ShopScene {
     return channelId;
   }
 
+  async importArtFrameChannelImage(label: string, image: Blob) {
+    const channelId = artFrameChannelId(label);
+    if (!channelId) return false;
+    const placement = this.#artFramePlacement;
+    if (placement) placement.channelId = channelId;
+    const frameId = this.#channelEditorDigitalArtFrameId;
+    if (!placement && frameId)
+      this.#artFrameTargetImportChannel = {channelId, frameId};
+    let target: DigitalArtFramePasteTarget | undefined;
+    if (placement) target = {channelId, kind: "placement"};
+    else if (frameId) target = {channelId, frameId, kind: "frame"};
+    if (!target) return false;
+    const imported = await this.#importPastedArtFrameImage(image, target);
+    if (imported) this.#channelEditorDigitalArtFrameId = undefined;
+    return imported;
+  }
+
+  async importTvChannelVideo(label: string, text: string) {
+    const channelId = tvChannelId(label);
+    const url = tvVideoImportUrl(text);
+    const television = this.#channelEditorTelevision;
+    if (!channelId || !url || !television) return false;
+    const imported = await this.#importPastedTvVideo(
+      television,
+      url,
+      channelId,
+      label.trim(),
+      true,
+    );
+    if (imported) this.#channelEditorTelevision = undefined;
+    return imported;
+  }
+
   #createBookSpineTexture(
     title: string,
     language: CatalogItem["language"],
@@ -5432,9 +5467,10 @@ export class ShopScene {
     url: string,
     channelId: string,
     channelLabel: string,
+    selectImportedChannel = false,
   ) {
     const importVideo = this.#importTvVideo;
-    if (!importVideo) return;
+    if (!importVideo) return false;
     this.#tvVideoImportCount += 1;
     this.#tvVideoImportError = undefined;
     this.#tvVideoImportMessage = undefined;
@@ -5448,20 +5484,25 @@ export class ShopScene {
         channelId,
         this.#abortController.signal,
       );
-      if (this.#disposed) return;
-      television.playVideoIfChannelSelected(channelId, video, channelLabel);
+      if (this.#disposed) return false;
+      if (selectImportedChannel)
+        television.playImportedChannel(channelId, video, channelLabel);
+      else
+        television.playVideoIfChannelSelected(channelId, video, channelLabel);
       this.#tvVideoImportMessage = `Added ${video.id} to ${channelLabel}`;
       this.#tvVideoImportMessageTimer = window.setTimeout(() => {
         this.#tvVideoImportMessageTimer = undefined;
         this.#tvVideoImportMessage = undefined;
         if (!this.#disposed) this.#emitGameState();
       }, 6_000);
+      return true;
     } catch (error) {
-      if (this.#abortController.signal.aborted) return;
+      if (this.#abortController.signal.aborted) return false;
       this.#tvVideoImportError =
         error instanceof Error && error.message
           ? error.message
           : "Video URL could not be imported";
+      return false;
     } finally {
       this.#tvVideoImportCount = Math.max(0, this.#tvVideoImportCount - 1);
       if (!this.#disposed) this.#emitGameState();
@@ -5493,7 +5534,7 @@ export class ShopScene {
     target: DigitalArtFramePasteTarget,
   ) {
     const importImage = this.#importArtFrameImage;
-    if (!importImage) return;
+    if (!importImage) return false;
     const importChannelId = target.channelId;
     this.#artFrameImportCount += 1;
     this.#artFrameImportError = undefined;
@@ -5504,7 +5545,7 @@ export class ShopScene {
         importChannelId,
         this.#abortController.signal,
       );
-      if (this.#disposed) return;
+      if (this.#disposed) return false;
       const existingChannel = this.#artFrameChannels.find(
         (channel) => channel.id === importChannelId,
       );
@@ -5538,7 +5579,7 @@ export class ShopScene {
       if (assetIndex >= 0) this.#artFrameAssetIndex = assetIndex;
       if (target.kind === "frame") {
         const record = this.#digitalArtFrameRecords.get(target.frameId);
-        if (!record) return;
+        if (!record) return false;
         record.frame.setChannel(importChannelId, asset.id);
         if (
           this.#artFrameTargetImportChannel?.frameId === target.frameId &&
@@ -5547,10 +5588,10 @@ export class ShopScene {
           this.#artFrameTargetImportChannel = undefined;
         this.#worldStateDirty = true;
         this.#emitGameState();
-        return;
+        return true;
       }
       const placement = this.#artFramePlacement;
-      if (!placement) return;
+      if (!placement) return false;
       const desiredHeight = placement.desiredHeight;
       const fit = placement.fit;
       const intervalSeconds = placement.intervalSeconds;
@@ -5570,12 +5611,14 @@ export class ShopScene {
           fit,
           intervalSeconds,
         );
+      return true;
     } catch (error) {
-      if (this.#abortController.signal.aborted) return;
+      if (this.#abortController.signal.aborted) return false;
       this.#artFrameImportError =
         error instanceof Error && error.message
           ? error.message
           : "Pasted art frame image could not be imported";
+      return false;
     } finally {
       this.#artFrameImportCount = Math.max(0, this.#artFrameImportCount - 1);
       if (!this.#disposed) this.#emitGameState();
@@ -6432,23 +6475,20 @@ export class ShopScene {
     }
     if (
       event.code === "KeyN" &&
-      (this.#artFramePlacement || this.#targetedDigitalArtFrameId)
+      (this.#artFramePlacement ||
+        this.#targetedDigitalArtFrameId ||
+        this.#televisionTargeted)
     ) {
       event.preventDefault();
-      if (!this.#onArtFrameChannelCreateRequest) return;
-      const frame = this.#targetedDigitalArtFrameId
-        ? this.#digitalArtFrameRecords.get(this.#targetedDigitalArtFrameId)
-            ?.frame
-        : undefined;
-      const channelId =
-        this.#artFramePlacement?.channelId ?? frame?.channelId();
-      if (!channelId) return;
-      const currentChannelLabel =
-        this.#artFrameChannels.find((channel) => channel.id === channelId)
-          ?.label ?? channelId;
+      if (!this.#onMediaChannelCreateRequest) return;
+      const kind = this.#televisionTargeted ? "tv" : "art-frame";
+      this.#channelEditorTelevision =
+        kind === "tv" ? this.#targetedTelevision : undefined;
+      this.#channelEditorDigitalArtFrameId =
+        kind === "art-frame" ? this.#targetedDigitalArtFrameId : undefined;
       this.#suppressNextPointerUnlockPause = true;
       this.#releasePointerLock();
-      this.#onArtFrameChannelCreateRequest(currentChannelLabel);
+      this.#onMediaChannelCreateRequest(kind);
       return;
     }
     if (event.code === "KeyP") {
@@ -11221,7 +11261,7 @@ export class ShopScene {
     else if (this.#televisionTargeted) {
       const televisionPrompt = this.#targetedTelevision?.prompt;
       const pastePrompt = this.#targetedTelevision
-        ? "Paste video URL"
+        ? "Paste video URL · N new channel"
         : undefined;
       prompt = [televisionPrompt, pastePrompt].filter(Boolean).join(" · ");
     } else if (this.#targetedProp)
@@ -11343,6 +11383,7 @@ export class ShopScene {
         {key: "T", label: "Move TV"},
         {key: "Q", label: "Previous channel"},
         {key: "F", label: "Skip"},
+        {key: "N", label: "New channel"},
         {
           key: "M",
           label: `Mute (${this.#targetedTelevision?.volumePercent() ?? 0}%)`,

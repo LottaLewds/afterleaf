@@ -83,6 +83,10 @@ URL support to `yt-dlp`, so named extractors and the generic extractor follow
 the installed `yt-dlp` version. The import downloads one non-live video, ignores
 playlists, and has no Afterleaf file-size or duration limit.
 
+Press `N` while aiming at a television to create a channel. Name it in the
+dialog, then paste its first video URL there. The successful download creates
+the channel folder and tunes that television to the imported video.
+
 `yt-dlp` and `ffmpeg` must be available on `PATH`. Install and keep yt-dlp
 current in your preferred Python environment:
 

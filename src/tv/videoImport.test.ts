@@ -71,7 +71,27 @@ describe("TV video URL import", () => {
     ).toBe("existing");
   });
 
-  test("rejects invalid URLs, missing channels, and escaped output paths", async () => {
+  test("creates a missing channel from its first imported video", async () => {
+    const root = await createRoot();
+    const download: TvVideoDownloader = async (_url, stagingDirectory) => {
+      const outputPath = resolve(stagingDirectory, "Pilot.mp4");
+      await writeFile(outputPath, "new-channel-video");
+      return outputPath;
+    };
+
+    const video = await importTvVideoToChannel({
+      channelId: "documentaries",
+      channelsDirectory: root,
+      download,
+      url: "https://example.com/pilot",
+    });
+
+    expect(
+      await readFile(resolve(root, "documentaries", video.id), "utf8"),
+    ).toBe("new-channel-video");
+  });
+
+  test("rejects invalid URLs, channel IDs, and escaped output paths", async () => {
     const root = await createRoot();
     await expect(
       importTvVideoToChannel({
@@ -82,7 +102,7 @@ describe("TV video URL import", () => {
     ).rejects.toBeInstanceOf(TvVideoImportInputError);
     await expect(
       importTvVideoToChannel({
-        channelId: "missing",
+        channelId: "../missing",
         channelsDirectory: root,
         url: "https://example.com/video",
       }),
