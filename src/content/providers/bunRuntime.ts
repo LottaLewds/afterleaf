@@ -1,9 +1,8 @@
 import {spawn} from "node:child_process";
-import {mkdtemp, rm, writeFile} from "node:fs/promises";
+import {mkdtemp, readFile, rm, stat, writeFile} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {dirname, resolve} from "node:path";
 import {createInterface} from "node:readline";
-import type {Readable} from "node:stream";
 import type {
   LibraryProvider,
   LibraryProviderPluginContext,
@@ -98,6 +97,7 @@ const runProviderRuntime = (
       resolve(tmpdir(), "afterleaf-provider-runtime-"),
     );
     const requestPath = resolve(temporaryDirectory, "request.json");
+    const payloadPath = resolve(temporaryDirectory, "payload.bin");
     await writeFile(requestPath, JSON.stringify(request), {mode: 0o600});
     try {
       return await new Promise<ProviderRuntimeResult>(
@@ -111,6 +111,7 @@ const runProviderRuntime = (
               operation,
               location.entryPath,
               requestPath,
+              payloadPath,
             ],
             {
               cwd: location.projectDirectory,
@@ -118,15 +119,12 @@ const runProviderRuntime = (
                 ...process.env,
                 AFTERLEAF_PROVIDER_SDK_ENTRY_PATH: sdkEntryPath,
               },
-              stdio: ["ignore", "pipe", "inherit", "pipe"],
+              stdio: ["ignore", "pipe", "inherit"],
             },
           );
-          const payloadStream = child.stdio[3] as Readable | null;
           const protocol = child.stdout
             ? createInterface({input: child.stdout})
             : undefined;
-          const payloadChunks: Buffer[] = [];
-          let payloadBytes = 0;
           let response: Extract<
             ProviderRuntimeMessage,
             {kind: "error" | "result"}
@@ -141,22 +139,6 @@ const runProviderRuntime = (
             rejectResult(error);
           };
 
-          payloadStream?.on("data", (chunk: Buffer | Uint8Array) => {
-            const bytes = Buffer.from(chunk);
-            payloadBytes += bytes.byteLength;
-            if (payloadBytes > MAX_PROVIDER_PAGE_BYTES) {
-              fail(
-                new Error(
-                  `Content provider page exceeded ${MAX_PROVIDER_PAGE_BYTES} bytes`,
-                ),
-              );
-              return;
-            }
-            payloadChunks.push(bytes);
-          });
-          payloadStream?.on("error", (error) => {
-            processError = error;
-          });
           protocol?.on("line", (line) => {
             let message: ProviderRuntimeMessage;
             try {
@@ -186,7 +168,7 @@ const runProviderRuntime = (
           child.once("error", (error) => {
             processError = error;
           });
-          child.once("close", (code, signal) => {
+          child.once("close", async (code, signal) => {
             if (finished) return;
             finished = true;
             if (processError) return rejectResult(processError);
@@ -198,10 +180,26 @@ const runProviderRuntime = (
                   `Content provider runtime exited ${signal ? `with ${signal}` : `with code ${code ?? "unknown"}`}`,
                 ),
               );
-            resolveResult({
-              payload: Buffer.concat(payloadChunks, payloadBytes),
-              result: response.result,
-            });
+            let payload = Buffer.alloc(0);
+            if (operation === "materialize-page") {
+              try {
+                const payloadBytes = (await stat(payloadPath)).size;
+                if (payloadBytes > MAX_PROVIDER_PAGE_BYTES)
+                  return rejectResult(
+                    new Error(
+                      `Content provider page exceeded ${MAX_PROVIDER_PAGE_BYTES} bytes`,
+                    ),
+                  );
+                payload = await readFile(payloadPath);
+              } catch (error) {
+                return rejectResult(
+                  error instanceof Error
+                    ? error
+                    : new Error("Could not read content provider page"),
+                );
+              }
+            }
+            resolveResult({payload, result: response.result});
           });
         },
       );

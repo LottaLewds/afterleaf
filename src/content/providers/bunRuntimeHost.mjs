@@ -2,7 +2,7 @@ import {readFileSync, writeFileSync} from "node:fs";
 import {format} from "node:util";
 import {pathToFileURL} from "node:url";
 
-const [operation, entryPath, requestPath] = process.argv.slice(2);
+const [operation, entryPath, requestPath, payloadPath] = process.argv.slice(2);
 
 const writePluginLog = (level, values) =>
   process.stderr.write(`[provider:${level}] ${format(...values)}\n`);
@@ -83,10 +83,12 @@ const run = async (request) => {
     if (operation === "materialize-page") {
       if (typeof provider.materializePage !== "function")
         throw new Error("Content provider does not support sparse pages");
+      if (!payloadPath)
+        throw new Error("Content provider runtime payload path is missing");
       const result = await provider.materializePage(request.value);
       if (!(result instanceof Uint8Array))
         throw new Error("materializePage() must return a Buffer");
-      writeFileSync(3, result);
+      writeFileSync(payloadPath, result);
       send({kind: "result", result: null});
       shutdown(0);
       return;

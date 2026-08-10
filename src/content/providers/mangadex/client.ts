@@ -4,6 +4,7 @@ import type {SupportedLanguage} from "@afterleaf/provider-sdk";
 const DEFAULT_API_ORIGIN = "https://api.mangadex.org";
 const MAX_JSON_RESPONSE_BYTES = 16 * 1024 * 1024;
 const MAX_IMAGE_RESPONSE_BYTES = 128 * 1024 * 1024;
+const DEFAULT_REQUEST_TIMEOUT_MILLISECONDS = 30_000;
 const SEARCH_RESULT_LIMIT = 10;
 const CHAPTER_RESULT_LIMIT = 100;
 
@@ -114,6 +115,7 @@ export interface MangaDexClientOptions {
   apiOrigin?: string;
   fetcher?: typeof fetch;
   onRetry?: (event: MangaDexRequestRetryEvent) => void;
+  requestTimeoutMilliseconds?: number;
   retryCount?: number;
   sleep?: (milliseconds: number) => Promise<void>;
 }
@@ -236,6 +238,7 @@ export class MangaDexClient {
   readonly #apiOrigin: string;
   readonly #fetcher: typeof fetch;
   readonly #onRetry: ((event: MangaDexRequestRetryEvent) => void) | undefined;
+  readonly #requestTimeoutMilliseconds: number;
   readonly #retryCount: number;
   readonly #sleep: (milliseconds: number) => Promise<void>;
   #tagPromise: Promise<MangaDexTag[]> | undefined;
@@ -244,6 +247,14 @@ export class MangaDexClient {
     this.#apiOrigin = normalizeOrigin(options.apiOrigin ?? DEFAULT_API_ORIGIN);
     this.#fetcher = options.fetcher ?? fetch;
     this.#onRetry = options.onRetry;
+    this.#requestTimeoutMilliseconds = Math.max(
+      1,
+      Math.min(
+        120_000,
+        options.requestTimeoutMilliseconds ??
+          DEFAULT_REQUEST_TIMEOUT_MILLISECONDS,
+      ),
+    );
     this.#retryCount = Math.max(0, Math.min(5, options.retryCount ?? 2));
     this.#sleep = options.sleep ?? ((milliseconds) => Bun.sleep(milliseconds));
   }
@@ -395,6 +406,7 @@ export class MangaDexClient {
     for (let attempt = 0; ; attempt += 1) {
       const response = await this.#fetcher(url, {
         headers: {Accept: "application/json"},
+        signal: AbortSignal.timeout(this.#requestTimeoutMilliseconds),
       });
       if (response.ok) return response;
       if (

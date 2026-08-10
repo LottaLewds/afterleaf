@@ -198,3 +198,23 @@ test("MangaDex client excludes external chapter placeholders", async () => {
   ]);
   expect(page.total).toBe(2);
 });
+
+test("MangaDex client times out stalled requests", async () => {
+  const client = new MangaDexClient({
+    apiOrigin: "https://mangadex.test",
+    fetcher: (_input, init) =>
+      new Promise((_resolve, reject) => {
+        init?.signal?.addEventListener(
+          "abort",
+          () => reject(init.signal?.reason),
+          {
+            once: true,
+          },
+        );
+      }),
+    requestTimeoutMilliseconds: 5,
+    retryCount: 0,
+  });
+
+  await expect(client.getAtHomeServer("chapter-id")).rejects.toThrow();
+});

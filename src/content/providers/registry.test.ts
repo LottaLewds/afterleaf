@@ -249,11 +249,14 @@ test("runs a cloned TypeScript plugin with its own tsconfig and binary pages", a
 export const createProvider = (context: LibraryProviderPluginContext) => ({
   descriptor: context.descriptor,
   materializePage: async ({pageCount, pageNumber}: {pageCount: number; pageNumber: number}) =>
-    Buffer.from([
-      0x41,
-      createRepresentativePagePlan(pageCount).backPageIndex,
-      pageNumber,
-      0x5a,
+    Buffer.concat([
+      Buffer.from([
+        0x41,
+        createRepresentativePagePlan(pageCount).backPageIndex,
+        pageNumber,
+      ]),
+      Buffer.alloc(1024 * 1024, 0x7f),
+      Buffer.from([0x5a]),
     ]),
   sync: async (options: {
     limit: number;
@@ -310,7 +313,10 @@ export const createProvider = (context: LibraryProviderPluginContext) => ({
   expect(report.providerId).toBe(descriptor.id);
   expect(report.query).toBe("typescript fixture");
   expect(progress).toEqual([`loaded from ${pluginDirectory}`]);
-  expect(page).toEqual(Buffer.from([0x41, 2, 2, 0x5a]));
+  expect(page.byteLength).toBe(1024 * 1024 + 4);
+  expect(page.subarray(0, 3)).toEqual(Buffer.from([0x41, 2, 2]));
+  expect(page[3]).toBe(0x7f);
+  expect(page.at(-1)).toBe(0x5a);
 });
 
 test("rejects duplicate provider IDs", async () => {
