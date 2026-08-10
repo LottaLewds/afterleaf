@@ -1879,30 +1879,6 @@ const posterContentPlugin = (): Plugin => ({
   configurePreviewServer(server) {
     server.middlewares.use(servePosterContent);
   },
-  async generateBundle() {
-    const posters = await discoverPosters(
-      await postersDirectories(),
-      posterMediaUrl,
-    );
-    for (const poster of posters)
-      this.emitFile({
-        fileName: poster.url.slice(1),
-        source: await renderedPoster(poster.filePath),
-        type: "asset",
-      });
-    this.emitFile({
-      fileName: POSTER_CATALOG_ENDPOINT.slice(1),
-      source: JSON.stringify({
-        posters: posters.map(({aspectRatio, id, label, url}) => ({
-          aspectRatio,
-          id,
-          label,
-          url,
-        })),
-      }),
-      type: "asset",
-    });
-  },
 });
 
 const artFrameRenderCache = new Map<string, Promise<Buffer>>();
@@ -2071,35 +2047,6 @@ const artFrameContentPlugin = (): Plugin => ({
   },
   configurePreviewServer(server) {
     server.middlewares.use(serveArtFrameContent);
-  },
-  async generateBundle() {
-    const channels = await discoverArtFrameChannels(
-      await artFramesDirectories(),
-      artFrameMediaUrl,
-    );
-    for (const channel of channels)
-      for (const image of channel.images)
-        this.emitFile({
-          fileName: image.url.slice(1),
-          source: await renderedArtFrameImage(image.filePath),
-          type: "asset",
-        });
-    this.emitFile({
-      fileName: ART_FRAME_CATALOG_ENDPOINT.slice(1),
-      source: JSON.stringify({
-        channels: channels.map((channel) => ({
-          id: channel.id,
-          images: channel.images.map(({aspectRatio, id, label, url}) => ({
-            aspectRatio,
-            id,
-            label,
-            url,
-          })),
-          label: channel.label,
-        })),
-      }),
-      type: "asset",
-    });
   },
 });
 
