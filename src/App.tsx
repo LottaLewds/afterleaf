@@ -1748,7 +1748,10 @@ export const App = () => {
     const arrivedPublicationIds = activatedLibrary.publications
       .filter((publication) => !previousPublicationIds.has(publication.id))
       .map((publication) => publication.id);
-    setNewPublicationIds(arrivedPublicationIds);
+    // This signal is an arrival event for the Three runtime. Publishing a new
+    // empty array would look like a stock change and rebuild every book batch.
+    if (arrivedPublicationIds.length > 0)
+      setNewPublicationIds(arrivedPublicationIds);
     setLastChecked(
       new Date().toLocaleTimeString(undefined, {
         hour: "2-digit",

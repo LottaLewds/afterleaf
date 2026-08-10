@@ -568,6 +568,62 @@ describe("LibraryUpdateService", () => {
     });
   });
 
+  test("keeps the active snapshot when a scan produces an identical catalog", async () => {
+    const calls: string[] = [];
+    const unchangedSeedResult = structuredClone(seedResult);
+    if (!unchangedSeedResult.catalog)
+      throw new Error("Test seed result must contain a catalog");
+    unchangedSeedResult.catalog.contentHash = previousCatalog.contentHash;
+    unchangedSeedResult.catalog.publications = [
+      publication("kept", "kept-v1"),
+      publication("removed", "removed-v1"),
+    ];
+    const service = new LibraryUpdateService(
+      {libraryDirectory: "/library", sourceDirectory: "/source"},
+      createDependencies({
+        activateSnapshot: async () => {
+          calls.push("activate");
+          return previousIndex;
+        },
+        discardAssetSet: async (revisionId) => {
+          calls.push("discard-assets");
+          expect(revisionId).toBe("next");
+        },
+        discardSnapshot: async (snapshotDirectory) => {
+          calls.push("discard-snapshot");
+          expect(snapshotDirectory).toBe(resolve("/library/revisions/next"));
+        },
+        promoteAssetSet: async () => {
+          calls.push("promote");
+        },
+        retireUnreferencedAssetSets: async () => {
+          calls.push("retire");
+        },
+        runSeed: async () => {
+          calls.push("seed");
+          return unchangedSeedResult;
+        },
+      }),
+    );
+
+    const result = await service.scan({});
+
+    expect(calls).toEqual(["seed", "discard-snapshot", "discard-assets"]);
+    expect(result.snapshot).toBe(previousSnapshot);
+    expect(result.previousSnapshot).toBe(previousSnapshot);
+    expect(result.diff).toEqual({
+      addedPublicationIds: [],
+      removedPublicationIds: [],
+      unchangedPublicationIds: ["kept", "removed"],
+      updatedPublicationIds: [],
+    });
+    expect(service.getState()).toMatchObject({
+      activeSnapshot: previousSnapshot,
+      phase: "idle",
+      status: "idle",
+    });
+  });
+
   test("continues scanning and reports isolated migration failures", async () => {
     const localSeedResult = structuredClone(seedResult);
     const service = new LibraryUpdateService(

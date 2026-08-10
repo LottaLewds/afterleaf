@@ -508,55 +508,75 @@ export class LibraryUpdateService implements LibraryUpdateClient {
           );
         }
       }
-      failurePhase = "activating";
-      this.#setRunningState(
-        "activating",
-        "Promoting new derived library assets",
-        completedSteps,
-        requestId,
-        startedAt,
-        previousSnapshot,
-      );
-      const snapshot: LibrarySnapshotDescriptor = {
-        catalogContentHash: nextCatalog.contentHash,
-        catalogPath: `revisions/${snapshotId}/catalog.json`,
-        createdAt: (this.#dependencies.now?.() ?? new Date()).toISOString(),
-        directory: `revisions/${snapshotId}`,
-        packId: seedResult.catalog.id,
-        publicationCount: nextCatalog.publications.length,
-        snapshotId,
-      };
-      try {
-        await this.#dependencies.promoteAssetSet?.(
-          snapshotDirectory,
-          snapshotId,
-        );
+      let snapshot: LibrarySnapshotDescriptor;
+      if (
+        previousSnapshot &&
+        previousCatalog?.contentHash === nextCatalog.contentHash
+      ) {
         this.#setRunningState(
           "activating",
-          "Activating the completed library catalog revision",
+          "Catalog unchanged; keeping the active library revision",
           completedSteps,
           requestId,
           startedAt,
           previousSnapshot,
         );
-        await this.#dependencies.activateSnapshot(snapshot);
-        this.#setRunningState(
-          "activating",
-          "Scheduling retired library assets for cleanup",
-          completedSteps,
-          requestId,
-          startedAt,
-          snapshot,
-        );
-        await this.#dependencies
-          .retireUnreferencedAssetSets?.(seedResult.catalog)
-          .catch(() => {});
-      } catch (error) {
         await Promise.allSettled([
           this.#dependencies.discardSnapshot?.(snapshotDirectory),
           this.#dependencies.discardAssetSet?.(snapshotId),
         ]);
-        throw error;
+        snapshot = previousSnapshot;
+      } else {
+        failurePhase = "activating";
+        this.#setRunningState(
+          "activating",
+          "Promoting new derived library assets",
+          completedSteps,
+          requestId,
+          startedAt,
+          previousSnapshot,
+        );
+        snapshot = {
+          catalogContentHash: nextCatalog.contentHash,
+          catalogPath: `revisions/${snapshotId}/catalog.json`,
+          createdAt: (this.#dependencies.now?.() ?? new Date()).toISOString(),
+          directory: `revisions/${snapshotId}`,
+          packId: seedResult.catalog.id,
+          publicationCount: nextCatalog.publications.length,
+          snapshotId,
+        };
+        try {
+          await this.#dependencies.promoteAssetSet?.(
+            snapshotDirectory,
+            snapshotId,
+          );
+          this.#setRunningState(
+            "activating",
+            "Activating the completed library catalog revision",
+            completedSteps,
+            requestId,
+            startedAt,
+            previousSnapshot,
+          );
+          await this.#dependencies.activateSnapshot(snapshot);
+          this.#setRunningState(
+            "activating",
+            "Scheduling retired library assets for cleanup",
+            completedSteps,
+            requestId,
+            startedAt,
+            snapshot,
+          );
+          await this.#dependencies
+            .retireUnreferencedAssetSets?.(seedResult.catalog)
+            .catch(() => {});
+        } catch (error) {
+          await Promise.allSettled([
+            this.#dependencies.discardSnapshot?.(snapshotDirectory),
+            this.#dependencies.discardAssetSet?.(snapshotId),
+          ]);
+          throw error;
+        }
       }
       completedSteps = 3;
       const finishedAt = (

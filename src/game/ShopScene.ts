@@ -6707,16 +6707,22 @@ export class ShopScene {
   #syncInputs() {
     const items = this.#catalogItems();
     const newPublicationIds = this.#newPublicationIds();
-    if (
-      items !== this.#lastItems ||
-      newPublicationIds !== this.#lastNewPublicationIds
-    ) {
+    const itemsChanged = items !== this.#lastItems;
+    const arrivalsChanged = newPublicationIds !== this.#lastNewPublicationIds;
+    if (itemsChanged || arrivalsChanged) {
+      const hasUnobservedArrivals =
+        arrivalsChanged &&
+        newPublicationIds.some(
+          (publicationId) => !this.#observedArrivalIds.has(publicationId),
+        );
       const discardOnlyUpdate =
-        newPublicationIds === this.#lastNewPublicationIds &&
+        itemsChanged &&
+        !hasUnobservedArrivals &&
         this.#isDiscardOnlyCatalogUpdate(items);
       this.#lastItems = items;
       this.#lastNewPublicationIds = newPublicationIds;
-      if (!discardOnlyUpdate) this.#syncBooks(items, newPublicationIds);
+      if ((itemsChanged || hasUnobservedArrivals) && !discardOnlyUpdate)
+        this.#syncBooks(items, newPublicationIds);
     }
 
     const selectedPublicationId = this.#selectedPublicationId();
