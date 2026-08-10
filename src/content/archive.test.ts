@@ -39,9 +39,12 @@ afterEach(async () => {
   );
 });
 
-const createPng = (color: string) =>
+const createPng = (
+  color: string,
+  dimensions: {height: number; width: number} = {height: 96, width: 64},
+) =>
   sharp({
-    create: {width: 64, height: 96, channels: 3, background: color},
+    create: {...dimensions, channels: 3, background: color},
   })
     .png()
     .toBuffer();
@@ -356,6 +359,78 @@ test("archive import creates sparse English/Japanese catalogs and skips Chinese"
     "front.webp",
     "publication.json",
   ]);
+});
+
+test("archive import infers aspect ratio from early and midpoint interior pages", async () => {
+  const root = await mkdtemp(join(tmpdir(), "afterleaf-archive-aspect-"));
+  temporaryDirectories.push(root);
+  const archivesDirectory = resolve(root, "archives");
+  const outputDirectory = resolve(root, "catalog");
+  const archivePath = resolve(archivesDirectory, "Wide Covers.cbz");
+  const portrait = {height: 96, width: 64};
+  const spread = {height: 96, width: 128};
+  const wide = {height: 96, width: 160};
+  await writeArchive(archivePath, {
+    "001.png": await createPng("#502030", wide),
+    "002.png": await createPng("#305020", spread),
+    "003.png": await createPng("#203050", spread),
+    "004.png": await createPng("#503020", portrait),
+    "005.png": await createPng("#205030", portrait),
+    "006.png": await createPng("#302050", portrait),
+    "007.png": await createPng("#504020", wide),
+    "008.png": await createPng("#405020", wide),
+    "009.png": await createPng("#204050", wide),
+  });
+  const options = {
+    archivesDirectory,
+    defaultLanguage: "english" as const,
+    force: false,
+    outputDirectory,
+    tags: [],
+    write: true,
+  };
+
+  await importContentArchives(options);
+  const manifestPath = resolve(outputDirectory, "Wide Covers/publication.json");
+  const document = parseLocalPublicationDocument(
+    JSON.parse(await readFile(manifestPath, "utf8")) as unknown,
+    "publication.json",
+  );
+  expect(document.physical?.aspectRatio).toBeCloseTo(2 / 3);
+  expect(document.assets.pages).toEqual([]);
+
+  const legacyPhysical = {...document.physical};
+  delete legacyPhysical.aspectRatio;
+  const legacyDocument = {...document, physical: legacyPhysical};
+  delete legacyDocument.aspectRatioInferenceVersion;
+  await writeFile(manifestPath, `${JSON.stringify(legacyDocument, null, 2)}\n`);
+  const refreshed = await importContentArchives(options);
+  expect(refreshed.preparedCount).toBe(1);
+  expect(refreshed.diagnostics).toEqual([]);
+  const upgradedDocument = parseLocalPublicationDocument(
+    JSON.parse(await readFile(manifestPath, "utf8")) as unknown,
+    "publication.json",
+  );
+  expect(upgradedDocument.physical?.aspectRatio).toBeCloseTo(2 / 3);
+
+  const seeded = await seedContentPack(
+    new LocalCatalogSource(outputDirectory),
+    {
+      tags: [],
+      excludedTags: [],
+      languages: ["english"],
+      limit: 1,
+      match: "all",
+      seed: "archive-aspect",
+      dryRun: false,
+      force: false,
+      outputDirectory: resolve(root, "pack"),
+      packId: "archive-aspect",
+    },
+  );
+  expect(seeded.catalog?.publications[0]?.physical.aspectRatio).toBeCloseTo(
+    2 / 3,
+  );
 });
 
 test("archive CLI parses preview defaults", () => {

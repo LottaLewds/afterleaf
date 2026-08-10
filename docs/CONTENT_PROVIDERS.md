@@ -182,7 +182,11 @@ Use `createRepresentativePagePlan(pageCount)` from
 publications. The first three pages form a contiguous initial preview; page
 `N` is the back cover. Keep the full remote `pageCount` and implement
 `materializePage` so the reader can lazily request every page by its true
-one-based number.
+one-based number. Afterleaf may also use this source-level capability during
+Import & Scan to perform host-owned migrations. Providers return the requested
+source bytes; they do not detect, version, or implement Afterleaf migrations.
+Afterleaf registers and orders those migrations centrally, then validates and
+atomically persists each successful manifest update.
 
 Providers should use interfaces intended for programmatic access and observe
 the source's API terms and rate limits. Keep parsing isolated, bounded,

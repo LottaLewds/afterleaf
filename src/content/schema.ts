@@ -44,6 +44,7 @@ export interface PublicationAssets {
 
 export interface LocalPublicationDocument {
   schemaVersion: typeof CONTENT_SCHEMA_VERSION;
+  aspectRatioInferenceVersion?: number;
   id: string;
   groupId?: string;
   issue?: PublicationIssue;
@@ -96,6 +97,7 @@ export interface ContentSeedDiagnostic {
     | "fewer-than-limit"
     | "invalid-assets"
     | "invalid-manifest"
+    | "migration-failed"
     | "suspected-duplicate"
     | "skipped-symlink"
     | "unsupported-language";
@@ -182,6 +184,7 @@ export interface PackedPublication {
     pages: string[];
   };
   shelfAtlasIndex: number;
+  aspectRatioInferenceVersion?: number;
   backFormatVersion?: number;
   spineFormatVersion?: number;
   contentHash: string;

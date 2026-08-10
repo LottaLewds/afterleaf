@@ -20,6 +20,11 @@ import {
   type ArchiveInspection,
 } from "~/content/archiveReader";
 import {
+  BOOK_ASPECT_RATIO_INFERENCE_VERSION,
+  bookAspectRatioSamplePageIndices,
+  inferRepresentativeBookAspectRatio,
+} from "~/content/bookAspectRatio";
+import {
   detectPreparedPublicationLanguage,
   detectPreparedPublicationReadingDirection,
   inferPreparedPublicationIdentity,
@@ -35,6 +40,7 @@ import {
   type SupportedLanguage,
 } from "~/content/schema";
 import {parseLocalPublicationDocument} from "~/content/validation";
+import sharp from "~/media/sharpRuntime";
 
 export {
   ARCHIVE_SOURCE_PROVIDER,
@@ -49,6 +55,8 @@ const NATURAL_COLLATOR = new Intl.Collator("en-US", {
 });
 const FRONT_SOURCE_FILE = "front.webp";
 const BACK_SOURCE_FILE = "back.webp";
+const DEFAULT_ARCHIVE_ASPECT_RATIO = 2 / 3;
+const EARLY_INTERIOR_ASPECT_SAMPLE_COUNT = 4;
 
 export interface ArchivePath {
   path: string;
@@ -216,8 +224,21 @@ const findArchives = async (
   );
 };
 
-const createArchiveDocument = (plan: ArchivePlan): LocalPublicationDocument => {
-  if (plan.document) return plan.document;
+const createArchiveDocument = (
+  plan: ArchivePlan,
+  inferredAspectRatio: number,
+): LocalPublicationDocument => {
+  if (plan.document) {
+    if (!archiveNeedsAspectRatioInference(plan.document)) return plan.document;
+    return {
+      ...plan.document,
+      aspectRatioInferenceVersion: BOOK_ASPECT_RATIO_INFERENCE_VERSION,
+      physical: {
+        ...(plan.document.physical ?? {}),
+        aspectRatio: inferredAspectRatio,
+      },
+    };
+  }
   const id = normalizeTag(plan.title);
   if (!id)
     throw new Error(
@@ -225,6 +246,7 @@ const createArchiveDocument = (plan: ArchivePlan): LocalPublicationDocument => {
     );
   return {
     schemaVersion: CONTENT_SCHEMA_VERSION,
+    aspectRatioInferenceVersion: BOOK_ASPECT_RATIO_INFERENCE_VERSION,
     id,
     ...(plan.groupId === undefined ? {} : {groupId: plan.groupId}),
     ...(plan.issue === undefined ? {} : {issue: plan.issue}),
@@ -248,9 +270,75 @@ const createArchiveDocument = (plan: ArchivePlan): LocalPublicationDocument => {
       retrievedAt: plan.inspection.modifiedAt,
       metadataHash: plan.inspection.metadataHash,
     },
-    ...(plan.readingDirection === undefined
-      ? {}
-      : {physical: {readingDirection: plan.readingDirection}}),
+    physical: {
+      aspectRatio: inferredAspectRatio,
+      ...(plan.readingDirection === undefined
+        ? {}
+        : {readingDirection: plan.readingDirection}),
+    },
+  };
+};
+
+const archiveNeedsAspectRatioInference = (document: LocalPublicationDocument) =>
+  document.physical?.aspectRatio === undefined ||
+  (document.source?.provider === ARCHIVE_SOURCE_PROVIDER &&
+    document.aspectRatioInferenceVersion !==
+      BOOK_ASPECT_RATIO_INFERENCE_VERSION);
+
+const readArchiveAspectSamples = async (plan: ArchivePlan) => {
+  const lastPageIndex = plan.inspection.imageEntries.length - 1;
+  // The adjacent midpoint page makes it unlikely that one unlucky spread is
+  // the only evidence away from covers and translator-added terminal pages.
+  const aspectSampleIndices = bookAspectRatioSamplePageIndices(
+    plan.inspection.imageEntries.length,
+    EARLY_INTERIOR_ASPECT_SAMPLE_COUNT,
+  );
+  const sourceIndices = [
+    ...new Set([0, lastPageIndex, ...aspectSampleIndices]),
+  ];
+  const sources = new Map(
+    await Promise.all(
+      sourceIndices.map(
+        async (index) =>
+          [
+            index,
+            await readContentArchiveImage(
+              plan.archivePath,
+              index,
+              plan.inspection.metadataHash,
+            ),
+          ] as const,
+      ),
+    ),
+  );
+  const representativeIndices =
+    aspectSampleIndices.length > 0 ? aspectSampleIndices : sourceIndices;
+  const dimensions = await Promise.all(
+    representativeIndices.flatMap((index) => {
+      const source = sources.get(index);
+      return source
+        ? [sharp(source, {limitInputPixels: 100_000_000}).metadata()]
+        : [];
+    }),
+  );
+  return {
+    aspectRatio: inferRepresentativeBookAspectRatio(
+      dimensions.flatMap((metadata) =>
+        metadata.width && metadata.height
+          ? [
+              {
+                height: metadata.height,
+                ...(metadata.orientation === undefined
+                  ? {}
+                  : {orientation: metadata.orientation}),
+                width: metadata.width,
+              },
+            ]
+          : [],
+      ),
+      DEFAULT_ARCHIVE_ASPECT_RATIO,
+    ),
+    sources,
   };
 };
 
@@ -258,7 +346,7 @@ const materializeArchivePlan = async (
   plan: ArchivePlan,
   publicationDirectory: string,
 ) => {
-  if (plan.document) {
+  if (plan.document && !archiveNeedsAspectRatioInference(plan.document)) {
     await cp(plan.destinationPath, publicationDirectory, {recursive: true});
     await writeFile(
       resolve(publicationDirectory, "publication.json"),
@@ -266,25 +354,30 @@ const materializeArchivePlan = async (
     );
     return plan.document;
   }
+  const {aspectRatio, sources} = await readArchiveAspectSamples(plan);
+  const document = createArchiveDocument(plan, aspectRatio);
+  if (plan.document) {
+    await cp(plan.destinationPath, publicationDirectory, {recursive: true});
+    await writeFile(
+      resolve(publicationDirectory, "publication.json"),
+      `${JSON.stringify(document, null, 2)}\n`,
+    );
+    return document;
+  }
   await mkdir(publicationDirectory, {recursive: true});
   const lastPageIndex = plan.inspection.imageEntries.length - 1;
-  const [frontSource, backSource] = await Promise.all([
-    readContentArchiveImage(plan.archivePath, 0, plan.inspection.metadataHash),
-    lastPageIndex === 0
-      ? undefined
-      : readContentArchiveImage(
-          plan.archivePath,
-          lastPageIndex,
-          plan.inspection.metadataHash,
-        ),
-  ]);
+  const frontSource = sources.get(0);
+  if (!frontSource) throw new Error("Archive has no front image sample");
+  const backSource =
+    lastPageIndex === 0 ? undefined : sources.get(lastPageIndex);
+  if (lastPageIndex > 0 && !backSource)
+    throw new Error("Archive has no back image sample");
   const [front, back] = await Promise.all([
     createReaderPageDerivative(frontSource),
     backSource === undefined
       ? undefined
       : createReaderPageDerivative(backSource),
   ]);
-  const document = createArchiveDocument(plan);
   await Promise.all([
     writeFile(resolve(publicationDirectory, FRONT_SOURCE_FILE), front),
     ...(back === undefined
@@ -505,7 +598,13 @@ export const importContentArchives = async (
         const refreshedDocument = existingDocument
           ? refreshArchiveMetadata(existingDocument, plan)
           : undefined;
-        if (!refreshedDocument || refreshedDocument === existingDocument) {
+        const needsAspectRatio =
+          refreshedDocument !== undefined &&
+          archiveNeedsAspectRatioInference(refreshedDocument);
+        if (
+          !refreshedDocument ||
+          (refreshedDocument === existingDocument && !needsAspectRatio)
+        ) {
           diagnostics.push({
             archive: archiveName,
             code: "existing-destination",

@@ -340,6 +340,67 @@ describe("LibraryUpdateService", () => {
     });
   });
 
+  test("reports a failed migration instead of taking the unchanged fetch fast path", async () => {
+    const calls: string[] = [];
+    const unchangedSyncReport = {
+      ...syncReport,
+      addedCount: 0,
+      selectedPublicationIds: [],
+      unchangedCount: 403,
+      updatedCount: 0,
+    };
+    const localSeedResult = structuredClone(seedResult);
+    const service = new LibraryUpdateService(
+      {libraryDirectory: "/library", sourceDirectory: "/source"},
+      createDependencies({
+        activateSnapshot: async (snapshot) => {
+          calls.push("activate");
+          return {
+            activeSnapshotId: snapshot.snapshotId,
+            revision: 2,
+            schemaVersion: 1,
+            snapshots: [snapshot, previousSnapshot],
+          };
+        },
+        runMigrations: async () => {
+          calls.push("migrate");
+          return {
+            diagnostics: [
+              {
+                message: "Could not migrate provider/book: remote unavailable",
+                migrationId: "test-migration",
+                sourceId: "provider/book",
+              },
+            ],
+            failedCount: 1,
+            migratedCount: 0,
+            pendingCount: 1,
+          };
+        },
+        runSeed: async () => {
+          calls.push("seed");
+          return localSeedResult;
+        },
+        runSync: async () => {
+          calls.push("sync");
+          return unchangedSyncReport;
+        },
+      }),
+    );
+
+    const result = await service.fetchMore({
+      ...request,
+      localSourceChanged: false,
+    });
+
+    expect(calls).toEqual(["sync", "migrate", "seed", "activate"]);
+    expect(result.seedReport?.diagnostics).toContainEqual({
+      code: "migration-failed",
+      message: "Could not migrate provider/book: remote unavailable",
+      sourceId: "provider/book",
+    });
+  });
+
   test("builds a snapshot for imported archives even when provider sync is unchanged", async () => {
     const calls: string[] = [];
     const service = new LibraryUpdateService(
@@ -445,7 +506,7 @@ describe("LibraryUpdateService", () => {
     await expect(firstFetch).resolves.toMatchObject({requestId: "request-1"});
   });
 
-  test("scans disk and activates without invoking remote sync", async () => {
+  test("runs host migrations before scanning without invoking provider search", async () => {
     const calls: string[] = [];
     const service = new LibraryUpdateService(
       {
@@ -464,6 +525,17 @@ describe("LibraryUpdateService", () => {
           };
         },
         readBlacklist: async () => ["removed"],
+        runMigrations: async (sourceDirectory, onProgress) => {
+          calls.push("migrate");
+          expect(sourceDirectory).toBe(resolve("/source"));
+          onProgress?.("Library migrations: running test migration");
+          return {
+            diagnostics: [],
+            failedCount: 0,
+            migratedCount: 1,
+            pendingCount: 1,
+          };
+        },
         runSeed: async (
           catalogDirectory,
           options,
@@ -487,13 +559,44 @@ describe("LibraryUpdateService", () => {
 
     const result = await service.scan({});
 
-    expect(calls).toEqual(["seed", "activate"]);
+    expect(calls).toEqual(["migrate", "seed", "activate"]);
     expect(result.blacklistedPublicationIds).toEqual(["removed"]);
     expect(result.diff.removedPublicationIds).toEqual(["removed"]);
     expect(service.getState()).toMatchObject({
       activeSnapshot: {snapshotId: "next"},
       status: "idle",
     });
+  });
+
+  test("continues scanning and reports isolated migration failures", async () => {
+    const localSeedResult = structuredClone(seedResult);
+    const service = new LibraryUpdateService(
+      {libraryDirectory: "/library", sourceDirectory: "/source"},
+      createDependencies({
+        runMigrations: async () => ({
+          diagnostics: [
+            {
+              message: "Could not migrate provider/book: remote unavailable",
+              migrationId: "test-migration",
+              sourceId: "provider/book",
+            },
+          ],
+          failedCount: 1,
+          migratedCount: 0,
+          pendingCount: 1,
+        }),
+        runSeed: async () => localSeedResult,
+      }),
+    );
+
+    const result = await service.scan({});
+
+    expect(result.seedReport.diagnostics).toContainEqual({
+      code: "migration-failed",
+      message: "Could not migrate provider/book: remote unavailable",
+      sourceId: "provider/book",
+    });
+    expect(result.snapshot.snapshotId).toBe("next");
   });
 
   test("promotes only newly derived assets before activating a catalog revision", async () => {

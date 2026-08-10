@@ -1,5 +1,5 @@
 import type {
-  PackedPublication,
+  PublicationProvenance,
   PublicationKind,
   SupportedLanguage,
 } from "../schema";
@@ -83,7 +83,11 @@ export interface LibraryProviderSparsePageRequest {
   metadataHash: string;
   pageCount: number;
   pageNumber: number;
-  publication: PackedPublication;
+  publication: {
+    id: string;
+    pageCount?: number;
+    source?: PublicationProvenance;
+  };
   sourceDirectory: string;
 }
 

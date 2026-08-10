@@ -36,6 +36,12 @@ import {
   type SeedContentPackResult,
   type ShelfAtlasDescriptor,
 } from "~/content/schema";
+import {
+  BOOK_ASPECT_RATIO_INFERENCE_VERSION,
+  boundedBookAspectRatio,
+  inferRepresentativeBookAspectRatio,
+  orientedImageDimensions,
+} from "~/content/bookAspectRatio";
 import {generateContentPackPreview} from "~/content/preview";
 import {physicalBookDepth} from "~/game/bookDimensions";
 
@@ -166,42 +172,37 @@ const validateImage = async (path: string) => {
   } satisfies ValidatedImage;
 };
 
-const orientedDimensions = (image: ValidatedImage) => {
-  const swapsAxes =
-    image.orientation !== undefined &&
-    image.orientation >= 5 &&
-    image.orientation <= 8;
-  return swapsAxes
-    ? {height: image.width, width: image.height}
-    : {height: image.height, width: image.width};
-};
-
-const boundedAspectRatio = (aspectRatio: number) =>
-  Math.min(1.5, Math.max(0.35, aspectRatio));
-
 const inferAspectRatio = (
   material: PublicationMaterial,
   images: ReadonlyMap<string, ValidatedImage>,
   explicitAspectRatio: number | undefined,
 ) => {
   if (explicitAspectRatio !== undefined)
-    return boundedAspectRatio(explicitAspectRatio);
-  const ratioSources = [...material.pages];
-  if (ratioSources.length === 0 && material.front)
-    ratioSources.push(material.front);
-  const ratios = ratioSources.flatMap((path) => {
-    const image = images.get(path);
-    if (!image) return [];
-    const dimensions = orientedDimensions(image);
-    return [dimensions.width / dimensions.height];
-  });
-  const portraitRatios = ratios.filter((ratio) => ratio <= 1.1);
-  const candidates = portraitRatios.length > 0 ? portraitRatios : ratios;
-  if (candidates.length === 0) return COVER_WIDTH / COVER_HEIGHT;
-  candidates.sort((left, right) => left - right);
-  return boundedAspectRatio(
-    candidates[Math.floor((candidates.length - 1) / 2)] ??
-      COVER_WIDTH / COVER_HEIGHT,
+    return boundedBookAspectRatio(explicitAspectRatio);
+  const firstPage = material.pages[0];
+  const lastPage = material.pages.at(-1);
+  const firstPageIsCover =
+    firstPage !== undefined &&
+    (material.front === undefined || material.front === firstPage);
+  const lastPageIsBack =
+    lastPage !== undefined &&
+    (material.back === undefined || material.back === lastPage);
+  const interiorSources = material.pages.slice(
+    firstPageIsCover ? 1 : 0,
+    lastPageIsBack ? -1 : undefined,
+  );
+  const representativeSources =
+    interiorSources.length > 0 ? interiorSources : material.pages;
+  const fallbackSources =
+    representativeSources.length === 0 && material.front
+      ? [material.front]
+      : representativeSources;
+  return inferRepresentativeBookAspectRatio(
+    fallbackSources.flatMap((path) => {
+      const image = images.get(path);
+      return image ? [image] : [];
+    }),
+    COVER_WIDTH / COVER_HEIGHT,
   );
 };
 
@@ -270,7 +271,7 @@ const detectWraparoundLayout = async (
   aspectRatio: number,
   readingDirection: "ltr" | "rtl" | undefined,
 ): Promise<WraparoundLayout | undefined> => {
-  const dimensions = orientedDimensions(sourceImage);
+  const dimensions = orientedImageDimensions(sourceImage);
   if (dimensions.width / dimensions.height < aspectRatio * 2.25)
     return undefined;
   const analysis = await sharp(source, {limitInputPixels: 100_000_000})
@@ -653,6 +654,11 @@ const reusablePublicationMetadata = (
   material: PublicationMaterial,
 ) => {
   const document = candidate.document;
+  const includeAspectRatio =
+    document.physical?.aspectRatio !== undefined &&
+    (document.aspectRatioInferenceVersion === undefined ||
+      document.aspectRatioInferenceVersion ===
+        BOOK_ASPECT_RATIO_INFERENCE_VERSION);
   return {
     ...(document.groupId === undefined ? {} : {groupId: document.groupId}),
     id: document.id,
@@ -670,7 +676,7 @@ const reusablePublicationMetadata = (
       ...(document.physical?.readingDirection === undefined
         ? {}
         : {readingDirection: document.physical.readingDirection}),
-      ...(document.physical?.aspectRatio === undefined
+      ...(!includeAspectRatio
         ? {}
         : {aspectRatio: document.physical.aspectRatio}),
       ...(document.physical?.thicknessMm === undefined
@@ -708,7 +714,10 @@ const previousPublicationMetadata = (
     ...(previous.physical.readingDirection === undefined
       ? {}
       : {readingDirection: previous.physical.readingDirection}),
-    ...(candidate.document.physical?.aspectRatio === undefined
+    ...(candidate.document.physical?.aspectRatio === undefined ||
+    (candidate.document.aspectRatioInferenceVersion !== undefined &&
+      candidate.document.aspectRatioInferenceVersion !==
+        BOOK_ASPECT_RATIO_INFERENCE_VERSION)
       ? {}
       : {aspectRatio: previous.physical.aspectRatio}),
     ...(previous.physical.thicknessMm === undefined
@@ -733,6 +742,14 @@ const canReusePublication = (
     currentSource.provider !== previous.source.provider ||
     currentSource.remoteId !== previous.source.remoteId ||
     currentSource.metadataHash !== previous.source.metadataHash
+  )
+    return false;
+  const usesInferredAspectRatio =
+    candidate.document.physical?.aspectRatio === undefined ||
+    candidate.document.aspectRatioInferenceVersion !== undefined;
+  if (
+    usesInferredAspectRatio &&
+    previous.aspectRatioInferenceVersion !== BOOK_ASPECT_RATIO_INFERENCE_VERSION
   )
     return false;
   return (
@@ -884,7 +901,8 @@ const materializeReusedPublication = async (
       const backImage = await validateImage(backSource);
       const backDetailHeight = Math.min(
         DETAIL_COVER_MAX_HEIGHT,
-        wraparoundLayout?.back.height ?? orientedDimensions(backImage).height,
+        wraparoundLayout?.back.height ??
+          orientedImageDimensions(backImage).height,
       );
       backDetailBuffer = await detailCoverDerivative(
         backSource,
@@ -1026,10 +1044,18 @@ const materializePublication = async (
       `${selection.candidate.document.id} has no usable front/back source`,
     );
   const document = selection.candidate.document;
+  const usesInferredAspectRatio =
+    document.physical?.aspectRatio === undefined ||
+    document.aspectRatioInferenceVersion !== undefined;
+  const explicitAspectRatio =
+    document.aspectRatioInferenceVersion === undefined ||
+    document.aspectRatioInferenceVersion === BOOK_ASPECT_RATIO_INFERENCE_VERSION
+      ? document.physical?.aspectRatio
+      : undefined;
   const aspectRatio = inferAspectRatio(
     selection.material,
     selection.images,
-    document.physical?.aspectRatio,
+    explicitAspectRatio,
   );
   const frontImage = selection.images.get(frontSource);
   if (!frontImage)
@@ -1047,7 +1073,7 @@ const materializePublication = async (
       )
     : undefined;
   const coverWidth = Math.max(1, Math.round(COVER_HEIGHT * aspectRatio));
-  const frontDimensions = orientedDimensions(frontImage);
+  const frontDimensions = orientedImageDimensions(frontImage);
   const frontPosition =
     !wraparoundLayout &&
     frontDimensions.width / frontDimensions.height > aspectRatio * 1.35
@@ -1113,7 +1139,7 @@ const materializePublication = async (
     throw new Error(`Missing validated image metadata for ${backSource}`);
   const backDetailHeight = Math.min(
     DETAIL_COVER_MAX_HEIGHT,
-    wraparoundLayout?.back.height ?? orientedDimensions(backImage).height,
+    wraparoundLayout?.back.height ?? orientedImageDimensions(backImage).height,
   );
   const backDetailPath = `${publicationDirectory}/back-detail.webp`;
   await writeHashedAsset(
@@ -1258,6 +1284,9 @@ const materializePublication = async (
       pages: pagePaths,
     },
     shelfAtlasIndex,
+    ...(usesInferredAspectRatio
+      ? {aspectRatioInferenceVersion: BOOK_ASPECT_RATIO_INFERENCE_VERSION}
+      : {}),
     backFormatVersion: BACK_DERIVATIVE_FORMAT_VERSION,
     spineFormatVersion: SPINE_DERIVATIVE_FORMAT_VERSION,
   };

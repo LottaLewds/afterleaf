@@ -21,6 +21,8 @@ import {
   LibrarySnapshotIndexStore,
 } from "~/content/libraryUpdate/snapshotIndex";
 import {normalizeTags} from "~/content/normalize";
+import {migrateLibrarySourcesWithRegistry} from "~/content/librarySourceMigrationRegistry";
+import type {LibrarySourceMigrationReport} from "~/content/librarySourceMigrations";
 import {
   createLibraryProviderRegistry,
   DEFAULT_LIBRARY_PROVIDER_ID,
@@ -152,6 +154,10 @@ export interface LibraryUpdateServiceDependencies {
     revisionId: string,
   ) => Promise<void>;
   retireUnreferencedAssetSets?: (catalog: ContentPackCatalog) => Promise<void>;
+  runMigrations?: (
+    sourceDirectory: string,
+    onProgress?: (message: string) => void,
+  ) => Promise<LibrarySourceMigrationReport>;
   runSeed(
     catalogDirectory: string,
     options: SeedContentPackOptions,
@@ -276,16 +282,17 @@ export class LibraryUpdateService implements LibraryUpdateClient {
     let failurePhase: Exclude<
       LibraryUpdatePhase,
       "idle" | "complete" | "failed"
-    > = mode === "scan" ? "seeding" : "syncing";
-    if (mode !== "scan")
-      this.#setRunningState(
-        "syncing",
-        "Searching for new publications",
-        completedSteps,
-        requestId,
-        startedAt,
-        previousSnapshot,
-      );
+    > = "syncing";
+    this.#setRunningState(
+      "syncing",
+      mode === "scan"
+        ? "Checking local publications for required migrations"
+        : "Searching for new publications",
+      completedSteps,
+      requestId,
+      startedAt,
+      previousSnapshot,
+    );
     try {
       const previousCatalog = previousSnapshot
         ? await this.#dependencies.readSnapshotCatalog(previousSnapshot)
@@ -340,13 +347,33 @@ export class LibraryUpdateService implements LibraryUpdateClient {
             },
             providerId,
           );
-      if (syncReport) completedSteps = 1;
+      const migrationReport = this.#dependencies.runMigrations
+        ? await this.#dependencies.runMigrations(
+            this.#sourceDirectory,
+            (message) =>
+              this.#setRunningState(
+                "syncing",
+                message,
+                completedSteps,
+                requestId,
+                startedAt,
+                previousSnapshot,
+              ),
+          )
+        : {
+            diagnostics: [],
+            failedCount: 0,
+            migratedCount: 0,
+            pendingCount: 0,
+          };
+      completedSteps = 1;
       if (
         syncReport &&
         previousSnapshot &&
         request.localSourceChanged === false &&
         syncReport.addedCount === 0 &&
-        syncReport.updatedCount === 0
+        syncReport.updatedCount === 0 &&
+        migrationReport.pendingCount === 0
       ) {
         const finishedAt = (
           this.#dependencies.now?.() ?? new Date()
@@ -427,11 +454,18 @@ export class LibraryUpdateService implements LibraryUpdateClient {
         excludedPublicationIds,
         previousSnapshot,
       );
+      seedResult.report.diagnostics.unshift(
+        ...migrationReport.diagnostics.map(({message, sourceId}) => ({
+          code: "migration-failed" as const,
+          message,
+          sourceId,
+        })),
+      );
       if (!seedResult.catalog)
         throw new Error(
           "Content seeding completed without a generated catalog",
         );
-      completedSteps = syncReport ? 2 : 1;
+      completedSteps = 2;
       const nextCatalog = summarizeCatalog(seedResult.catalog);
       const publicationDiff = diffLibraryPublications(
         previousCatalog,
@@ -524,7 +558,7 @@ export class LibraryUpdateService implements LibraryUpdateClient {
         ]);
         throw error;
       }
-      completedSteps = syncReport ? 3 : 2;
+      completedSteps = 3;
       const finishedAt = (
         this.#dependencies.now?.() ?? new Date()
       ).toISOString();
@@ -721,6 +755,12 @@ export const createLibraryUpdateService = (
       defaultProviderId: DEFAULT_LIBRARY_PROVIDER_ID,
       getProviderDescriptor: (providerId) =>
         providerRegistry.getDescriptor(providerId),
+      runMigrations: (sourceDirectory, onProgress) =>
+        migrateLibrarySourcesWithRegistry(
+          sourceDirectory,
+          providerRegistry,
+          onProgress,
+        ),
       runSync: (options, providerId) =>
         providerRegistry
           .load(providerId)

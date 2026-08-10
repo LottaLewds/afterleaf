@@ -11,6 +11,7 @@ import {
 import {tmpdir} from "node:os";
 import {join, resolve} from "node:path";
 import sharp from "sharp";
+import {BOOK_ASPECT_RATIO_INFERENCE_VERSION} from "~/content/bookAspectRatio";
 import {LocalCatalogSource} from "~/content/localCatalogSource";
 import {promoteLibraryAssetSet} from "~/content/libraryUpdate/libraryAssetPool";
 import {planShelfAtlasRanges, seedContentPack} from "~/content/seed";
@@ -21,6 +22,7 @@ const temporaryDirectories: string[] = [];
 interface PublicationFixtureOptions {
   format?: "png" | "webp";
   height?: number;
+  pageDimensions?: readonly {height: number; width: number}[];
   provenance?: boolean;
   tags?: string[];
   title?: string;
@@ -48,29 +50,35 @@ const createPublication = async (
   const format = options.format ?? "png";
   const width = options.width ?? 120;
   const height = options.height ?? 180;
-  const firstPage = sharp({
-    create: {width, height, channels: 3, background: color},
-  });
-  const secondPage = sharp({
-    create: {width, height, channels: 3, background: "#eee8dd"},
-  });
-  await Promise.all([
-    (format === "webp"
-      ? firstPage.webp({quality: 82})
-      : firstPage.png()
-    ).toFile(resolve(pagesDirectory, `001.${format}`)),
-    (format === "webp"
-      ? secondPage.webp({quality: 82})
-      : secondPage.png()
-    ).toFile(resolve(pagesDirectory, `002.${format}`)),
-  ]);
+  const pageDimensions = options.pageDimensions ?? [
+    {height, width},
+    {height, width},
+  ];
+  const pagePaths = pageDimensions.map(
+    (_, index) => `pages/${String(index + 1).padStart(3, "0")}.${format}`,
+  );
+  await Promise.all(
+    pageDimensions.map(({height: pageHeight, width: pageWidth}, index) => {
+      const page = sharp({
+        create: {
+          width: pageWidth,
+          height: pageHeight,
+          channels: 3,
+          background: index === 0 ? color : "#eee8dd",
+        },
+      });
+      return (format === "webp" ? page.webp({quality: 82}) : page.png()).toFile(
+        resolve(publicationDirectory, pagePaths[index] ?? "missing"),
+      );
+    }),
+  );
   const document: LocalPublicationDocument = {
     schemaVersion: 1,
     id,
     title: options.title ?? `Publication ${id}`,
     language,
     tags: options.tags ?? ["Big Breasts", "Magazine"],
-    assets: {pages: [`pages/001.${format}`, `pages/002.${format}`]},
+    assets: {pages: pagePaths},
     ...(options.provenance
       ? {
           source: {
@@ -484,6 +492,91 @@ describe("seedContentPack", () => {
     ).not.toBe((await stat(secondAtlas)).ino);
   });
 
+  test("rebuilds a legacy inferred aspect ratio once, then reuses the versioned result", async () => {
+    const root = await mkdtemp(join(tmpdir(), "afterleaf-aspect-version-"));
+    temporaryDirectories.push(root);
+    const catalogDirectory = resolve(root, "catalog");
+    const firstOutput = resolve(root, "pack-first");
+    const secondOutput = resolve(root, "pack-second");
+    const thirdOutput = resolve(root, "pack-third");
+    await createPublication(
+      catalogDirectory,
+      "versioned-aspect",
+      "english",
+      "#703050",
+      {
+        pageDimensions: [
+          {height: 600, width: 1_200},
+          {height: 1_200, width: 800},
+          {height: 1_200, width: 800},
+          {height: 600, width: 1_200},
+        ],
+        provenance: true,
+      },
+    );
+    const options = {
+      dryRun: false,
+      excludedTags: [],
+      force: false,
+      languages: ["english"],
+      limit: 1,
+      match: "all" as const,
+      packId: "aspect-version-test",
+      seed: "aspect-version-test",
+      tags: [],
+    };
+    const first = await seedContentPack(
+      new LocalCatalogSource(catalogDirectory),
+      {...options, outputDirectory: firstOutput},
+    );
+    if (!first.catalog) throw new Error("First aspect catalog is missing");
+    const legacyCatalog = structuredClone(first.catalog);
+    const legacyPublication = legacyCatalog.publications[0];
+    if (!legacyPublication) throw new Error("Legacy publication is missing");
+    legacyPublication.physical.aspectRatio = 1.5;
+    delete legacyPublication.aspectRatioInferenceVersion;
+
+    const second = await seedContentPack(
+      new LocalCatalogSource(catalogDirectory),
+      {
+        ...options,
+        outputDirectory: secondOutput,
+        reuse: {catalog: legacyCatalog, directory: firstOutput},
+      },
+    );
+    if (!second.catalog) throw new Error("Second aspect catalog is missing");
+    const firstFront = resolve(
+      firstOutput,
+      "publications/versioned-aspect/front.webp",
+    );
+    const secondFront = resolve(
+      secondOutput,
+      "publications/versioned-aspect/front.webp",
+    );
+    expect((await stat(secondFront)).ino).not.toBe(
+      (await stat(firstFront)).ino,
+    );
+    expect(second.catalog.publications[0]?.physical.aspectRatio).toBeCloseTo(
+      2 / 3,
+    );
+    expect(second.catalog.publications[0]?.aspectRatioInferenceVersion).toBe(
+      BOOK_ASPECT_RATIO_INFERENCE_VERSION,
+    );
+
+    await seedContentPack(new LocalCatalogSource(catalogDirectory), {
+      ...options,
+      outputDirectory: thirdOutput,
+      reuse: {catalog: second.catalog, directory: secondOutput},
+    });
+    expect(
+      (
+        await stat(
+          resolve(thirdOutput, "publications/versioned-aspect/front.webp"),
+        )
+      ).ino,
+    ).toBe((await stat(secondFront)).ino);
+  });
+
   test("keeps unchanged publications in a persistent asset pool across catalog revisions", async () => {
     const root = await mkdtemp(join(tmpdir(), "afterleaf-seed-pool-"));
     temporaryDirectories.push(root);
@@ -679,6 +772,109 @@ describe("seedContentPack", () => {
         resolve(outputDirectory, "atlases/front-001.webp"),
       ).metadata(),
     ).toMatchObject({height: 576, width: 384});
+  });
+
+  test("infers a landscape book from interior pages despite wide covers and early spreads", async () => {
+    const root = await mkdtemp(join(tmpdir(), "afterleaf-seed-"));
+    temporaryDirectories.push(root);
+    const catalogDirectory = resolve(root, "catalog");
+    const outputDirectory = resolve(root, "pack");
+    await createPublication(
+      catalogDirectory,
+      "wide-cover-book",
+      "english",
+      "#415f79",
+      {
+        pageDimensions: [
+          {height: 100, width: 280},
+          {height: 100, width: 240},
+          {height: 100, width: 240},
+          {height: 100, width: 120},
+          {height: 100, width: 120},
+          {height: 100, width: 120},
+          {height: 100, width: 260},
+          {height: 100, width: 270},
+          {height: 100, width: 280},
+        ],
+      },
+    );
+
+    const result = await seedContentPack(
+      new LocalCatalogSource(catalogDirectory),
+      {
+        tags: [],
+        excludedTags: [],
+        languages: ["english"],
+        limit: 1,
+        match: "all",
+        seed: "wide-cover-aspect",
+        dryRun: false,
+        force: false,
+        outputDirectory,
+        packId: "wide-cover-aspect",
+      },
+    );
+
+    expect(result.catalog?.publications[0]?.physical.aspectRatio).toBeCloseTo(
+      1.2,
+    );
+  });
+
+  test("infers a sparse preview from its interior pages instead of its wide endpoints", async () => {
+    const root = await mkdtemp(join(tmpdir(), "afterleaf-seed-"));
+    temporaryDirectories.push(root);
+    const catalogDirectory = resolve(root, "catalog");
+    const outputDirectory = resolve(root, "pack");
+    const publicationId = "sparse-wide-cover-book";
+    await createPublication(
+      catalogDirectory,
+      publicationId,
+      "english",
+      "#4f6f52",
+      {
+        pageDimensions: [
+          {height: 100, width: 280},
+          {height: 100, width: 240},
+          {height: 100, width: 120},
+          {height: 100, width: 270},
+        ],
+      },
+    );
+    const manifestPath = resolve(
+      catalogDirectory,
+      publicationId,
+      "publication.json",
+    );
+    const document = JSON.parse(
+      await readFile(manifestPath, "utf8"),
+    ) as LocalPublicationDocument;
+    document.pageCount = 4;
+    document.assets = {
+      front: "pages/001.png",
+      pages: ["pages/001.png", "pages/002.png", "pages/003.png"],
+      back: "pages/004.png",
+    };
+    await writeFile(manifestPath, JSON.stringify(document));
+
+    const result = await seedContentPack(
+      new LocalCatalogSource(catalogDirectory),
+      {
+        tags: [],
+        excludedTags: [],
+        languages: ["english"],
+        limit: 1,
+        match: "all",
+        seed: "sparse-wide-cover-aspect",
+        dryRun: false,
+        force: false,
+        outputDirectory,
+        packId: "sparse-wide-cover-aspect",
+      },
+    );
+
+    expect(result.catalog?.publications[0]?.physical.aspectRatio).toBeCloseTo(
+      1.2,
+    );
   });
 
   test("extracts front, back, and spine panels from an obvious wraparound scan", async () => {

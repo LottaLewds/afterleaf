@@ -166,6 +166,10 @@ export const parseLocalPublicationDocument = (
     throw new Error(
       `${fileName}: schemaVersion must be ${CONTENT_SCHEMA_VERSION}`,
     );
+  const aspectRatioInferenceVersion = parsePositiveInteger(
+    document.aspectRatioInferenceVersion,
+    `${fileName}.aspectRatioInferenceVersion`,
+  );
   const groupId = optionalString(document.groupId, `${fileName}.groupId`);
   const issue = parseIssue(document.issue, `${fileName}.issue`);
   const kind = parseKind(document.kind, `${fileName}.kind`);
@@ -186,6 +190,9 @@ export const parseLocalPublicationDocument = (
     );
   return {
     schemaVersion: CONTENT_SCHEMA_VERSION,
+    ...(aspectRatioInferenceVersion === undefined
+      ? {}
+      : {aspectRatioInferenceVersion}),
     id: expectId(document.id, `${fileName}.id`),
     ...(groupId === undefined ? {} : {groupId}),
     ...(issue === undefined ? {} : {issue}),
