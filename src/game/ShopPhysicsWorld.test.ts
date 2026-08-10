@@ -326,6 +326,99 @@ describe("ShopPhysicsWorld", () => {
     }
   }, 10_000);
 
+  test("keeps sequentially released books colliding during their hand-clearance grace", async () => {
+    const physics = new ShopPhysicsWorld({gravity: {x: 0, y: 0, z: 0}});
+    try {
+      expect(
+        physics.addBook({
+          pose: identityPose(0, 1, 0),
+          publicationId: "first-released-book",
+          thickness: 0.1,
+        }),
+      ).toBe(true);
+      expect(
+        physics.addBook({
+          pose: identityPose(-0.8, 1, 0),
+          publicationId: "second-released-book",
+          thickness: 0.1,
+        }),
+      ).toBe(true);
+      expect(await physics.initialize()).toBe(true);
+
+      const releasedBooks = [
+        {pose: identityPose(0, 1, 0), publicationId: "first-released-book"},
+        {pose: identityPose(-0.8, 1, 0), publicationId: "second-released-book"},
+      ] as const;
+      for (const releasedBook of releasedBooks) {
+        const publicationId = releasedBook.publicationId;
+        expect(physics.holdBook(publicationId)).toBe(true);
+        expect(
+          physics.dropBook(publicationId, {
+            ...(publicationId === "second-released-book"
+              ? {linearVelocity: {x: 6, y: 0, z: 0}}
+              : {}),
+            pose: releasedBook.pose,
+          }),
+        ).toBe(true);
+        expect(physics.setBookCollisionlessWithHeld(publicationId, true)).toBe(
+          true,
+        );
+      }
+      for (let frame = 0; frame < 10; frame += 1) physics.step(1 / 60);
+
+      const firstSample = createSample();
+      expect(
+        physics.sampleBookTransform("first-released-book", firstSample),
+      ).toBe(true);
+      expect(firstSample.position.x).toBeGreaterThan(0.05);
+    } finally {
+      physics.dispose();
+    }
+  }, 10_000);
+
+  test("restores held-book collision after the release grace expires", async () => {
+    const physics = new ShopPhysicsWorld({gravity: {x: 0, y: 0, z: 0}});
+    try {
+      expect(
+        physics.addBook({
+          pose: identityPose(0, 1, 0),
+          publicationId: "released-book",
+          thickness: 0.1,
+        }),
+      ).toBe(true);
+      expect(
+        physics.addBook({
+          pose: identityPose(-1.5, 1, 0),
+          publicationId: "held-book",
+          thickness: 0.1,
+        }),
+      ).toBe(true);
+      expect(await physics.initialize()).toBe(true);
+      expect(physics.holdBook("released-book")).toBe(true);
+      expect(
+        physics.dropBook("released-book", {pose: identityPose(0, 1, 0)}),
+      ).toBe(true);
+      expect(physics.setBookCollisionlessWithHeld("released-book", true)).toBe(
+        true,
+      );
+      expect(physics.holdBook("held-book")).toBe(true);
+
+      for (let frame = 0; frame < 30; frame += 1) physics.step(1 / 60);
+      expect(physics.setHeldTarget("held-book", identityPose(1.5, 1, 0))).toBe(
+        true,
+      );
+      for (let frame = 0; frame < 90; frame += 1) physics.step(1 / 60);
+
+      const releasedSample = createSample();
+      expect(physics.sampleBookTransform("released-book", releasedSample)).toBe(
+        true,
+      );
+      expect(releasedSample.position.x).toBeGreaterThan(0.15);
+    } finally {
+      physics.dispose();
+    }
+  }, 10_000);
+
   test("lets an extracted held book disturb books stacked above it", async () => {
     const physics = new ShopPhysicsWorld();
     try {

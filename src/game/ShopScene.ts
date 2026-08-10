@@ -5110,11 +5110,11 @@ export class ShopScene {
     this.#emitGameState();
   }
 
-  #cycleDigitalArtFrameAsset(direction: number) {
+  #selectDigitalArtFramePlacementAsset(assetIndex: number) {
     const placement = this.#artFramePlacement;
-    if (!placement || direction === 0) return;
+    if (!placement) return;
     this.#startDigitalArtFramePlacement(
-      placement.assetIndex + direction,
+      assetIndex,
       placement.movingFrameId,
       placement.desiredHeight,
       placement.rotation,
@@ -5122,6 +5122,52 @@ export class ShopScene {
       placement.fit,
       placement.intervalSeconds,
     );
+  }
+
+  #cycleDigitalArtFramePlacementChannel(direction: -1 | 1) {
+    const placement = this.#artFramePlacement;
+    if (!placement || this.#artFrameChannels.length <= 1) return;
+    const channelIndex = this.#artFrameChannels.findIndex(
+      (channel) => channel.id === placement.channelId,
+    );
+    const nextChannel =
+      this.#artFrameChannels[
+        ((channelIndex >= 0 ? channelIndex : -1) +
+          direction +
+          this.#artFrameChannels.length) %
+          this.#artFrameChannels.length
+      ];
+    const image = nextChannel?.images[0];
+    if (!image) return;
+    const assetIndex = this.#artFrameAssets.findIndex(
+      (asset) => asset.id === image.id,
+    );
+    if (assetIndex >= 0) this.#selectDigitalArtFramePlacementAsset(assetIndex);
+  }
+
+  #cycleDigitalArtFramePlacementImage(direction: -1 | 1) {
+    const placement = this.#artFramePlacement;
+    if (!placement) return;
+    const channel = this.#artFrameChannels.find(
+      (candidate) => candidate.id === placement.channelId,
+    );
+    if (!channel || channel.images.length <= 1) return;
+    const currentAsset = this.#artFrameAssets[placement.assetIndex];
+    const imageIndex = channel.images.findIndex(
+      (image) => image.id === currentAsset?.id,
+    );
+    const image =
+      channel.images[
+        ((imageIndex >= 0 ? imageIndex : -1) +
+          direction +
+          channel.images.length) %
+          channel.images.length
+      ];
+    if (!image) return;
+    const assetIndex = this.#artFrameAssets.findIndex(
+      (asset) => asset.id === image.id,
+    );
+    if (assetIndex >= 0) this.#selectDigitalArtFramePlacementAsset(assetIndex);
   }
 
   #disposeDigitalArtFramePreview() {
@@ -6427,10 +6473,20 @@ export class ShopScene {
       (event.code === "KeyQ" || event.code === "KeyE")
     ) {
       event.preventDefault();
-      this.#cycleDigitalArtFrameAsset(event.code === "KeyQ" ? -1 : 1);
+      this.#cycleDigitalArtFramePlacementChannel(
+        event.code === "KeyQ" ? -1 : 1,
+      );
       return;
     }
-    if (event.code === "KeyF" && this.#artFramePlacement) {
+    if (
+      this.#artFramePlacement &&
+      (event.code === "KeyF" || event.code === "KeyG")
+    ) {
+      event.preventDefault();
+      this.#cycleDigitalArtFramePlacementImage(event.code === "KeyF" ? -1 : 1);
+      return;
+    }
+    if (event.code === "KeyR" && this.#artFramePlacement) {
       event.preventDefault();
       this.#artFramePlacement.fit =
         this.#artFramePlacement.fit === "contain" ? "cover" : "contain";
@@ -11128,8 +11184,8 @@ export class ShopScene {
         prompt = `Paste the first digital art image · N channel (${this.#artFramePlacement.channelId}) · T exit`;
       else
         prompt = this.#artFramePlacementSelection
-          ? `Click to place ${asset.label} · Q/E image · Wheel resize${size ? ` (${size.toFixed(2)} m)` : ""} · Shift+wheel rotate (${rotation}°) · F ${this.#artFramePlacement.fit} · I ${interval === 0 ? "timer off" : `${interval}s timer`} · N channel (${this.#artFramePlacement.channelId}) · Paste image · T exit`
-          : `Aim ${asset.label} at a wall or shelf end · Q/E image · Wheel resize · F ${this.#artFramePlacement.fit} · I ${interval === 0 ? "timer off" : `${interval}s timer`} · N channel (${this.#artFramePlacement.channelId}) · Paste image · T exit`;
+          ? `Click to place ${asset.label} · Q/E channel · F/G image · Wheel resize${size ? ` (${size.toFixed(2)} m)` : ""} · Shift+wheel rotate (${rotation}°) · R ${this.#artFramePlacement.fit} · I ${interval === 0 ? "timer off" : `${interval}s timer`} · N channel (${this.#artFramePlacement.channelId}) · Paste image · T exit`
+          : `Aim ${asset.label} at a wall or shelf end · Q/E channel · F/G image · Wheel resize · R ${this.#artFramePlacement.fit} · I ${interval === 0 ? "timer off" : `${interval}s timer`} · N channel (${this.#artFramePlacement.channelId}) · Paste image · T exit`;
     } else if (this.#posterPlacement) {
       const asset = this.#posterAssets[this.#posterPlacement.assetIndex];
       const size = this.#posterPlacementSelection?.height;
@@ -11211,8 +11267,9 @@ export class ShopScene {
       interactionContext = this.#artFramePlacement.channelId;
       interactions = [
         {key: "Click", label: "Place frame"},
-        {key: "Q / E", label: "Change image"},
-        {key: "F", label: `Fit: ${this.#artFramePlacement.fit}`},
+        {key: "Q / E", label: "Previous / next channel"},
+        {key: "F / G", label: "Previous / next image"},
+        {key: "R", label: `Fit: ${this.#artFramePlacement.fit}`},
         {
           key: "I",
           label: `Timing: ${this.#artFramePlacement.intervalSeconds === 0 ? "Off" : `${this.#artFramePlacement.intervalSeconds}s`}`,

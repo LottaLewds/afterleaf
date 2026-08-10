@@ -186,15 +186,16 @@ is not saved beside the source. Hidden files, symlinks, nested directories,
 unsupported files, and empty channels are ignored. The running shop refreshes
 the catalog every three seconds.
 
-Press `V` to place a digital art frame. Use `Q`/`E` to select the initial image,
-the wheel to resize, and `Shift`+wheel to rotate. The initial image locks the
-physical screen aspect ratio. Later images never resize the frame: `contain`
-shows the entire image with letterboxing, while `cover` fills the screen with a
-centered crop. Image changes use a smooth 0.8-second crossfade between two
-textures in one persistent self-lit display material. The next shuffled image
-is decoded and uploaded ahead of time to keep the transition smooth. Press `F`
-while placing to switch between those modes and `T` to cycle the slideshow
-timer through off, 10 seconds, 30 seconds, 1 minute, and 5 minutes.
+Press `V` to place a digital art frame. Use `Q`/`E` to switch channels, `F`/`G`
+to select an image within the current channel, the wheel to resize, and
+`Shift`+wheel to rotate. The initial image locks the physical screen aspect
+ratio. Later images never resize the frame: `contain` shows the entire image
+with letterboxing, while `cover` fills the screen with a centered crop. Image
+changes use a smooth 0.8-second crossfade between two textures in one persistent
+self-lit display material. The next shuffled image is decoded and uploaded
+ahead of time to keep the transition smooth. Press `R` while placing to switch
+between fit modes and `I` to cycle the slideshow timer through off, 10 seconds,
+30 seconds, 1 minute, and 5 minutes.
 
 While frame placement is active, paste a clipboard image to optimize it and add
 it to the currently selected channel. Press `N` first to name a new channel;
