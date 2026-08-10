@@ -139,28 +139,31 @@ const tvChannelsDirectory = path.resolve(
   import.meta.dirname,
   "content/channels",
 );
-const tvChannelsDirectories = uniquePaths([
-  tvChannelsDirectory,
-  ...configuredLibraryPaths.tvChannelPaths,
-]);
+const tvChannelsDirectories = async () =>
+  uniquePaths([
+    tvChannelsDirectory,
+    ...(await readAfterleafLibraryConfig(import.meta.dirname)).tvChannelPaths,
+  ]);
 const tvVideoAnalyzer = createCachedTvVideoAnalyzer({
   cachePath: path.resolve(tvChannelsDirectory, ".afterleaf-tv-analysis.json"),
   onError: (filePath, error) =>
     console.warn(`[afterleaf] Could not analyze TV video ${filePath}`, error),
 });
 const postersDirectory = path.resolve(import.meta.dirname, "content/posters");
-const postersDirectories = uniquePaths([
-  postersDirectory,
-  ...configuredLibraryPaths.posterPaths,
-]);
+const postersDirectories = async () =>
+  uniquePaths([
+    postersDirectory,
+    ...(await readAfterleafLibraryConfig(import.meta.dirname)).posterPaths,
+  ]);
 const artFramesDirectory = path.resolve(
   import.meta.dirname,
   "content/art-frames",
 );
-const artFramesDirectories = uniquePaths([
-  artFramesDirectory,
-  ...configuredLibraryPaths.artFramePaths,
-]);
+const artFramesDirectories = async () =>
+  uniquePaths([
+    artFramesDirectory,
+    ...(await readAfterleafLibraryConfig(import.meta.dirname)).artFramePaths,
+  ]);
 const worldSavePath = path.resolve(
   import.meta.dirname,
   "content/world-save.json",
@@ -1571,7 +1574,7 @@ const serveTvContent = async (
     }
     try {
       const manifest = await discoverTvChannels(
-        tvChannelsDirectories,
+        await tvChannelsDirectories(),
         tvMediaUrl,
         tvVideoAnalyzer,
       );
@@ -1604,7 +1607,7 @@ const serveTvContent = async (
   }
 
   const resolved = await resolveTvVideoPath(
-    tvChannelsDirectories,
+    await tvChannelsDirectories(),
     mediaRequest.channelId,
     mediaRequest.videoId,
   );
@@ -1672,14 +1675,14 @@ const renderedPoster = (filePath: string) => {
 };
 
 const posterCatalogDocument = async () => ({
-  posters: (await discoverPosters(postersDirectories, posterMediaUrl)).map(
-    (poster) => ({
-      aspectRatio: poster.aspectRatio,
-      id: poster.id,
-      label: poster.label,
-      url: poster.url,
-    }),
-  ),
+  posters: (
+    await discoverPosters(await postersDirectories(), posterMediaUrl)
+  ).map((poster) => ({
+    aspectRatio: poster.aspectRatio,
+    id: poster.id,
+    label: poster.label,
+    url: poster.url,
+  })),
 });
 
 const readBoundedPosterBody = (request: IncomingMessage) =>
@@ -1842,7 +1845,7 @@ const servePosterContent = async (
   }
   if (mediaRequest.kind !== "media") return next();
   const posterPath = await resolvePosterPath(
-    postersDirectories,
+    await postersDirectories(),
     mediaRequest.id,
   );
   if (!posterPath) {
@@ -1877,7 +1880,10 @@ const posterContentPlugin = (): Plugin => ({
     server.middlewares.use(servePosterContent);
   },
   async generateBundle() {
-    const posters = await discoverPosters(postersDirectories, posterMediaUrl);
+    const posters = await discoverPosters(
+      await postersDirectories(),
+      posterMediaUrl,
+    );
     for (const poster of posters)
       this.emitFile({
         fileName: poster.url.slice(1),
@@ -1917,7 +1923,10 @@ const renderedArtFrameImage = (filePath: string) => {
 
 const artFrameCatalogDocument = async () => ({
   channels: (
-    await discoverArtFrameChannels(artFramesDirectories, artFrameMediaUrl)
+    await discoverArtFrameChannels(
+      await artFramesDirectories(),
+      artFrameMediaUrl,
+    )
   ).map((channel) => ({
     id: channel.id,
     images: channel.images.map(({aspectRatio, id, label, url}) => ({
@@ -2029,7 +2038,7 @@ const serveArtFrameContent = async (
   }
   if (mediaRequest.kind !== "media") return next();
   const imagePath = await resolveArtFrameImagePath(
-    artFramesDirectories,
+    await artFramesDirectories(),
     mediaRequest.id,
   );
   if (!imagePath) {
@@ -2065,7 +2074,7 @@ const artFrameContentPlugin = (): Plugin => ({
   },
   async generateBundle() {
     const channels = await discoverArtFrameChannels(
-      artFramesDirectories,
+      await artFramesDirectories(),
       artFrameMediaUrl,
     );
     for (const channel of channels)

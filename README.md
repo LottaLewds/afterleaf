@@ -133,7 +133,8 @@ the local content boundary, so the source filename extension and image encoding
 do not need to match the shop's runtime format.
 
 Additional poster roots can be listed in `posterPaths` in
-`afterleaf.library.json`. Pasted posters are always saved to the default repo
+`afterleaf.library.json`. Changes to configured roots are picked up by the
+running local server; pasted posters are always saved to the default repo
 folder.
 
 The running shop refreshes the poster catalog every three seconds, so newly
@@ -174,7 +175,8 @@ afterleaf/
 ```
 
 Additional channel roots can be listed in `artFramePaths` in
-`afterleaf.library.json`. Pasted art remains in the default repo folder.
+`afterleaf.library.json`. Changes to configured roots are picked up by the
+running local server; pasted art remains in the default repo folder.
 
 Afterleaf discovers images by content and serves browser-ready WebP derivatives
 limited to 2048 pixels on their longest edge. Pasted originals are saved
@@ -225,7 +227,8 @@ afterleaf/
 ```
 
 Additional TV channel roots can be listed in `tvChannelPaths` in
-`afterleaf.library.json`. Pasted/downloaded videos remain in the default repo
+`afterleaf.library.json`. Changes to configured roots are picked up by the
+running local server; pasted/downloaded videos remain in the default repo
 folder.
 
 The immediate directory name is the stable channel ID; lowercase hyphenated

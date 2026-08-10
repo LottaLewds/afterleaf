@@ -439,6 +439,24 @@ type AdditionalLocationKind =
   | "tvChannelPaths"
   | "artFramePaths";
 
+const bookLocationKeys = ["comicPaths", "mangaPaths", "mediaPaths"] as const;
+const visualMediaLocationKeys = [
+  "artFramePaths",
+  "posterPaths",
+  "tvChannelPaths",
+] as const;
+const locationListsMatch = (
+  left: readonly string[] | undefined,
+  right: readonly string[] | undefined,
+) =>
+  (left?.length ?? 0) === (right?.length ?? 0) &&
+  (left ?? []).every((path, index) => path === right?.[index]);
+const configLocationsChanged = (
+  previous: AfterleafLibraryConfig,
+  next: AfterleafLibraryConfig,
+  keys: readonly AdditionalLocationKind[],
+) => keys.some((key) => !locationListsMatch(previous[key], next[key]));
+
 const AdditionalLocationsControl = (props: {
   config: AfterleafLibraryConfig;
   onChange: (config: AfterleafLibraryConfig) => void;
@@ -464,7 +482,6 @@ const AdditionalLocationsControl = (props: {
   const selectableLocationKeys = locationKeys.filter(
     (key) => key !== "mediaPaths",
   );
-  const bookLocationKeys = ["comicPaths", "mangaPaths", "mediaPaths"] as const;
   const locationsFor = (key: AdditionalLocationKind) => props.config[key] ?? [];
   const withBookLocation = (
     config: AfterleafLibraryConfig,
@@ -603,8 +620,8 @@ const AdditionalLocationsControl = (props: {
             Additional content locations
           </p>
           <p class="mt-1 text-[9px] leading-4 text-[#65716c]">
-            Browse folders on any mounted drive. Choose a media type so the
-            location is scanned during the next refresh.
+            Book locations apply on the next Import & scan. TV, poster, and art
+            frame locations refresh automatically.
           </p>
         </div>
         <button
@@ -1520,9 +1537,38 @@ export const App = () => {
       .catch(() => {});
   });
   const updateLibraryConfig = async (config: AfterleafLibraryConfig) => {
+    const previousConfig = libraryConfig();
+    const bookLocationsChanged = configLocationsChanged(
+      previousConfig,
+      config,
+      bookLocationKeys,
+    );
+    const visualMediaLocationsChanged = configLocationsChanged(
+      previousConfig,
+      config,
+      visualMediaLocationKeys,
+    );
     setLibraryConfig(config);
     await saveLibraryConfig(config);
-    setLibraryUpdateNotice("Locations saved. Run Import & scan to use them.");
+    if (bookLocationsChanged && visualMediaLocationsChanged) {
+      setLibraryUpdateNotice(
+        "Locations saved. Visual media will refresh automatically; run Import & scan to update books.",
+      );
+      return;
+    }
+    if (bookLocationsChanged) {
+      setLibraryUpdateNotice(
+        "Book locations saved. Run Import & scan to update the library.",
+      );
+      return;
+    }
+    if (visualMediaLocationsChanged) {
+      setLibraryUpdateNotice(
+        "Media locations saved. TV, poster, and art frame catalogs will refresh automatically.",
+      );
+      return;
+    }
+    setLibraryUpdateNotice("Locations are already up to date.");
   };
 
   const [ageConfirmed, setAgeConfirmed] = createSignal(
