@@ -130,7 +130,8 @@ should also follow the
 Put poster images anywhere beneath `content/posters`. Afterleaf
 discovers valid images recursively and converts them to browser-ready WebP at
 the local content boundary, so the source filename extension and image encoding
-do not need to match the shop's runtime format.
+do not need to match the shop's runtime format. Images with alpha transparency
+retain it, allowing posters to be used as cutout stickers.
 
 Additional poster roots can be listed in `posterPaths` in
 `afterleaf.library.json`. Changes to configured roots are picked up by the
@@ -149,7 +150,7 @@ exit placement.
 
 While poster placement is active, paste a clipboard image to import it. The
 local server auto-rotates it, fits it within 2048×2048, converts it to sRGB WebP
-with the same settings as manga reader pages, and atomically saves it beneath
+while preserving alpha transparency, and atomically saves it beneath
 `content/posters`. Conversion continues if placement is exited; if it remains
 active, the converted poster becomes the current preview as soon as it is
 ready. Aim at an already placed poster and press `E` to move it or `G` to remove

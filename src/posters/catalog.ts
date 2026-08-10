@@ -27,6 +27,7 @@ const compareNames = (left: string, right: string) =>
 
 type PosterMetadataCacheEntry = {
   aspectRatio?: number;
+  hasAlpha: boolean;
   modifiedAt: number;
   size: number;
 };
@@ -92,6 +93,10 @@ export const discoverPosters = async (
             cached?.modifiedAt === file.mtimeMs && cached.size === file.size
               ? cached.aspectRatio
               : undefined;
+          let hasAlpha =
+            cached?.modifiedAt === file.mtimeMs && cached.size === file.size
+              ? cached.hasAlpha
+              : false;
           if (
             !cached ||
             cached.modifiedAt !== file.mtimeMs ||
@@ -101,8 +106,10 @@ export const discoverPosters = async (
               limitInputPixels: 100_000_000,
             }).metadata();
             aspectRatio = metadataAspectRatio(metadata);
+            hasAlpha = metadata.hasAlpha ?? false;
             posterMetadataCache.set(filePath, {
               ...(aspectRatio === undefined ? {} : {aspectRatio}),
+              hasAlpha,
               modifiedAt: file.mtimeMs,
               size: file.size,
             });
@@ -111,7 +118,14 @@ export const discoverPosters = async (
           const id = relative(root, filePath).split(sep).join("/");
           const label = posterLabel(id);
           if (!label) return;
-          return {aspectRatio, filePath, id, label, url: mediaUrl(id)};
+          return {
+            aspectRatio,
+            filePath,
+            hasAlpha,
+            id,
+            label,
+            url: mediaUrl(id),
+          };
         } catch {
           return;
         }

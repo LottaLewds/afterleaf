@@ -49,6 +49,7 @@ describe("poster catalog", () => {
     expect(posters[0]).toMatchObject({
       aspectRatio: 1.5,
       filePath: imagePath,
+      hasAlpha: false,
       id: "seasonal/summer_festival.art",
       label: "Summer Festival",
       url: posterMediaUrl("seasonal/summer_festival.art"),
@@ -85,6 +86,46 @@ describe("poster catalog", () => {
     expect(
       await sharp(resolve(directory, imported.id)).metadata(),
     ).toMatchObject({format: "webp", height: 2_048, width: 1_024});
+  });
+
+  test("preserves alpha for sticker-style posters", async () => {
+    const directory = await mkdtemp(resolve(tmpdir(), "afterleaf-posters-"));
+    temporaryDirectories.push(directory);
+    const imagePath = resolve(directory, "sticker.png");
+    await sharp({
+      create: {
+        background: {alpha: 0, b: 0, g: 0, r: 0},
+        channels: 4,
+        height: 80,
+        width: 120,
+      },
+    })
+      .composite([
+        {
+          input: await sharp({
+            create: {
+              background: "#cc5544",
+              channels: 3,
+              height: 40,
+              width: 60,
+            },
+          })
+            .png()
+            .toBuffer(),
+        },
+      ])
+      .png()
+      .toFile(imagePath);
+
+    const posters = await discoverPosters([directory], posterMediaUrl);
+    const rendered = await renderPoster(imagePath, createPosterImageDerivative);
+
+    expect(posters).toMatchObject([{hasAlpha: true, id: "sticker.png"}]);
+    expect(await sharp(rendered).metadata()).toMatchObject({
+      format: "webp",
+      hasAlpha: true,
+    });
+    expect((await sharp(rendered).ensureAlpha().raw().toBuffer())[3]).toBe(0);
   });
 
   test("merges optional roots and discovers a later mount", async () => {

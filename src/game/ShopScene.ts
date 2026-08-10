@@ -256,6 +256,9 @@ const MIN_POSTER_HEIGHT = 0.2;
 const MAX_POSTER_HEIGHT = 3.8;
 const POSTER_SURFACE_MARGIN = 0.08;
 const POSTER_SURFACE_OFFSET = 0.012;
+const POSTER_ALPHA_TEST = 0.01;
+const POSTER_DEPTH_LAYER_SPACING = 0.0005;
+const POSTER_POLYGON_OFFSET_FACTOR = -1;
 const POSTER_WHEEL_ROTATION_STEP = MathUtils.degToRad(1);
 const TV_WHEEL_SCRUB_RESET_MS = 900;
 const TV_WHEEL_SCRUB_STEPS_SECONDS = [3, 5, 10, 15, 30] as const;
@@ -393,6 +396,7 @@ type PosterSurface = {
 
 type PosterRecord = {
   asset: PosterAsset;
+  depthLayer: number;
   height: number;
   id: string;
   mesh: Mesh<PlaneGeometry, MeshStandardMaterial>;
@@ -401,6 +405,7 @@ type PosterRecord = {
 
 type PosterPlacementSession = {
   assetIndex: number;
+  depthLayer: number;
   desiredHeight: number;
   gridSnap: boolean;
   movingPosterId?: string;
@@ -1219,6 +1224,7 @@ export class ShopScene {
   #playerVerticalVelocity = 0;
   #posterAssets: readonly PosterAsset[] = [];
   #posterAssetIndex = 0;
+  #nextPosterDepthLayer = 1;
   #posterCatalogRefreshHandle: number | undefined;
   #posterCatalogRequestPending = false;
   #posterImportCount = 0;
@@ -4631,6 +4637,7 @@ export class ShopScene {
         if (!current) return false;
         return (
           asset.aspectRatio === current.aspectRatio &&
+          asset.hasAlpha === current.hasAlpha &&
           asset.id === current.id &&
           asset.label === current.label &&
           asset.url === current.url
@@ -4666,12 +4673,21 @@ export class ShopScene {
   async #restoreSavedPosters(assets: readonly PosterAsset[]) {
     const assetsById = new Map(assets.map((asset) => [asset.id, asset]));
     const restoredIds = new Set<string>();
+    this.#nextPosterDepthLayer = Math.max(
+      this.#nextPosterDepthLayer,
+      this.#pendingPosterSaves.length + 1,
+    );
     await Promise.all(
-      this.#pendingPosterSaves.map(async (savedPoster) => {
+      this.#pendingPosterSaves.map(async (savedPoster, index) => {
         const asset = assetsById.get(savedPoster.assetId);
         if (!asset) return;
         try {
-          const mesh = await this.#createPosterMesh(asset, savedPoster.height);
+          const depthLayer = index + 1;
+          const mesh = await this.#createPosterMesh(
+            asset,
+            savedPoster.height,
+            depthLayer,
+          );
           if (this.#disposed) {
             this.#disposePosterMesh(mesh);
             return;
@@ -4681,6 +4697,7 @@ export class ShopScene {
           this.#scene.add(mesh);
           this.#posterRecords.set(savedPoster.id, {
             asset,
+            depthLayer,
             height: savedPoster.height,
             id: savedPoster.id,
             mesh,
@@ -5580,19 +5597,57 @@ export class ShopScene {
     return pending;
   }
 
-  async #createPosterMesh(asset: PosterAsset, height: number) {
+  #setPosterDepthLayer(
+    mesh: Mesh<PlaneGeometry, MeshStandardMaterial>,
+    depthLayer: number,
+  ) {
+    const previousOffset = mesh.userData.posterDepthOffset;
+    const localOffset =
+      (depthLayer * POSTER_DEPTH_LAYER_SPACING) / mesh.scale.z;
+    mesh.geometry.translate(
+      0,
+      0,
+      localOffset - (typeof previousOffset === "number" ? previousOffset : 0),
+    );
+    mesh.userData.posterDepthOffset = localOffset;
+    mesh.userData.posterDepthLayer = depthLayer;
+    mesh.material.polygonOffset = true;
+    mesh.material.polygonOffsetFactor = POSTER_POLYGON_OFFSET_FACTOR;
+    mesh.material.polygonOffsetUnits = -depthLayer;
+    mesh.renderOrder = depthLayer;
+  }
+
+  #compactPosterDepthLayers() {
+    const records = [...this.#posterRecords.values()].sort(
+      (left, right) => left.depthLayer - right.depthLayer,
+    );
+    for (const [index, record] of records.entries()) {
+      record.depthLayer = index + 1;
+      this.#setPosterDepthLayer(record.mesh, record.depthLayer);
+    }
+    this.#nextPosterDepthLayer = records.length + 1;
+  }
+
+  async #createPosterMesh(
+    asset: PosterAsset,
+    height: number,
+    depthLayer: number,
+  ) {
     const texture = await this.#posterTexture(asset);
     const mesh = new Mesh(
       new PlaneGeometry(asset.aspectRatio, 1),
       new MeshStandardMaterial({
+        alphaTest: asset.hasAlpha ? POSTER_ALPHA_TEST : 0,
         map: texture,
         metalness: 0,
         roughness: 0.84,
+        transparent: asset.hasAlpha,
       }),
     );
     mesh.name = `poster-${asset.id}`;
     mesh.scale.setScalar(height);
     mesh.userData.posterAssetId = asset.id;
+    this.#setPosterDepthLayer(mesh, depthLayer);
     return mesh;
   }
 
@@ -5615,21 +5670,27 @@ export class ShopScene {
     if (!asset) return;
     const revision = (this.#posterPlacementRevision += 1);
     this.#disposePosterPreview();
+    const movingPoster = this.#posterRecords.get(movingPosterId ?? "");
+    const depthLayer = this.#nextPosterDepthLayer;
     this.#posterPlacement = {
       assetIndex: normalizedIndex,
+      depthLayer,
       desiredHeight,
       gridSnap: true,
       ...(movingPosterId ? {movingPosterId} : {}),
       rotation,
     };
     this.#posterAssetIndex = normalizedIndex;
-    const movingPoster = this.#posterRecords.get(movingPosterId ?? "");
     if (movingPoster) movingPoster.mesh.visible = false;
     this.#posterPlacementSelection = undefined;
     this.#targetedPosterId = undefined;
     this.#emitGameState();
     try {
-      const preview = await this.#createPosterMesh(asset, desiredHeight);
+      const preview = await this.#createPosterMesh(
+        asset,
+        desiredHeight,
+        depthLayer,
+      );
       if (
         this.#disposed ||
         revision !== this.#posterPlacementRevision ||
@@ -5659,6 +5720,7 @@ export class ShopScene {
     this.#disposePosterPreview();
     this.#posterPlacement = {
       assetIndex: -1,
+      depthLayer: this.#nextPosterDepthLayer,
       desiredHeight: DEFAULT_POSTER_HEIGHT,
       gridSnap: true,
       rotation: 0,
@@ -5811,6 +5873,7 @@ export class ShopScene {
     preview.quaternion.copy(this.#posterPlacementRotation);
     preview.rotateZ(placement.rotation);
     preview.scale.setScalar(height);
+    this.#setPosterDepthLayer(preview, placement.depthLayer);
     preview.visible = true;
     this.#setPosterPlacementSelection(height);
   }
@@ -5825,7 +5888,7 @@ export class ShopScene {
     if (!placement || !selection || !preview || !asset || !preview.visible)
       return;
     preview.material.opacity = 1;
-    preview.material.transparent = false;
+    preview.material.transparent = asset.hasAlpha;
     preview.material.depthWrite = true;
     const existing = placement.movingPosterId
       ? this.#posterRecords.get(placement.movingPosterId)
@@ -5834,12 +5897,13 @@ export class ShopScene {
       const targetIndex = this.#posterTargetMeshes.indexOf(existing.mesh);
       this.#disposePosterMesh(existing.mesh);
       existing.asset = asset;
+      existing.depthLayer = placement.depthLayer;
       existing.height = selection.height;
       existing.mesh = preview;
       existing.rotation = placement.rotation;
       existing.mesh.material.depthWrite = true;
       existing.mesh.material.opacity = 1;
-      existing.mesh.material.transparent = false;
+      existing.mesh.material.transparent = asset.hasAlpha;
       existing.mesh.userData.posterId = existing.id;
       if (targetIndex >= 0) this.#posterTargetMeshes[targetIndex] = preview;
       else this.#posterTargetMeshes.push(preview);
@@ -5848,10 +5912,11 @@ export class ShopScene {
       const id = globalThis.crypto.randomUUID();
       preview.material.depthWrite = true;
       preview.material.opacity = 1;
-      preview.material.transparent = false;
+      preview.material.transparent = asset.hasAlpha;
       preview.userData.posterId = id;
       this.#posterRecords.set(id, {
         asset,
+        depthLayer: placement.depthLayer,
         height: selection.height,
         id,
         mesh: preview,
@@ -5860,6 +5925,7 @@ export class ShopScene {
       this.#posterTargetMeshes.push(preview);
       this.#posterPreview = undefined;
     }
+    this.#compactPosterDepthLayers();
     this.#posterPlacement = undefined;
     this.#posterPlacementSelection = undefined;
     this.#worldStateDirty = true;
@@ -5873,6 +5939,7 @@ export class ShopScene {
     if (!record) return;
     this.#disposePosterMesh(record.mesh);
     this.#posterRecords.delete(posterId);
+    this.#compactPosterDepthLayers();
     const targetIndex = this.#posterTargetMeshes.indexOf(record.mesh);
     if (targetIndex >= 0) this.#posterTargetMeshes.splice(targetIndex, 1);
     this.#targetedPosterId = undefined;
@@ -10737,26 +10804,28 @@ export class ShopScene {
       ...this.#pendingPosterSaves.filter(
         (savedPoster) => !this.#posterRecords.has(savedPoster.id),
       ),
-      ...[...this.#posterRecords.values()].map((record) => {
-        record.mesh.updateWorldMatrix(true, false);
-        const position = record.mesh.getWorldPosition(new Vector3());
-        const quaternion = record.mesh.getWorldQuaternion(new Quaternion());
-        return {
-          assetId: record.asset.id,
-          height: record.height,
-          id: record.id,
-          pose: {
-            position: {x: position.x, y: position.y, z: position.z},
-            quaternion: {
-              w: quaternion.w,
-              x: quaternion.x,
-              y: quaternion.y,
-              z: quaternion.z,
+      ...[...this.#posterRecords.values()]
+        .sort((left, right) => left.depthLayer - right.depthLayer)
+        .map((record) => {
+          record.mesh.updateWorldMatrix(true, false);
+          const position = record.mesh.getWorldPosition(new Vector3());
+          const quaternion = record.mesh.getWorldQuaternion(new Quaternion());
+          return {
+            assetId: record.asset.id,
+            height: record.height,
+            id: record.id,
+            pose: {
+              position: {x: position.x, y: position.y, z: position.z},
+              quaternion: {
+                w: quaternion.w,
+                x: quaternion.x,
+                y: quaternion.y,
+                z: quaternion.z,
+              },
             },
-          },
-          rotation: record.rotation,
-        };
-      }),
+            rotation: record.rotation,
+          };
+        }),
     ];
     const digitalArtFrames: WorldDigitalArtFrameSave[] = [
       ...this.#pendingDigitalArtFrameSaves.filter(

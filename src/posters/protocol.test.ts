@@ -14,14 +14,27 @@ describe("poster protocol", () => {
     expect(parsePosterMediaRequest(url)).toEqual({id, kind: "media"});
     expect(
       parsePosterCatalog({
-        posters: [{aspectRatio: 1.5, id, label: "Summer", url}],
+        posters: [{aspectRatio: 1.5, hasAlpha: true, id, label: "Summer", url}],
       }).posters,
-    ).toEqual([{aspectRatio: 1.5, id, label: "Summer", url}]);
+    ).toEqual([{aspectRatio: 1.5, hasAlpha: true, id, label: "Summer", url}]);
     expect(
       parsePosterImportResponse({
-        poster: {aspectRatio: 1.5, id, label: "Summer", url},
+        poster: {aspectRatio: 1.5, hasAlpha: true, id, label: "Summer", url},
       }).poster,
-    ).toEqual({aspectRatio: 1.5, id, label: "Summer", url});
+    ).toEqual({aspectRatio: 1.5, hasAlpha: true, id, label: "Summer", url});
+  });
+
+  test("treats catalogs without alpha metadata as opaque", () => {
+    const id = "legacy-poster.png";
+    const url = posterMediaUrl(id);
+
+    expect(
+      parsePosterCatalog({
+        posters: [{aspectRatio: 1.5, id, label: "Legacy Poster", url}],
+      }).posters,
+    ).toEqual([
+      {aspectRatio: 1.5, hasAlpha: false, id, label: "Legacy Poster", url},
+    ]);
   });
 
   test("rejects traversal and catalog URL mismatches", () => {
@@ -33,6 +46,7 @@ describe("poster protocol", () => {
         posters: [
           {
             aspectRatio: 1,
+            hasAlpha: false,
             id: "poster.png",
             label: "Poster",
             url: "/wrong",

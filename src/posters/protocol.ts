@@ -5,6 +5,7 @@ export const MAX_POSTER_IMPORT_BODY_BYTES = 64 * 1_024 * 1_024;
 
 export type PosterAsset = {
   aspectRatio: number;
+  hasAlpha: boolean;
   id: string;
   label: string;
   url: string;
@@ -96,13 +97,15 @@ export const parsePosterCatalog = (value: unknown): PosterCatalog => {
       typeof poster.aspectRatio !== "number" ||
       !Number.isFinite(poster.aspectRatio) ||
       poster.aspectRatio <= 0 ||
-      poster.aspectRatio > 100
+      poster.aspectRatio > 100 ||
+      (poster.hasAlpha !== undefined && typeof poster.hasAlpha !== "boolean")
     )
       throw new Error(`Poster ${index} is invalid`);
     if (ids.has(poster.id)) throw new Error("Poster catalog has duplicate IDs");
     ids.add(poster.id);
     return {
       aspectRatio: poster.aspectRatio,
+      hasAlpha: poster.hasAlpha ?? false,
       id: poster.id,
       label: poster.label,
       url: poster.url,

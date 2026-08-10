@@ -1679,6 +1679,7 @@ const posterCatalogDocument = async () => ({
     await discoverPosters(await postersDirectories(), posterMediaUrl)
   ).map((poster) => ({
     aspectRatio: poster.aspectRatio,
+    hasAlpha: poster.hasAlpha,
     id: poster.id,
     label: poster.label,
     url: poster.url,
@@ -1798,6 +1799,7 @@ const servePosterContent = async (
       );
       const poster = {
         aspectRatio: importedPoster.aspectRatio,
+        hasAlpha: importedPoster.hasAlpha,
         id: importedPoster.id,
         label: importedPoster.label,
         url: importedPoster.url,

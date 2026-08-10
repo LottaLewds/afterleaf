@@ -4,7 +4,7 @@ import sharp from "./sharpRuntime";
 export type WebpDerivativeCreator = (source: Uint8Array) => Promise<Buffer>;
 
 export type WebpDerivativeOptions = {
-  background: string;
+  background?: string;
   maxDimension: number;
   quality: number;
 };
@@ -15,10 +15,10 @@ const WEBP_ORIENTATION_NORMAL = 1;
 export const createWebpDerivative = (
   source: Uint8Array,
   options: WebpDerivativeOptions,
-) =>
-  sharp(source, {limitInputPixels: 100_000_000})
-    .rotate()
-    .flatten({background: options.background})
+) => {
+  const image = sharp(source, {limitInputPixels: 100_000_000}).rotate();
+  if (options.background) image.flatten({background: options.background});
+  return image
     .toColourspace("srgb")
     .resize({
       width: options.maxDimension,
@@ -28,6 +28,7 @@ export const createWebpDerivative = (
     })
     .webp({quality: options.quality, effort: 5, smartSubsample: true})
     .toBuffer();
+};
 
 export const renderWebpImage = async (
   filePath: string,
