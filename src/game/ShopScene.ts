@@ -1,6 +1,7 @@
 import {
   ACESFilmicToneMapping,
   AmbientLight,
+  AnimationMixer,
   BackSide,
   BatchedMesh,
   Box3,
@@ -40,11 +41,13 @@ import {
   Vector2,
   Vector3,
   WebGLRenderer,
+  type AnimationClip,
   type BufferGeometry,
   type Material,
   type Object3D,
 } from "three";
 import {GLTFLoader} from "three/examples/jsm/loaders/GLTFLoader.js";
+import {clone as cloneWithSkeleton} from "three/examples/jsm/utils/SkeletonUtils.js";
 import {DEV} from "solid-js";
 
 import type {ArtFrameFit} from "~/artFrames/aspect";
@@ -1096,6 +1099,7 @@ export class ShopScene {
   readonly #artFrameTextureCache = new Map<string, ArtFrameTextureCacheEntry>();
   readonly #artFrameTexturePreparationQueue: ArtFrameTexturePreparation[] = [];
   readonly #hallwayDoors: AutomaticDoor[] = [];
+  readonly #modelMixers = new Set<AnimationMixer>();
   readonly #propSupportBounds = new Box3();
   readonly #propPlacementSupports: PropPlacementSupport[] = [];
   readonly #raycaster = new Raycaster();
@@ -1511,6 +1515,8 @@ export class ShopScene {
     if (this.#tvVideoImportMessageTimer !== undefined)
       window.clearTimeout(this.#tvVideoImportMessageTimer);
     this.#tvVideoImportMessageTimer = undefined;
+    for (const mixer of this.#modelMixers) mixer.stopAllAction();
+    this.#modelMixers.clear();
     this.#physicsWorld.dispose();
     for (const television of this.#televisions) television.dispose();
     this.#televisions.length = 0;
@@ -1626,6 +1632,7 @@ export class ShopScene {
     this.#animateShelve(deltaSeconds);
     this.#syncBookAtlasBatches();
     this.#animateDiscard(deltaSeconds);
+    for (const mixer of this.#modelMixers) mixer.update(deltaSeconds);
     this.#renderer.render(this.#scene, this.#camera);
     this.#frameHandle = requestAnimationFrame(this.#animate);
   };
@@ -2196,6 +2203,13 @@ export class ShopScene {
     this.#setShelfSign(0, "NEW ARRIVALS", "DISPLAY 01");
   }
 
+  #playModelAnimations(root: Object3D, clips: readonly AnimationClip[]) {
+    if (clips.length === 0) return;
+    const mixer = new AnimationMixer(root);
+    for (const clip of clips) mixer.clipAction(clip).play();
+    this.#modelMixers.add(mixer);
+  }
+
   async #createTrashcan(parent: Group) {
     const trashcan = this.#trashcanGroup;
     trashcan.name = "discard-trashcan";
@@ -2263,6 +2277,7 @@ export class ShopScene {
         object.receiveShadow = true;
       });
       trashcan.add(gltf.scene);
+      this.#playModelAnimations(gltf.scene, gltf.animations);
       const trashcanProp = this.#trashcanProp;
       if (trashcanProp && this.#carriedProp === trashcanProp)
         trashcanProp.ghostMaterialSwaps.push(...this.#ghostObject(gltf.scene));
@@ -2985,7 +3000,7 @@ export class ShopScene {
       });
 
       for (const [index, z] of READING_TABLE_Z_POSITIONS.entries()) {
-        const lamp = index === 0 ? gltf.scene : gltf.scene.clone(true);
+        const lamp = index === 0 ? gltf.scene : cloneWithSkeleton(gltf.scene);
         const spawnClearance =
           index === 1
             ? CRT_TABLE_DESK_LAMP_SPAWN_CLEARANCE
@@ -2994,6 +3009,7 @@ export class ShopScene {
           READING_TABLE_SURFACE_Y + spawnClearance - bounds.min.y * scale;
         lamp.position.z = z - center.z * scale;
         parent.add(lamp);
+        this.#playModelAnimations(lamp, gltf.animations);
         const lampBounds = new Box3().setFromObject(lamp);
         const lampSize = lampBounds.getSize(new Vector3());
         const lampRoot = new Group();
