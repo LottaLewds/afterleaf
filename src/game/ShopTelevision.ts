@@ -127,7 +127,7 @@ export type ShopTelevisionOptions = {
   onChannelChange?: (channelId: string) => void;
   onStateChange?: () => void;
   onVolumeChange?: (volume: number) => void;
-  parent: Group;
+  parent: Object3D;
   position?: readonly [x: number, y: number, z: number];
   random?: RandomSource;
   rotationY?: number;

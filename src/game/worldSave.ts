@@ -89,6 +89,7 @@ export type WorldPropSave = {
 };
 
 export type WorldModelPropSave = WorldPropSave & {
+  animationClip?: string | null;
   assetId: string;
   scale: number;
 };
@@ -437,7 +438,15 @@ const parseModelProps = (value: unknown): readonly WorldModelPropSave[] => {
       throw new Error(
         `modelProps[${index}].scale must be between 0.01 and 100`,
       );
+    const animationClip =
+      prop.animationClip === null
+        ? null
+        : optionalString(
+            prop.animationClip,
+            `modelProps[${index}].animationClip`,
+          );
     return {
+      ...(animationClip === undefined ? {} : {animationClip}),
       assetId: requiredString(prop.assetId, `modelProps[${index}].assetId`),
       id,
       pose: parsePose(prop.pose, `modelProps[${index}].pose`),

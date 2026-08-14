@@ -63,6 +63,7 @@ const saveFixture = (): WorldSaveV1 => ({
   ],
   modelProps: [
     {
+      animationClip: "RigRoot|A_Idle_00",
       assetId: "figures/kumoko.glb",
       id: "model-prop-1",
       pose: pose(9),
@@ -338,6 +339,12 @@ describe("world save validation", () => {
     expect(() =>
       parseWorldSave({...saveFixture(), modelProps: [prop, prop]}),
     ).toThrow("duplicate model prop IDs");
+    expect(() =>
+      parseWorldSave({
+        ...saveFixture(),
+        modelProps: [{...prop, animationClip: 12}],
+      }),
+    ).toThrow("animationClip must be a non-empty bounded string");
   });
 });
 

@@ -175,6 +175,8 @@ import {
   type WorldPosterSave,
   type WorldPropSave,
   type WorldSaveV1,
+  type WorldTelevisionChannels,
+  type WorldTelevisionVolumes,
 } from "~/game/worldSave";
 import {
   createWoodBoxGeometry,
@@ -203,6 +205,7 @@ import {
 } from "~/reader/pagination";
 import {
   DEFAULT_TV_CHANNEL_ID,
+  type TvChannel,
   tvChannelId,
   tvVideoImportUrl,
   type TvVideo,
@@ -339,6 +342,10 @@ const MIN_MODEL_SCALE = 0.1;
 const MAX_MODEL_SCALE = 10;
 const MIN_MODEL_COLLIDER_DIMENSION = 0.02;
 const MAX_USER_MODEL_PROP_COUNT = 256;
+const BUILTIN_CRT_TV_ASSET_ID = "builtin:crt-tv";
+const BUILTIN_READING_TABLE_ASSET_ID = "builtin:reading-table";
+const BUILTIN_READING_CHAIR_ASSET_ID = "builtin:reading-chair";
+const BUILTIN_TRASH_CAN_ASSET_ID = "builtin:trash-can";
 const CEILING_LIGHT_COLUMNS = [-7, 0, 7] as const;
 const CEILING_LIGHT_ROWS = [-7, -1.5, 4, 9.5, 15, 20.5, 26] as const;
 const RARE_ROOM_CENTER_X = 8.25;
@@ -490,6 +497,8 @@ type MovablePropRecord = {
   heldLocalPosition: Vector3;
   id: string;
   label: string;
+  modelAnimationIndex?: number;
+  modelAnimations?: readonly AnimationClip[];
   modelAsset?: ModelAsset;
   modelBaseSize?: Vector3;
   modelMixer?: AnimationMixer;
@@ -498,6 +507,8 @@ type MovablePropRecord = {
   persistInWorldProps: boolean;
   placementSupport: Object3D;
   rotationSnapStep: number;
+  spawnAssetId?: string;
+  spawned: boolean;
 };
 
 type PropPlacementSupport = {
@@ -515,6 +526,8 @@ type MovablePropRegistration = {
   height: number;
   id: string;
   label: string;
+  modelAnimationIndex?: number;
+  modelAnimations?: readonly AnimationClip[];
   modelAsset?: ModelAsset;
   modelBaseSize?: Vector3;
   modelMixer?: AnimationMixer;
@@ -523,9 +536,54 @@ type MovablePropRegistration = {
   persistInWorldProps?: boolean;
   placementSupport?: Object3D;
   rotationSnapStep?: number;
+  spawnAssetId?: string;
+  spawned?: boolean;
   targetable?: boolean;
+  targetObject?: Object3D;
+  templateForSpawning?: boolean;
   width: number;
 };
+
+type BuiltinSpawnablePropAsset = {
+  id:
+    | typeof BUILTIN_CRT_TV_ASSET_ID
+    | typeof BUILTIN_READING_TABLE_ASSET_ID
+    | typeof BUILTIN_READING_CHAIR_ASSET_ID
+    | typeof BUILTIN_TRASH_CAN_ASSET_ID;
+  kind: "builtin";
+  label: string;
+};
+
+type SpawnablePropAsset =
+  | BuiltinSpawnablePropAsset
+  | {id: string; kind: "model"; label: string; model: ModelAsset};
+
+type BuiltinPropTemplate = {
+  colliderParts?: readonly PhysicsPropColliderDefinition[];
+  density?: number;
+  depth: number;
+  height: number;
+  heldLocalPosition: Vector3;
+  object: Object3D;
+  rotationSnapStep?: number;
+  staticWhenPlaced?: boolean;
+  width: number;
+};
+
+const BUILTIN_SPAWNABLE_PROP_ASSETS: readonly BuiltinSpawnablePropAsset[] = [
+  {id: BUILTIN_CRT_TV_ASSET_ID, kind: "builtin", label: "CRT television"},
+  {
+    id: BUILTIN_READING_TABLE_ASSET_ID,
+    kind: "builtin",
+    label: "reading table",
+  },
+  {
+    id: BUILTIN_READING_CHAIR_ASSET_ID,
+    kind: "builtin",
+    label: "reading chair",
+  },
+  {id: BUILTIN_TRASH_CAN_ASSET_ID, kind: "builtin", label: "trash can"},
+];
 
 type ModelTemplate = {
   animations: readonly AnimationClip[];
@@ -1033,8 +1091,6 @@ export class ShopScene {
   readonly #televisionProps = new Map<ShopTelevision, MovablePropRecord>();
   readonly #televisionsBySaveId = new Map<string, ShopTelevision>();
   readonly #mouseSensitivity: () => number;
-  #movableTelevision: ShopTelevision | undefined;
-  #movableTelevisionProp: MovablePropRecord | undefined;
   readonly #newPublicationIds: () => readonly string[];
   readonly #nextLookAngles: LookAngles = {pitch: 0, yaw: 0};
   readonly #onDiscardPublication:
@@ -1099,6 +1155,7 @@ export class ShopScene {
   readonly #hallwayDoors: AutomaticDoor[] = [];
   readonly #modelMixers = new Set<AnimationMixer>();
   readonly #modelTemplatePromises = new Map<string, Promise<ModelTemplate>>();
+  readonly #builtinPropTemplates = new Map<string, BuiltinPropTemplate>();
   readonly #propSupportBounds = new Box3();
   readonly #propPlacementSupports: PropPlacementSupport[] = [];
   readonly #raycaster = new Raycaster();
@@ -1126,6 +1183,7 @@ export class ShopScene {
   readonly #textureLoader = new TextureLoader();
   readonly #televisions: ShopTelevision[] = [];
   readonly #televisionTargetPosition = new Vector3();
+  readonly #televisionTargetScale = new Vector3();
   readonly #trashcanGroup = new Group();
   readonly #trashcanPosition = new Vector3(
     SHOP_PHYSICS_TRASH_POSITION_X,
@@ -1216,11 +1274,14 @@ export class ShopScene {
   #lastPixelRatio = 0;
   #lastSelectedPublicationId: string | null | undefined;
   #moonEnvironment: Texture | undefined;
-  #modelAssets: readonly ModelAsset[] = [];
-  #modelAssetIndex = 0;
+  #customModelAssets: readonly ModelAsset[] = [];
+  #spawnablePropAssets: readonly SpawnablePropAsset[] =
+    BUILTIN_SPAWNABLE_PROP_ASSETS;
+  #spawnablePropAssetIndex = 0;
   #modelImportError: string | undefined;
   #modelPlacement: ModelPlacementSession | undefined;
   #modelPlacementRevision = 0;
+  #modelRestoreActive = false;
   #onReady: (() => void) | undefined;
   #inputSuspended = false;
   #pointerLocked = false;
@@ -1303,7 +1364,10 @@ export class ShopScene {
   #tvVideoImportError: string | undefined;
   #tvVideoImportMessage: string | undefined;
   #tvVideoImportMessageTimer: number | undefined;
-  #trashcanProp: MovablePropRecord | undefined;
+  #tvChannels: readonly TvChannel[] = [];
+  #televisionTableMaterial: MeshStandardMaterial | undefined;
+  #savedTelevisionChannels: WorldTelevisionChannels = {};
+  #savedTelevisionVolumes: WorldTelevisionVolumes = {};
   #trashTargeted = false;
   #throwChargeActive = false;
   #throwChargeBucket = -1;
@@ -1349,6 +1413,10 @@ export class ShopScene {
     this.#onWorldSave = options.onWorldSave;
     this.#worldSaveWritable = options.worldSaveWritable;
     this.#pendingWorldSave = options.initialWorldSave;
+    this.#savedTelevisionChannels =
+      options.initialWorldSave?.televisionChannels ?? {};
+    this.#savedTelevisionVolumes =
+      options.initialWorldSave?.televisionVolumes ?? {};
     this.#onReady = options.onReady;
     this.#paused = options.paused ?? (() => false);
 
@@ -1531,8 +1599,6 @@ export class ShopScene {
     this.#televisions.length = 0;
     this.#televisionsBySaveId.clear();
     this.#carriedProp = undefined;
-    this.#movableTelevision = undefined;
-    this.#movableTelevisionProp = undefined;
     this.#targetedTelevision = undefined;
     this.#televisionProps.clear();
     this.#audioManager.dispose();
@@ -1777,6 +1843,7 @@ export class ShopScene {
       color: "#806f63",
       roughness: 0.92,
     });
+    this.#televisionTableMaterial = woodMaterial;
 
     this.#createFaceOutDisplay(
       architecture,
@@ -1897,10 +1964,9 @@ export class ShopScene {
       rotationY: 0,
       tableMaterial: woodMaterial,
     });
-    this.#movableTelevision = movableTelevision;
     this.#registerTelevision(FIXED_TELEVISION_SAVE_ID, fixedTelevision);
     this.#registerTelevision(MOVABLE_TELEVISION_SAVE_ID, movableTelevision);
-    this.#movableTelevisionProp = this.#registerMovableProp({
+    const movableTelevisionProp = this.#registerMovableProp({
       density: 45,
       depth: SHOP_MODEL_TELEVISION_SIZE.depth,
       height: SHOP_MODEL_TELEVISION_SIZE.height,
@@ -1909,10 +1975,11 @@ export class ShopScene {
       label: "CRT television",
       object: movableTelevision.object,
       persistInWorldProps: false,
+      spawnAssetId: BUILTIN_CRT_TV_ASSET_ID,
       targetable: false,
       width: SHOP_MODEL_TELEVISION_SIZE.width,
     });
-    this.#televisionProps.set(movableTelevision, this.#movableTelevisionProp);
+    this.#televisionProps.set(movableTelevision, movableTelevisionProp);
     this.#createTelevisionTableShelf(architecture);
 
     this.#createAisleSignSlot(
@@ -2210,10 +2277,15 @@ export class ShopScene {
     this.#setShelfSign(0, "NEW ARRIVALS", "DISPLAY 01");
   }
 
-  #playModelAnimations(root: Object3D, clips: readonly AnimationClip[]) {
+  #playModelAnimations(
+    root: Object3D,
+    clips: readonly AnimationClip[],
+    clipIndex = 0,
+  ) {
     if (clips.length === 0) return;
     const mixer = new AnimationMixer(root);
-    for (const clip of clips) mixer.clipAction(clip).play();
+    const clip = clips[clipIndex];
+    if (clip) mixer.clipAction(clip).play();
     this.#modelMixers.add(mixer);
     return mixer;
   }
@@ -2244,13 +2316,14 @@ export class ShopScene {
     this.#trashTargetMesh.name = "discard-trashcan-target";
     this.#trashTargetMesh.position.y = 0.69 - TRASH_CAN_HEIGHT / 2;
     trashcan.add(this.#trashTargetMesh);
-    this.#trashcanProp = this.#registerMovableProp({
+    this.#registerMovableProp({
       depth: TRASH_CAN_SIZE,
       height: TRASH_CAN_HEIGHT,
       heldLocalPosition: new Vector3(0, -0.65, -1.8),
       id: TRASH_CAN_PROP_ID,
       label: "trash can",
       object: trashcan,
+      spawnAssetId: BUILTIN_TRASH_CAN_ASSET_ID,
       staticWhenPlaced: true,
       width: TRASH_CAN_SIZE,
     });
@@ -2286,7 +2359,7 @@ export class ShopScene {
       });
       trashcan.add(gltf.scene);
       this.#playModelAnimations(gltf.scene, gltf.animations);
-      const trashcanProp = this.#trashcanProp;
+      const trashcanProp = this.#movableProps.get(TRASH_CAN_PROP_ID);
       if (trashcanProp && this.#carriedProp === trashcanProp)
         trashcanProp.ghostMaterialSwaps.push(...this.#ghostObject(gltf.scene));
     } catch (error) {
@@ -2298,7 +2371,9 @@ export class ShopScene {
   #setTrashcanPosition(x: number, z: number, markDirty = true) {
     this.#trashcanPosition.set(x, TRASH_CAN_HEIGHT / 2, z);
     this.#trashcanGroup.position.copy(this.#trashcanPosition);
-    this.#trashcanProp?.currentPosition.copy(this.#trashcanPosition);
+    this.#movableProps
+      .get(TRASH_CAN_PROP_ID)
+      ?.currentPosition.copy(this.#trashcanPosition);
     this.#physicsWorld.updatePropPose(TRASH_CAN_PROP_ID, {
       position: this.#trashcanPosition,
       rotation: this.#trashcanGroup.quaternion,
@@ -2322,6 +2397,12 @@ export class ShopScene {
       heldLocalPosition: registration.heldLocalPosition,
       id: registration.id,
       label: registration.label,
+      ...(registration.modelAnimationIndex === undefined
+        ? {}
+        : {modelAnimationIndex: registration.modelAnimationIndex}),
+      ...(registration.modelAnimations
+        ? {modelAnimations: registration.modelAnimations}
+        : {}),
       ...(registration.modelAsset ? {modelAsset: registration.modelAsset} : {}),
       ...(registration.modelBaseSize
         ? {modelBaseSize: registration.modelBaseSize}
@@ -2335,9 +2416,13 @@ export class ShopScene {
       placementSupport: registration.placementSupport ?? registration.object,
       rotationSnapStep:
         registration.rotationSnapStep ?? PROP_ROTATION_SNAP_STEP,
+      ...(registration.spawnAssetId
+        ? {spawnAssetId: registration.spawnAssetId}
+        : {}),
+      spawned: registration.spawned ?? false,
     };
     if (registration.targetable !== false)
-      registration.object.traverse((object) => {
+      (registration.targetObject ?? registration.object).traverse((object) => {
         if (!(object instanceof Mesh)) return;
         object.userData.movablePropId = registration.id;
         this.#movablePropTargetMeshes.push(object);
@@ -2368,6 +2453,34 @@ export class ShopScene {
       this.#applySavedPropPose(record, savedProp);
       this.#pendingPropSaves.delete(record.id);
     }
+    if (
+      registration.spawnAssetId &&
+      registration.templateForSpawning &&
+      !this.#builtinPropTemplates.has(registration.spawnAssetId)
+    ) {
+      const object = cloneWithSkeleton(registration.object);
+      object.position.set(0, 0, 0);
+      object.quaternion.identity();
+      this.#builtinPropTemplates.set(registration.spawnAssetId, {
+        ...(registration.colliderParts
+          ? {colliderParts: registration.colliderParts}
+          : {}),
+        ...(registration.density === undefined
+          ? {}
+          : {density: registration.density}),
+        depth: registration.depth,
+        height: registration.height,
+        heldLocalPosition: registration.heldLocalPosition.clone(),
+        object,
+        ...(registration.rotationSnapStep === undefined
+          ? {}
+          : {rotationSnapStep: registration.rotationSnapStep}),
+        ...(registration.staticWhenPlaced === undefined
+          ? {}
+          : {staticWhenPlaced: registration.staticWhenPlaced}),
+        width: registration.width,
+      });
+    }
     return record;
   }
 
@@ -2393,7 +2506,11 @@ export class ShopScene {
   #ghostObject(object: Object3D) {
     const swaps: PropMaterialSwap[] = [];
     object.traverse((child) => {
-      if (!(child instanceof Mesh)) return;
+      if (
+        !(child instanceof Mesh) ||
+        child.userData.movablePropTargetProxy === true
+      )
+        return;
       const material = child.material;
       const createGhostMaterial = (source: Material) => {
         const ghost = source.clone();
@@ -2894,8 +3011,10 @@ export class ShopScene {
       id,
       label: id.replaceAll("-", " "),
       object: chair,
+      spawnAssetId: BUILTIN_READING_CHAIR_ASSET_ID,
       ...(seat ? {placementSupport: seat} : {}),
       rotationSnapStep: Math.PI / 2,
+      templateForSpawning: true,
       width: size.x,
     });
   }
@@ -2967,6 +3086,8 @@ export class ShopScene {
         label: `reading table ${tableIndex + 1}`,
         object: table,
         rotationSnapStep: Math.PI / 2,
+        spawnAssetId: BUILTIN_READING_TABLE_ASSET_ID,
+        templateForSpawning: true,
         width: 2.4,
       });
     }
@@ -3903,6 +4024,7 @@ export class ShopScene {
   #registerTelevision(saveId: string, television: ShopTelevision) {
     this.#televisionsBySaveId.set(saveId, television);
     this.#televisions.push(television);
+    if (this.#tvChannels.length > 0) television.setChannels(this.#tvChannels);
   }
 
   #createTelevisionRooms(parent: Group, woodMaterial: MeshStandardMaterial) {
@@ -4060,7 +4182,7 @@ export class ShopScene {
         id,
         label: `TV cave ${wall} CRT ${row + 1}-${column + 1}`,
         object: television.object,
-        staticWhenPlaced: true,
+        spawnAssetId: BUILTIN_CRT_TV_ASSET_ID,
         targetable: false,
         width: SHOP_MODEL_TELEVISION_SIZE.width,
       });
@@ -4700,9 +4822,9 @@ export class ShopScene {
 
   #modelCatalogMatches(assets: readonly ModelAsset[]) {
     return (
-      assets.length === this.#modelAssets.length &&
+      assets.length === this.#customModelAssets.length &&
       assets.every((asset, index) => {
-        const current = this.#modelAssets[index];
+        const current = this.#customModelAssets[index];
         return (
           current?.id === asset.id &&
           current.label === asset.label &&
@@ -4714,23 +4836,37 @@ export class ShopScene {
 
   #applyModelCatalog(assets: readonly ModelAsset[]) {
     if (this.#modelCatalogMatches(assets)) return;
-    const selectedAssetId = this.#modelAssets[this.#modelAssetIndex]?.id;
+    const selectedAssetId =
+      this.#spawnablePropAssets[this.#spawnablePropAssetIndex]?.id;
     const activeAssetId = this.#modelPlacement
-      ? this.#modelAssets[this.#modelPlacement.assetIndex]?.id
+      ? this.#spawnablePropAssets[this.#modelPlacement.assetIndex]?.id
       : undefined;
-    this.#modelAssets = assets;
+    this.#customModelAssets = assets;
+    this.#spawnablePropAssets = [
+      ...BUILTIN_SPAWNABLE_PROP_ASSETS,
+      ...assets.map(
+        (model): SpawnablePropAsset => ({
+          id: model.id,
+          kind: "model",
+          label: model.label,
+          model,
+        }),
+      ),
+    ];
     const selectedIndex = selectedAssetId
-      ? assets.findIndex((asset) => asset.id === selectedAssetId)
+      ? this.#spawnablePropAssets.findIndex(
+          (asset) => asset.id === selectedAssetId,
+        )
       : -1;
-    this.#modelAssetIndex = Math.max(0, selectedIndex);
+    this.#spawnablePropAssetIndex = Math.max(0, selectedIndex);
     if (this.#modelPlacement && activeAssetId) {
-      const activeIndex = assets.findIndex(
+      const activeIndex = this.#spawnablePropAssets.findIndex(
         (asset) => asset.id === activeAssetId,
       );
       if (activeIndex < 0) this.#cancelModelPlacement();
       else {
         this.#modelPlacement.assetIndex = activeIndex;
-        this.#modelAssetIndex = activeIndex;
+        this.#spawnablePropAssetIndex = activeIndex;
       }
     }
     this.#emitGameState();
@@ -4740,6 +4876,10 @@ export class ShopScene {
     const cached = this.#modelTemplatePromises.get(asset.id);
     if (cached) return cached;
     const pending = ShopScene.#modelLoader.loadAsync(asset.url).then((gltf) => {
+      if (this.#disposed) {
+        disposeObject(gltf.scene);
+        throw new Error("The shop scene was disposed.");
+      }
       gltf.scene.updateMatrixWorld(true);
       const bounds = new Box3().setFromObject(gltf.scene);
       const size = bounds.getSize(new Vector3());
@@ -4782,6 +4922,7 @@ export class ShopScene {
     id: string,
     scale: number,
     pose?: WorldModelPropSave["pose"],
+    animationClip?: string | null,
   ) {
     const model = cloneWithSkeleton(template.scene);
     model.name = `user-model-visual-${asset.id}`;
@@ -4800,6 +4941,20 @@ export class ShopScene {
     root.name = `user-model-${id}`;
     root.scale.setScalar(scale);
     root.add(normalizedModel);
+    const targetProxy = new Mesh(
+      new BoxGeometry(template.size.x, template.size.y, template.size.z),
+      new MeshBasicMaterial({
+        colorWrite: false,
+        depthWrite: false,
+        opacity: 0,
+        side: DoubleSide,
+        transparent: true,
+        visible: false,
+      }),
+    );
+    targetProxy.name = `user-model-target-${id}`;
+    targetProxy.userData.movablePropTargetProxy = true;
+    root.add(targetProxy);
     if (pose) {
       root.position.copy(pose.position);
       root.quaternion.copy(pose.quaternion);
@@ -4810,64 +4965,251 @@ export class ShopScene {
         .addScaledVector(this.#viewDirection, 2);
     }
     this.#scene.add(root);
-    const mixer = this.#playModelAnimations(model, template.animations);
+    let modelAnimationIndex = 0;
+    if (animationClip === null) modelAnimationIndex = -1;
+    else if (animationClip !== undefined) {
+      const savedIndex = template.animations.findIndex(
+        (clip) => clip.name === animationClip,
+      );
+      if (savedIndex >= 0) modelAnimationIndex = savedIndex;
+    }
+    const mixer = this.#playModelAnimations(
+      model,
+      template.animations,
+      modelAnimationIndex,
+    );
     return this.#registerMovableProp({
       depth: template.size.z * scale,
       height: template.size.y * scale,
       heldLocalPosition: new Vector3(0, -0.18, -2),
       id,
       label: asset.label,
+      ...(template.animations.length > 0
+        ? {
+            modelAnimationIndex,
+            modelAnimations: template.animations,
+          }
+        : {}),
       modelAsset: asset,
       modelBaseSize: template.size.clone(),
       ...(mixer ? {modelMixer: mixer} : {}),
       modelScale: scale,
       object: root,
       persistInWorldProps: false,
+      spawnAssetId: asset.id,
+      spawned: true,
+      targetObject: targetProxy,
       width: template.size.x * scale,
     });
   }
 
-  async #restoreSavedModelProps(assets: readonly ModelAsset[]) {
-    if (this.#pendingModelPropSaves.length === 0) return;
-    const assetsById = new Map(assets.map((asset) => [asset.id, asset]));
-    const unresolved: WorldModelPropSave[] = [];
-    for (const savedProp of this.#pendingModelPropSaves) {
-      if (this.#movableProps.has(savedProp.id)) continue;
-      const asset = assetsById.get(savedProp.assetId);
-      if (!asset) {
-        unresolved.push(savedProp);
-        continue;
-      }
-      try {
-        const template = await this.#loadModelTemplate(asset);
-        if (this.#disposed) return;
-        if (this.#movableProps.has(savedProp.id)) continue;
-        this.#createModelPropFromTemplate(
-          asset,
-          template,
-          savedProp.id,
-          savedProp.scale,
-          savedProp.pose,
-        );
-      } catch (error) {
-        unresolved.push(savedProp);
-        if (DEV)
-          console.warn(`Afterleaf could not restore model ${asset.id}.`, error);
-      }
+  #createPropFromBuiltinTemplate(
+    asset: BuiltinSpawnablePropAsset,
+    id: string,
+    scale: number,
+    pose?: WorldModelPropSave["pose"],
+  ) {
+    const template = this.#builtinPropTemplates.get(asset.id);
+    if (!template)
+      throw new Error(`${asset.label} is not ready to be spawned.`);
+    const object = cloneWithSkeleton(template.object);
+    object.name = `${asset.id}-${id}`;
+    object.scale.setScalar(scale);
+    if (pose) {
+      object.position.copy(pose.position);
+      object.quaternion.copy(pose.quaternion);
+    } else {
+      this.#camera.getWorldDirection(this.#viewDirection);
+      object.position
+        .copy(this.#camera.position)
+        .addScaledVector(this.#viewDirection, 2);
     }
-    this.#pendingModelPropSaves = unresolved;
-    this.#emitGameState();
+    this.#scene.add(object);
+    return this.#registerMovableProp({
+      ...(template.density === undefined ? {} : {density: template.density}),
+      depth: template.depth * scale,
+      height: template.height * scale,
+      heldLocalPosition: template.heldLocalPosition.clone(),
+      id,
+      label: asset.label,
+      modelBaseSize: new Vector3(
+        template.width,
+        template.height,
+        template.depth,
+      ),
+      modelScale: scale,
+      object,
+      persistInWorldProps: false,
+      ...(template.rotationSnapStep === undefined
+        ? {}
+        : {rotationSnapStep: template.rotationSnapStep}),
+      spawnAssetId: asset.id,
+      spawned: true,
+      ...(template.staticWhenPlaced === undefined
+        ? {}
+        : {staticWhenPlaced: template.staticWhenPlaced}),
+      width: template.width * scale,
+    });
+  }
+
+  #createSpawnedCrtTelevision(
+    asset: BuiltinSpawnablePropAsset,
+    id: string,
+    scale: number,
+    pose?: WorldModelPropSave["pose"],
+  ) {
+    const tableMaterial = this.#televisionTableMaterial;
+    if (!tableMaterial)
+      throw new Error("CRT television materials are not ready.");
+    const television = new ShopTelevision({
+      audioManager: this.#audioManager,
+      initialChannelId: this.#savedTelevisionChannels[id],
+      initialVolume: this.#savedTelevisionVolumes[id],
+      model: {
+        screenAspect: 4 / 3,
+        screenNodeName: "Screen",
+        screenSafeArea: CRT_TV_SAFE_AREA,
+        scale: SHOP_MODEL_TELEVISION_SCALE,
+        url: crtTvModelUrl,
+      },
+      onChannelChange: this.#markTelevisionSettingChanged,
+      onStateChange: () => this.#emitGameState(),
+      onVolumeChange: this.#markTelevisionSettingChanged,
+      parent: this.#scene,
+      tableMaterial,
+    });
+    television.object.name = id;
+    television.object.scale.setScalar(scale);
+    if (pose) {
+      television.object.position.copy(pose.position);
+      television.object.quaternion.copy(pose.quaternion);
+    } else {
+      this.#camera.getWorldDirection(this.#viewDirection);
+      television.object.position
+        .copy(this.#camera.position)
+        .addScaledVector(this.#viewDirection, 2);
+    }
+    this.#registerTelevision(id, television);
+    const prop = this.#registerMovableProp({
+      density: 45,
+      depth: SHOP_MODEL_TELEVISION_SIZE.depth * scale,
+      height: SHOP_MODEL_TELEVISION_SIZE.height * scale,
+      heldLocalPosition: new Vector3(0, -0.12, -1.45),
+      id,
+      label: asset.label,
+      modelBaseSize: new Vector3(
+        SHOP_MODEL_TELEVISION_SIZE.width,
+        SHOP_MODEL_TELEVISION_SIZE.height,
+        SHOP_MODEL_TELEVISION_SIZE.depth,
+      ),
+      modelScale: scale,
+      object: television.object,
+      persistInWorldProps: false,
+      spawnAssetId: asset.id,
+      spawned: true,
+      targetable: false,
+      width: SHOP_MODEL_TELEVISION_SIZE.width * scale,
+    });
+    this.#televisionProps.set(television, prop);
+    return prop;
+  }
+
+  async #createSpawnableProp(
+    asset: SpawnablePropAsset,
+    id: string,
+    scale: number,
+    pose?: WorldModelPropSave["pose"],
+    animationClip?: string | null,
+  ) {
+    if (asset.kind === "model") {
+      const template = await this.#loadModelTemplate(asset.model);
+      return this.#createModelPropFromTemplate(
+        asset.model,
+        template,
+        id,
+        scale,
+        pose,
+        animationClip,
+      );
+    }
+    if (asset.id === BUILTIN_CRT_TV_ASSET_ID)
+      return this.#createSpawnedCrtTelevision(asset, id, scale, pose);
+    if (asset.id === BUILTIN_TRASH_CAN_ASSET_ID) {
+      const modelAsset: ModelAsset = {
+        id: asset.id,
+        label: asset.label,
+        url: trashCanModelUrl,
+      };
+      const template = await this.#loadModelTemplate(modelAsset);
+      return this.#createModelPropFromTemplate(
+        modelAsset,
+        template,
+        id,
+        scale,
+        pose,
+        animationClip,
+      );
+    }
+    return this.#createPropFromBuiltinTemplate(asset, id, scale, pose);
+  }
+
+  async #restoreSavedModelProps() {
+    if (this.#modelRestoreActive || this.#pendingModelPropSaves.length === 0)
+      return;
+    this.#modelRestoreActive = true;
+    const assetsById = new Map(
+      this.#spawnablePropAssets.map((asset) => [asset.id, asset]),
+    );
+    const unresolved: WorldModelPropSave[] = [];
+    const pending = this.#pendingModelPropSaves;
+    let restoreAgain = false;
+    try {
+      for (const savedProp of pending) {
+        if (this.#movableProps.has(savedProp.id)) continue;
+        const asset = assetsById.get(savedProp.assetId);
+        if (!asset) {
+          unresolved.push(savedProp);
+          continue;
+        }
+        try {
+          const record = await this.#createSpawnableProp(
+            asset,
+            savedProp.id,
+            savedProp.scale,
+            savedProp.pose,
+            savedProp.animationClip,
+          );
+          if (this.#disposed) return;
+          if (this.#movableProps.get(savedProp.id) !== record)
+            this.#removeSpawnedProp(record);
+        } catch (error) {
+          if (this.#disposed) return;
+          unresolved.push(savedProp);
+          if (DEV)
+            console.warn(
+              `Afterleaf could not restore prop ${asset.id}.`,
+              error,
+            );
+        }
+      }
+      restoreAgain = this.#pendingModelPropSaves !== pending;
+      if (!restoreAgain) this.#pendingModelPropSaves = unresolved;
+      this.#emitGameState();
+    } finally {
+      this.#modelRestoreActive = false;
+      if (!this.#disposed && restoreAgain) void this.#restoreSavedModelProps();
+    }
   }
 
   async #startModelPlacement(assetIndex: number) {
-    if (this.#modelAssets.length === 0) {
-      this.#modelImportError = "No GLB models were found in content/models.";
+    if (this.#spawnablePropAssets.length === 0) {
+      this.#modelImportError = "No movable prop assets are available.";
       this.#emitGameState();
       return;
     }
     const modelPropCount =
       this.#pendingModelPropSaves.length +
-      [...this.#movableProps.values()].filter((record) => record.modelAsset)
+      [...this.#movableProps.values()].filter((record) => record.spawned)
         .length;
     if (modelPropCount >= MAX_USER_MODEL_PROP_COUNT) {
       this.#modelImportError = `The shop can contain at most ${MAX_USER_MODEL_PROP_COUNT} model props.`;
@@ -4877,8 +5219,9 @@ export class ShopScene {
     if (this.#modelPlacement || this.#carriedPublicationId || this.#carriedProp)
       return;
     const normalizedIndex =
-      (assetIndex + this.#modelAssets.length) % this.#modelAssets.length;
-    const asset = this.#modelAssets[normalizedIndex];
+      (assetIndex + this.#spawnablePropAssets.length) %
+      this.#spawnablePropAssets.length;
+    const asset = this.#spawnablePropAssets[normalizedIndex];
     if (!asset) return;
     const revision = (this.#modelPlacementRevision += 1);
     const placement: ModelPlacementSession = {
@@ -4887,31 +5230,32 @@ export class ShopScene {
       revision,
     };
     this.#modelPlacement = placement;
-    this.#modelAssetIndex = normalizedIndex;
+    this.#spawnablePropAssetIndex = normalizedIndex;
     this.#modelImportError = undefined;
     this.#emitGameState();
     try {
-      const template = await this.#loadModelTemplate(asset);
+      const record = await this.#createSpawnableProp(
+        asset,
+        placement.id,
+        DEFAULT_MODEL_SCALE,
+      );
       if (
         this.#disposed ||
         this.#modelPlacement !== placement ||
         placement.revision !== revision
-      )
+      ) {
+        this.#removeSpawnedProp(record);
         return;
-      const record = this.#createModelPropFromTemplate(
-        asset,
-        template,
-        placement.id,
-        DEFAULT_MODEL_SCALE,
-      );
+      }
       this.#pickUpProp(record);
     } catch (error) {
+      if (this.#disposed) return;
       if (this.#modelPlacement !== placement) return;
       this.#modelPlacement = undefined;
       this.#modelImportError =
         error instanceof Error
           ? error.message
-          : "The model could not be loaded.";
+          : "The prop could not be loaded.";
       this.#emitGameState();
     }
   }
@@ -4922,23 +5266,23 @@ export class ShopScene {
     this.#modelPlacementRevision += 1;
     this.#modelPlacement = undefined;
     const record = this.#movableProps.get(placement.id);
-    if (record) this.#removeModelProp(record);
+    if (record) this.#removeSpawnedProp(record);
     else this.#emitGameState();
   }
 
   #cycleModelPlacement(direction: -1 | 1) {
     const placement = this.#modelPlacement;
-    if (!placement || this.#modelAssets.length < 2) return;
+    if (!placement || this.#spawnablePropAssets.length < 2) return;
     const nextIndex =
-      (placement.assetIndex + direction + this.#modelAssets.length) %
-      this.#modelAssets.length;
+      (placement.assetIndex + direction + this.#spawnablePropAssets.length) %
+      this.#spawnablePropAssets.length;
     this.#cancelModelPlacement();
     void this.#startModelPlacement(nextIndex);
   }
 
   #setModelPropScale(record: MovablePropRecord, scale: number) {
     const baseSize = record.modelBaseSize;
-    if (!record.modelAsset || !baseSize) return;
+    if (!baseSize) return;
     const nextScale = MathUtils.clamp(scale, MIN_MODEL_SCALE, MAX_MODEL_SCALE);
     if (nextScale === record.modelScale) return;
     record.modelScale = nextScale;
@@ -4956,8 +5300,34 @@ export class ShopScene {
     this.#emitGameState();
   }
 
-  #removeModelProp(record: MovablePropRecord) {
-    if (!record.modelAsset) return;
+  #modelAnimationLabel(record: MovablePropRecord) {
+    const animations = record.modelAnimations;
+    const index = record.modelAnimationIndex;
+    if (!animations || index === undefined) return;
+    if (index < 0) return "Off";
+    const name = animations[index]?.name.trim();
+    if (!name) return `Clip ${index + 1}`;
+    return name.split("|").at(-1) ?? name;
+  }
+
+  #cycleModelAnimation(record: MovablePropRecord, direction: -1 | 1) {
+    const animations = record.modelAnimations;
+    const mixer = record.modelMixer;
+    if (!animations || animations.length === 0 || !mixer) return;
+    const currentSlot = (record.modelAnimationIndex ?? 0) + 1;
+    const slotCount = animations.length + 1;
+    const nextSlot = (currentSlot + direction + slotCount) % slotCount;
+    const nextIndex = nextSlot - 1;
+    mixer.stopAllAction();
+    const clip = animations[nextIndex];
+    if (clip) mixer.clipAction(clip).reset().play();
+    record.modelAnimationIndex = nextIndex;
+    this.#worldStateDirty = true;
+    this.#emitGameState();
+  }
+
+  #removeSpawnedProp(record: MovablePropRecord) {
+    if (!record.spawned) return;
     if (this.#carriedProp === record) {
       this.#restoreGhostedObject(record.ghostMaterialSwaps);
       this.#carriedProp = undefined;
@@ -4968,6 +5338,12 @@ export class ShopScene {
       const index = this.#movablePropTargetMeshes.indexOf(object);
       if (index >= 0) this.#movablePropTargetMeshes.splice(index, 1);
       delete object.userData.movablePropId;
+      if (object.userData.movablePropTargetProxy !== true) return;
+      object.geometry.dispose();
+      const materials = Array.isArray(object.material)
+        ? object.material
+        : [object.material];
+      for (const material of materials) material.dispose();
     });
     const supportIndex = this.#propPlacementSupports.findIndex(
       (support) => support.owner === record,
@@ -4975,8 +5351,23 @@ export class ShopScene {
     if (supportIndex >= 0) this.#propPlacementSupports.splice(supportIndex, 1);
     record.modelMixer?.stopAllAction();
     if (record.modelMixer) this.#modelMixers.delete(record.modelMixer);
+    for (const [television, televisionProp] of this.#televisionProps) {
+      if (televisionProp !== record) continue;
+      if (this.#targetedTelevision === television)
+        this.#setTelevisionTargeted(false);
+      this.#televisionProps.delete(television);
+      const televisionIndex = this.#televisions.indexOf(television);
+      if (televisionIndex >= 0) this.#televisions.splice(televisionIndex, 1);
+      for (const [saveId, savedTelevision] of this.#televisionsBySaveId) {
+        if (savedTelevision === television)
+          this.#televisionsBySaveId.delete(saveId);
+      }
+      television.dispose();
+      break;
+    }
     this.#physicsWorld.removeProp(record.id);
-    this.#movableProps.delete(record.id);
+    if (this.#movableProps.get(record.id) === record)
+      this.#movableProps.delete(record.id);
     record.object.removeFromParent();
     this.#worldStateDirty = true;
     this.#emitGameState();
@@ -5342,13 +5733,14 @@ export class ShopScene {
       );
       if (this.#disposed) return;
       this.#applyModelCatalog(catalog.models.models);
-      await this.#restoreSavedModelProps(catalog.models.models);
+      await this.#restoreSavedModelProps();
       this.#applyPosterCatalog(catalog.posters.posters);
       if (!this.#posterSaveRestoreCompleted)
         await this.#restoreSavedPosters(catalog.posters.posters);
       this.#applyArtFrameCatalog(catalog.artFrames.channels);
       if (!this.#artFrameSaveRestoreCompleted)
         await this.#restoreSavedDigitalArtFrames(catalog.artFrames.channels);
+      this.#tvChannels = catalog.tv.channels;
       for (const television of this.#televisions)
         television.setChannels(catalog.tv.channels);
       this.#emitGameState();
@@ -6570,7 +6962,7 @@ export class ShopScene {
     }
     if (
       this.#pointerLocked &&
-      this.#carriedProp?.modelAsset &&
+      this.#carriedProp?.modelBaseSize &&
       event.shiftKey &&
       event.deltaY !== 0
     ) {
@@ -6816,7 +7208,7 @@ export class ShopScene {
         !this.#carriedPublicationId &&
         !this.#carriedProp
       )
-        void this.#startModelPlacement(this.#modelAssetIndex);
+        void this.#startModelPlacement(this.#spawnablePropAssetIndex);
       return;
     }
     if (event.code === "KeyV") {
@@ -6930,6 +7322,17 @@ export class ShopScene {
       this.#cyclePoster(event.code === "KeyQ" ? -1 : 1);
       return;
     }
+    if (
+      this.#targetedProp?.modelAnimations?.length &&
+      (event.code === "KeyQ" || event.code === "KeyE")
+    ) {
+      event.preventDefault();
+      this.#cycleModelAnimation(
+        this.#targetedProp,
+        event.code === "KeyQ" ? -1 : 1,
+      );
+      return;
+    }
     if (event.code === "KeyQ" && this.#carriedProp) {
       event.preventDefault();
       this.#propPlacementSnapping = !this.#propPlacementSnapping;
@@ -6937,9 +7340,17 @@ export class ShopScene {
       return;
     }
     if (event.code === "Delete" || event.code === "Backspace") {
-      if (this.#targetedProp?.modelAsset) {
+      const targetedTelevisionProp = this.#targetedTelevision
+        ? this.#televisionProps.get(this.#targetedTelevision)
+        : undefined;
+      if (targetedTelevisionProp?.spawned) {
         event.preventDefault();
-        this.#removeModelProp(this.#targetedProp);
+        this.#removeSpawnedProp(targetedTelevisionProp);
+        return;
+      }
+      if (this.#targetedProp?.spawned) {
+        event.preventDefault();
+        this.#removeSpawnedProp(this.#targetedProp);
         return;
       }
       if (this.#targetedDigitalArtFrameId) {
@@ -6988,12 +7399,10 @@ export class ShopScene {
       }
       if (this.#televisionTargeted) {
         event.preventDefault();
-        if (
-          this.#movableTelevision &&
-          this.#targetedTelevision === this.#movableTelevision &&
-          this.#movableTelevisionProp
-        )
-          this.#pickUpProp(this.#movableTelevisionProp);
+        const televisionProp = this.#targetedTelevision
+          ? this.#televisionProps.get(this.#targetedTelevision)
+          : undefined;
+        if (televisionProp) this.#pickUpProp(televisionProp);
         return;
       }
       if (this.#targetedProp) {
@@ -7339,22 +7748,20 @@ export class ShopScene {
     }
     if (save.trashcan)
       this.#setTrashcanPosition(save.trashcan.x, save.trashcan.z, false);
-    if (
-      save.television &&
-      this.#movableTelevision &&
-      this.#movableTelevisionProp
-    ) {
+    const movableTelevision = this.#televisionsBySaveId.get(
+      MOVABLE_TELEVISION_SAVE_ID,
+    );
+    const movableTelevisionProp = movableTelevision
+      ? this.#televisionProps.get(movableTelevision)
+      : undefined;
+    if (save.television && movableTelevision && movableTelevisionProp) {
       this.#physicsPoseRotation.copy(save.television.quaternion);
       if (save.televisionModelVersion !== 2)
         this.#physicsPoseRotation.multiply(LEGACY_MODEL_TELEVISION_ROTATION);
-      this.#movableTelevision.object.position.copy(save.television.position);
-      this.#movableTelevision.object.quaternion.copy(this.#physicsPoseRotation);
-      this.#movableTelevisionProp.currentPosition.copy(
-        save.television.position,
-      );
-      this.#movableTelevisionProp.currentRotation.copy(
-        this.#physicsPoseRotation,
-      );
+      movableTelevision.object.position.copy(save.television.position);
+      movableTelevision.object.quaternion.copy(this.#physicsPoseRotation);
+      movableTelevisionProp.currentPosition.copy(save.television.position);
+      movableTelevisionProp.currentRotation.copy(this.#physicsPoseRotation);
       this.#physicsWorld.updatePropPose(MODEL_TELEVISION_PHYSICS_ID, {
         position: save.television.position,
         rotation: this.#physicsPoseRotation,
@@ -7385,8 +7792,7 @@ export class ShopScene {
     this.#pendingPosterSaves = save.posters ?? [];
     this.#pendingDigitalArtFrameSaves = save.digitalArtFrames ?? [];
     this.#pendingModelPropSaves = save.modelProps ?? [];
-    if (this.#modelAssets.length > 0)
-      void this.#restoreSavedModelProps(this.#modelAssets);
+    void this.#restoreSavedModelProps();
     const playerWasInLegacyTvCave =
       save.player.position.y > SHOP_UPPER_FLOOR_Y &&
       save.player.position.x >= LEGACY_TV_CAVE_BOUNDS.minX &&
@@ -10510,8 +10916,15 @@ export class ShopScene {
       | undefined;
     for (const candidate of this.#televisions) {
       candidate.object.getWorldPosition(this.#televisionTargetPosition);
+      candidate.object.getWorldScale(this.#televisionTargetScale);
+      const televisionScale = Math.max(
+        this.#televisionTargetScale.x,
+        this.#televisionTargetScale.y,
+        this.#televisionTargetScale.z,
+      );
       const televisionCullDistance =
-        TELEVISION_INTERACTION_DISTANCE + candidate.interactionBoundsRadius;
+        TELEVISION_INTERACTION_DISTANCE +
+        candidate.interactionBoundsRadius * televisionScale;
       if (
         this.#camera.position.distanceToSquared(
           this.#televisionTargetPosition,
@@ -11338,7 +11751,9 @@ export class ShopScene {
         };
       }),
     ];
-    const television = this.#movableTelevision;
+    const television = this.#televisionsBySaveId.get(
+      MOVABLE_TELEVISION_SAVE_ID,
+    );
     television?.object.updateWorldMatrix(true, false);
     const televisionPosition = television?.object.getWorldPosition(
       new Vector3(),
@@ -11382,15 +11797,19 @@ export class ShopScene {
         (savedProp) => !this.#movableProps.has(savedProp.id),
       ),
       ...[...this.#movableProps.values()].flatMap((record) => {
-        const asset = record.modelAsset;
-        const scale = record.modelScale;
-        if (!asset || scale === undefined) return [];
+        const assetId = record.spawnAssetId;
+        if (!record.spawned || !assetId) return [];
+        const animationClip = record.modelAnimations
+          ? (record.modelAnimations[record.modelAnimationIndex ?? 0]?.name ??
+            null)
+          : undefined;
         record.object.updateWorldMatrix(true, false);
         const position = record.object.getWorldPosition(new Vector3());
         const quaternion = record.object.getWorldQuaternion(new Quaternion());
         return [
           {
-            assetId: asset.id,
+            ...(animationClip === undefined ? {} : {animationClip}),
+            assetId,
             id: record.id,
             pose: {
               position: {x: position.x, y: position.y, z: position.z},
@@ -11401,7 +11820,7 @@ export class ShopScene {
                 z: quaternion.z,
               },
             },
-            scale,
+            scale: record.modelScale ?? 1,
           },
         ];
       }),
@@ -11665,8 +12084,8 @@ export class ShopScene {
           ? `Click to place ${asset.label} · Q/E previous/next · Wheel resize${size ? ` (${size.toFixed(2)} m)` : ""} · Shift+wheel rotate (${rotation}°) · Paste image · T exit`
           : `Aim ${asset.label} at a wall or shelf end · Q/E previous/next · Wheel resize · Shift+wheel rotate · Paste image · T exit`;
     } else if (this.#modelPlacement && !this.#carriedProp) {
-      const asset = this.#modelAssets[this.#modelPlacement.assetIndex];
-      prompt = `Loading ${asset?.label ?? "model"}… · Q/E previous/next · T cancel`;
+      const asset = this.#spawnablePropAssets[this.#modelPlacement.assetIndex];
+      prompt = `Loading ${asset?.label ?? "prop"}… · Q/E previous/next · T cancel`;
     } else if (this.#carriedProp) {
       const modelScale = this.#carriedProp.modelScale;
       prompt = `Click/E place ${this.#carriedProp.label} · T cancel · G drop · F throw · Wheel project (${this.#propPlacementDistance.toFixed(1)} m) · Ctrl+wheel rotate${modelScale === undefined ? "" : ` · Shift+wheel scale (${modelScale.toFixed(2)}×)`}${this.#modelPlacement ? " · Q/E previous/next" : ` · Q grid snap ${this.#propPlacementSnapping ? "on" : "off"}`}`;
@@ -11691,13 +12110,20 @@ export class ShopScene {
       prompt = `Q ${this.#shelfPresentation}-out · Aim at a shelf · Hold F charge throw · G drop · R inspect${this.#carriedPublicationIds.length > 1 ? " · Wheel cycle books" : ""}`;
     else if (this.#televisionTargeted) {
       const televisionPrompt = this.#targetedTelevision?.prompt;
+      const televisionProp = this.#targetedTelevision
+        ? this.#televisionProps.get(this.#targetedTelevision)
+        : undefined;
       const pastePrompt = this.#targetedTelevision
         ? "Paste video URL · N new channel"
         : undefined;
-      prompt = [televisionPrompt, pastePrompt].filter(Boolean).join(" · ");
-    } else if (this.#targetedProp)
-      prompt = `T project ${this.#targetedProp.label} for placement${this.#targetedProp.modelAsset ? " · Del remove" : ""}`;
-    else if (this.#targetedSignKey !== undefined)
+      const removePrompt = televisionProp?.spawned ? "Del remove" : undefined;
+      prompt = [televisionPrompt, pastePrompt, removePrompt]
+        .filter(Boolean)
+        .join(" · ");
+    } else if (this.#targetedProp) {
+      const animationLabel = this.#modelAnimationLabel(this.#targetedProp);
+      prompt = `T project ${this.#targetedProp.label} for placement${animationLabel ? ` · Q/E animation (${animationLabel})` : ""}${this.#targetedProp.spawned ? " · Del remove" : ""}`;
+    } else if (this.#targetedSignKey !== undefined)
       prompt = `E customize ${this.#signSlots.get(this.#targetedSignKey)?.label ?? "shop sign"}`;
     else if (this.#targetedDigitalArtFrameId) {
       const frame = this.#digitalArtFrameRecords.get(
@@ -11769,20 +12195,22 @@ export class ShopScene {
       ];
     else if (this.#modelPlacement && !this.#carriedProp) {
       interactionContext =
-        this.#modelAssets[this.#modelPlacement.assetIndex]?.label;
+        this.#spawnablePropAssets[this.#modelPlacement.assetIndex]?.label;
       interactions = [
-        {key: "Q / E", label: "Previous / next model"},
+        {key: "Q / E", label: "Previous / next prop"},
         {key: "T", label: "Cancel placement"},
       ];
     } else if (this.#carriedProp) {
-      interactionContext = this.#carriedProp.modelAsset?.label;
+      interactionContext = this.#carriedProp.spawned
+        ? this.#carriedProp.label
+        : undefined;
       interactions = [
         {key: "Click / E", label: "Place prop"},
         {key: "G", label: "Drop prop"},
         {key: "T", label: "Cancel placement"},
         {key: "F", label: "Throw prop"},
         ...(this.#modelPlacement
-          ? [{key: "Q / E", label: "Previous / next model"}]
+          ? [{key: "Q / E", label: "Previous / next prop"}]
           : [
               {
                 key: "Q",
@@ -11791,8 +12219,8 @@ export class ShopScene {
             ]),
         {key: "Wheel", label: "Adjust distance"},
         {key: "Ctrl + Wheel", label: "Rotate prop"},
-        ...(this.#carriedProp.modelAsset
-          ? [{key: "Shift + Wheel", label: "Scale model"}]
+        ...(this.#carriedProp.modelBaseSize
+          ? [{key: "Shift + Wheel", label: "Scale prop"}]
           : []),
       ];
     } else if (carriedRecord) {
@@ -11812,6 +12240,9 @@ export class ShopScene {
       if (this.#trashTargeted)
         interactions.unshift({key: "E", label: "Discard book"});
     } else if (this.#televisionTargeted) {
+      const televisionProp = this.#targetedTelevision
+        ? this.#televisionProps.get(this.#targetedTelevision)
+        : undefined;
       interactionContext =
         this.#targetedTelevision?.selectedChannelLabel() ??
         this.#targetedTelevision?.selectedChannelId() ??
@@ -11836,15 +12267,25 @@ export class ShopScene {
           key: "Ctrl + Wheel",
           label: `Volume: ${this.#targetedTelevision?.volumePercent() ?? 0}%`,
         },
-      ];
-    } else if (this.#targetedProp)
-      interactions = [
-        {key: "T", label: "Move prop"},
-        ...(this.#targetedProp.modelAsset
-          ? [{key: "Del", label: "Remove model"}]
+        ...(televisionProp?.spawned
+          ? [{key: "Del", label: "Remove prop"}]
           : []),
       ];
-    else if (this.#targetedPosterId)
+    } else if (this.#targetedProp) {
+      const animationLabel = this.#modelAnimationLabel(this.#targetedProp);
+      interactionContext = animationLabel
+        ? `${this.#targetedProp.label} · ${animationLabel}`
+        : this.#targetedProp.label;
+      interactions = [
+        {key: "T", label: "Move prop"},
+        ...(animationLabel
+          ? [{key: "Q / E", label: "Previous / next animation"}]
+          : []),
+        ...(this.#targetedProp.spawned
+          ? [{key: "Del", label: "Remove prop"}]
+          : []),
+      ];
+    } else if (this.#targetedPosterId)
       interactions = [
         {key: "T", label: "Move poster"},
         {key: "Del", label: "Remove poster"},
@@ -11883,7 +12324,7 @@ export class ShopScene {
       !this.#shelveAnimation
     )
       interactions = [
-        {key: "M", label: "Models"},
+        {key: "M", label: "Movable props"},
         {key: "P", label: "Posters"},
         {key: "V", label: "Digital art frames"},
         {key: "Space", label: "Jump"},
@@ -11932,7 +12373,7 @@ export class ShopScene {
         : {}),
       inspectionMode: this.#inspectionMode,
       looseCount,
-      modelCount: this.#modelAssets.length,
+      modelCount: this.#spawnablePropAssets.length,
       ...(this.#modelImportError
         ? {modelImportError: this.#modelImportError}
         : {}),
@@ -11999,7 +12440,7 @@ export class ShopScene {
       record.object.quaternion.copy(this.#physicsTransform.rotation);
       record.currentPosition.copy(this.#physicsTransform.position);
       record.currentRotation.copy(this.#physicsTransform.rotation);
-      if (record === this.#trashcanProp)
+      if (record.id === TRASH_CAN_PROP_ID)
         this.#trashcanPosition.copy(record.currentPosition);
       if (positionChanged || rotationChanged) this.#worldStateDirty = true;
     }

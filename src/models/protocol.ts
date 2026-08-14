@@ -1,4 +1,5 @@
 export const MODEL_MEDIA_ENDPOINT_PREFIX = "/models/media/";
+const MODEL_MEDIA_COMPATIBILITY_VERSION = 1;
 
 export type ModelAsset = {
   id: string;
@@ -41,7 +42,7 @@ const encodeModelId = (id: string) =>
   ).join("");
 
 export const modelMediaUrl = (id: string) =>
-  `${MODEL_MEDIA_ENDPOINT_PREFIX}${encodeModelId(id)}.glb`;
+  `${MODEL_MEDIA_ENDPOINT_PREFIX}${encodeModelId(id)}.glb?compat=${MODEL_MEDIA_COMPATIBILITY_VERSION}`;
 
 export const parseModelMediaRequest = (
   requestUrl: string,

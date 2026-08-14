@@ -100,6 +100,7 @@ import {createArtFrameImageDerivative} from "./src/artFrames/image";
 import {parseWorldSave, type WorldSaveV1} from "./src/game/worldSave";
 import {SHOP_MEDIA_CATALOG_ENDPOINT} from "./src/game/shopMediaCatalogHttp";
 import {discoverModels, resolveModelPath} from "./src/models/catalog";
+import {prepareModelForThree} from "./src/models/compatibility";
 import {modelMediaUrl, parseModelMediaRequest} from "./src/models/protocol";
 import {
   MAX_WORLD_SAVE_BODY_BYTES,
@@ -176,6 +177,10 @@ const artFramesDirectories = async () =>
     ...(await readAfterleafLibraryConfig(import.meta.dirname)).artFramePaths,
   ]);
 const modelsDirectory = path.resolve(import.meta.dirname, "content/models");
+const modelCompatibilityCacheDirectory = path.resolve(
+  modelsDirectory,
+  ".afterleaf-cache",
+);
 const worldSavePath = path.resolve(
   import.meta.dirname,
   "content/world-save.json",
@@ -2311,13 +2316,21 @@ const serveModelContent = async (
     return response.end();
   }
   try {
-    const file = statSync(modelPath);
+    const preparedModel = await prepareModelForThree(
+      modelPath,
+      modelCompatibilityCacheDirectory,
+    );
+    response.setHeader("Cache-Control", "private, no-cache");
+    response.setHeader("ETag", preparedModel.etag);
+    if (request.headers["if-none-match"] === preparedModel.etag) {
+      response.statusCode = 304;
+      return response.end();
+    }
     response.statusCode = 200;
-    response.setHeader("Cache-Control", "private, max-age=3600");
-    response.setHeader("Content-Length", file.size);
+    response.setHeader("Content-Length", preparedModel.byteLength);
     response.setHeader("Content-Type", "model/gltf-binary");
     if (request.method === "HEAD") return response.end();
-    const stream = createReadStream(modelPath);
+    const stream = createReadStream(preparedModel.filePath);
     stream.on("error", (error) => response.destroy(error));
     return stream.pipe(response);
   } catch (error) {
