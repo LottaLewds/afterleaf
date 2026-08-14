@@ -97,7 +97,7 @@ import {
   parseArtFrameMediaRequest,
 } from "./src/artFrames/protocol";
 import {createArtFrameImageDerivative} from "./src/artFrames/image";
-import {parseWorldSave} from "./src/game/worldSave";
+import {parseWorldSave, type WorldSaveV1} from "./src/game/worldSave";
 import {
   MAX_WORLD_SAVE_BODY_BYTES,
   WORLD_SAVE_ENDPOINT,
@@ -230,6 +230,36 @@ let cachedLibraryLocation:
   | {assetDirectory: string; catalogDirectory: string}
   | undefined;
 let cachedSnapshotId: string | undefined;
+let activeLibraryFailureKey: string | undefined;
+let loggedActiveSnapshotId: string | undefined;
+
+const reportActiveLibraryFailure = (
+  key: string,
+  message: string,
+  error?: unknown,
+) => {
+  if (activeLibraryFailureKey === key) return;
+  activeLibraryFailureKey = key;
+  if (error === undefined) console.warn(`[afterleaf] ${message}`);
+  else console.warn(`[afterleaf] ${message}`, error);
+};
+
+const reportActiveLibraryAvailable = (
+  snapshotId: string,
+  catalogPath: string,
+  publicationCount: number,
+) => {
+  if (activeLibraryFailureKey !== undefined)
+    console.info(
+      `[afterleaf] Active library recovered with snapshot ${snapshotId}`,
+    );
+  activeLibraryFailureKey = undefined;
+  if (loggedActiveSnapshotId === snapshotId) return;
+  loggedActiveSnapshotId = snapshotId;
+  console.info(
+    `[afterleaf] Active library snapshot ${snapshotId}: ${publicationCount} catalogued books (${catalogPath})`,
+  );
+};
 
 const activeLibraryLocation = () => {
   const indexPath = path.resolve(libraryDirectory, "index.json");
@@ -242,22 +272,45 @@ const activeLibraryLocation = () => {
     if (!location) {
       cachedLibraryLocation = undefined;
       cachedSnapshotId = undefined;
+      reportActiveLibraryFailure(
+        "invalid-index",
+        `Library index does not identify a valid active snapshot (${indexPath})`,
+      );
       return undefined;
     }
-    cachedLibraryLocation = existsSync(
-      path.resolve(location.catalogDirectory, "catalog.json"),
-    )
-      ? {
-          assetDirectory: location.assetDirectory,
-          catalogDirectory: location.catalogDirectory,
-        }
-      : undefined;
-    cachedSnapshotId = cachedLibraryLocation ? location.revisionId : undefined;
+    const catalogPath = path.resolve(location.catalogDirectory, "catalog.json");
+    const catalog = JSON.parse(readFileSync(catalogPath, "utf8")) as {
+      publications?: unknown;
+    };
+    if (!Array.isArray(catalog.publications)) {
+      cachedLibraryLocation = undefined;
+      cachedSnapshotId = undefined;
+      reportActiveLibraryFailure(
+        `invalid-catalog:${location.revisionId}`,
+        `Active library catalog does not contain a publications array (${catalogPath})`,
+      );
+      return undefined;
+    }
+    cachedLibraryLocation = {
+      assetDirectory: location.assetDirectory,
+      catalogDirectory: location.catalogDirectory,
+    };
+    cachedSnapshotId = location.revisionId;
+    reportActiveLibraryAvailable(
+      location.revisionId,
+      catalogPath,
+      catalog.publications.length,
+    );
     return cachedLibraryLocation;
-  } catch {
+  } catch (error) {
     cachedIndexModifiedAt = -1;
     cachedLibraryLocation = undefined;
     cachedSnapshotId = undefined;
+    reportActiveLibraryFailure(
+      "library-read-failed",
+      `Could not read the active library index or catalog (${indexPath})`,
+      error,
+    );
     return undefined;
   }
 };
@@ -363,6 +416,27 @@ const hasSameOrigin = (request: IncomingMessage) => {
   return origin !== false && isLoopbackHostname(origin.hostname);
 };
 
+const worldSaveCatalogLabel = (save: WorldSaveV1) => {
+  const catalog = save.catalog;
+  if (!catalog) return "catalog unknown";
+  return `${catalog.packId}@${catalog.snapshotId ?? catalog.catalogContentHash}`;
+};
+
+const worldSaveBookDropWarning = (
+  previousSave: WorldSaveV1 | undefined,
+  nextSave: WorldSaveV1,
+) => {
+  if (!previousSave || nextSave.books.length >= previousSave.books.length)
+    return;
+  const removedCount = previousSave.books.length - nextSave.books.length;
+  const droppedToEmpty = nextSave.books.length === 0;
+  const largeDrop =
+    removedCount >= 10 &&
+    nextSave.books.length <= Math.floor(previousSave.books.length * 0.75);
+  if (!droppedToEmpty && !largeDrop) return;
+  return `[afterleaf] Suspicious world-save book drop: ${previousSave.books.length} -> ${nextSave.books.length} (${removedCount} removed); ${worldSaveCatalogLabel(previousSave)} -> ${worldSaveCatalogLabel(nextSave)}; savedAt ${previousSave.savedAt} -> ${nextSave.savedAt}`;
+};
+
 const serveWorldSave = (() => {
   let writeQueue = Promise.resolve();
 
@@ -404,21 +478,35 @@ const serveWorldSave = (() => {
       response.setHeader("Allow", "GET, PUT");
       return response.end();
     }
+    let save: WorldSaveV1;
     try {
-      const save = parseWorldSave(await readBoundedWorldSaveBody(request));
-      const pendingWrite = writeQueue.then(() =>
-        saveWorldSaveFile(worldSavePath, save),
-      );
+      save = parseWorldSave(await readBoundedWorldSaveBody(request));
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "World save upload failed";
+      console.warn(`[afterleaf] Rejected a world-save upload: ${message}`);
+      response.statusCode = message.includes("too large") ? 413 : 422;
+      response.setHeader("Content-Type", "text/plain; charset=utf-8");
+      return response.end(message);
+    }
+    try {
+      const pendingWrite = writeQueue.then(async () => {
+        const previousSave = await loadWorldSaveFile(worldSavePath);
+        const dropWarning = worldSaveBookDropWarning(previousSave, save);
+        await saveWorldSaveFile(worldSavePath, save);
+        if (dropWarning) console.warn(dropWarning);
+      });
       writeQueue = pendingWrite.catch(() => {});
       await pendingWrite;
       response.statusCode = 204;
       return response.end();
     } catch (error) {
       const message =
-        error instanceof Error ? error.message : "World save upload failed";
-      response.statusCode = message.includes("too large") ? 413 : 422;
+        error instanceof Error ? error.message : "World save write failed";
+      console.error(`[afterleaf] Could not persist the world save: ${message}`);
+      response.statusCode = 500;
       response.setHeader("Content-Type", "text/plain; charset=utf-8");
-      return response.end(message);
+      return response.end("The shared world save could not be written");
     }
   };
 })();
@@ -2086,7 +2174,12 @@ const serveActiveLibraryAsset = (
       response.setHeader("Cache-Control", "no-store");
       return response.end();
     }
-  } catch {
+  } catch (error) {
+    if (pathname === "/catalog.json")
+      console.warn(
+        `[afterleaf] Active library catalog disappeared before it could be served (${assetPath})`,
+        error,
+      );
     response.statusCode = 404;
     response.setHeader("Cache-Control", "no-store");
     return response.end();
@@ -2108,7 +2201,20 @@ const serveActiveLibraryAsset = (
   )
     response.setHeader("X-Afterleaf-Snapshot-Id", cachedSnapshotId);
   if (request.method === "HEAD") return response.end();
-  createReadStream(assetPath).pipe(response);
+  const stream = createReadStream(assetPath);
+  stream.on("error", (error) => {
+    console.error(
+      `[afterleaf] Failed to stream active library asset ${pathname} (${assetPath})`,
+      error,
+    );
+    if (response.headersSent) response.destroy(error);
+    else {
+      response.statusCode = 500;
+      response.setHeader("Cache-Control", "no-store");
+      response.end();
+    }
+  });
+  stream.pipe(response);
 };
 
 const activeLibraryPlugin = (): Plugin => ({

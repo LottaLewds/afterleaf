@@ -56,6 +56,7 @@ export type ShopViewportControls = {
 
 export type ShopViewportProps = {
   catalogAtlases: Accessor<CatalogAtlases>;
+  catalogAvailable: Accessor<boolean>;
   catalogIdentity: Accessor<CatalogIdentity>;
   mouseSensitivity?: Accessor<number>;
   newPublicationIds?: Accessor<readonly string[]>;
@@ -221,6 +222,7 @@ export const ShopViewport = (props: ShopViewportProps) => {
         shopScene = new ShopScene({
           canvas: sceneCanvas,
           catalogAtlases: props.catalogAtlases,
+          catalogAvailable: props.catalogAvailable,
           catalogIdentity: props.catalogIdentity,
           catalogItems: props.publications,
           initialWorldSave,
