@@ -78,6 +78,11 @@ the same server origin restores the shared copy, including browsers on another
 machine. Concurrent sessions are not live-synchronized; the most recently
 received save becomes the state restored by later connections.
 
+While the world is changing, the server also preserves the previous state every
+15 minutes under the gitignored `content/world-state-backups` directory. The
+newest 96 `world-state.<UTC date>.json` snapshots are retained, and a suspicious
+large book-count drop forces a backup before the replacement is written.
+
 ## Paste anything into the shop
 
 Afterleaf turns clipboard pastes into content imports:

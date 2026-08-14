@@ -103,7 +103,12 @@ import {
   WORLD_SAVE_ENDPOINT,
   WORLD_SAVE_SERVER_INSTANCE_HEADER,
 } from "./src/game/worldSaveHttp";
-import {loadWorldSaveFile, saveWorldSaveFile} from "./src/game/worldSaveServer";
+import {
+  loadWorldSaveFile,
+  pruneWorldStateBackups,
+  saveWorldSaveFile,
+  saveWorldStateBackup,
+} from "./src/game/worldSaveServer";
 
 const MAX_TV_MEDIA_RANGE_BYTES = 8 * 1024 * 1024;
 const libraryDirectory = path.resolve(
@@ -169,6 +174,12 @@ const worldSavePath = path.resolve(
   import.meta.dirname,
   "content/world-save.json",
 );
+const worldStateBackupDirectory = path.resolve(
+  import.meta.dirname,
+  "content/world-state-backups",
+);
+const WORLD_STATE_BACKUP_INTERVAL_MS = 15 * 60 * 1_000;
+const WORLD_STATE_BACKUP_RETENTION_COUNT = 96;
 const worldSaveServerInstanceId = randomUUID();
 
 const readBoundedWorldSaveBody = (request: IncomingMessage) =>
@@ -441,6 +452,7 @@ const worldSaveBookDropWarning = (
 
 const serveWorldSave = (() => {
   let writeQueue = Promise.resolve();
+  let lastBackupAt = 0;
 
   return async (
     request: IncomingMessage,
@@ -511,6 +523,35 @@ const serveWorldSave = (() => {
       const pendingWrite = writeQueue.then(async () => {
         const previousSave = await loadWorldSaveFile(worldSavePath);
         const dropWarning = worldSaveBookDropWarning(previousSave, save);
+        const now = Date.now();
+        if (
+          previousSave &&
+          (dropWarning || now - lastBackupAt >= WORLD_STATE_BACKUP_INTERVAL_MS)
+        ) {
+          const backupCreatedAt = new Date(Math.max(now, lastBackupAt + 1));
+          const backupPath = await saveWorldStateBackup(
+            worldStateBackupDirectory,
+            previousSave,
+            backupCreatedAt,
+          );
+          lastBackupAt = backupCreatedAt.valueOf();
+          console.info(`[afterleaf] Backed up world state to ${backupPath}`);
+          try {
+            const prunedCount = await pruneWorldStateBackups(
+              worldStateBackupDirectory,
+              WORLD_STATE_BACKUP_RETENTION_COUNT,
+            );
+            if (prunedCount > 0)
+              console.info(
+                `[afterleaf] Pruned ${prunedCount} old world-state ${prunedCount === 1 ? "backup" : "backups"}`,
+              );
+          } catch (error) {
+            console.warn(
+              "[afterleaf] Could not prune old world-state backups",
+              error,
+            );
+          }
+        }
         await saveWorldSaveFile(worldSavePath, save);
         if (dropWarning) console.warn(dropWarning);
       });
