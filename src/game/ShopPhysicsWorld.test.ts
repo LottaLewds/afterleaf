@@ -535,6 +535,43 @@ describe("ShopPhysicsWorld", () => {
     }
   }, 10_000);
 
+  test("resizes and removes simple model-style prop colliders", async () => {
+    const physics = new ShopPhysicsWorld();
+    try {
+      expect(
+        physics.addProp({
+          depth: 0.25,
+          height: 0.25,
+          id: "scaled-model",
+          pose: identityPose(0, 2, 0),
+          width: 0.25,
+        }),
+      ).toBe(true);
+      expect(await physics.initialize()).toBe(true);
+      expect(
+        physics.updatePropSize("scaled-model", {
+          depth: 0.5,
+          height: 1,
+          width: 0.75,
+        }),
+      ).toBe(true);
+      for (let frame = 0; frame < 180; frame += 1) physics.step(1 / 60);
+
+      const sample = createSample();
+      expect(
+        physics.sampleInterpolatedPropTransform("scaled-model", sample),
+      ).toBe(true);
+      expect(sample.position.y).toBeGreaterThan(0.49);
+      expect(sample.position.y).toBeLessThan(0.52);
+      expect(physics.removeProp("scaled-model")).toBe(true);
+      expect(
+        physics.sampleInterpolatedPropTransform("scaled-model", sample),
+      ).toBe(false);
+    } finally {
+      physics.dispose();
+    }
+  }, 10_000);
+
   test("keeps released static props fixed until they are picked up again", async () => {
     const physics = new ShopPhysicsWorld();
     try {
@@ -569,6 +606,54 @@ describe("ShopPhysicsWorld", () => {
       expect(sample.position.x).toBeCloseTo(placedPose.position.x);
       expect(sample.position.y).toBeCloseTo(placedPose.position.y);
       expect(sample.position.z).toBeCloseTo(placedPose.position.z);
+    } finally {
+      physics.dispose();
+    }
+  }, 10_000);
+
+  test("keeps a static prop collider in place during ghost placement", async () => {
+    const physics = new ShopPhysicsWorld();
+    try {
+      expect(
+        physics.addProp({
+          depth: 1.25,
+          staticWhenPlaced: true,
+          height: 1,
+          id: "ghosted-table",
+          pose: identityPose(0, 0.5, 0),
+          width: 2.4,
+        }),
+      ).toBe(true);
+      expect(
+        physics.addBook({
+          pose: identityPose(0, 2, 0),
+          publicationId: "supported-book",
+          thickness: 0.08,
+        }),
+      ).toBe(true);
+      expect(await physics.initialize()).toBe(true);
+      for (let frame = 0; frame < 180; frame += 1) physics.step(1 / 60);
+
+      const bookSample = createSample();
+      expect(physics.sampleBookTransform("supported-book", bookSample)).toBe(
+        true,
+      );
+      expect(bookSample.position.y).toBeGreaterThan(0.9);
+
+      expect(physics.holdProp("ghosted-table")).toBe(true);
+      const ghostPose = identityPose(4, 0.5, 0);
+      expect(physics.snapHeldProp("ghosted-table", ghostPose)).toBe(true);
+      for (let frame = 0; frame < 120; frame += 1) physics.step(1 / 60);
+
+      const propSample = createSample();
+      expect(
+        physics.sampleInterpolatedPropTransform("ghosted-table", propSample),
+      ).toBe(true);
+      expect(propSample.position.x).toBeCloseTo(ghostPose.position.x);
+      expect(physics.sampleBookTransform("supported-book", bookSample)).toBe(
+        true,
+      );
+      expect(bookSample.position.y).toBeGreaterThan(0.9);
     } finally {
       physics.dispose();
     }

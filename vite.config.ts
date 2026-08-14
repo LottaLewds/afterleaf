@@ -98,6 +98,10 @@ import {
 } from "./src/artFrames/protocol";
 import {createArtFrameImageDerivative} from "./src/artFrames/image";
 import {parseWorldSave, type WorldSaveV1} from "./src/game/worldSave";
+import {SHOP_MEDIA_CATALOG_ENDPOINT} from "./src/game/shopMediaCatalogHttp";
+import {discoverModels, resolveModelPath} from "./src/models/catalog";
+import {prepareModelForThree} from "./src/models/compatibility";
+import {modelMediaUrl, parseModelMediaRequest} from "./src/models/protocol";
 import {
   MAX_WORLD_SAVE_BODY_BYTES,
   WORLD_SAVE_ENDPOINT,
@@ -172,6 +176,11 @@ const artFramesDirectories = async () =>
     artFramesDirectory,
     ...(await readAfterleafLibraryConfig(import.meta.dirname)).artFramePaths,
   ]);
+const modelsDirectory = path.resolve(import.meta.dirname, "content/models");
+const modelCompatibilityCacheDirectory = path.resolve(
+  modelsDirectory,
+  ".afterleaf-cache",
+);
 const worldSavePath = path.resolve(
   import.meta.dirname,
   "content/world-save.json",
@@ -1679,6 +1688,13 @@ const sparseLibraryPagesPlugin = (): Plugin => ({
   },
 });
 
+const tvChannelCatalogDocument = async () =>
+  discoverTvChannels(
+    await tvChannelsDirectories(),
+    tvMediaUrl,
+    tvVideoAnalyzer,
+  );
+
 const serveTvContent = async (
   request: IncomingMessage,
   response: ServerResponse,
@@ -1750,11 +1766,7 @@ const serveTvContent = async (
       return response.end();
     }
     try {
-      const manifest = await discoverTvChannels(
-        await tvChannelsDirectories(),
-        tvMediaUrl,
-        tvVideoAnalyzer,
-      );
+      const manifest = await tvChannelCatalogDocument();
       response.statusCode = 200;
       response.setHeader("Cache-Control", "no-store");
       response.setHeader("Content-Type", "application/json; charset=utf-8");
@@ -2229,6 +2241,120 @@ const artFrameContentPlugin = (): Plugin => ({
   },
 });
 
+const serveShopMediaCatalog = async (
+  request: IncomingMessage,
+  response: ServerResponse,
+  next: () => void,
+) => {
+  let pathname: string;
+  try {
+    pathname = new URL(request.url ?? "/", "http://afterleaf.local").pathname;
+  } catch {
+    return next();
+  }
+  if (pathname !== SHOP_MEDIA_CATALOG_ENDPOINT) return next();
+  if (request.method !== "GET") {
+    response.statusCode = 405;
+    response.setHeader("Allow", "GET");
+    response.setHeader("Cache-Control", "no-store");
+    return response.end();
+  }
+  if (!hasSameOrigin(request)) {
+    response.statusCode = 403;
+    response.setHeader("Cache-Control", "no-store");
+    return response.end();
+  }
+  try {
+    const [artFrames, models, posters, tv] = await Promise.all([
+      artFrameCatalogDocument(),
+      discoverModels([modelsDirectory], modelMediaUrl).then((models) => ({
+        models: models.map(({id, label, url}) => ({id, label, url})),
+      })),
+      posterCatalogDocument(),
+      tvChannelCatalogDocument(),
+    ]);
+    response.statusCode = 200;
+    response.setHeader("Cache-Control", "no-store");
+    response.setHeader("Content-Type", "application/json; charset=utf-8");
+    return response.end(JSON.stringify({artFrames, models, posters, tv}));
+  } catch (error) {
+    console.error("[afterleaf] Failed to discover shop media catalogs", error);
+    response.statusCode = 500;
+    response.setHeader("Cache-Control", "no-store");
+    return response.end();
+  }
+};
+
+const shopMediaCatalogPlugin = (): Plugin => ({
+  name: "afterleaf-shop-media-catalog",
+  enforce: "pre",
+  configureServer(server) {
+    server.middlewares.use(serveShopMediaCatalog);
+  },
+  configurePreviewServer(server) {
+    server.middlewares.use(serveShopMediaCatalog);
+  },
+});
+
+const serveModelContent = async (
+  request: IncomingMessage,
+  response: ServerResponse,
+  next: () => void,
+) => {
+  if (request.method !== "GET" && request.method !== "HEAD") return next();
+  const modelRequest = parseModelMediaRequest(request.url ?? "/");
+  if (modelRequest.kind === "unscoped") return next();
+  if (modelRequest.kind === "invalid" || !hasSameOrigin(request)) {
+    response.statusCode = modelRequest.kind === "invalid" ? 404 : 403;
+    response.setHeader("Cache-Control", "no-store");
+    return response.end();
+  }
+  const modelPath = await resolveModelPath([modelsDirectory], modelRequest.id);
+  if (!modelPath) {
+    response.statusCode = 404;
+    response.setHeader("Cache-Control", "no-store");
+    return response.end();
+  }
+  try {
+    const preparedModel = await prepareModelForThree(
+      modelPath,
+      modelCompatibilityCacheDirectory,
+    );
+    response.setHeader("Cache-Control", "private, no-cache");
+    response.setHeader("ETag", preparedModel.etag);
+    if (request.headers["if-none-match"] === preparedModel.etag) {
+      response.statusCode = 304;
+      return response.end();
+    }
+    response.statusCode = 200;
+    response.setHeader("Content-Length", preparedModel.byteLength);
+    response.setHeader("Content-Type", "model/gltf-binary");
+    if (request.method === "HEAD") return response.end();
+    const stream = createReadStream(preparedModel.filePath);
+    stream.on("error", (error) => response.destroy(error));
+    return stream.pipe(response);
+  } catch (error) {
+    console.error(
+      `[afterleaf] Failed to serve model ${modelRequest.id}`,
+      error,
+    );
+    response.statusCode = 500;
+    response.setHeader("Cache-Control", "no-store");
+    return response.end();
+  }
+};
+
+const modelContentPlugin = (): Plugin => ({
+  name: "afterleaf-model-content",
+  enforce: "pre",
+  configureServer(server) {
+    server.middlewares.use(serveModelContent);
+  },
+  configurePreviewServer(server) {
+    server.middlewares.use(serveModelContent);
+  },
+});
+
 const serveActiveLibraryAsset = (
   request: IncomingMessage,
   response: ServerResponse,
@@ -2323,6 +2449,8 @@ export default defineConfig(({command}) => ({
     worldSavePlugin(),
     localLibraryOperationsPlugin(),
     sparseLibraryPagesPlugin(),
+    shopMediaCatalogPlugin(),
+    modelContentPlugin(),
     tvContentPlugin(),
     posterContentPlugin(),
     artFrameContentPlugin(),

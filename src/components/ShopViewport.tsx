@@ -21,10 +21,7 @@ import {
 } from "solid-js";
 
 import type {CatalogAtlases, CatalogIdentity, CatalogItem} from "~/catalog";
-import {
-  importArtFrameImage,
-  loadArtFrameChannels,
-} from "~/artFrames/browserClient";
+import {importArtFrameImage} from "~/artFrames/browserClient";
 import {artFrameChannelId} from "~/artFrames/protocol";
 import {
   ShopScene,
@@ -39,8 +36,9 @@ import {
   WorldSaveServerChangedError,
 } from "~/game/worldSaveBrowserClient";
 import type {WorldSaveV1} from "~/game/worldSave";
-import {importPoster, loadPosters} from "~/posters/browserClient";
-import {importTvVideo, loadTvChannels} from "~/tv/browserClient";
+import {loadShopMediaCatalog} from "~/game/shopMediaCatalogBrowserClient";
+import {importPoster} from "~/posters/browserClient";
+import {importTvVideo} from "~/tv/browserClient";
 import {tvChannelId, tvVideoImportUrl} from "~/tv/protocol";
 
 type MediaChannelKind = "art-frame" | "tv";
@@ -282,10 +280,8 @@ export const ShopViewport = (props: ShopViewportProps) => {
               throw cause;
             }
           },
-          loadTvChannels,
+          loadMediaCatalog: loadShopMediaCatalog,
           importTvVideo,
-          loadArtFrameChannels,
-          loadPosters,
           importArtFrameImage,
           importPoster,
           paused: () =>
@@ -386,6 +382,7 @@ export const ShopViewport = (props: ShopViewportProps) => {
           when={
             gameState().posterImporting ||
             gameState().posterImportError ||
+            gameState().modelImportError ||
             gameState().digitalArtFrameImporting ||
             gameState().digitalArtFrameImportError ||
             gameState().tvVideoImporting ||
@@ -399,6 +396,11 @@ export const ShopViewport = (props: ShopViewportProps) => {
                 <FiLoader class="size-3 animate-spin text-[#d94c3f]" />
                 Optimizing pasted poster…
               </span>
+            </Show>
+            <Show when={gameState().modelImportError}>
+              {(message) => (
+                <span class="block max-w-80 text-[#dc7167]">{message()}</span>
+              )}
             </Show>
             <Show when={gameState().posterImportError}>
               {(message) => (
