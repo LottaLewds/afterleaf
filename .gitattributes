@@ -1,0 +1,8 @@
+# Normalize text files to LF in the repository and on checkout, so
+# oxfmt (endOfLine: "lf") and git agree regardless of core.autocrlf.
+* text=auto eol=lf
+
+# Binary assets
+*.glb binary
+*.mp3 binary
+*.webp binary
