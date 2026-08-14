@@ -11,6 +11,7 @@ const MAX_AISLE_SIGN_COUNT = 32;
 const MAX_POSTER_COUNT = 512;
 const MAX_DIGITAL_ART_FRAME_COUNT = 128;
 const MAX_PROP_COUNT = 64;
+const MAX_MODEL_PROP_COUNT = 256;
 const MAX_TELEVISION_COUNT = 128;
 const MAX_WORLD_COORDINATE = 100_000;
 const MIN_QUATERNION_LENGTH_SQUARED = 1e-12;
@@ -87,6 +88,11 @@ export type WorldPropSave = {
   pose: WorldPose;
 };
 
+export type WorldModelPropSave = WorldPropSave & {
+  assetId: string;
+  scale: number;
+};
+
 export type WorldTelevisionChannels = Readonly<Record<string, string>>;
 export type WorldTelevisionVolumes = Readonly<Record<string, number>>;
 
@@ -108,6 +114,7 @@ export type WorldSaveV1 = {
   books: readonly WorldBookSave[];
   catalog?: WorldCatalogIdentity;
   digitalArtFrames?: readonly WorldDigitalArtFrameSave[];
+  modelProps?: readonly WorldModelPropSave[];
   pendingArrivalIds?: readonly string[];
   player: WorldPose;
   posters?: readonly WorldPosterSave[];
@@ -414,6 +421,31 @@ const parseProps = (value: unknown): readonly WorldPropSave[] => {
   });
 };
 
+const parseModelProps = (value: unknown): readonly WorldModelPropSave[] => {
+  if (!Array.isArray(value) || value.length > MAX_MODEL_PROP_COUNT)
+    throw new Error("modelProps must be a bounded array");
+  const ids = new Set<string>();
+  return value.map((prop, index) => {
+    if (!isRecord(prop))
+      throw new Error(`modelProps[${index}] must be an object`);
+    const id = requiredString(prop.id, `modelProps[${index}].id`);
+    if (ids.has(id))
+      throw new Error("World save contains duplicate model prop IDs");
+    ids.add(id);
+    const scale = finiteCoordinate(prop.scale, `modelProps[${index}].scale`);
+    if (scale < 0.01 || scale > 100)
+      throw new Error(
+        `modelProps[${index}].scale must be between 0.01 and 100`,
+      );
+    return {
+      assetId: requiredString(prop.assetId, `modelProps[${index}].assetId`),
+      id,
+      pose: parsePose(prop.pose, `modelProps[${index}].pose`),
+      scale,
+    };
+  });
+};
+
 const parseShelfSigns = (value: unknown): readonly WorldShelfSign[] => {
   if (!Array.isArray(value) || value.length > MAX_SHELF_SIGN_COUNT)
     throw new Error("shelfSigns must be a bounded array");
@@ -509,6 +541,10 @@ export const parseWorldSave = (value: unknown): WorldSaveV1 => {
       ? undefined
       : parseDigitalArtFrames(value.digitalArtFrames);
   const props = value.props === undefined ? undefined : parseProps(value.props);
+  const modelProps =
+    value.modelProps === undefined
+      ? undefined
+      : parseModelProps(value.modelProps);
   const television =
     value.television === undefined
       ? undefined
@@ -559,6 +595,7 @@ export const parseWorldSave = (value: unknown): WorldSaveV1 => {
     books,
     ...(catalog === undefined ? {} : {catalog}),
     ...(digitalArtFrames === undefined ? {} : {digitalArtFrames}),
+    ...(modelProps === undefined ? {} : {modelProps}),
     ...(pendingArrivalIds.length === 0 ? {} : {pendingArrivalIds}),
     player: parsePose(value.player, "player"),
     ...(posters === undefined ? {} : {posters}),

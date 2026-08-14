@@ -382,6 +382,7 @@ export const ShopViewport = (props: ShopViewportProps) => {
           when={
             gameState().posterImporting ||
             gameState().posterImportError ||
+            gameState().modelImportError ||
             gameState().digitalArtFrameImporting ||
             gameState().digitalArtFrameImportError ||
             gameState().tvVideoImporting ||
@@ -395,6 +396,11 @@ export const ShopViewport = (props: ShopViewportProps) => {
                 <FiLoader class="size-3 animate-spin text-[#d94c3f]" />
                 Optimizing pasted poster…
               </span>
+            </Show>
+            <Show when={gameState().modelImportError}>
+              {(message) => (
+                <span class="block max-w-80 text-[#dc7167]">{message()}</span>
+              )}
             </Show>
             <Show when={gameState().posterImportError}>
               {(message) => (

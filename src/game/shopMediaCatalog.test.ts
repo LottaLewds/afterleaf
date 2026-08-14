@@ -6,16 +6,18 @@ import {
 } from "~/game/shopMediaCatalog";
 
 describe("shop media catalog protocol", () => {
-  test("parses the three catalogs from one response", () => {
+  test("parses the catalogs from one response", () => {
     expect(SHOP_MEDIA_CATALOG_ENDPOINT).toBe("/api/shop/media-catalog");
     expect(
       parseShopMediaCatalog({
         artFrames: {channels: []},
+        models: {models: []},
         posters: {posters: []},
         tv: {channels: []},
       }),
     ).toEqual({
       artFrames: {channels: []},
+      models: {models: []},
       posters: {posters: []},
       tv: {channels: []},
     });
@@ -25,6 +27,7 @@ describe("shop media catalog protocol", () => {
     expect(() =>
       parseShopMediaCatalog({
         artFrames: {channels: []},
+        models: {models: []},
         posters: {posters: []},
       }),
     ).toThrow("TV channel manifest");

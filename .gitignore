@@ -20,6 +20,8 @@ content/art-frames/*
 !content/art-frames/.gitkeep
 content/posters/*
 !content/posters/.gitkeep
+content/models/*
+!content/models/.gitkeep
 content/world-save.json
 content/world-state-backups/
 *:Zone.Identifier

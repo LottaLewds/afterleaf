@@ -163,6 +163,7 @@ export type PhysicsPropColliderDefinition = {
 };
 
 export type BookPhysicsUpdate = {
+  height?: number;
   pose?: BookPhysicsPose;
   thickness?: number;
   width?: number;
@@ -535,7 +536,8 @@ export class ShopPhysicsWorld {
   ) {
     const held = record.mode === "held";
     const shelved = record.mode === "shelved";
-    const fixed = record.staticWhenPlaced && !held;
+    const preservePlacedCollider = record.staticWhenPlaced && held;
+    const fixed = record.staticWhenPlaced;
     const descriptor: RigidBodyDesc = fixed
       ? rapier.RigidBodyDesc.fixed()
       : rapier.RigidBodyDesc.dynamic()
@@ -566,7 +568,7 @@ export class ShopPhysicsWorld {
           part.halfExtents.x * 2,
           part.halfExtents.y * 2,
           record.density,
-          held,
+          held && !preservePlacedCollider,
           record.collisionlessWhileHeld,
           record.releasedCollisionless,
         ).setTranslation(part.position.x, part.position.y, part.position.z);
@@ -581,7 +583,7 @@ export class ShopPhysicsWorld {
             record.width,
             record.height,
             record.density,
-            held,
+            held && !preservePlacedCollider,
             record.collisionlessWhileHeld,
             record.releasedCollisionless,
           ),
@@ -807,6 +809,21 @@ export class ShopPhysicsWorld {
     return this.updateBook(physicsPropId(id), {pose});
   }
 
+  updatePropSize(
+    id: string,
+    size: {depth: number; height: number; width: number},
+  ) {
+    return this.updateBook(physicsPropId(id), {
+      height: size.height,
+      thickness: size.depth,
+      width: size.width,
+    });
+  }
+
+  removeProp(id: string) {
+    return this.removeBook(physicsPropId(id));
+  }
+
   setHeldPropTarget(id: string, pose: BookPhysicsPose) {
     return this.setHeldTarget(physicsPropId(id), pose);
   }
@@ -837,6 +854,8 @@ export class ShopPhysicsWorld {
     if (update.pose && !isValidPose(update.pose)) return false;
     if (update.thickness !== undefined && !isValidThickness(update.thickness))
       return false;
+    if (update.height !== undefined && !isValidBodyDimension(update.height))
+      return false;
     if (
       update.width !== undefined &&
       (!Number.isFinite(update.width) || update.width <= 0)
@@ -854,14 +873,22 @@ export class ShopPhysicsWorld {
     }
 
     const nextThickness = update.thickness ?? record.thickness;
+    const nextHeight = update.height ?? record.height;
     const nextWidth = update.width ?? record.width;
     if (
       record.colliderParts &&
-      (nextThickness !== record.thickness || nextWidth !== record.width)
+      (nextThickness !== record.thickness ||
+        nextHeight !== record.height ||
+        nextWidth !== record.width)
     )
       return false;
-    if (nextThickness !== record.thickness || nextWidth !== record.width) {
+    if (
+      nextThickness !== record.thickness ||
+      nextHeight !== record.height ||
+      nextWidth !== record.width
+    ) {
       record.thickness = nextThickness;
+      record.height = nextHeight;
       record.width = nextWidth;
       const world = this.#world;
       const rapier = this.#rapier;
@@ -914,6 +941,25 @@ export class ShopPhysicsWorld {
     const rapier = this.#rapier;
     if (!rapier) return false;
 
+    if (record.staticWhenPlaced) {
+      body.setEnabled(true);
+      body.setBodyType(rapier.RigidBodyType.Fixed, true);
+      body.enableCcd(false);
+      body.setGravityScale(0, true);
+      body.setLinvel(ZERO_VECTOR, true);
+      body.setAngvel(ZERO_VECTOR, true);
+      body.resetForces(true);
+      body.resetTorques(true);
+      const position = body.translation();
+      const rotation = body.rotation();
+      copyVector(record.pose.position, position);
+      copyNormalizedQuaternion(record.pose.rotation, rotation);
+      copyPose(record.previousPose, record.pose);
+      copyVector(record.target.position, position);
+      copyNormalizedQuaternion(record.target.rotation, rotation);
+      return true;
+    }
+
     body.setEnabled(true);
     body.setBodyType(rapier.RigidBodyType.Dynamic, true);
     body.enableCcd(true);
@@ -938,7 +984,7 @@ export class ShopPhysicsWorld {
     const record = this.#books.get(publicationId);
     if (!record || record.mode !== "held") return false;
     copyPose(record.target, pose);
-    record.body?.wakeUp();
+    if (!record.staticWhenPlaced) record.body?.wakeUp();
     return true;
   }
 
@@ -958,6 +1004,10 @@ export class ShopPhysicsWorld {
     if (this.#disposed || !isValidPose(pose)) return false;
     const record = this.#books.get(publicationId);
     if (!record || record.mode !== "held") return false;
+    if (record.staticWhenPlaced) {
+      copyPose(record.target, pose);
+      return true;
+    }
     copyPose(record.pose, pose);
     copyPose(record.previousPose, pose);
     copyPose(record.target, pose);
@@ -1096,6 +1146,10 @@ export class ShopPhysicsWorld {
     if (this.#disposed) return false;
     const record = this.#books.get(publicationId);
     if (!record?.body) return false;
+    if (record.mode === "held" && record.staticWhenPlaced) {
+      copyPose(output, record.target);
+      return true;
+    }
     interpolatePose(
       record.previousPose,
       record.pose,
@@ -1161,7 +1215,7 @@ export class ShopPhysicsWorld {
     const deltaSeconds = this.#fixedStepSeconds;
     for (const record of this.#books.values()) {
       const body = record.body;
-      if (record.mode !== "held" || !body) continue;
+      if (record.mode !== "held" || record.staticWhenPlaced || !body) continue;
 
       const position = body.translation();
       const linearVelocity = body.linvel();

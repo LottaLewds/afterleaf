@@ -99,6 +99,8 @@ import {
 import {createArtFrameImageDerivative} from "./src/artFrames/image";
 import {parseWorldSave, type WorldSaveV1} from "./src/game/worldSave";
 import {SHOP_MEDIA_CATALOG_ENDPOINT} from "./src/game/shopMediaCatalogHttp";
+import {discoverModels, resolveModelPath} from "./src/models/catalog";
+import {modelMediaUrl, parseModelMediaRequest} from "./src/models/protocol";
 import {
   MAX_WORLD_SAVE_BODY_BYTES,
   WORLD_SAVE_ENDPOINT,
@@ -173,6 +175,7 @@ const artFramesDirectories = async () =>
     artFramesDirectory,
     ...(await readAfterleafLibraryConfig(import.meta.dirname)).artFramePaths,
   ]);
+const modelsDirectory = path.resolve(import.meta.dirname, "content/models");
 const worldSavePath = path.resolve(
   import.meta.dirname,
   "content/world-save.json",
@@ -2257,15 +2260,18 @@ const serveShopMediaCatalog = async (
     return response.end();
   }
   try {
-    const [artFrames, posters, tv] = await Promise.all([
+    const [artFrames, models, posters, tv] = await Promise.all([
       artFrameCatalogDocument(),
+      discoverModels([modelsDirectory], modelMediaUrl).then((models) => ({
+        models: models.map(({id, label, url}) => ({id, label, url})),
+      })),
       posterCatalogDocument(),
       tvChannelCatalogDocument(),
     ]);
     response.statusCode = 200;
     response.setHeader("Cache-Control", "no-store");
     response.setHeader("Content-Type", "application/json; charset=utf-8");
-    return response.end(JSON.stringify({artFrames, posters, tv}));
+    return response.end(JSON.stringify({artFrames, models, posters, tv}));
   } catch (error) {
     console.error("[afterleaf] Failed to discover shop media catalogs", error);
     response.statusCode = 500;
@@ -2282,6 +2288,57 @@ const shopMediaCatalogPlugin = (): Plugin => ({
   },
   configurePreviewServer(server) {
     server.middlewares.use(serveShopMediaCatalog);
+  },
+});
+
+const serveModelContent = async (
+  request: IncomingMessage,
+  response: ServerResponse,
+  next: () => void,
+) => {
+  if (request.method !== "GET" && request.method !== "HEAD") return next();
+  const modelRequest = parseModelMediaRequest(request.url ?? "/");
+  if (modelRequest.kind === "unscoped") return next();
+  if (modelRequest.kind === "invalid" || !hasSameOrigin(request)) {
+    response.statusCode = modelRequest.kind === "invalid" ? 404 : 403;
+    response.setHeader("Cache-Control", "no-store");
+    return response.end();
+  }
+  const modelPath = await resolveModelPath([modelsDirectory], modelRequest.id);
+  if (!modelPath) {
+    response.statusCode = 404;
+    response.setHeader("Cache-Control", "no-store");
+    return response.end();
+  }
+  try {
+    const file = statSync(modelPath);
+    response.statusCode = 200;
+    response.setHeader("Cache-Control", "private, max-age=3600");
+    response.setHeader("Content-Length", file.size);
+    response.setHeader("Content-Type", "model/gltf-binary");
+    if (request.method === "HEAD") return response.end();
+    const stream = createReadStream(modelPath);
+    stream.on("error", (error) => response.destroy(error));
+    return stream.pipe(response);
+  } catch (error) {
+    console.error(
+      `[afterleaf] Failed to serve model ${modelRequest.id}`,
+      error,
+    );
+    response.statusCode = 500;
+    response.setHeader("Cache-Control", "no-store");
+    return response.end();
+  }
+};
+
+const modelContentPlugin = (): Plugin => ({
+  name: "afterleaf-model-content",
+  enforce: "pre",
+  configureServer(server) {
+    server.middlewares.use(serveModelContent);
+  },
+  configurePreviewServer(server) {
+    server.middlewares.use(serveModelContent);
   },
 });
 
@@ -2380,6 +2437,7 @@ export default defineConfig(({command}) => ({
     localLibraryOperationsPlugin(),
     sparseLibraryPagesPlugin(),
     shopMediaCatalogPlugin(),
+    modelContentPlugin(),
     tvContentPlugin(),
     posterContentPlugin(),
     artFrameContentPlugin(),

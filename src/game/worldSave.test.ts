@@ -61,6 +61,14 @@ const saveFixture = (): WorldSaveV1 => ({
       rotation: -0.12,
     },
   ],
+  modelProps: [
+    {
+      assetId: "figures/kumoko.glb",
+      id: "model-prop-1",
+      pose: pose(9),
+      scale: 1.25,
+    },
+  ],
   pendingArrivalIds: ["nhentai-303", "nhentai-404"],
   player: pose(),
   posters: [
@@ -319,6 +327,17 @@ describe("world save validation", () => {
     expect(() =>
       parseWorldSave({...saveFixture(), props: [prop, prop]}),
     ).toThrow("duplicate prop IDs");
+  });
+
+  test("rejects malformed or duplicate model props", () => {
+    const prop = saveFixture().modelProps?.[0];
+    if (!prop) throw new Error("Expected model prop fixture");
+    expect(() =>
+      parseWorldSave({...saveFixture(), modelProps: [{...prop, scale: 0}]}),
+    ).toThrow("scale must be between");
+    expect(() =>
+      parseWorldSave({...saveFixture(), modelProps: [prop, prop]}),
+    ).toThrow("duplicate model prop IDs");
   });
 });
 
