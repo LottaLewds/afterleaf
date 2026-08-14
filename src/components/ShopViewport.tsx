@@ -35,6 +35,7 @@ import {
 import {
   loadServerWorldSave,
   queueServerWorldSave,
+  WorldSaveServerChangedError,
 } from "~/game/worldSaveBrowserClient";
 import type {WorldSaveV1} from "~/game/worldSave";
 import {importPoster, loadPosters} from "~/posters/browserClient";
@@ -84,6 +85,7 @@ export const ShopViewport = (props: ShopViewportProps) => {
   const [mediaChannelError, setMediaChannelError] = createSignal<string>();
   const [mediaChannelName, setMediaChannelName] = createSignal("");
   const [error, setError] = createSignal<string>();
+  const [worldSaveWritable, setWorldSaveWritable] = createSignal(false);
   const [gameState, setGameState] = createSignal<ShopGameSnapshot>({
     inspectionMode: "none",
     looseCount: 0,
@@ -204,20 +206,22 @@ export const ShopViewport = (props: ShopViewportProps) => {
 
     void (async () => {
       try {
-        let initialWorldSave: WorldSaveV1 | undefined;
-        try {
-          initialWorldSave = await loadServerWorldSave(
-            worldSaveAbortController.signal,
+        const loadedWorldSave = await loadServerWorldSave(
+          worldSaveAbortController.signal,
+        ).catch((cause: unknown) => {
+          throw new Error(
+            "The shared world save could not be loaded. The shop was not opened to protect your saved state.",
+            {cause},
           );
-        } catch (cause) {
-          if (worldSaveAbortController.signal.aborted) return;
-          if (DEV)
-            console.warn(
-              "Afterleaf could not load the shared world save; starting without it.",
-              cause,
-            );
-        }
+        });
         if (worldSaveAbortController.signal.aborted) return;
+        const initialWorldSave: WorldSaveV1 | undefined = loadedWorldSave.save;
+        const worldSaveServerInstanceId = loadedWorldSave.serverInstanceId;
+        setWorldSaveWritable(worldSaveServerInstanceId !== undefined);
+        if (DEV && !worldSaveServerInstanceId)
+          console.warn(
+            "Afterleaf loaded the shared world save from an older server process; the shop is read-only until the server and page are restarted.",
+          );
 
         shopScene = new ShopScene({
           canvas: sceneCanvas,
@@ -226,6 +230,7 @@ export const ShopViewport = (props: ShopViewportProps) => {
           catalogIdentity: props.catalogIdentity,
           catalogItems: props.publications,
           initialWorldSave,
+          worldSaveWritable,
           ...(props.pageIndexForPublication === undefined
             ? {}
             : {initialPageIndex: props.pageIndexForPublication}),
@@ -248,7 +253,19 @@ export const ShopViewport = (props: ShopViewportProps) => {
             props.onSelectPublication?.(publicationId),
           onMediaChannelCreateRequest: openMediaChannelEditor,
           onSignEditRequest: openSignEditor,
-          onWorldSave: queueServerWorldSave,
+          onWorldSave: async (save) => {
+            if (!worldSaveServerInstanceId) return false;
+            try {
+              return await queueServerWorldSave(
+                save,
+                worldSaveServerInstanceId,
+              );
+            } catch (cause) {
+              if (cause instanceof WorldSaveServerChangedError)
+                setWorldSaveWritable(false);
+              throw cause;
+            }
+          },
           loadTvChannels,
           importTvVideo,
           loadArtFrameChannels,

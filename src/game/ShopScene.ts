@@ -702,6 +702,7 @@ export type ShopSceneOptions = {
   catalogIdentity: () => CatalogIdentity;
   catalogItems: () => readonly CatalogItem[];
   initialWorldSave?: WorldSaveV1;
+  worldSaveWritable: () => boolean;
   initialPageIndex?: (publicationId: string) => number;
   importArtFrameImage?: (
     image: Blob,
@@ -1309,6 +1310,7 @@ export class ShopScene {
   #worldSaveIntervalHandle: number | undefined;
   #worldSavePending: Promise<void> | undefined;
   #worldStateDirty = false;
+  readonly #worldSaveWritable: () => boolean;
 
   constructor(options: ShopSceneOptions) {
     this.#canvas = options.canvas;
@@ -1337,6 +1339,7 @@ export class ShopScene {
     this.#onPageIndexChange = options.onPageIndexChange;
     this.#onSignEditRequest = options.onSignEditRequest;
     this.#onWorldSave = options.onWorldSave;
+    this.#worldSaveWritable = options.worldSaveWritable;
     this.#pendingWorldSave = options.initialWorldSave;
     this.#onReady = options.onReady;
     this.#paused = options.paused ?? (() => false);
@@ -11062,6 +11065,7 @@ export class ShopScene {
     if (
       this.#disposed ||
       !this.#catalogAvailable() ||
+      !this.#worldSaveWritable() ||
       document.visibilityState !== "visible" ||
       !document.hasFocus() ||
       !this.#worldStateDirty ||
@@ -11102,6 +11106,7 @@ export class ShopScene {
   #flushWorldSave() {
     if (
       !this.#catalogAvailable() ||
+      !this.#worldSaveWritable() ||
       !this.#worldStateDirty ||
       !this.#onWorldSave ||
       this.#worldSavePending

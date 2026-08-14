@@ -4,9 +4,20 @@ import {WORLD_SAVE_SCHEMA_VERSION, type WorldSaveV1} from "~/game/worldSave";
 import {
   loadServerWorldSave,
   saveServerWorldSave,
+  WorldSaveServerChangedError,
   type WorldSaveFetch,
 } from "~/game/worldSaveBrowserClient";
-import {WORLD_SAVE_ENDPOINT} from "~/game/worldSaveHttp";
+import {
+  WORLD_SAVE_ENDPOINT,
+  WORLD_SAVE_SERVER_INSTANCE_HEADER,
+} from "~/game/worldSaveHttp";
+
+const serverInstanceId = "server-instance-42";
+const serverResponse = (body: BodyInit | null, init?: ResponseInit) => {
+  const headers = new Headers(init?.headers);
+  headers.set(WORLD_SAVE_SERVER_INSTANCE_HEADER, serverInstanceId);
+  return new Response(body, {...init, headers});
+};
 
 const saveFixture = (): WorldSaveV1 => ({
   books: [],
@@ -27,19 +38,30 @@ describe("browser world save client", () => {
         cache: "no-store",
         credentials: "same-origin",
       });
-      return Response.json(save);
+      return serverResponse(JSON.stringify(save), {
+        headers: {"Content-Type": "application/json"},
+      });
     };
     await expect(
       loadServerWorldSave(new AbortController().signal, fetcher),
-    ).resolves.toEqual(save);
+    ).resolves.toEqual({save, serverInstanceId});
   });
 
   test("treats a missing server file as no shared save", async () => {
     const fetcher: WorldSaveFetch = async () =>
-      new Response(null, {status: 404});
+      serverResponse(null, {status: 404});
     await expect(
       loadServerWorldSave(new AbortController().signal, fetcher),
-    ).resolves.toBeUndefined();
+    ).resolves.toEqual({serverInstanceId});
+  });
+
+  test("loads a legacy server save without granting write authority", async () => {
+    const save = saveFixture();
+    const fetcher: WorldSaveFetch = async () => Response.json(save);
+
+    await expect(
+      loadServerWorldSave(new AbortController().signal, fetcher),
+    ).resolves.toEqual({save});
   });
 
   test("uploads a validated save", async () => {
@@ -49,12 +71,28 @@ describe("browser world save client", () => {
       expect(init).toMatchObject({
         cache: "no-store",
         credentials: "same-origin",
-        headers: {"Content-Type": "application/json"},
+        headers: {
+          "Content-Type": "application/json",
+          [WORLD_SAVE_SERVER_INSTANCE_HEADER]: serverInstanceId,
+        },
         method: "PUT",
       });
       expect(JSON.parse(String(init?.body))).toEqual(save);
       return new Response(null, {status: 204});
     };
-    await expect(saveServerWorldSave(save, fetcher)).resolves.toBeUndefined();
+    await expect(
+      saveServerWorldSave(save, serverInstanceId, fetcher),
+    ).resolves.toBeUndefined();
+  });
+
+  test("rejects a save after the server instance changes", async () => {
+    const fetcher: WorldSaveFetch = async () =>
+      new Response("World save belongs to an earlier server instance", {
+        status: 409,
+      });
+
+    await expect(
+      saveServerWorldSave(saveFixture(), serverInstanceId, fetcher),
+    ).rejects.toBeInstanceOf(WorldSaveServerChangedError);
   });
 });

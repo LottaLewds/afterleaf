@@ -101,6 +101,7 @@ import {parseWorldSave, type WorldSaveV1} from "./src/game/worldSave";
 import {
   MAX_WORLD_SAVE_BODY_BYTES,
   WORLD_SAVE_ENDPOINT,
+  WORLD_SAVE_SERVER_INSTANCE_HEADER,
 } from "./src/game/worldSaveHttp";
 import {loadWorldSaveFile, saveWorldSaveFile} from "./src/game/worldSaveServer";
 
@@ -168,6 +169,7 @@ const worldSavePath = path.resolve(
   import.meta.dirname,
   "content/world-save.json",
 );
+const worldSaveServerInstanceId = randomUUID();
 
 const readBoundedWorldSaveBody = (request: IncomingMessage) =>
   new Promise<unknown>((resolve, reject) => {
@@ -453,6 +455,10 @@ const serveWorldSave = (() => {
     }
     if (pathname !== WORLD_SAVE_ENDPOINT) return next();
     response.setHeader("Cache-Control", "no-store");
+    response.setHeader(
+      WORLD_SAVE_SERVER_INSTANCE_HEADER,
+      worldSaveServerInstanceId,
+    );
     if (!hasMatchingOrigin(request)) {
       response.statusCode = 403;
       return response.end();
@@ -477,6 +483,18 @@ const serveWorldSave = (() => {
       response.statusCode = 405;
       response.setHeader("Allow", "GET, PUT");
       return response.end();
+    }
+    const requestServerInstanceId =
+      request.headers[WORLD_SAVE_SERVER_INSTANCE_HEADER.toLowerCase()];
+    if (requestServerInstanceId !== worldSaveServerInstanceId) {
+      console.warn(
+        `[afterleaf] Rejected a stale world-save upload from an earlier server instance; expected ${worldSaveServerInstanceId}, received ${typeof requestServerInstanceId === "string" ? requestServerInstanceId : "none"}`,
+      );
+      response.statusCode = 409;
+      response.setHeader("Content-Type", "text/plain; charset=utf-8");
+      return response.end(
+        "World save belongs to an earlier server instance; reload before saving",
+      );
     }
     let save: WorldSaveV1;
     try {
