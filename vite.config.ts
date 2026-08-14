@@ -98,6 +98,7 @@ import {
 } from "./src/artFrames/protocol";
 import {createArtFrameImageDerivative} from "./src/artFrames/image";
 import {parseWorldSave, type WorldSaveV1} from "./src/game/worldSave";
+import {SHOP_MEDIA_CATALOG_ENDPOINT} from "./src/game/shopMediaCatalogHttp";
 import {
   MAX_WORLD_SAVE_BODY_BYTES,
   WORLD_SAVE_ENDPOINT,
@@ -1679,6 +1680,13 @@ const sparseLibraryPagesPlugin = (): Plugin => ({
   },
 });
 
+const tvChannelCatalogDocument = async () =>
+  discoverTvChannels(
+    await tvChannelsDirectories(),
+    tvMediaUrl,
+    tvVideoAnalyzer,
+  );
+
 const serveTvContent = async (
   request: IncomingMessage,
   response: ServerResponse,
@@ -1750,11 +1758,7 @@ const serveTvContent = async (
       return response.end();
     }
     try {
-      const manifest = await discoverTvChannels(
-        await tvChannelsDirectories(),
-        tvMediaUrl,
-        tvVideoAnalyzer,
-      );
+      const manifest = await tvChannelCatalogDocument();
       response.statusCode = 200;
       response.setHeader("Cache-Control", "no-store");
       response.setHeader("Content-Type", "application/json; charset=utf-8");
@@ -2229,6 +2233,58 @@ const artFrameContentPlugin = (): Plugin => ({
   },
 });
 
+const serveShopMediaCatalog = async (
+  request: IncomingMessage,
+  response: ServerResponse,
+  next: () => void,
+) => {
+  let pathname: string;
+  try {
+    pathname = new URL(request.url ?? "/", "http://afterleaf.local").pathname;
+  } catch {
+    return next();
+  }
+  if (pathname !== SHOP_MEDIA_CATALOG_ENDPOINT) return next();
+  if (request.method !== "GET") {
+    response.statusCode = 405;
+    response.setHeader("Allow", "GET");
+    response.setHeader("Cache-Control", "no-store");
+    return response.end();
+  }
+  if (!hasSameOrigin(request)) {
+    response.statusCode = 403;
+    response.setHeader("Cache-Control", "no-store");
+    return response.end();
+  }
+  try {
+    const [artFrames, posters, tv] = await Promise.all([
+      artFrameCatalogDocument(),
+      posterCatalogDocument(),
+      tvChannelCatalogDocument(),
+    ]);
+    response.statusCode = 200;
+    response.setHeader("Cache-Control", "no-store");
+    response.setHeader("Content-Type", "application/json; charset=utf-8");
+    return response.end(JSON.stringify({artFrames, posters, tv}));
+  } catch (error) {
+    console.error("[afterleaf] Failed to discover shop media catalogs", error);
+    response.statusCode = 500;
+    response.setHeader("Cache-Control", "no-store");
+    return response.end();
+  }
+};
+
+const shopMediaCatalogPlugin = (): Plugin => ({
+  name: "afterleaf-shop-media-catalog",
+  enforce: "pre",
+  configureServer(server) {
+    server.middlewares.use(serveShopMediaCatalog);
+  },
+  configurePreviewServer(server) {
+    server.middlewares.use(serveShopMediaCatalog);
+  },
+});
+
 const serveActiveLibraryAsset = (
   request: IncomingMessage,
   response: ServerResponse,
@@ -2323,6 +2379,7 @@ export default defineConfig(({command}) => ({
     worldSavePlugin(),
     localLibraryOperationsPlugin(),
     sparseLibraryPagesPlugin(),
+    shopMediaCatalogPlugin(),
     tvContentPlugin(),
     posterContentPlugin(),
     artFrameContentPlugin(),

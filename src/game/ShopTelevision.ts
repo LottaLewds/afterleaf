@@ -57,7 +57,6 @@ const SCREEN_CENTER_X = -0.16;
 const SCREEN_CENTER_Y = 0.02;
 const SCREEN_CENTER_Z = BEZEL_FRONT_Z + 0.042;
 const CONTROL_CENTER_X = 1.36;
-const CHANNEL_REFRESH_INTERVAL_MS = 3_000;
 const TELEVISION_MAX_VOLUME = 0.72;
 const TELEVISION_VOLUME_STEP = 0.05;
 const MODEL_CENTER_Y = 0.2265;
@@ -124,7 +123,6 @@ export type ShopTelevisionOptions = {
   flatScreen?: {height: number; width: number};
   initialChannelId?: string;
   initialVolume?: number;
-  loadChannels: (signal: AbortSignal) => Promise<readonly TvChannel[]>;
   model?: ShopTelevisionModel;
   onChannelChange?: (channelId: string) => void;
   onStateChange?: () => void;
@@ -416,7 +414,6 @@ export class ShopTelevision {
   readonly #interactionTargets: Mesh[] = [];
   readonly #initialChannelId: string | undefined;
   readonly #interactionBoundsRadius: number;
-  readonly #loadChannels: ShopTelevisionOptions["loadChannels"];
   readonly #modelUrl: string | undefined;
   readonly #movable: boolean;
   readonly #noSignalTexture: CanvasTexture;
@@ -461,8 +458,6 @@ export class ShopTelevision {
   #lastAudibleVolume = 1;
   #playRevision = 0;
   #powered = false;
-  #refreshInterval: number | undefined;
-  #refreshingChannels = false;
   #screenOverlayTimer: number | undefined;
   #suspended = false;
   #targetedInteraction: ShopTelevisionInteraction | undefined;
@@ -471,7 +466,6 @@ export class ShopTelevision {
   constructor(options: ShopTelevisionOptions) {
     this.#initialChannelId = options.initialChannelId;
     this.#interactionBoundsRadius = getInteractionBoundsRadius(options);
-    this.#loadChannels = options.loadChannels;
     this.#modelUrl = options.model?.url;
     if (this.#modelUrl) ShopTelevision.#retainModel(this.#modelUrl);
     this.#movable = options.model !== undefined;
@@ -616,11 +610,6 @@ uniform sampler2D afterleafScreenOverlay;\n${shader.fragmentShader}`;
     else if (options.model) void this.#createModelTelevision(options.model);
     else this.#createPhysicalTelevision(options.tableMaterial);
     options.parent.add(this.#group);
-    void this.#refreshChannels();
-    this.#refreshInterval = window.setInterval(
-      () => void this.#refreshChannels(),
-      CHANNEL_REFRESH_INTERVAL_MS,
-    );
   }
 
   get interactionTargets(): readonly Mesh[] {
@@ -710,6 +699,30 @@ uniform sampler2D afterleafScreenOverlay;\n${shader.fragmentShader}`;
     }
     if (!this.#powered || !this.#currentVideo) return;
     void this.#playCurrentVideo();
+  }
+
+  setChannels(channels: readonly TvChannel[]) {
+    if (this.#disposed) return;
+    const playableChannels = channels.filter(
+      (channel) => channel.videos.length > 0,
+    );
+    const signature = JSON.stringify(playableChannels);
+    const changed = signature !== this.#manifestSignature;
+    this.#loadingChannels = false;
+    if (!changed && !this.#loadError) return;
+    this.#applyChannels(playableChannels);
+    this.#manifestSignature = signature;
+    this.#emitStateChange();
+  }
+
+  setChannelLoadError(error: unknown) {
+    if (this.#disposed || (!this.#loadingChannels && this.#channels.length > 0))
+      return;
+    this.#loadingChannels = false;
+    this.#loadError =
+      error instanceof Error ? error.message : "TV channel discovery failed";
+    this.#showNoSignal();
+    this.#emitStateChange();
   }
 
   toggleMuted() {
@@ -896,9 +909,6 @@ uniform sampler2D afterleafScreenOverlay;\n${shader.fragmentShader}`;
     if (this.#disposed) return;
     this.#disposed = true;
     this.#abortController.abort();
-    if (this.#refreshInterval !== undefined)
-      window.clearInterval(this.#refreshInterval);
-    this.#refreshInterval = undefined;
     if (this.#screenOverlayTimer !== undefined)
       window.clearTimeout(this.#screenOverlayTimer);
     this.#screenOverlayTimer = undefined;
@@ -1303,39 +1313,6 @@ uniform sampler2D afterleafScreenOverlay;\n${shader.fragmentShader}`;
       this.#powered ? "#ff321d" : "#180200",
     );
     this.#powerIndicatorMaterial.emissiveIntensity = this.#powered ? 2.4 : 0.35;
-  }
-
-  async #refreshChannels() {
-    if (this.#disposed || this.#refreshingChannels) return;
-    this.#refreshingChannels = true;
-    try {
-      const channels = await this.#loadChannels(this.#abortController.signal);
-      if (this.#disposed) return;
-      const playableChannels = channels.filter(
-        (channel) => channel.videos.length > 0,
-      );
-      const signature = JSON.stringify(playableChannels);
-      const changed = signature !== this.#manifestSignature;
-      this.#loadingChannels = false;
-      if (!changed && !this.#loadError) return;
-      this.#applyChannels(playableChannels);
-      this.#manifestSignature = signature;
-      this.#emitStateChange();
-    } catch (error) {
-      if (this.#disposed || this.#abortController.signal.aborted) return;
-      if (this.#loadingChannels || this.#channels.length === 0) {
-        this.#loadingChannels = false;
-        this.#loadError =
-          error instanceof Error
-            ? error.message
-            : "TV channel discovery failed";
-        this.#showNoSignal();
-        this.#emitStateChange();
-      }
-      if (DEV) console.warn("Afterleaf TV channel refresh failed.", error);
-    } finally {
-      this.#refreshingChannels = false;
-    }
   }
 
   #applyChannels(channels: readonly TvChannel[]) {

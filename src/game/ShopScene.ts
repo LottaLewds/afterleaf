@@ -162,6 +162,7 @@ import {
   ShopTelevision,
   type ShopTelevisionInteraction,
 } from "~/game/ShopTelevision";
+import type {ShopMediaCatalog} from "~/game/shopMediaCatalog";
 import {
   MAX_CARRIED_BOOKS,
   WORLD_SAVE_SCHEMA_VERSION,
@@ -202,7 +203,6 @@ import {
   DEFAULT_TV_CHANNEL_ID,
   tvChannelId,
   tvVideoImportUrl,
-  type TvChannel,
   type TvVideo,
 } from "~/tv/protocol";
 import type {PosterAsset} from "~/posters/protocol";
@@ -254,7 +254,7 @@ const TELEVISION_INTERACTION_DISTANCE = 3.6;
 const MOVABLE_PROP_INTERACTION_DISTANCE = 4;
 const POSTER_INTERACTION_DISTANCE = 4;
 const POSTER_PLACEMENT_DISTANCE = POSTER_INTERACTION_DISTANCE * 2;
-const POSTER_CATALOG_REFRESH_INTERVAL_MS = 3_000;
+const SHOP_MEDIA_CATALOG_REFRESH_INTERVAL_MS = 10_000;
 const DEFAULT_POSTER_HEIGHT = 1.15;
 const MIN_POSTER_HEIGHT = 0.2;
 const MAX_POSTER_HEIGHT = 3.8;
@@ -266,7 +266,6 @@ const POSTER_POLYGON_OFFSET_FACTOR = -1;
 const POSTER_WHEEL_ROTATION_STEP = MathUtils.degToRad(1);
 const TV_WHEEL_SCRUB_RESET_MS = 900;
 const TV_WHEEL_SCRUB_STEPS_SECONDS = [3, 5, 10, 15, 30] as const;
-const TV_CHANNEL_SHARED_CACHE_MS = 2_500;
 const DIGITAL_ART_FRAME_DEFAULT_INTERVAL_SECONDS = 30;
 const DIGITAL_ART_FRAME_INTERVALS = [0, 10, 30, 60, 300] as const;
 const DIGITAL_ART_FRAME_BORDER = 0.09;
@@ -712,11 +711,7 @@ export type ShopSceneOptions = {
     channelId: string,
     signal: AbortSignal,
   ) => Promise<ArtFrameImage>;
-  loadArtFrameChannels?: (
-    signal: AbortSignal,
-  ) => Promise<readonly ArtFrameChannel[]>;
-  loadTvChannels?: (signal: AbortSignal) => Promise<readonly TvChannel[]>;
-  loadPosters?: (signal: AbortSignal) => Promise<readonly PosterAsset[]>;
+  loadMediaCatalog?: (signal: AbortSignal) => Promise<ShopMediaCatalog>;
   importPoster?: (image: Blob, signal: AbortSignal) => Promise<PosterAsset>;
   importTvVideo?: (
     url: string,
@@ -986,50 +981,17 @@ export class ShopScene {
     turnAngle: 0,
   };
   readonly #inspectionLeafVertex: ActiveLeafVertex = {x: 0, y: 0, z: 0};
-  readonly #loadArtFrameChannels: (
+  readonly #loadMediaCatalog: (
     signal: AbortSignal,
-  ) => Promise<readonly ArtFrameChannel[]>;
+  ) => Promise<ShopMediaCatalog>;
   readonly #keysDown = new Set<string>();
   readonly #keyboardLayout = new Map<string, string>();
   readonly #lookAngles: LookAngles = {pitch: 0, yaw: 0};
   readonly #lookDelta: LookAngles = {pitch: 0, yaw: 0};
   readonly #lookTarget: LookAngles = {pitch: 0, yaw: 0};
-  readonly #loadTvChannels: (
-    signal: AbortSignal,
-  ) => Promise<readonly TvChannel[]>;
-  #tvChannelCache: readonly TvChannel[] | undefined;
-  #tvChannelCacheLoadedAt = Number.NEGATIVE_INFINITY;
-  #tvChannelLoadPromise: Promise<readonly TvChannel[]> | undefined;
-  readonly #loadSharedTvChannels = (signal: AbortSignal) => {
-    if (signal.aborted)
-      return Promise.reject(
-        new DOMException("TV channel load aborted", "AbortError"),
-      );
-    const now = performance.now();
-    if (
-      this.#tvChannelCache &&
-      now - this.#tvChannelCacheLoadedAt < TV_CHANNEL_SHARED_CACHE_MS
-    )
-      return Promise.resolve(this.#tvChannelCache);
-    this.#tvChannelLoadPromise ??= this.#loadTvChannels(
-      this.#abortController.signal,
-    )
-      .then((channels) => {
-        this.#tvChannelCache = channels;
-        this.#tvChannelCacheLoadedAt = performance.now();
-        return channels;
-      })
-      .finally(() => {
-        this.#tvChannelLoadPromise = undefined;
-      });
-    return this.#tvChannelLoadPromise;
-  };
   readonly #markTelevisionSettingChanged = () => {
     this.#worldStateDirty = true;
   };
-  readonly #loadPosters: (
-    signal: AbortSignal,
-  ) => Promise<readonly PosterAsset[]>;
   readonly #movementDelta: PlanarPoint = {x: 0, z: 0};
   readonly #movementInput: PlanarMovementInput = {forward: 0, right: 0};
   readonly #movementPosition: PlanarPoint = {x: 0, z: 0};
@@ -1233,8 +1195,8 @@ export class ShopScene {
   #posterAssets: readonly PosterAsset[] = [];
   #posterAssetIndex = 0;
   #nextPosterDepthLayer = 1;
-  #posterCatalogRefreshHandle: number | undefined;
-  #posterCatalogRequestPending = false;
+  #mediaCatalogRefreshHandle: number | undefined;
+  #mediaCatalogRequestPending = false;
   #posterImportCount = 0;
   #posterImportError: string | undefined;
   #posterSaveRestoreCompleted = false;
@@ -1244,7 +1206,6 @@ export class ShopScene {
   #posterPreview: Mesh<PlaneGeometry, MeshStandardMaterial> | undefined;
   #artFrameAssets: readonly ArtFrameImage[] = [];
   #artFrameAssetIndex = 0;
-  #artFrameCatalogRequestPending = false;
   #artFrameChannels: readonly ArtFrameChannel[] = [];
   #artFrameImportCount = 0;
   #artFrameImportError: string | undefined;
@@ -1328,11 +1289,14 @@ export class ShopScene {
     this.#importArtFrameImage = options.importArtFrameImage;
     this.#importTvVideo = options.importTvVideo;
     this.#onTextPaste = options.onTextPaste;
-    this.#loadArtFrameChannels =
-      options.loadArtFrameChannels ?? (() => Promise.resolve([]));
-    this.#loadTvChannels =
-      options.loadTvChannels ?? (() => Promise.resolve([]));
-    this.#loadPosters = options.loadPosters ?? (() => Promise.resolve([]));
+    this.#loadMediaCatalog =
+      options.loadMediaCatalog ??
+      (() =>
+        Promise.resolve({
+          artFrames: {channels: []},
+          posters: {posters: []},
+          tv: {channels: []},
+        }));
     this.#mouseSensitivity = options.mouseSensitivity ?? (() => 1);
     this.#selectedPublicationId = options.selectedPublicationId;
     this.#onSelectPublication = options.onSelectPublication;
@@ -1380,8 +1344,7 @@ export class ShopScene {
       {once: true},
     );
     this.#syncInputs();
-    void this.#initializePosters();
-    void this.#refreshArtFrameCatalog();
+    void this.#refreshMediaCatalog();
     void this.#initializePhysics();
   }
 
@@ -1395,10 +1358,10 @@ export class ShopScene {
       this.#scheduleWorldSave,
       WORLD_SAVE_INTERVAL_MS,
     );
-    this.#posterCatalogRefreshHandle = window.setInterval(() => {
-      void this.#refreshPosterCatalog();
-      void this.#refreshArtFrameCatalog();
-    }, POSTER_CATALOG_REFRESH_INTERVAL_MS);
+    this.#mediaCatalogRefreshHandle = window.setInterval(
+      this.#refreshMediaCatalogIfActive,
+      SHOP_MEDIA_CATALOG_REFRESH_INTERVAL_MS,
+    );
     this.#frameHandle = requestAnimationFrame(this.#animate);
   }
 
@@ -1546,9 +1509,9 @@ export class ShopScene {
     if (this.#frameHandle !== undefined)
       cancelAnimationFrame(this.#frameHandle);
     this.#frameHandle = undefined;
-    if (this.#posterCatalogRefreshHandle !== undefined)
-      window.clearInterval(this.#posterCatalogRefreshHandle);
-    this.#posterCatalogRefreshHandle = undefined;
+    if (this.#mediaCatalogRefreshHandle !== undefined)
+      window.clearInterval(this.#mediaCatalogRefreshHandle);
+    this.#mediaCatalogRefreshHandle = undefined;
 
     this.#bookAtlasRevision += 1;
     this.#disposeBookAtlasBatches();
@@ -1865,7 +1828,6 @@ export class ShopScene {
         this.#pendingWorldSave?.televisionChannels?.[FIXED_TELEVISION_SAVE_ID],
       initialVolume:
         this.#pendingWorldSave?.televisionVolumes?.[FIXED_TELEVISION_SAVE_ID],
-      loadChannels: this.#loadSharedTvChannels,
       onChannelChange: this.#markTelevisionSettingChanged,
       onStateChange: () => this.#emitGameState(),
       onVolumeChange: this.#markTelevisionSettingChanged,
@@ -1880,7 +1842,6 @@ export class ShopScene {
         ],
       initialVolume:
         this.#pendingWorldSave?.televisionVolumes?.[MOVABLE_TELEVISION_SAVE_ID],
-      loadChannels: this.#loadSharedTvChannels,
       model: {
         screenAspect: 4 / 3,
         screenNodeName: "Screen",
@@ -3901,7 +3862,6 @@ export class ShopScene {
           THEATRE_TELEVISION_SAVE_ID
         ] ??
         this.#pendingWorldSave?.televisionVolumes?.[FIXED_TELEVISION_SAVE_ID],
-      loadChannels: this.#loadSharedTvChannels,
       onChannelChange: this.#markTelevisionSettingChanged,
       onStateChange: () => this.#emitGameState(),
       onVolumeChange: this.#markTelevisionSettingChanged,
@@ -4018,7 +3978,6 @@ export class ShopScene {
           this.#pendingWorldSave?.televisionVolumes?.[
             MOVABLE_TELEVISION_SAVE_ID
           ],
-        loadChannels: this.#loadSharedTvChannels,
         model: {
           screenAspect: 4 / 3,
           screenNodeName: "Screen",
@@ -4682,10 +4641,6 @@ export class ShopScene {
       );
   }
 
-  #initializePosters() {
-    void this.#refreshPosterCatalog();
-  }
-
   #posterCatalogMatches(assets: readonly PosterAsset[]) {
     return (
       assets.length === this.#posterAssets.length &&
@@ -4776,24 +4731,6 @@ export class ShopScene {
       this.#worldStateDirty = true;
     this.#pendingPosterSaves = [];
     this.#posterSaveRestoreCompleted = true;
-  }
-
-  async #refreshPosterCatalog() {
-    if (this.#posterCatalogRequestPending || this.#disposed) return;
-    this.#posterCatalogRequestPending = true;
-    try {
-      const assets = await this.#loadPosters(this.#abortController.signal);
-      if (this.#disposed) return;
-      this.#applyPosterCatalog(assets);
-      if (!this.#posterSaveRestoreCompleted)
-        await this.#restoreSavedPosters(assets);
-      this.#emitGameState();
-    } catch (error) {
-      if (DEV && !this.#abortController.signal.aborted)
-        console.warn("Afterleaf could not load the poster catalog.", error);
-    } finally {
-      this.#posterCatalogRequestPending = false;
-    }
   }
 
   #artFrameTexture(
@@ -5045,26 +4982,40 @@ export class ShopScene {
     this.#artFrameSaveRestoreCompleted = true;
   }
 
-  async #refreshArtFrameCatalog() {
-    if (this.#artFrameCatalogRequestPending || this.#disposed) return;
-    this.#artFrameCatalogRequestPending = true;
+  readonly #refreshMediaCatalogIfActive = () => {
+    if (
+      document.visibilityState !== "visible" ||
+      !document.hasFocus() ||
+      this.#disposed
+    )
+      return;
+    void this.#refreshMediaCatalog();
+  };
+
+  async #refreshMediaCatalog() {
+    if (this.#mediaCatalogRequestPending || this.#disposed) return;
+    this.#mediaCatalogRequestPending = true;
     try {
-      const channels = await this.#loadArtFrameChannels(
+      const catalog = await this.#loadMediaCatalog(
         this.#abortController.signal,
       );
       if (this.#disposed) return;
-      this.#applyArtFrameCatalog(channels);
+      this.#applyPosterCatalog(catalog.posters.posters);
+      if (!this.#posterSaveRestoreCompleted)
+        await this.#restoreSavedPosters(catalog.posters.posters);
+      this.#applyArtFrameCatalog(catalog.artFrames.channels);
       if (!this.#artFrameSaveRestoreCompleted)
-        await this.#restoreSavedDigitalArtFrames(channels);
+        await this.#restoreSavedDigitalArtFrames(catalog.artFrames.channels);
+      for (const television of this.#televisions)
+        television.setChannels(catalog.tv.channels);
       this.#emitGameState();
     } catch (error) {
+      for (const television of this.#televisions)
+        television.setChannelLoadError(error);
       if (DEV && !this.#abortController.signal.aborted)
-        console.warn(
-          "Afterleaf could not load the digital art frame catalog.",
-          error,
-        );
+        console.warn("Afterleaf could not load the shop media catalog.", error);
     } finally {
-      this.#artFrameCatalogRequestPending = false;
+      this.#mediaCatalogRequestPending = false;
     }
   }
 
@@ -6100,6 +6051,14 @@ export class ShopScene {
       signal: this.#abortController.signal,
     });
     window.addEventListener("blur", this.#handleWindowBlur, passiveOptions);
+    window.addEventListener("focus", this.#refreshMediaCatalogIfActive, {
+      signal: this.#abortController.signal,
+    });
+    document.addEventListener(
+      "visibilitychange",
+      this.#refreshMediaCatalogIfActive,
+      {signal: this.#abortController.signal},
+    );
   }
 
   async #loadKeyboardLayout() {

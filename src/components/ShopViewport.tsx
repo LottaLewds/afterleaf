@@ -21,10 +21,7 @@ import {
 } from "solid-js";
 
 import type {CatalogAtlases, CatalogIdentity, CatalogItem} from "~/catalog";
-import {
-  importArtFrameImage,
-  loadArtFrameChannels,
-} from "~/artFrames/browserClient";
+import {importArtFrameImage} from "~/artFrames/browserClient";
 import {artFrameChannelId} from "~/artFrames/protocol";
 import {
   ShopScene,
@@ -39,8 +36,9 @@ import {
   WorldSaveServerChangedError,
 } from "~/game/worldSaveBrowserClient";
 import type {WorldSaveV1} from "~/game/worldSave";
-import {importPoster, loadPosters} from "~/posters/browserClient";
-import {importTvVideo, loadTvChannels} from "~/tv/browserClient";
+import {loadShopMediaCatalog} from "~/game/shopMediaCatalogBrowserClient";
+import {importPoster} from "~/posters/browserClient";
+import {importTvVideo} from "~/tv/browserClient";
 import {tvChannelId, tvVideoImportUrl} from "~/tv/protocol";
 
 type MediaChannelKind = "art-frame" | "tv";
@@ -282,10 +280,8 @@ export const ShopViewport = (props: ShopViewportProps) => {
               throw cause;
             }
           },
-          loadTvChannels,
+          loadMediaCatalog: loadShopMediaCatalog,
           importTvVideo,
-          loadArtFrameChannels,
-          loadPosters,
           importArtFrameImage,
           importPoster,
           paused: () =>
