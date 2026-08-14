@@ -20,6 +20,7 @@ Code conventions:
 - For class composition, prefer a shared `cn(...)` helper when you need conditional Tailwind classes or caller-provided class overrides; keep plain string literals for fully static class lists.
 - When using event listeners, prefer `abortController` creation and using `{signal: abortController.signal}` for cleanup
 - Look at existing code to discover patterns in the codebase
+- Before making any file modification, first commit the current working tree state (skip the commit if the tree is clean). If the project is not a git repository (no `.git`), notify the user instead of committing.
 - Run `bun check` (which autofixes, formats, type checks, and run tests) after groups of changes to verify your work
 - Do not start or restart dev servers unless I explicitly ask for it. I will run my own servers when I want browser verification.
 - Do not add, suggest, or prioritize reduced-motion branches or reduced-motion handling in this project unless I explicitly ask for it.
