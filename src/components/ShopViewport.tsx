@@ -35,6 +35,7 @@ import {
 import {
   loadServerWorldSave,
   queueServerWorldSave,
+  WorldSaveConflictError,
   WorldSaveServerChangedError,
 } from "~/game/worldSaveBrowserClient";
 import type {WorldSaveV1} from "~/game/worldSave";
@@ -217,8 +218,12 @@ export const ShopViewport = (props: ShopViewportProps) => {
         if (worldSaveAbortController.signal.aborted) return;
         const initialWorldSave: WorldSaveV1 | undefined = loadedWorldSave.save;
         const worldSaveServerInstanceId = loadedWorldSave.serverInstanceId;
-        setWorldSaveWritable(worldSaveServerInstanceId !== undefined);
-        if (DEV && !worldSaveServerInstanceId)
+        let worldSaveRevision = loadedWorldSave.revision;
+        setWorldSaveWritable(
+          worldSaveServerInstanceId !== undefined &&
+            worldSaveRevision !== undefined,
+        );
+        if (DEV && (!worldSaveServerInstanceId || !worldSaveRevision))
           console.warn(
             "Afterleaf loaded the shared world save from an older server process; the shop is read-only until the server and page are restarted.",
           );
@@ -254,15 +259,26 @@ export const ShopViewport = (props: ShopViewportProps) => {
           onMediaChannelCreateRequest: openMediaChannelEditor,
           onSignEditRequest: openSignEditor,
           onWorldSave: async (save) => {
-            if (!worldSaveServerInstanceId) return false;
+            if (!worldSaveServerInstanceId || !worldSaveRevision) return false;
             try {
-              return await queueServerWorldSave(
+              worldSaveRevision = await queueServerWorldSave(
                 save,
                 worldSaveServerInstanceId,
+                worldSaveRevision,
               );
+              return;
             } catch (cause) {
-              if (cause instanceof WorldSaveServerChangedError)
+              if (
+                cause instanceof WorldSaveServerChangedError ||
+                cause instanceof WorldSaveConflictError
+              ) {
                 setWorldSaveWritable(false);
+                setError(
+                  cause instanceof WorldSaveConflictError
+                    ? "The shared world changed in another tab. Reload this page before making more changes."
+                    : "The Afterleaf server restarted. Reload this page before making more changes.",
+                );
+              }
               throw cause;
             }
           },
@@ -274,6 +290,7 @@ export const ShopViewport = (props: ShopViewportProps) => {
           importPoster,
           paused: () =>
             props.paused?.() === true ||
+            error() !== undefined ||
             signEditor() !== undefined ||
             mediaChannelEditor() !== undefined,
           onReady: () => setReady(true),

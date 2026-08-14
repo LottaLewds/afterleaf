@@ -6,9 +6,11 @@ import path from "node:path";
 import {WORLD_SAVE_SCHEMA_VERSION, type WorldSaveV1} from "~/game/worldSave";
 import {
   loadWorldSaveFile,
+  MISSING_WORLD_SAVE_REVISION,
   pruneWorldStateBackups,
   saveWorldSaveFile,
   saveWorldStateBackup,
+  worldSaveRevision,
 } from "~/game/worldSaveServer";
 
 const saveFixture = (savedAt: string): WorldSaveV1 => ({
@@ -36,6 +38,7 @@ describe("server world save persistence", () => {
 
   test("returns no save when the disk file does not exist", async () => {
     expect(await loadWorldSaveFile(filePath)).toBeUndefined();
+    expect(worldSaveRevision(undefined)).toBe(MISSING_WORLD_SAVE_REVISION);
   });
 
   test("atomically replaces and validates the shared save", async () => {
@@ -47,6 +50,8 @@ describe("server world save persistence", () => {
     await saveWorldSaveFile(filePath, second);
     expect(await loadWorldSaveFile(filePath)).toEqual(second);
     expect(JSON.parse(await readFile(filePath, "utf8"))).toEqual(second);
+    expect(worldSaveRevision(first)).not.toBe(worldSaveRevision(second));
+    expect(worldSaveRevision(second)).toBe(worldSaveRevision({...second}));
   });
 
   test("creates dated backups and prunes the oldest snapshots", async () => {

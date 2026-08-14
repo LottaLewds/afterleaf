@@ -105,9 +105,11 @@ import {
 } from "./src/game/worldSaveHttp";
 import {
   loadWorldSaveFile,
+  MISSING_WORLD_SAVE_REVISION,
   pruneWorldStateBackups,
   saveWorldSaveFile,
   saveWorldStateBackup,
+  worldSaveRevision,
 } from "./src/game/worldSaveServer";
 
 const MAX_TV_MEDIA_RANGE_BYTES = 8 * 1024 * 1024;
@@ -480,9 +482,11 @@ const serveWorldSave = (() => {
         const save = await loadWorldSaveFile(worldSavePath);
         if (!save) {
           response.statusCode = 404;
+          response.setHeader("ETag", MISSING_WORLD_SAVE_REVISION);
           return response.end();
         }
         response.statusCode = 200;
+        response.setHeader("ETag", worldSaveRevision(save));
         response.setHeader("Content-Type", "application/json; charset=utf-8");
         return response.end(JSON.stringify(save));
       } catch (error) {
@@ -508,6 +512,17 @@ const serveWorldSave = (() => {
         "World save belongs to an earlier server instance; reload before saving",
       );
     }
+    const requestRevision = request.headers["if-match"];
+    if (typeof requestRevision !== "string") {
+      console.warn(
+        "[afterleaf] Rejected a world-save upload without an If-Match revision",
+      );
+      response.statusCode = 428;
+      response.setHeader("Content-Type", "text/plain; charset=utf-8");
+      return response.end(
+        "World-save uploads require a revision; reload before saving",
+      );
+    }
     let save: WorldSaveV1;
     try {
       save = parseWorldSave(await readBoundedWorldSaveBody(request));
@@ -522,6 +537,9 @@ const serveWorldSave = (() => {
     try {
       const pendingWrite = writeQueue.then(async () => {
         const previousSave = await loadWorldSaveFile(worldSavePath);
+        const previousRevision = worldSaveRevision(previousSave);
+        if (requestRevision !== previousRevision)
+          return {kind: "conflict" as const, revision: previousRevision};
         const dropWarning = worldSaveBookDropWarning(previousSave, save);
         const now = Date.now();
         if (
@@ -554,9 +572,21 @@ const serveWorldSave = (() => {
         }
         await saveWorldSaveFile(worldSavePath, save);
         if (dropWarning) console.warn(dropWarning);
+        return {kind: "saved" as const, revision: worldSaveRevision(save)};
       });
       writeQueue = pendingWrite.catch(() => {});
-      await pendingWrite;
+      const result = await pendingWrite;
+      response.setHeader("ETag", result.revision);
+      if (result.kind === "conflict") {
+        console.warn(
+          `[afterleaf] Rejected a stale world-save revision; expected ${result.revision}, received ${requestRevision}`,
+        );
+        response.statusCode = 412;
+        response.setHeader("Content-Type", "text/plain; charset=utf-8");
+        return response.end(
+          "World save changed after this tab loaded it; reload before saving",
+        );
+      }
       response.statusCode = 204;
       return response.end();
     } catch (error) {

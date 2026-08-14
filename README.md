@@ -75,8 +75,9 @@ World saves are validated, written atomically as human-readable JSON, submitted
 in order, and normally checkpointed at most once every ten seconds. Leaving the
 shop flushes pending changes immediately. Any browser that opens Afterleaf from
 the same server origin restores the shared copy, including browsers on another
-machine. Concurrent sessions are not live-synchronized; the most recently
-received save becomes the state restored by later connections.
+machine. Concurrent sessions are not live-synchronized. Each write must match
+the revision that its tab loaded, so a stale tab is stopped and must reload
+instead of overwriting a newer world state.
 
 While the world is changing, the server also preserves the previous state every
 15 minutes under the gitignored `content/world-state-backups` directory. The

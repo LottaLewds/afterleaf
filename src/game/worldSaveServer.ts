@@ -1,4 +1,4 @@
-import {randomUUID} from "node:crypto";
+import {createHash, randomUUID} from "node:crypto";
 import {
   mkdir,
   readFile,
@@ -12,6 +12,13 @@ import path from "node:path";
 // Vite loads this module while its config is still being evaluated, before the
 // application alias is installed.
 import {parseWorldSave, type WorldSaveV1} from "./worldSave";
+
+export const MISSING_WORLD_SAVE_REVISION = '"missing"';
+
+export const worldSaveRevision = (save: WorldSaveV1 | undefined) =>
+  save
+    ? `"${createHash("sha256").update(JSON.stringify(save)).digest("base64url")}"`
+    : MISSING_WORLD_SAVE_REVISION;
 
 export const loadWorldSaveFile = async (
   filePath: string,

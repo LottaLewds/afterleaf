@@ -4,6 +4,7 @@ import {WORLD_SAVE_SCHEMA_VERSION, type WorldSaveV1} from "~/game/worldSave";
 import {
   loadServerWorldSave,
   saveServerWorldSave,
+  WorldSaveConflictError,
   WorldSaveServerChangedError,
   type WorldSaveFetch,
 } from "~/game/worldSaveBrowserClient";
@@ -13,9 +14,11 @@ import {
 } from "~/game/worldSaveHttp";
 
 const serverInstanceId = "server-instance-42";
+const worldSaveRevision = '"world-revision-42"';
 const serverResponse = (body: BodyInit | null, init?: ResponseInit) => {
   const headers = new Headers(init?.headers);
   headers.set(WORLD_SAVE_SERVER_INSTANCE_HEADER, serverInstanceId);
+  headers.set("ETag", worldSaveRevision);
   return new Response(body, {...init, headers});
 };
 
@@ -44,7 +47,11 @@ describe("browser world save client", () => {
     };
     await expect(
       loadServerWorldSave(new AbortController().signal, fetcher),
-    ).resolves.toEqual({save, serverInstanceId});
+    ).resolves.toEqual({
+      revision: worldSaveRevision,
+      save,
+      serverInstanceId,
+    });
   });
 
   test("treats a missing server file as no shared save", async () => {
@@ -52,7 +59,7 @@ describe("browser world save client", () => {
       serverResponse(null, {status: 404});
     await expect(
       loadServerWorldSave(new AbortController().signal, fetcher),
-    ).resolves.toEqual({serverInstanceId});
+    ).resolves.toEqual({revision: worldSaveRevision, serverInstanceId});
   });
 
   test("loads a legacy server save without granting write authority", async () => {
@@ -73,16 +80,20 @@ describe("browser world save client", () => {
         credentials: "same-origin",
         headers: {
           "Content-Type": "application/json",
+          "If-Match": worldSaveRevision,
           [WORLD_SAVE_SERVER_INSTANCE_HEADER]: serverInstanceId,
         },
         method: "PUT",
       });
       expect(JSON.parse(String(init?.body))).toEqual(save);
-      return new Response(null, {status: 204});
+      return new Response(null, {
+        headers: {ETag: '"world-revision-43"'},
+        status: 204,
+      });
     };
     await expect(
-      saveServerWorldSave(save, serverInstanceId, fetcher),
-    ).resolves.toBeUndefined();
+      saveServerWorldSave(save, serverInstanceId, worldSaveRevision, fetcher),
+    ).resolves.toBe('"world-revision-43"');
   });
 
   test("rejects a save after the server instance changes", async () => {
@@ -92,7 +103,28 @@ describe("browser world save client", () => {
       });
 
     await expect(
-      saveServerWorldSave(saveFixture(), serverInstanceId, fetcher),
+      saveServerWorldSave(
+        saveFixture(),
+        serverInstanceId,
+        worldSaveRevision,
+        fetcher,
+      ),
     ).rejects.toBeInstanceOf(WorldSaveServerChangedError);
+  });
+
+  test("rejects a save when another tab changed the world revision", async () => {
+    const fetcher: WorldSaveFetch = async () =>
+      new Response("World save changed after this tab loaded it", {
+        status: 412,
+      });
+
+    await expect(
+      saveServerWorldSave(
+        saveFixture(),
+        serverInstanceId,
+        worldSaveRevision,
+        fetcher,
+      ),
+    ).rejects.toBeInstanceOf(WorldSaveConflictError);
   });
 });
