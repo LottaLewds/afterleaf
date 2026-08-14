@@ -40,6 +40,7 @@ import {
 
 import {
   emptyLibrary,
+  isRuntimeLibraryAvailable,
   loadRuntimeLibrary,
   type CatalogItem,
   type CatalogLanguage,
@@ -2212,6 +2213,9 @@ export const App = () => {
                 <Show when={!blacklistedPublications.loading}>
                   <ShopViewport
                     catalogAtlases={() => runtime().atlases}
+                    catalogAvailable={() =>
+                      isRuntimeLibraryAvailable(runtime())
+                    }
                     catalogIdentity={() => runtime().identity}
                     mouseSensitivity={mouseSensitivity}
                     newPublicationIds={newPublicationIds}

@@ -88,6 +88,11 @@ export const emptyLibrary: RuntimeLibrary = Object.freeze({
   publications: [],
 });
 
+export const isRuntimeLibraryAvailable = (
+  library: RuntimeLibrary | undefined,
+): library is RuntimeLibrary =>
+  library !== undefined && library !== emptyLibrary;
+
 interface RuntimePublication {
   id: string;
   groupId?: string;
@@ -327,6 +332,9 @@ export const loadRuntimeLibraryWithFetcher = async (
     if (!Array.isArray(value.publications) || !isCatalogIdentity(value))
       return emptyLibrary;
     const publications = value.publications.filter(isRuntimePublication);
+    // A partially understood catalog is unavailable, not a smaller catalog.
+    // Treating rejected entries as removals can destructively rewrite the world save.
+    if (publications.length !== value.publications.length) return emptyLibrary;
     const snapshotId = response.headers.get("X-Afterleaf-Snapshot-Id")?.trim();
     const identity: CatalogIdentity = {
       catalogContentHash: value.contentHash,

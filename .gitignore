@@ -21,6 +21,7 @@ content/art-frames/*
 content/posters/*
 !content/posters/.gitkeep
 content/world-save.json
+content/world-state-backups/
 *:Zone.Identifier
 .bun-cache/
 .codex

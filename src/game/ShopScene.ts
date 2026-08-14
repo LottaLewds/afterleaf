@@ -701,9 +701,11 @@ export type ShopGameSnapshot = {
 export type ShopSceneOptions = {
   canvas: HTMLCanvasElement;
   catalogAtlases: () => CatalogAtlases;
+  catalogAvailable: () => boolean;
   catalogIdentity: () => CatalogIdentity;
   catalogItems: () => readonly CatalogItem[];
   initialWorldSave?: WorldSaveV1;
+  worldSaveWritable: () => boolean;
   initialPageIndex?: (publicationId: string) => number;
   importArtFrameImage?: (
     image: Blob,
@@ -920,6 +922,7 @@ export class ShopScene {
   readonly #standaloneBookTexturePublicationIds = new Set<string>();
   readonly #camera = new PerspectiveCamera(48, 1, 0.1, 45);
   readonly #canvas: HTMLCanvasElement;
+  readonly #catalogAvailable: () => boolean;
   readonly #catalogIdentity: () => CatalogIdentity;
   readonly #catalogItems: () => readonly CatalogItem[];
   readonly #heldLocalPosition = new Vector3(0.5, -0.36, -1.08);
@@ -1311,10 +1314,12 @@ export class ShopScene {
   #worldSaveIntervalHandle: number | undefined;
   #worldSavePending: Promise<void> | undefined;
   #worldStateDirty = false;
+  readonly #worldSaveWritable: () => boolean;
 
   constructor(options: ShopSceneOptions) {
     this.#canvas = options.canvas;
     this.#catalogAtlases = options.catalogAtlases;
+    this.#catalogAvailable = options.catalogAvailable;
     this.#catalogIdentity = options.catalogIdentity;
     this.#catalogItems = options.catalogItems;
     this.#newPublicationIds = options.newPublicationIds ?? (() => []);
@@ -1338,6 +1343,7 @@ export class ShopScene {
     this.#onPageIndexChange = options.onPageIndexChange;
     this.#onSignEditRequest = options.onSignEditRequest;
     this.#onWorldSave = options.onWorldSave;
+    this.#worldSaveWritable = options.worldSaveWritable;
     this.#pendingWorldSave = options.initialWorldSave;
     this.#onReady = options.onReady;
     this.#paused = options.paused ?? (() => false);
@@ -6884,6 +6890,9 @@ export class ShopScene {
   }
 
   #syncInputs() {
+    // Preserve the mounted world while the catalog is unavailable. Once a valid
+    // catalog returns, its changed accessor value will resume synchronization.
+    if (!this.#catalogAvailable()) return;
     const items = this.#catalogItems();
     const newPublicationIds = this.#newPublicationIds();
     const itemsChanged = items !== this.#lastItems;
@@ -11071,6 +11080,10 @@ export class ShopScene {
   readonly #scheduleWorldSave = () => {
     if (
       this.#disposed ||
+      !this.#catalogAvailable() ||
+      !this.#worldSaveWritable() ||
+      document.visibilityState !== "visible" ||
+      !document.hasFocus() ||
       !this.#worldStateDirty ||
       !this.#onWorldSave ||
       this.#worldSaveIdleHandle !== undefined
@@ -11085,7 +11098,12 @@ export class ShopScene {
     this.#worldSaveIdleHandle = window.requestIdleCallback(
       () => {
         this.#worldSaveIdleHandle = undefined;
-        if (!this.#disposed) this.#flushWorldSave();
+        if (
+          !this.#disposed &&
+          document.visibilityState === "visible" &&
+          document.hasFocus()
+        )
+          this.#flushWorldSave();
       },
       {timeout: WORLD_SAVE_IDLE_TIMEOUT_MS},
     );
@@ -11102,7 +11120,13 @@ export class ShopScene {
   }
 
   #flushWorldSave() {
-    if (!this.#worldStateDirty || !this.#onWorldSave || this.#worldSavePending)
+    if (
+      !this.#catalogAvailable() ||
+      !this.#worldSaveWritable() ||
+      !this.#worldStateDirty ||
+      !this.#onWorldSave ||
+      this.#worldSavePending
+    )
       return;
     this.#worldStateDirty = false;
     try {

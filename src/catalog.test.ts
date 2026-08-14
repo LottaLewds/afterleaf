@@ -1,6 +1,7 @@
 import {describe, expect, test} from "bun:test";
 import {
   emptyLibrary,
+  isRuntimeLibraryAvailable,
   loadRuntimeCatalog,
   loadRuntimeLibraryWithFetcher,
 } from "~/catalog";
@@ -113,6 +114,52 @@ describe("loadRuntimeCatalog", () => {
 
     expect(await loadRuntimeCatalog(missingFetcher)).toEqual([]);
     expect(await loadRuntimeCatalog(unsafeFetcher)).toEqual([]);
+    expect(await loadRuntimeLibraryWithFetcher(unsafeFetcher)).toBe(
+      emptyLibrary,
+    );
+  });
+
+  test("distinguishes an unavailable catalog from a valid empty catalog", async () => {
+    const unavailable = await loadRuntimeLibraryWithFetcher(
+      async () => new Response("unavailable", {status: 503}),
+    );
+    const empty = await loadRuntimeLibraryWithFetcher(async () =>
+      catalogResponse([]),
+    );
+
+    expect(isRuntimeLibraryAvailable(unavailable)).toBe(false);
+    expect(isRuntimeLibraryAvailable(empty)).toBe(true);
+    expect(empty.publications).toEqual([]);
+  });
+
+  test("rejects the whole catalog when any publication is not migrated", async () => {
+    const runtime = await loadRuntimeLibraryWithFetcher(async () =>
+      catalogResponse([
+        {
+          id: "current",
+          title: "Current",
+          language: "english",
+          tags: [],
+          physical: {},
+          assets: {
+            front: "publications/current/front.webp",
+            pages: ["publications/current/pages/001.webp"],
+          },
+        },
+        {
+          id: "legacy",
+          title: "Legacy",
+          language: "english",
+          tags: [],
+          assets: {
+            front: "publications/legacy/front.webp",
+            pages: ["publications/legacy/pages/001.webp"],
+          },
+        },
+      ]),
+    );
+
+    expect(runtime).toBe(emptyLibrary);
   });
 
   test("fills sparse previews with on-demand page URLs", async () => {
