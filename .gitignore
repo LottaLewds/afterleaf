@@ -14,6 +14,7 @@ content-plugins/
 content/channels/*
 !content/channels/.gitkeep
 !content/channels/afterleaf_tv/
+content/channels/afterleaf_tv/*
 !content/channels/afterleaf_tv/.gitkeep
 content/art-frames/*
 !content/art-frames/.gitkeep
