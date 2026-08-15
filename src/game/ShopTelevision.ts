@@ -1,24 +1,26 @@
 import {
   BoxGeometry,
   CanvasTexture,
+  Color,
   ExtrudeGeometry,
   Group,
   LinearFilter,
   Mesh,
   MeshBasicMaterial,
   MeshStandardMaterial,
-  type Object3D,
   Path,
   PlaneGeometry,
+  RectAreaLight,
   Shape,
   SRGBColorSpace,
   Vector2,
   Vector4,
+  Vector3,
   VideoTexture,
+  type Object3D,
 } from "three";
 import {RoundedBoxGeometry} from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
 import {GLTFLoader} from "three/examples/jsm/loaders/GLTFLoader.js";
-import {DEV} from "solid-js";
 
 import tvButtonClickUrl from "~/assets/audio/tv-button-click.mp3?url";
 import {
@@ -68,6 +70,24 @@ const ACTIVE_PICTURE_REQUIRED_SAMPLES = 4;
 const ACTIVE_PICTURE_MAX_ATTEMPTS = 16;
 const SCREEN_INDICATOR_DURATION_MS = 850;
 const SCREEN_OVERLAY_WIDTH = 512;
+const SCREEN_LIGHT_CANVAS_WIDTH = 64;
+const SCREEN_LIGHT_CANVAS_HEIGHT = 36;
+const SCREEN_LIGHT_SAMPLE_INTERVAL_SECONDS = 0.18;
+const SCREEN_LIGHT_SAMPLE_BAND = 0.44;
+const SCREEN_LIGHT_SAMPLE_MARGIN = 0.06;
+const SCREEN_LIGHT_SMOOTHING = 8;
+const SCREEN_LIGHT_WASH_COVERAGE = 1.5;
+const SCREEN_LIGHT_SOURCE_OFFSET = 0.1;
+// Small screens need a stronger local wash to remain visible against the
+// shop's ambient and ceiling lighting.
+const SCREEN_LIGHT_MIN_INTENSITY = 10;
+const SCREEN_LIGHT_MAX_INTENSITY = 14;
+
+const SCREEN_LIGHT_EDGES = ["top", "right", "bottom", "left"] as const;
+type ScreenLightEdge = (typeof SCREEN_LIGHT_EDGES)[number];
+
+const srgbToLinear = (value: number) =>
+  value <= 0.04045 ? value / 12.92 : Math.pow((value + 0.055) / 1.055, 2.4);
 
 // UV-space insets for the portion of each screen that its bezel cannot cover.
 // The procedural widescreen values follow its modeled bezel overlap exactly.
@@ -110,6 +130,12 @@ type ActivePictureDetection = {
   samples: ActivePictureRect[];
 };
 
+type ScreenLight = {
+  light: RectAreaLight;
+  targetColor: Color;
+  targetIntensity: number;
+};
+
 export type ShopTelevisionModel = {
   screenAspect: number;
   screenNodeName: string;
@@ -131,6 +157,7 @@ export type ShopTelevisionOptions = {
   position?: readonly [x: number, y: number, z: number];
   random?: RandomSource;
   rotationY?: number;
+  tvScreenLighting?: () => boolean;
   tableMaterial: MeshStandardMaterial;
 };
 
@@ -430,6 +457,9 @@ export class ShopTelevision {
   readonly #screenOverlayCanvas = document.createElement("canvas");
   readonly #screenOverlayContext: CanvasRenderingContext2D | null;
   readonly #screenOverlayTexture: CanvasTexture;
+  readonly #screenLights: ScreenLight[] = [];
+  #screenLightingCanvas: HTMLCanvasElement | undefined;
+  readonly #tvScreenLighting: () => boolean;
   readonly #video = document.createElement("video");
   readonly #videoTexture: VideoTexture;
   readonly #powerIndicatorMaterial = new MeshStandardMaterial({
@@ -459,6 +489,10 @@ export class ShopTelevision {
   #playRevision = 0;
   #powered = false;
   #screenOverlayTimer: number | undefined;
+  #screenLightingContext: CanvasRenderingContext2D | null = null;
+  #nextScreenLightingSampleTime = 0;
+  #screenLightMaximumIntensity = SCREEN_LIGHT_MIN_INTENSITY;
+  #screenLightingUnavailable = false;
   #suspended = false;
   #targetedInteraction: ShopTelevisionInteraction | undefined;
   #volume = 1;
@@ -474,6 +508,7 @@ export class ShopTelevision {
     this.#onVolumeChange = options.onVolumeChange;
     this.#noSignalTexture = ShopTelevision.#retainNoSignalTexture();
     this.#random = options.random ?? Math.random;
+    this.#tvScreenLighting = options.tvScreenLighting ?? (() => false);
     this.#screenAspect = options.flatScreen
       ? options.flatScreen.width / options.flatScreen.height
       : (options.model?.screenAspect ?? TV_SCREEN_ASPECT);
@@ -699,6 +734,30 @@ uniform sampler2D afterleafScreenOverlay;\n${shader.fragmentShader}`;
     }
     if (!this.#powered || !this.#currentVideo) return;
     void this.#playCurrentVideo();
+  }
+
+  update(deltaSeconds: number) {
+    if (this.#disposed || !Number.isFinite(deltaSeconds) || deltaSeconds <= 0)
+      return;
+    const interpolation =
+      1 - Math.exp(-SCREEN_LIGHT_SMOOTHING * Math.min(deltaSeconds, 0.1));
+    const screenLightingEnabled = this.#tvScreenLighting();
+    if (!screenLightingEnabled) {
+      for (const screenLight of this.#screenLights)
+        screenLight.light.visible = false;
+      return;
+    }
+    const lightsVisible =
+      this.#powered &&
+      !this.#suspended &&
+      this.#screenMaterial.map === this.#videoTexture;
+    for (const screenLight of this.#screenLights) {
+      screenLight.light.visible = lightsVisible;
+      screenLight.light.color.lerp(screenLight.targetColor, interpolation);
+      screenLight.light.intensity +=
+        (screenLight.targetIntensity - screenLight.light.intensity) *
+        interpolation;
+    }
   }
 
   setChannels(channels: readonly TvChannel[]) {
@@ -954,10 +1013,9 @@ uniform sampler2D afterleafScreenOverlay;\n${shader.fragmentShader}`;
         if (!screenMesh && object instanceof Mesh) screenMesh = object;
       });
       if (!screenMesh) {
-        if (DEV)
-          console.warn(
-            `Afterleaf television model has no ${model.screenNodeName} mesh.`,
-          );
+        console.error(
+          `Afterleaf television model has no ${model.screenNodeName} mesh.`,
+        );
         return;
       }
 
@@ -972,6 +1030,27 @@ uniform sampler2D afterleafScreenOverlay;\n${shader.fragmentShader}`;
       screenMesh.name = "shop-model-television-screen";
       screenMesh.userData.televisionInteraction = "screen";
       this.#interactionTargets.push(screenMesh);
+      screenMesh.geometry.computeBoundingBox();
+      const screenBounds = screenMesh.geometry.boundingBox;
+      if (screenBounds) {
+        screenMesh.updateWorldMatrix(true, false);
+        const screenWorldScale = screenMesh.getWorldScale(new Vector3());
+        this.#createScreenLights(
+          screenMesh,
+          {
+            minX: screenBounds.min.x,
+            minY: screenBounds.min.y,
+            maxX: screenBounds.max.x,
+            maxY: screenBounds.max.y,
+            maxZ: screenBounds.max.z,
+          },
+          Math.max(
+            Math.abs(screenWorldScale.x),
+            Math.abs(screenWorldScale.y),
+            Math.abs(screenWorldScale.z),
+          ),
+        );
+      }
 
       this.#createModelControlTargets(model.scale);
       this.#audio.node.position.set(
@@ -984,8 +1063,7 @@ uniform sampler2D afterleafScreenOverlay;\n${shader.fragmentShader}`;
       this.#buttonAudio.node.rotation.y = Math.PI;
       this.#group.add(this.#audio.node, this.#buttonAudio.node);
     } catch (error) {
-      if (DEV)
-        console.warn("Afterleaf could not load the CRT TV model.", error);
+      console.error("Afterleaf could not load the CRT TV model.", error);
     }
   }
 
@@ -1029,6 +1107,67 @@ uniform sampler2D afterleafScreenOverlay;\n${shader.fragmentShader}`;
     }
   }
 
+  #createScreenLights(
+    screen: Object3D,
+    bounds: {
+      maxX: number;
+      maxY: number;
+      maxZ: number;
+      minX: number;
+      minY: number;
+    },
+    worldScale = 1,
+  ) {
+    const width = bounds.maxX - bounds.minX;
+    const height = bounds.maxY - bounds.minY;
+    if (
+      !Number.isFinite(width) ||
+      !Number.isFinite(height) ||
+      width <= 0 ||
+      height <= 0
+    )
+      return;
+
+    const centerX = (bounds.minX + bounds.maxX) * 0.5;
+    const centerY = (bounds.minY + bounds.maxY) * 0.5;
+    const localToWorldScale = Math.max(Math.abs(worldScale), 0.001);
+    const scaledWidth = width * localToWorldScale;
+    const scaledHeight = height * localToWorldScale;
+    const sourceOffset =
+      Math.max(
+        0.04,
+        Math.min(scaledWidth, scaledHeight) * SCREEN_LIGHT_SOURCE_OFFSET,
+      ) / localToWorldScale;
+    const maximumIntensity = Math.min(
+      SCREEN_LIGHT_MAX_INTENSITY,
+      Math.max(SCREEN_LIGHT_MIN_INTENSITY, 4.5 * (scaledWidth / SCREEN_WIDTH)),
+    );
+    const lightPosition: readonly [x: number, y: number, z: number] = [
+      centerX,
+      centerY,
+      bounds.maxZ + sourceOffset,
+    ];
+    const lightWidth = scaledWidth * SCREEN_LIGHT_WASH_COVERAGE;
+    const lightHeight = scaledHeight * SCREEN_LIGHT_WASH_COVERAGE;
+
+    for (const edge of SCREEN_LIGHT_EDGES) {
+      const light = new RectAreaLight("#000000", 0, lightWidth, lightHeight);
+      light.name = `shop-television-${edge}-light`;
+      light.position.set(...lightPosition);
+      light.rotation.y = Math.PI;
+      light.visible = false;
+      screen.add(light);
+      this.#screenLights.push({
+        light,
+        targetColor: new Color("#000000"),
+        targetIntensity: 0,
+      });
+    }
+
+    this.#screenLightMaximumIntensity =
+      maximumIntensity / SCREEN_LIGHT_EDGES.length;
+  }
+
   #createFlatScreen(size: {height: number; width: number}) {
     this.#group.name = "shop-flat-screen";
     const backing = new Mesh(
@@ -1051,6 +1190,13 @@ uniform sampler2D afterleafScreenOverlay;\n${shader.fragmentShader}`;
     screen.name = "shop-flat-screen-picture";
     screen.userData.televisionInteraction = "screen";
     this.#interactionTargets.push(screen);
+    this.#createScreenLights(screen, {
+      minX: -size.width * 0.5,
+      minY: -size.height * 0.5,
+      maxX: size.width * 0.5,
+      maxY: size.height * 0.5,
+      maxZ: 0,
+    });
     this.#group.add(screen);
 
     this.#audio.node.position.set(0, -size.height * 0.35, 0.1);
@@ -1070,6 +1216,13 @@ uniform sampler2D afterleafScreenOverlay;\n${shader.fragmentShader}`;
     target.name = "shop-television-screen";
     target.userData.televisionInteraction = "screen";
     this.#interactionTargets.push(target);
+    this.#createScreenLights(target, {
+      minX: -SCREEN_WIDTH * 0.5,
+      minY: -SCREEN_HEIGHT * 0.5,
+      maxX: SCREEN_WIDTH * 0.5,
+      maxY: SCREEN_HEIGHT * 0.5,
+      maxZ: 0,
+    });
 
     const cabinetMaterial = new MeshStandardMaterial({
       color: "#322b25",
@@ -1421,6 +1574,7 @@ uniform sampler2D afterleafScreenOverlay;\n${shader.fragmentShader}`;
     this.#currentVideo = video;
     this.#currentVideoIndex = videoIndex;
     const revision = ++this.#playRevision;
+    this.#clearScreenLighting();
     this.#prepareActivePictureDetection(video);
     this.#video.src = video.url;
     this.#video.load();
@@ -1445,8 +1599,178 @@ uniform sampler2D afterleafScreenOverlay;\n${shader.fragmentShader}`;
     const video = this.#currentVideo;
     if (!video || this.#failedVideoIds.has(video.id)) return;
     this.#failedVideoIds.add(video.id);
-    if (DEV) console.warn(`Afterleaf TV could not play ${video.id}.`, error);
+    console.error(`Afterleaf TV could not play ${video.id}.`, error);
     this.#advanceVideo();
+  }
+
+  #ensureScreenLightingResources() {
+    let canvas = this.#screenLightingCanvas;
+    if (!canvas) {
+      canvas = document.createElement("canvas");
+      canvas.width = SCREEN_LIGHT_CANVAS_WIDTH;
+      canvas.height = SCREEN_LIGHT_CANVAS_HEIGHT;
+      this.#screenLightingCanvas = canvas;
+    }
+    if (!this.#screenLightingContext)
+      this.#screenLightingContext = canvas.getContext("2d", {
+        willReadFrequently: true,
+      });
+    return this.#screenLightingContext;
+  }
+
+  #sampleScreenLighting() {
+    if (
+      !this.#tvScreenLighting() ||
+      this.#screenLightingUnavailable ||
+      this.#screenLights.length === 0 ||
+      !this.#powered ||
+      !this.#currentVideo ||
+      this.#video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA
+    )
+      return;
+
+    const currentTime = Number.isFinite(this.#video.currentTime)
+      ? this.#video.currentTime
+      : 0;
+    if (currentTime + Number.EPSILON < this.#nextScreenLightingSampleTime)
+      return;
+    this.#nextScreenLightingSampleTime =
+      currentTime + SCREEN_LIGHT_SAMPLE_INTERVAL_SECONDS;
+
+    const context = this.#ensureScreenLightingResources();
+    const canvas = this.#screenLightingCanvas;
+    const videoWidth = this.#video.videoWidth;
+    const videoHeight = this.#video.videoHeight;
+    if (!canvas || !context || videoWidth <= 0 || videoHeight <= 0) return;
+
+    const activeRect = this.#activePictureRect;
+    const mapping = getTvContentMapping(
+      videoWidth * activeRect.width,
+      videoHeight * activeRect.height,
+      this.#screenAspect,
+      this.#screenSafeArea,
+    );
+    const canvasWidth = canvas.width;
+    const canvasHeight = canvas.height;
+    const destinationWidth = mapping.scale.x * canvasWidth;
+    const destinationHeight = mapping.scale.y * canvasHeight;
+    const destinationX =
+      mapping.center.x * canvasWidth - destinationWidth * 0.5;
+    const destinationY =
+      canvasHeight - mapping.center.y * canvasHeight - destinationHeight * 0.5;
+
+    context.fillStyle = "#000000";
+    context.fillRect(0, 0, canvasWidth, canvasHeight);
+    try {
+      context.drawImage(
+        this.#video,
+        activeRect.x * videoWidth,
+        activeRect.y * videoHeight,
+        activeRect.width * videoWidth,
+        activeRect.height * videoHeight,
+        destinationX,
+        destinationY,
+        destinationWidth,
+        destinationHeight,
+      );
+      const pixels = context.getImageData(0, 0, canvasWidth, canvasHeight).data;
+      for (const [index, edge] of SCREEN_LIGHT_EDGES.entries()) {
+        const screenLight = this.#screenLights[index];
+        if (!screenLight) continue;
+        const sample = this.#sampleScreenLightEdge(
+          pixels,
+          canvasWidth,
+          canvasHeight,
+          edge,
+        );
+        screenLight.targetColor.setRGB(sample.red, sample.green, sample.blue);
+        screenLight.targetIntensity =
+          this.#screenLightMaximumIntensity * sample.brightness;
+      }
+    } catch (error) {
+      this.#screenLightingUnavailable = true;
+      console.error(
+        `Afterleaf TV could not sample ${this.#currentVideo.id} for screen lighting.`,
+        error,
+      );
+      for (const screenLight of this.#screenLights)
+        screenLight.targetIntensity = 0;
+    }
+  }
+
+  #sampleScreenLightEdge(
+    pixels: Uint8ClampedArray,
+    width: number,
+    height: number,
+    edge: ScreenLightEdge,
+  ) {
+    const isHorizontal = edge === "top" || edge === "bottom";
+    const bandSize = isHorizontal
+      ? Math.max(1, Math.ceil(height * SCREEN_LIGHT_SAMPLE_BAND))
+      : Math.max(1, Math.ceil(width * SCREEN_LIGHT_SAMPLE_BAND));
+    const marginX = Math.floor(width * SCREEN_LIGHT_SAMPLE_MARGIN);
+    const marginY = Math.floor(height * SCREEN_LIGHT_SAMPLE_MARGIN);
+    let xStart = marginX;
+    let xEnd = width - marginX;
+    let yStart = marginY;
+    let yEnd = height - marginY;
+    if (edge === "top") {
+      yStart = 0;
+      yEnd = bandSize;
+    } else if (edge === "right") {
+      xStart = width - bandSize;
+      xEnd = width;
+    } else if (edge === "bottom") {
+      yStart = height - bandSize;
+      yEnd = height;
+    } else {
+      xStart = 0;
+      xEnd = bandSize;
+    }
+
+    let red = 0;
+    let green = 0;
+    let blue = 0;
+    let pixelCount = 0;
+    for (let y = yStart; y < yEnd; y += 1) {
+      for (let x = xStart; x < xEnd; x += 1) {
+        const offset = (y * width + x) * 4;
+        const alpha = (pixels[offset + 3] ?? 0) / 255;
+        if (alpha <= 0) continue;
+        red += srgbToLinear(((pixels[offset] ?? 0) / 255) * alpha);
+        green += srgbToLinear(((pixels[offset + 1] ?? 0) / 255) * alpha);
+        blue += srgbToLinear(((pixels[offset + 2] ?? 0) / 255) * alpha);
+        pixelCount += 1;
+      }
+    }
+
+    if (pixelCount === 0) return {brightness: 0, blue: 0, green: 0, red: 0};
+    red /= pixelCount;
+    green /= pixelCount;
+    blue /= pixelCount;
+    const brightness = Math.min(
+      1,
+      Math.pow(
+        Math.max(
+          0.2126 * red + 0.7152 * green + 0.0722 * blue,
+          Math.max(red, green, blue) * 0.3,
+        ),
+        0.72,
+      ),
+    );
+    return {brightness, blue, green, red};
+  }
+
+  #clearScreenLighting() {
+    this.#nextScreenLightingSampleTime = 0;
+    this.#screenLightingUnavailable = false;
+    for (const screenLight of this.#screenLights) {
+      screenLight.light.color.setRGB(0, 0, 0);
+      screenLight.light.intensity = 0;
+      screenLight.light.visible = false;
+      screenLight.targetColor.setRGB(0, 0, 0);
+      screenLight.targetIntensity = 0;
+    }
   }
 
   #resetActivePictureDetection() {
@@ -1477,6 +1801,7 @@ uniform sampler2D afterleafScreenOverlay;\n${shader.fragmentShader}`;
   }
 
   #sampleActivePicture() {
+    this.#sampleScreenLighting();
     const detection = this.#activePictureDetection;
     const currentVideo = this.#currentVideo;
     if (!detection || !currentVideo || detection.key !== currentVideo.url)
@@ -1523,11 +1848,10 @@ uniform sampler2D afterleafScreenOverlay;\n${shader.fragmentShader}`;
       );
       if (sample) detection.samples.push(sample);
     } catch (error) {
-      if (DEV)
-        console.warn(
-          `Afterleaf TV could not inspect ${currentVideo.id}'s active picture.`,
-          error,
-        );
+      console.error(
+        `Afterleaf TV could not inspect ${currentVideo.id}'s active picture.`,
+        error,
+      );
       this.#finishActivePictureDetection(FULL_ACTIVE_PICTURE_RECT);
       return;
     }
@@ -1556,12 +1880,15 @@ uniform sampler2D afterleafScreenOverlay;\n${shader.fragmentShader}`;
   #showVideo() {
     if (!this.#powered) return;
     this.#updateVideoContentMapping();
-    if (this.#screenMaterial.map === this.#videoTexture) return;
-    this.#screenMaterial.map = this.#videoTexture;
-    this.#screenMaterial.needsUpdate = true;
+    if (this.#screenMaterial.map !== this.#videoTexture) {
+      this.#screenMaterial.map = this.#videoTexture;
+      this.#screenMaterial.needsUpdate = true;
+    }
+    this.#sampleScreenLighting();
   }
 
   #showNoSignal() {
+    this.#clearScreenLighting();
     this.#applyContentMapping(16, 9);
     this.#sourceRectUniform.value.set(0, 0, 1, 1);
     if (this.#screenMaterial.map === this.#noSignalTexture) return;

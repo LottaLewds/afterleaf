@@ -64,6 +64,7 @@ export type ShopViewportProps = {
   pageIndexForPublication?: (publicationId: string) => number;
   publications: Accessor<readonly CatalogItem[]>;
   selectedPublicationId: Accessor<string | undefined>;
+  tvScreenLighting?: Accessor<boolean>;
   unstuckRequest?: Accessor<number>;
   onOpenMenu?: () => void;
   onPasteText?: (text: string) => boolean | Promise<boolean>;
@@ -243,6 +244,9 @@ export const ShopViewport = (props: ShopViewportProps) => {
           ...(props.newPublicationIds === undefined
             ? {}
             : {newPublicationIds: props.newPublicationIds}),
+          ...(props.tvScreenLighting === undefined
+            ? {}
+            : {tvScreenLighting: props.tvScreenLighting}),
           selectedPublicationId: props.selectedPublicationId,
           onGameStateChange: setGameState,
           onPauseRequest: () => props.onOpenMenu?.(),
