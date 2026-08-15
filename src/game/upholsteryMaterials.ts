@@ -12,7 +12,7 @@ import upholsteryAlbedoUrl from "~/assets/materials/grey-upholstery-albedo.webp"
 import upholsteryNormalUrl from "~/assets/materials/grey-upholstery-normal.webp";
 import upholsterySurfaceUrl from "~/assets/materials/grey-upholstery-surface.webp";
 
-const UPHOLSTERY_TEXTURE_WORLD_SIZE = 0.85;
+const UPHOLSTERY_TEXTURE_WORLD_SIZE = 1.2;
 const UPHOLSTERY_EDGE_RADIUS = 0.035;
 
 type BoxSize = readonly [width: number, height: number, depth: number];
@@ -60,12 +60,12 @@ export const loadUpholsteryTextures = (
 export const createUpholsteryMaterial = (textures: UpholsteryTextures) => {
   const material = new MeshStandardMaterial({
     aoMap: textures.surface,
-    aoMapIntensity: 0.82,
+    aoMapIntensity: 0.58,
     map: textures.albedo,
     metalness: 0,
     metalnessMap: textures.surface,
     normalMap: textures.normal,
-    normalScale: new Vector2(0.62, 0.62),
+    normalScale: new Vector2(0.28, 0.28),
     roughness: 0.96,
     roughnessMap: textures.surface,
   });
