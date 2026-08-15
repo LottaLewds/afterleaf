@@ -2214,8 +2214,17 @@ const serveArtFrameContent = async (
     return response.end();
   }
   try {
+    const imageStat = statSync(imagePath);
+    const etag = `W/"${imageStat.size.toString(16)}-${Math.floor(
+      imageStat.mtimeMs,
+    ).toString(16)}"`;
     response.statusCode = 200;
-    response.setHeader("Cache-Control", "no-store");
+    response.setHeader("Cache-Control", "private, no-cache");
+    response.setHeader("ETag", etag);
+    if (request.headers["if-none-match"] === etag) {
+      response.statusCode = 304;
+      return response.end();
+    }
     response.setHeader("Content-Type", "image/webp");
     if (request.method === "HEAD") return response.end();
     return response.end(await renderedArtFrameImage(imagePath));
@@ -2407,7 +2416,11 @@ const serveActiveLibraryAsset = (
   );
   response.setHeader(
     "Cache-Control",
-    pathname === "/catalog.json" ? "no-store" : "private, max-age=3600",
+    pathname === "/catalog.json"
+      ? "no-store"
+      : !explicitPublicDirectory && cachedSnapshotId
+        ? "private, max-age=31536000, immutable"
+        : "private, max-age=3600",
   );
   if (
     pathname === "/catalog.json" &&
