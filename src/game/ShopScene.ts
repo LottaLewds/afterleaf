@@ -13,7 +13,7 @@ import {
   DoubleSide,
   EquirectangularReflectionMapping,
   Euler,
-  FogExp2,
+
   FrontSide,
   Group,
   ImageBitmapLoader,
@@ -1723,7 +1723,7 @@ export class ShopScene {
     this.#scene.backgroundIntensity = 0.34;
     this.#scene.environment = this.#moonEnvironment;
     this.#scene.environmentIntensity = 0.16;
-    this.#scene.fog = new FogExp2("#071010", 0.027);
+
     this.#camera.far = 110;
     this.#camera.updateProjectionMatrix();
     this.#camera.position.set(
