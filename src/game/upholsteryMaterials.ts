@@ -1,4 +1,6 @@
 import {
+  LinearFilter,
+  LinearMipmapLinearFilter,
   MeshStandardMaterial,
   RepeatWrapping,
   SRGBColorSpace,
@@ -28,6 +30,9 @@ const configureTexture = (texture: Texture, anisotropy: number) => {
   texture.wrapS = RepeatWrapping;
   texture.wrapT = RepeatWrapping;
   texture.anisotropy = anisotropy;
+  texture.generateMipmaps = true;
+  texture.minFilter = LinearMipmapLinearFilter;
+  texture.magFilter = LinearFilter;
   return texture;
 };
 
@@ -35,7 +40,7 @@ export const loadUpholsteryTextures = (
   textureLoader: TextureLoader,
   maxAnisotropy: number,
 ): UpholsteryTextures => {
-  const anisotropy = Math.min(8, maxAnisotropy);
+  const anisotropy = Math.min(16, maxAnisotropy);
   const albedo = configureTexture(
     textureLoader.load(upholsteryAlbedoUrl),
     anisotropy,
