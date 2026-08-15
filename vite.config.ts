@@ -162,6 +162,10 @@ const tvVideoAnalyzer = createCachedTvVideoAnalyzer({
     console.warn(`[afterleaf] Could not analyze TV video ${filePath}`, error),
 });
 const postersDirectory = path.resolve(import.meta.dirname, "content/posters");
+const posterDerivativeCacheDirectory = path.resolve(
+  postersDirectory,
+  ".afterleaf-cache",
+);
 const postersDirectories = async () =>
   uniquePaths([
     postersDirectory,
@@ -170,6 +174,10 @@ const postersDirectories = async () =>
 const artFramesDirectory = path.resolve(
   import.meta.dirname,
   "content/art-frames",
+);
+const artFrameDerivativeCacheDirectory = path.resolve(
+  artFramesDirectory,
+  ".afterleaf-cache",
 );
 const artFramesDirectories = async () =>
   uniquePaths([
@@ -1857,7 +1865,11 @@ const renderedPoster = (filePath: string) => {
   for (const cachedKey of posterRenderCache.keys())
     if (cachedKey.startsWith(`${filePath}\u0000`))
       posterRenderCache.delete(cachedKey);
-  const pending = renderPoster(filePath, createPosterImageDerivative);
+  const pending = renderPoster(
+    filePath,
+    createPosterImageDerivative,
+    posterDerivativeCacheDirectory,
+  );
   posterRenderCache.set(key, pending);
   void pending.catch(() => posterRenderCache.delete(key));
   return pending;
@@ -2082,7 +2094,11 @@ const renderedArtFrameImage = (filePath: string) => {
   for (const cachedKey of artFrameRenderCache.keys())
     if (cachedKey.startsWith(`${filePath}\u0000`))
       artFrameRenderCache.delete(cachedKey);
-  const pending = renderArtFrameImage(filePath, createArtFrameImageDerivative);
+  const pending = renderArtFrameImage(
+    filePath,
+    createArtFrameImageDerivative,
+    artFrameDerivativeCacheDirectory,
+  );
   artFrameRenderCache.set(key, pending);
   void pending.catch(() => artFrameRenderCache.delete(key));
   return pending;
@@ -2456,8 +2472,46 @@ const activeLibraryPlugin = (): Plugin => ({
   },
 });
 
+const cacheableStaticAssetPath =
+  /^\/(?:src\/assets|assets)\/.+\.(?:avif|gif|jpe?g|mp3|mp4|ogg|png|webm|webp|glb|woff2?)$/u;
+
+const staticAssetCachePlugin = (): Plugin => {
+  const setStaticAssetCacheHeaders = (
+    request: IncomingMessage,
+    response: ServerResponse,
+    next: () => void,
+  ) => {
+    if (request.method !== "GET" && request.method !== "HEAD") return next();
+    let pathname: string;
+    try {
+      pathname = new URL(request.url ?? "/", "http://afterleaf.local").pathname;
+    } catch {
+      return next();
+    }
+    if (!cacheableStaticAssetPath.test(pathname)) return next();
+    response.setHeader(
+      "Cache-Control",
+      pathname.startsWith("/src/assets/")
+        ? "private, max-age=3600"
+        : "public, max-age=31536000, immutable",
+    );
+    return next();
+  };
+
+  return {
+    name: "afterleaf-static-asset-cache",
+    configureServer(server) {
+      server.middlewares.use(setStaticAssetCacheHeaders);
+    },
+    configurePreviewServer(server) {
+      server.middlewares.use(setStaticAssetCacheHeaders);
+    },
+  };
+};
+
 export default defineConfig(({command}) => ({
   plugins: [
+    staticAssetCachePlugin(),
     devServerDiscoveryPlugin(),
     worldSavePlugin(),
     localLibraryOperationsPlugin(),

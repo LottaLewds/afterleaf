@@ -1,10 +1,10 @@
 import {afterAll, describe, expect, test} from "bun:test";
-import {mkdtemp, rm, writeFile} from "node:fs/promises";
+import {mkdtemp, readdir, rm, writeFile} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {resolve} from "node:path";
 import sharp from "sharp";
 
-import {renderWebpImage} from "~/media/webp";
+import {renderCachedWebpImage, renderWebpImage} from "~/media/webp";
 
 const temporaryDirectories: string[] = [];
 
@@ -73,5 +73,81 @@ describe("shared WebP rendering", () => {
     expect(
       await renderWebpImage(mislabeledPath, async () => pngDerivative, 2_048),
     ).toEqual(pngDerivative);
+  });
+
+  test("persists derivatives and reuses them across calls", async () => {
+    const directory = await mkdtemp(resolve(tmpdir(), "afterleaf-webp-"));
+    temporaryDirectories.push(directory);
+    const imagePath = await temporaryImage(
+      "cached.png",
+      await sharp({
+        create: {background: "#abcdef", channels: 3, height: 10, width: 10},
+      })
+        .png()
+        .toBuffer(),
+    );
+    const cacheDirectory = resolve(directory, "cache");
+    let derivativeCalls = 0;
+    const createDerivative = async () => {
+      derivativeCalls += 1;
+      return Buffer.from([1, 2, 3]);
+    };
+
+    await expect(
+      renderCachedWebpImage(
+        imagePath,
+        createDerivative,
+        2_048,
+        cacheDirectory,
+        "test-v1",
+      ),
+    ).resolves.toEqual(Buffer.from([1, 2, 3]));
+    await expect(
+      renderCachedWebpImage(
+        imagePath,
+        createDerivative,
+        2_048,
+        cacheDirectory,
+        "test-v1",
+      ),
+    ).resolves.toEqual(Buffer.from([1, 2, 3]));
+    expect(derivativeCalls).toBe(1);
+  });
+
+  test("marks pass-through sources without duplicating their bytes", async () => {
+    const directory = await mkdtemp(resolve(tmpdir(), "afterleaf-webp-"));
+    temporaryDirectories.push(directory);
+    const source = await sharp({
+      create: {background: "#abcdef", channels: 3, height: 10, width: 10},
+    })
+      .webp()
+      .toBuffer();
+    const imagePath = await temporaryImage("pass-through.webp", source);
+    const cacheDirectory = resolve(directory, "cache");
+    let derivativeCalls = 0;
+    const createDerivative = async (input: Uint8Array) => {
+      derivativeCalls += 1;
+      return Buffer.from(input);
+    };
+
+    await renderCachedWebpImage(
+      imagePath,
+      createDerivative,
+      2_048,
+      cacheDirectory,
+      "test-v1",
+    );
+    await renderCachedWebpImage(
+      imagePath,
+      createDerivative,
+      2_048,
+      cacheDirectory,
+      "test-v1",
+    );
+
+    expect(derivativeCalls).toBe(1);
+    expect(await readdir(cacheDirectory)).toEqual([
+      expect.stringMatching(/\.source$/u),
+    ]);
   });
 });
