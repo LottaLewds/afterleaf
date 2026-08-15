@@ -295,6 +295,7 @@ export const ShopViewport = (props: ShopViewportProps) => {
         shopScene.start();
       } catch (cause) {
         if (worldSaveAbortController.signal.aborted) return;
+        console.error("Afterleaf 3D shop could not be initialized.", cause);
         setError(
           cause instanceof Error
             ? cause.message
