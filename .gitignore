@@ -29,3 +29,4 @@ content/world-state-backups/
 .codex
 .afterleaf-dev-url
 _temp/
+*.bak
