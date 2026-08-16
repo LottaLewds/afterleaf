@@ -220,6 +220,24 @@ a new channel, then paste that channel's first image in the dialog. Each frame
 persists its channel, current image, fit mode, timer, locked dimensions,
 rotation, and position.
 
+## Custom 3D models
+
+Custom `.glb` files beneath `content/models` become spawnable props in the
+shop. Press `M` to start placing one and use `Q`/`E` to cycle through the
+available models.
+
+### Model-backed televisions
+
+Any model containing a node named exactly `TVScreen` becomes a working
+television when spawned. The named node may be a mesh or a group; Afterleaf
+uses its first descendant mesh as the video screen and treats the model's other
+meshes as the television body. The screen mesh should have UV coordinates and
+should use its local X and Y axes for width and height. Afterleaf derives the
+physical screen aspect ratio from its transformed geometry, remaps its full UV
+extent to the video material, and preserves the model's animations. Channel,
+volume, placement, scale, and animation state persist with the world save, and
+television audio is spatialized from the model's normalized center.
+
 ## Television channels
 
 ![The in-shop television](screenshots/tv.webp)
