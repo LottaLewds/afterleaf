@@ -9,11 +9,9 @@ import {
   CanvasTexture,
   Color,
   CylinderGeometry,
-  DirectionalLight,
   DoubleSide,
   EquirectangularReflectionMapping,
   Euler,
-
   FrontSide,
   Group,
   ImageBitmapLoader,
@@ -28,7 +26,6 @@ import {
   PCFSoftShadowMap,
   PerspectiveCamera,
   PlaneGeometry,
-  PointLight,
   Quaternion,
   Raycaster,
   RepeatWrapping,
@@ -36,6 +33,7 @@ import {
   Shape,
   ShapeGeometry,
   SRGBColorSpace,
+  SpotLight,
   Texture,
   TextureLoader,
   Vector2,
@@ -47,6 +45,7 @@ import {
   type Object3D,
 } from "three";
 import {GLTFLoader} from "three/examples/jsm/loaders/GLTFLoader.js";
+import {RectAreaLightUniformsLib} from "three/examples/jsm/lights/RectAreaLightUniformsLib.js";
 import {clone as cloneWithSkeleton} from "three/examples/jsm/utils/SkeletonUtils.js";
 import {DEV} from "solid-js";
 
@@ -184,6 +183,11 @@ import {
   loadWoodTextures,
 } from "~/game/woodMaterials";
 import {
+  createUpholsteryBoxGeometry,
+  createUpholsteryMaterial,
+  loadUpholsteryTextures,
+} from "~/game/upholsteryMaterials";
+import {
   detectWideReaderPage,
   getWideReaderPageIndices,
   mirrorReaderPageHorizontalRange,
@@ -234,7 +238,7 @@ const SPECIAL_COLLECTION_BACKING_THICKNESS = 0.22;
 const BOOK_HEIGHT = 0.74;
 const BOOK_VOID_RECOVERY_Y = -BOOK_HEIGHT / 2;
 const BOOK_UNDER_SHELF_RECOVERY_Y = BOOK_HEIGHT / 2;
-const MAX_PIXEL_RATIO = 1.75;
+const MAX_PIXEL_RATIO = 2;
 const PLAYER_RADIUS = 0.3;
 const WALK_SPEED = 2.65;
 const SPRINT_SPEED = 4.35;
@@ -816,6 +820,7 @@ export type ShopSceneOptions = {
   ) => Promise<TvVideo>;
   mouseSensitivity?: () => number;
   newPublicationIds?: () => readonly string[];
+  tvScreenLighting?: () => boolean;
   onDiscardPublication?: (publicationId: string) => Promise<boolean>;
   onMediaChannelCreateRequest?: (kind: "art-frame" | "tv") => void;
   onGameStateChange?: (snapshot: ShopGameSnapshot) => void;
@@ -1097,6 +1102,7 @@ export class ShopScene {
   readonly #televisionsBySaveId = new Map<string, ShopTelevision>();
   readonly #mouseSensitivity: () => number;
   readonly #newPublicationIds: () => readonly string[];
+  readonly #tvScreenLighting: () => boolean;
   readonly #nextLookAngles: LookAngles = {pitch: 0, yaw: 0};
   readonly #onDiscardPublication:
     | ((publicationId: string) => Promise<boolean>)
@@ -1407,6 +1413,7 @@ export class ShopScene {
           tv: {channels: []},
         }));
     this.#mouseSensitivity = options.mouseSensitivity ?? (() => 1);
+    this.#tvScreenLighting = options.tvScreenLighting ?? (() => false);
     this.#selectedPublicationId = options.selectedPublicationId;
     this.#onSelectPublication = options.onSelectPublication;
     this.#onDiscardPublication = options.onDiscardPublication;
@@ -1667,7 +1674,10 @@ export class ShopScene {
     if (this.#resizeDirty) this.#applyResize();
 
     const paused = this.#paused();
-    for (const television of this.#televisions) television.setSuspended(paused);
+    for (const television of this.#televisions) {
+      television.setSuspended(paused);
+      television.update(deltaSeconds);
+    }
     if (paused) {
       if (!this.#inputSuspended) {
         this.#inputSuspended = true;
@@ -1718,12 +1728,12 @@ export class ShopScene {
   };
 
   #configureScene() {
+    RectAreaLightUniformsLib.init();
     this.#moonEnvironment = this.#createMoonEnvironment();
     this.#scene.background = this.#moonEnvironment;
     this.#scene.backgroundIntensity = 0.34;
     this.#scene.environment = this.#moonEnvironment;
     this.#scene.environmentIntensity = 0.16;
-
     this.#camera.far = 110;
     this.#camera.updateProjectionMatrix();
     this.#camera.position.set(
@@ -1737,20 +1747,38 @@ export class ShopScene {
     this.#scene.add(this.#camera);
 
     this.#scene.add(new AmbientLight("#918b7d", 0.66));
-    const moonlight = new DirectionalLight("#8eb8cd", 1.45);
-    moonlight.position.set(-4, 6, 5);
-    this.#scene.add(moonlight);
+    const addDownwardCeilingLight = (
+      color: string,
+      intensity: number,
+      distance: number,
+      x: number,
+      z: number,
+    ) => {
+      const ceilingLight = new SpotLight(
+        color,
+        intensity,
+        distance,
+        Math.PI / 2,
+        0.75,
+        1.75,
+      );
+      ceilingLight.position.set(x, 4.25, z);
+      ceilingLight.target.position.set(x, 0, z);
+      this.#scene.add(ceilingLight, ceilingLight.target);
+    };
 
     for (const x of CEILING_LIGHT_COLUMNS)
       for (const z of CEILING_LIGHT_ROWS) {
         if (x > 0 && z === -7) continue;
-        const fluorescentLight = new PointLight("#f3e3cb", 5.6, 9, 1.75);
-        fluorescentLight.position.set(x, 4.25, z);
-        this.#scene.add(fluorescentLight);
+        addDownwardCeilingLight("#f3e3cb", 5.6, 9, x, z);
       }
-    const rareRoomLight = new PointLight("#f1dfbd", 7.2, 8, 1.75);
-    rareRoomLight.position.set(RARE_ROOM_CENTER_X, 4.25, RARE_ROOM_CENTER_Z);
-    this.#scene.add(rareRoomLight);
+    addDownwardCeilingLight(
+      "#f1dfbd",
+      7.2,
+      8,
+      RARE_ROOM_CENTER_X,
+      RARE_ROOM_CENTER_Z,
+    );
   }
 
   #createShopInterior() {
@@ -1944,6 +1972,7 @@ export class ShopScene {
       onStateChange: () => this.#emitGameState(),
       onVolumeChange: this.#markTelevisionSettingChanged,
       parent: architecture,
+      tvScreenLighting: this.#tvScreenLighting,
       tableMaterial: woodMaterial,
     });
     const movableTelevision = new ShopTelevision({
@@ -1967,6 +1996,7 @@ export class ShopScene {
       parent: architecture,
       position: SHOP_MODEL_TELEVISION_POSITION,
       rotationY: 0,
+      tvScreenLighting: this.#tvScreenLighting,
       tableMaterial: woodMaterial,
     });
     this.#registerTelevision(FIXED_TELEVISION_SAVE_ID, fixedTelevision);
@@ -4033,6 +4063,11 @@ export class ShopScene {
   }
 
   #createTelevisionRooms(parent: Group, woodMaterial: MeshStandardMaterial) {
+    const upholsteryTextures = loadUpholsteryTextures(
+      this.#textureLoader,
+      this.#renderer.capabilities.getMaxAnisotropy(),
+    );
+    const acousticMaterial = createUpholsteryMaterial(upholsteryTextures);
     const theatreTelevision = new ShopTelevision({
       audioManager: this.#audioManager,
       flatScreen: {height: 6.6, width: 11.75},
@@ -4052,6 +4087,7 @@ export class ShopScene {
       parent,
       position: [-33.78, 9.75, SHOP_THEATRE.centerZ],
       rotationY: Math.PI / 2,
+      tvScreenLighting: this.#tvScreenLighting,
       tableMaterial: woodMaterial,
     });
     theatreTelevision.object.name = `${THEATRE_TELEVISION_SAVE_ID}-screen`;
@@ -4061,10 +4097,6 @@ export class ShopScene {
       color: "#120f17",
       metalness: 0.16,
       roughness: 0.86,
-    });
-    const acousticMaterial = new MeshStandardMaterial({
-      color: "#322738",
-      roughness: 0.98,
     });
     this.#addBox(
       parent,
@@ -4175,6 +4207,7 @@ export class ShopScene {
         parent,
         position,
         rotationY,
+        tvScreenLighting: this.#tvScreenLighting,
         tableMaterial: woodMaterial,
       });
       television.object.name = id;
@@ -4744,6 +4777,8 @@ export class ShopScene {
     let geometry: BoxGeometry;
     if (material.userData.boxUvMode === "wallpaper")
       geometry = createWallpaperBoxGeometry(size, position);
+    else if (material.userData.boxUvMode === "upholstery")
+      geometry = createUpholsteryBoxGeometry(size, position);
     else if (material.map) geometry = createWoodBoxGeometry(size, position);
     else geometry = new BoxGeometry(...size);
     const mesh = new Mesh(geometry, material);
@@ -5081,6 +5116,7 @@ export class ShopScene {
       onStateChange: () => this.#emitGameState(),
       onVolumeChange: this.#markTelevisionSettingChanged,
       parent: this.#scene,
+      tvScreenLighting: this.#tvScreenLighting,
       tableMaterial,
     });
     television.object.name = id;

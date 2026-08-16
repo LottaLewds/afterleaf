@@ -5,6 +5,7 @@ import {
   DEFAULT_MOUSE_SENSITIVITY,
   DEFAULT_READING_DIRECTION,
   DEFAULT_RESPECT_BOOK_READING_DIRECTION,
+  DEFAULT_TV_SCREEN_LIGHTING,
   loadControlPreferences,
   saveControlPreferences,
 } from "~/game/controlPreferences";
@@ -28,6 +29,7 @@ describe("control preferences", () => {
           defaultReadingDirection: "RTL",
           mouseSensitivity: 0.55,
           respectBookReadingDirection: false,
+          tvScreenLighting: true,
         },
         storage,
       ),
@@ -35,11 +37,13 @@ describe("control preferences", () => {
       defaultReadingDirection: "RTL",
       mouseSensitivity: 0.55,
       respectBookReadingDirection: false,
+      tvScreenLighting: true,
     });
     expect(loadControlPreferences(storage)).toEqual({
       defaultReadingDirection: "RTL",
       mouseSensitivity: 0.55,
       respectBookReadingDirection: false,
+      tvScreenLighting: true,
     });
   });
 
@@ -49,6 +53,7 @@ describe("control preferences", () => {
       defaultReadingDirection: DEFAULT_READING_DIRECTION,
       mouseSensitivity: DEFAULT_MOUSE_SENSITIVITY,
       respectBookReadingDirection: DEFAULT_RESPECT_BOOK_READING_DIRECTION,
+      tvScreenLighting: DEFAULT_TV_SCREEN_LIGHTING,
     });
 
     storage.values.set(CONTROL_PREFERENCES_STORAGE_KEY, "not json");
@@ -56,6 +61,7 @@ describe("control preferences", () => {
       defaultReadingDirection: DEFAULT_READING_DIRECTION,
       mouseSensitivity: DEFAULT_MOUSE_SENSITIVITY,
       respectBookReadingDirection: DEFAULT_RESPECT_BOOK_READING_DIRECTION,
+      tvScreenLighting: DEFAULT_TV_SCREEN_LIGHTING,
     });
 
     storage.values.set(
@@ -66,6 +72,7 @@ describe("control preferences", () => {
       defaultReadingDirection: DEFAULT_READING_DIRECTION,
       mouseSensitivity: 2,
       respectBookReadingDirection: DEFAULT_RESPECT_BOOK_READING_DIRECTION,
+      tvScreenLighting: DEFAULT_TV_SCREEN_LIGHTING,
     });
   });
 
@@ -80,6 +87,7 @@ describe("control preferences", () => {
       defaultReadingDirection: DEFAULT_READING_DIRECTION,
       mouseSensitivity: DEFAULT_MOUSE_SENSITIVITY,
       respectBookReadingDirection: DEFAULT_RESPECT_BOOK_READING_DIRECTION,
+      tvScreenLighting: DEFAULT_TV_SCREEN_LIGHTING,
     });
     expect(
       saveControlPreferences(
@@ -87,6 +95,7 @@ describe("control preferences", () => {
           defaultReadingDirection: "RTL",
           mouseSensitivity: 1,
           respectBookReadingDirection: true,
+          tvScreenLighting: false,
         },
         {
           setItem: () => {
@@ -98,6 +107,7 @@ describe("control preferences", () => {
       defaultReadingDirection: "RTL",
       mouseSensitivity: 1,
       respectBookReadingDirection: true,
+      tvScreenLighting: false,
     });
   });
 
@@ -112,6 +122,7 @@ describe("control preferences", () => {
       defaultReadingDirection: "RTL",
       mouseSensitivity: 0.8,
       respectBookReadingDirection: false,
+      tvScreenLighting: DEFAULT_TV_SCREEN_LIGHTING,
     });
   });
 });

@@ -13,7 +13,11 @@ import sharp, {type Metadata} from "../media/sharpRuntime";
 
 import {ART_FRAME_MAX_DIMENSION} from "./image";
 import type {ArtFrameChannel, ArtFrameImage} from "./protocol";
-import {renderWebpImage, type WebpDerivativeCreator} from "../media/webp";
+import {
+  renderCachedWebpImage,
+  renderWebpImage,
+  type WebpDerivativeCreator,
+} from "../media/webp";
 
 export type ArtFrameMediaUrlBuilder = (imageId: string) => string;
 export type ArtFrameDerivativeCreator = WebpDerivativeCreator;
@@ -229,7 +233,16 @@ export const resolveArtFrameImagePath = async (
 export const renderArtFrameImage = async (
   filePath: string,
   createDerivative: ArtFrameDerivativeCreator,
+  cacheDirectory?: string,
 ) => {
+  if (cacheDirectory)
+    return renderCachedWebpImage(
+      filePath,
+      createDerivative,
+      ART_FRAME_MAX_DIMENSION,
+      cacheDirectory,
+      "art-frame-v1",
+    );
   return renderWebpImage(filePath, createDerivative, ART_FRAME_MAX_DIMENSION);
 };
 

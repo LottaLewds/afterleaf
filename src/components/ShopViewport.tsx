@@ -64,6 +64,7 @@ export type ShopViewportProps = {
   pageIndexForPublication?: (publicationId: string) => number;
   publications: Accessor<readonly CatalogItem[]>;
   selectedPublicationId: Accessor<string | undefined>;
+  tvScreenLighting?: Accessor<boolean>;
   unstuckRequest?: Accessor<number>;
   onOpenMenu?: () => void;
   onPasteText?: (text: string) => boolean | Promise<boolean>;
@@ -243,6 +244,9 @@ export const ShopViewport = (props: ShopViewportProps) => {
           ...(props.newPublicationIds === undefined
             ? {}
             : {newPublicationIds: props.newPublicationIds}),
+          ...(props.tvScreenLighting === undefined
+            ? {}
+            : {tvScreenLighting: props.tvScreenLighting}),
           selectedPublicationId: props.selectedPublicationId,
           onGameStateChange: setGameState,
           onPauseRequest: () => props.onOpenMenu?.(),
@@ -295,6 +299,7 @@ export const ShopViewport = (props: ShopViewportProps) => {
         shopScene.start();
       } catch (cause) {
         if (worldSaveAbortController.signal.aborted) return;
+        console.error("Afterleaf 3D shop could not be initialized.", cause);
         setError(
           cause instanceof Error
             ? cause.message
@@ -348,7 +353,7 @@ export const ShopViewport = (props: ShopViewportProps) => {
         class="block size-full touch-manipulation outline-none"
       />
 
-      <div class="pointer-events-none absolute inset-x-0 top-0 flex items-start justify-between bg-gradient-to-b from-black/60 to-transparent p-4 pb-16 sm:p-5 sm:pb-20">
+      <div class="pointer-events-none absolute inset-x-0 top-0 flex items-start justify-between p-4 pb-16 sm:p-5 sm:pb-20">
         <div class="border-l-2 border-[#d94c3f] bg-[#0b1312]/75 px-3 py-2 backdrop-blur-sm">
           <p class="text-[9px] font-bold tracking-[0.22em] text-[#d9cabd] uppercase">
             Closing shift · aisle 01
@@ -491,7 +496,7 @@ export const ShopViewport = (props: ShopViewportProps) => {
           )}
         </Show>
 
-        <div class="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-[#06100f]/90 via-[#06100f]/35 to-transparent p-4 pt-24 sm:p-5 sm:pt-28">
+        <div class="pointer-events-none absolute inset-x-0 bottom-0 p-4 pt-24 sm:p-5 sm:pt-28">
           <div class="flex items-end justify-end">
             <Show when={carriedTitle()}>
               {(title) => (

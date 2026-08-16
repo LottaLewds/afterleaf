@@ -5,6 +5,7 @@ export const MIN_MOUSE_SENSITIVITY = 0.2;
 export const MAX_MOUSE_SENSITIVITY = 2;
 export const DEFAULT_READING_DIRECTION = "LTR";
 export const DEFAULT_RESPECT_BOOK_READING_DIRECTION = true;
+export const DEFAULT_TV_SCREEN_LIGHTING = false;
 
 export type ReadingDirection = "LTR" | "RTL";
 
@@ -12,6 +13,7 @@ export type ControlPreferences = {
   defaultReadingDirection: ReadingDirection;
   mouseSensitivity: number;
   respectBookReadingDirection: boolean;
+  tvScreenLighting: boolean;
 };
 
 export const normalizeMouseSensitivity = (value: number) => {
@@ -46,10 +48,15 @@ const parseControlPreferences = (
     respectBookReadingDirection = preferences.respectBookReadingDirection;
   else if (legacyReadingDirection === "LTR" || legacyReadingDirection === "RTL")
     respectBookReadingDirection = false;
+  const tvScreenLighting =
+    typeof preferences.tvScreenLighting === "boolean"
+      ? preferences.tvScreenLighting
+      : DEFAULT_TV_SCREEN_LIGHTING;
   return {
     defaultReadingDirection,
     mouseSensitivity: normalizeMouseSensitivity(preferences.mouseSensitivity),
     respectBookReadingDirection,
+    tvScreenLighting,
   };
 };
 
@@ -57,6 +64,7 @@ const defaultControlPreferences = (): ControlPreferences => ({
   defaultReadingDirection: DEFAULT_READING_DIRECTION,
   mouseSensitivity: DEFAULT_MOUSE_SENSITIVITY,
   respectBookReadingDirection: DEFAULT_RESPECT_BOOK_READING_DIRECTION,
+  tvScreenLighting: DEFAULT_TV_SCREEN_LIGHTING,
 });
 
 export const loadControlPreferences = (
@@ -82,6 +90,7 @@ export const saveControlPreferences = (
     defaultReadingDirection: preferences.defaultReadingDirection,
     mouseSensitivity: normalizeMouseSensitivity(preferences.mouseSensitivity),
     respectBookReadingDirection: preferences.respectBookReadingDirection,
+    tvScreenLighting: preferences.tvScreenLighting,
   };
   try {
     storage.setItem(

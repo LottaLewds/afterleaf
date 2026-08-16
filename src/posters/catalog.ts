@@ -11,7 +11,11 @@ import {
 import {basename, extname, relative, resolve, sep} from "node:path";
 import sharp, {type Metadata} from "../media/sharpRuntime";
 
-import {renderWebpImage, type WebpDerivativeCreator} from "../media/webp";
+import {
+  renderCachedWebpImage,
+  renderWebpImage,
+  type WebpDerivativeCreator,
+} from "../media/webp";
 import {POSTER_MAX_DIMENSION} from "./image";
 import type {PosterAsset} from "./protocol";
 
@@ -178,7 +182,16 @@ export const resolvePosterPath = async (
 export const renderPoster = async (
   filePath: string,
   createDerivative: PosterDerivativeCreator,
+  cacheDirectory?: string,
 ) => {
+  if (cacheDirectory)
+    return renderCachedWebpImage(
+      filePath,
+      createDerivative,
+      POSTER_MAX_DIMENSION,
+      cacheDirectory,
+      "poster-v1",
+    );
   return renderWebpImage(filePath, createDerivative, POSTER_MAX_DIMENSION);
 };
 
