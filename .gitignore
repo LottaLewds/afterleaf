@@ -28,3 +28,6 @@ content/world-state-backups/
 .bun-cache/
 .codex
 .afterleaf-dev-url
+_temp/
+*.bak
+Desktop.ini

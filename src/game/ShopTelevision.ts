@@ -17,6 +17,7 @@ import {
   Vector4,
   Vector3,
   VideoTexture,
+  type BufferGeometry,
   type Object3D,
 } from "three";
 import {RoundedBoxGeometry} from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
@@ -28,6 +29,10 @@ import {
   type PositionalSfxHandle,
   type ShopAudioManager,
 } from "~/game/ShopAudioManager";
+import {
+  findModelTelevisionScreen,
+  getModelTelevisionScreenAspect,
+} from "~/game/modelTelevision";
 import {createWoodBoxGeometry} from "~/game/woodMaterials";
 import {
   detectActivePictureRect,
@@ -61,8 +66,8 @@ const SCREEN_CENTER_Z = BEZEL_FRONT_Z + 0.042;
 const CONTROL_CENTER_X = 1.36;
 const TELEVISION_MAX_VOLUME = 0.72;
 const TELEVISION_VOLUME_STEP = 0.05;
-const MODEL_CENTER_Y = 0.2265;
-const MODEL_CENTER_Z = 0.183;
+const DEFAULT_MODEL_CENTER = [0, 0.2265, 0.183] as const;
+const DEFAULT_MODEL_AUDIO_POSITION = [0.08, 0.055, -0.025] as const;
 const ACTIVE_PICTURE_ANALYSIS_MAX_WIDTH = 160;
 const ACTIVE_PICTURE_ANALYSIS_MAX_HEIGHT = 120;
 const ACTIVE_PICTURE_SAMPLE_INTERVAL_SECONDS = 0.5;
@@ -136,12 +141,26 @@ type ScreenLight = {
   targetIntensity: number;
 };
 
-export type ShopTelevisionModel = {
-  screenAspect: number;
+type ShopTelevisionModelSource =
+  | {object: Object3D; url?: never}
+  | {object?: never; url: string};
+
+export type ShopTelevisionModel = ShopTelevisionModelSource & {
+  // Model-local speaker spot; defaults to the CRT speaker position.
+  audioPosition?: readonly [x: number, y: number, z: number];
+  // Model-space point aligned to the group origin; defaults to the CRT center.
+  center?: readonly [x: number, y: number, z: number];
+  // Set false to skip the invisible power/channel/skip strip (CRT layout).
+  controls?: boolean;
+  // Overrides the targeting radius; defaults to scale * 0.4.
+  interactionRadius?: number;
+  // Name used in the pick-up prompt; defaults to "CRT".
+  label?: string;
+  // Defaults to the model screen mesh's transformed width / height.
+  screenAspect?: number;
   screenNodeName: string;
   screenSafeArea: TvScreenSafeArea;
   scale: number;
-  url: string;
 };
 
 export type ShopTelevisionOptions = {
@@ -174,7 +193,7 @@ const disposeLoadedObject = (root: Object3D) => {
 
 const normalizeScreenUvs = (screen: Mesh) => {
   const sourceUvs = screen.geometry.getAttribute("uv");
-  if (!sourceUvs || sourceUvs.count === 0) return false;
+  if (!sourceUvs || sourceUvs.count === 0) return;
   let minU = Number.POSITIVE_INFINITY;
   let minV = Number.POSITIVE_INFINITY;
   let maxU = Number.NEGATIVE_INFINITY;
@@ -189,14 +208,14 @@ const normalizeScreenUvs = (screen: Mesh) => {
   }
   const width = maxU - minU;
   const height = maxV - minV;
-  if (width <= Number.EPSILON || height <= Number.EPSILON) return false;
+  if (width <= Number.EPSILON || height <= Number.EPSILON) return;
 
   const sourceGeometry = screen.geometry;
   const geometry = sourceGeometry.clone();
   const uvs = geometry.getAttribute("uv");
   if (!uvs) {
     geometry.dispose();
-    return false;
+    return;
   }
   for (let index = 0; index < uvs.count; index += 1)
     uvs.setXY(
@@ -206,7 +225,7 @@ const normalizeScreenUvs = (screen: Mesh) => {
     );
   uvs.needsUpdate = true;
   screen.geometry = geometry;
-  return true;
+  return geometry;
 };
 
 const createNoSignalTexture = () => {
@@ -364,8 +383,17 @@ const createSpeakerGrille = () => {
 const getInteractionBoundsRadius = (options: ShopTelevisionOptions) => {
   if (options.flatScreen)
     return Math.hypot(options.flatScreen.width, options.flatScreen.height) / 2;
-  if (options.model) return options.model.scale * 0.4;
+  if (options.model)
+    return options.model.interactionRadius ?? options.model.scale * 0.4;
   return 2.4;
+};
+
+const getModelScreenAspect = (model: ShopTelevisionModel) => {
+  if (model.screenAspect !== undefined) return model.screenAspect;
+  if (!model.object) return TV_SCREEN_ASPECT;
+  const screen = findModelTelevisionScreen(model.object, model.screenNodeName);
+  if (!screen) return TV_SCREEN_ASPECT;
+  return getModelTelevisionScreenAspect(screen) ?? TV_SCREEN_ASPECT;
 };
 
 const normalizeVolume = (volume: number) => {
@@ -441,6 +469,7 @@ export class ShopTelevision {
   readonly #interactionTargets: Mesh[] = [];
   readonly #initialChannelId: string | undefined;
   readonly #interactionBoundsRadius: number;
+  readonly #modelLabel: string;
   readonly #modelUrl: string | undefined;
   readonly #movable: boolean;
   readonly #noSignalTexture: CanvasTexture;
@@ -457,6 +486,7 @@ export class ShopTelevision {
   readonly #screenOverlayCanvas = document.createElement("canvas");
   readonly #screenOverlayContext: CanvasRenderingContext2D | null;
   readonly #screenOverlayTexture: CanvasTexture;
+  #normalizedModelScreenGeometry: BufferGeometry | undefined;
   readonly #screenLights: ScreenLight[] = [];
   #screenLightingCanvas: HTMLCanvasElement | undefined;
   readonly #tvScreenLighting: () => boolean;
@@ -500,6 +530,7 @@ export class ShopTelevision {
   constructor(options: ShopTelevisionOptions) {
     this.#initialChannelId = options.initialChannelId;
     this.#interactionBoundsRadius = getInteractionBoundsRadius(options);
+    this.#modelLabel = options.model?.label ?? "CRT";
     this.#modelUrl = options.model?.url;
     if (this.#modelUrl) ShopTelevision.#retainModel(this.#modelUrl);
     this.#movable = options.model !== undefined;
@@ -509,9 +540,11 @@ export class ShopTelevision {
     this.#noSignalTexture = ShopTelevision.#retainNoSignalTexture();
     this.#random = options.random ?? Math.random;
     this.#tvScreenLighting = options.tvScreenLighting ?? (() => false);
-    this.#screenAspect = options.flatScreen
-      ? options.flatScreen.width / options.flatScreen.height
-      : (options.model?.screenAspect ?? TV_SCREEN_ASPECT);
+    if (options.flatScreen)
+      this.#screenAspect = options.flatScreen.width / options.flatScreen.height;
+    else if (options.model)
+      this.#screenAspect = getModelScreenAspect(options.model);
+    else this.#screenAspect = TV_SCREEN_ASPECT;
     this.#screenSafeArea = options.flatScreen
       ? {bottom: 0, left: 0, right: 0, top: 0}
       : (options.model?.screenSafeArea ?? WIDESCREEN_TV_SAFE_AREA);
@@ -676,7 +709,7 @@ uniform sampler2D afterleafScreenOverlay;\n${shader.fragmentShader}`;
     const channelControl =
       this.#channels.length > 1 ? " · Q/E previous/next channel" : "";
     if (interaction === "body" && this.#movable)
-      return `E pick up CRT · Aim at its screen or controls to use it${scrubControl}${volumeControl}`;
+      return `E pick up ${this.#modelLabel} · Aim at its screen or controls to use it${scrubControl}${volumeControl}`;
     if (interaction === "power")
       return `${
         this.#powered
@@ -982,6 +1015,9 @@ uniform sampler2D afterleafScreenOverlay;\n${shader.fragmentShader}`;
     this.#audio.dispose();
     this.#buttonAudio.dispose();
     this.#screenMaterial.map = null;
+    this.#screenMaterial.dispose();
+    this.#normalizedModelScreenGeometry?.dispose();
+    this.#normalizedModelScreenGeometry = undefined;
     this.#videoTexture.dispose();
     this.#screenOverlayTexture.dispose();
     ShopTelevision.#releaseNoSignalTexture();
@@ -991,15 +1027,22 @@ uniform sampler2D afterleafScreenOverlay;\n${shader.fragmentShader}`;
   async #createModelTelevision(model: ShopTelevisionModel) {
     this.#group.name = "shop-model-television";
     try {
-      const modelObject = await ShopTelevision.#loadModel(model.url);
+      // Let the caller place and scale a prepared model's television group
+      // before screen-light dimensions are measured below.
+      const modelObject = model.object
+        ? await Promise.resolve(model.object)
+        : await ShopTelevision.#loadModel(model.url);
       if (this.#disposed) return;
 
-      modelObject.scale.setScalar(model.scale);
-      modelObject.position.set(
-        0,
-        -MODEL_CENTER_Y * model.scale,
-        -MODEL_CENTER_Z * model.scale,
-      );
+      const center = model.center ?? DEFAULT_MODEL_CENTER;
+      if (!model.object) {
+        modelObject.scale.setScalar(model.scale);
+        modelObject.position.set(
+          -center[0] * model.scale,
+          -center[1] * model.scale,
+          -center[2] * model.scale,
+        );
+      }
       modelObject.traverse((object) => {
         if (!(object instanceof Mesh)) return;
         object.castShadow = true;
@@ -1007,11 +1050,10 @@ uniform sampler2D afterleafScreenOverlay;\n${shader.fragmentShader}`;
       });
       this.#group.add(modelObject);
 
-      const screenRoot = modelObject.getObjectByName(model.screenNodeName);
-      let screenMesh: Mesh | undefined;
-      screenRoot?.traverse((object) => {
-        if (!screenMesh && object instanceof Mesh) screenMesh = object;
-      });
+      const screenMesh = findModelTelevisionScreen(
+        modelObject,
+        model.screenNodeName,
+      );
       if (!screenMesh) {
         console.error(
           `Afterleaf television model has no ${model.screenNodeName} mesh.`,
@@ -1025,7 +1067,7 @@ uniform sampler2D afterleafScreenOverlay;\n${shader.fragmentShader}`;
         this.#interactionTargets.push(object);
       });
 
-      normalizeScreenUvs(screenMesh);
+      this.#normalizedModelScreenGeometry = normalizeScreenUvs(screenMesh);
       screenMesh.material = this.#screenMaterial;
       screenMesh.name = "shop-model-television-screen";
       screenMesh.userData.televisionInteraction = "screen";
@@ -1052,22 +1094,27 @@ uniform sampler2D afterleafScreenOverlay;\n${shader.fragmentShader}`;
         );
       }
 
-      this.#createModelControlTargets(model.scale);
+      if (model.controls !== false)
+        this.#createModelControlTargets(model.scale, center);
+      const audioPosition = model.audioPosition ?? DEFAULT_MODEL_AUDIO_POSITION;
       this.#audio.node.position.set(
-        0.08 * model.scale,
-        (0.055 - MODEL_CENTER_Y) * model.scale,
-        (-0.025 - MODEL_CENTER_Z) * model.scale,
+        (audioPosition[0] - center[0]) * model.scale,
+        (audioPosition[1] - center[1]) * model.scale,
+        (audioPosition[2] - center[2]) * model.scale,
       );
       this.#audio.node.rotation.y = Math.PI;
       this.#buttonAudio.node.position.copy(this.#audio.node.position);
       this.#buttonAudio.node.rotation.y = Math.PI;
       this.#group.add(this.#audio.node, this.#buttonAudio.node);
     } catch (error) {
-      console.error("Afterleaf could not load the CRT TV model.", error);
+      console.error("Afterleaf could not load the television model.", error);
     }
   }
 
-  #createModelControlTargets(scale: number) {
+  #createModelControlTargets(
+    scale: number,
+    center: readonly [x: number, y: number, z: number],
+  ) {
     const buttonWidth = 0.035 * scale;
     const buttonHeight = 0.026 * scale;
     const buttonDepth = 0.012 * scale;
@@ -1087,10 +1134,10 @@ uniform sampler2D afterleafScreenOverlay;\n${shader.fragmentShader}`;
         new BoxGeometry(buttonWidth, buttonHeight, buttonDepth),
         material,
       );
-      const centeredBaseZ = baseZ - MODEL_CENTER_Z * scale;
+      const centeredBaseZ = baseZ - center[2] * scale;
       mesh.position.set(
         firstButtonX + buttonGap * index,
-        (0.052 - MODEL_CENTER_Y) * scale,
+        (0.052 - center[1]) * scale,
         centeredBaseZ,
       );
       mesh.name = `shop-model-television-${interaction}`;

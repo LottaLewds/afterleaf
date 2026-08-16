@@ -73,6 +73,10 @@ import {PageTextureCache} from "~/game/PageTextureCache";
 import {PaperSheetSimulation} from "~/game/PaperSheetSimulation";
 import {ShopAudioManager} from "~/game/ShopAudioManager";
 import {
+  findModelTelevisionScreen,
+  getInitialModelAnimationIndex,
+} from "~/game/modelTelevision";
+import {
   createWallpaperBoxGeometry,
   createWallpaperMaterial,
 } from "~/game/wallpaperMaterials";
@@ -282,6 +286,10 @@ const ART_FRAME_TEXTURE_UPLOAD_IDLE_BUDGET_MS = 6;
 const MAX_UNUSED_ART_FRAME_TEXTURES = 8;
 const TELEVISION_TABLE_SHELF_ID = "television-table:lower";
 const MODEL_TELEVISION_PHYSICS_ID = "crt-television";
+// A content model whose GLB contains a node with this name spawns as a
+// television: the node's first mesh becomes the video screen.
+const MODEL_TELEVISION_SCREEN_NODE_NAME = "TVScreen";
+const MODEL_TELEVISION_DENSITY = 60;
 const FIXED_TELEVISION_SAVE_ID = "fixed";
 const MOVABLE_TELEVISION_SAVE_ID = "movable";
 const THEATRE_TELEVISION_SAVE_ID = "moonlight-theatre";
@@ -5000,14 +5008,10 @@ export class ShopScene {
         .addScaledVector(this.#viewDirection, 2);
     }
     this.#scene.add(root);
-    let modelAnimationIndex = 0;
-    if (animationClip === null) modelAnimationIndex = -1;
-    else if (animationClip !== undefined) {
-      const savedIndex = template.animations.findIndex(
-        (clip) => clip.name === animationClip,
-      );
-      if (savedIndex >= 0) modelAnimationIndex = savedIndex;
-    }
+    const modelAnimationIndex = getInitialModelAnimationIndex(
+      template.animations,
+      animationClip,
+    );
     const mixer = this.#playModelAnimations(
       model,
       template.animations,
@@ -5150,6 +5154,94 @@ export class ShopScene {
     return prop;
   }
 
+  #createModelTelevisionProp(
+    asset: ModelAsset,
+    template: ModelTemplate,
+    id: string,
+    scale: number,
+    pose?: WorldModelPropSave["pose"],
+    animationClip?: string | null,
+  ) {
+    const tableMaterial = this.#televisionTableMaterial;
+    if (!tableMaterial) throw new Error("Television materials are not ready.");
+    const {center, normalizationScale, size} = template;
+    const model = cloneWithSkeleton(template.scene);
+    model.name = `user-model-television-visual-${asset.id}`;
+    const normalizedModel = new Group();
+    normalizedModel.position.copy(center).multiplyScalar(-normalizationScale);
+    normalizedModel.scale.setScalar(normalizationScale);
+    normalizedModel.add(model);
+    const television = new ShopTelevision({
+      audioManager: this.#audioManager,
+      initialChannelId: this.#savedTelevisionChannels[id],
+      initialVolume: this.#savedTelevisionVolumes[id],
+      model: {
+        audioPosition: [0, 0, 0],
+        center: [0, 0, 0],
+        controls: false,
+        interactionRadius: Math.hypot(size.x, size.y, size.z) / 2,
+        label: asset.label,
+        object: normalizedModel,
+        screenNodeName: MODEL_TELEVISION_SCREEN_NODE_NAME,
+        screenSafeArea: {bottom: 0, left: 0, right: 0, top: 0},
+        scale: 1,
+      },
+      onChannelChange: this.#markTelevisionSettingChanged,
+      onStateChange: () => this.#emitGameState(),
+      onVolumeChange: this.#markTelevisionSettingChanged,
+      parent: this.#scene,
+      tvScreenLighting: this.#tvScreenLighting,
+      tableMaterial,
+    });
+    television.object.name = id;
+    television.object.scale.setScalar(scale);
+    if (pose) {
+      television.object.position.copy(pose.position);
+      television.object.quaternion.copy(pose.quaternion);
+    } else {
+      this.#camera.getWorldDirection(this.#viewDirection);
+      television.object.position
+        .copy(this.#camera.position)
+        .addScaledVector(this.#viewDirection, 2);
+    }
+    this.#registerTelevision(id, television);
+    const modelAnimationIndex = getInitialModelAnimationIndex(
+      template.animations,
+      animationClip,
+    );
+    const mixer = this.#playModelAnimations(
+      model,
+      template.animations,
+      modelAnimationIndex,
+    );
+    const prop = this.#registerMovableProp({
+      density: MODEL_TELEVISION_DENSITY,
+      depth: size.z * scale,
+      height: size.y * scale,
+      heldLocalPosition: new Vector3(0, -0.18, -2),
+      id,
+      label: asset.label,
+      ...(template.animations.length > 0
+        ? {
+            modelAnimationIndex,
+            modelAnimations: template.animations,
+          }
+        : {}),
+      modelAsset: asset,
+      modelBaseSize: size.clone(),
+      ...(mixer ? {modelMixer: mixer} : {}),
+      modelScale: scale,
+      object: television.object,
+      persistInWorldProps: false,
+      spawnAssetId: asset.id,
+      spawned: true,
+      targetable: false,
+      width: size.x * scale,
+    });
+    this.#televisionProps.set(television, prop);
+    return prop;
+  }
+
   async #createSpawnableProp(
     asset: SpawnablePropAsset,
     id: string,
@@ -5159,6 +5251,20 @@ export class ShopScene {
   ) {
     if (asset.kind === "model") {
       const template = await this.#loadModelTemplate(asset.model);
+      if (
+        findModelTelevisionScreen(
+          template.scene,
+          MODEL_TELEVISION_SCREEN_NODE_NAME,
+        )
+      )
+        return this.#createModelTelevisionProp(
+          asset.model,
+          template,
+          id,
+          scale,
+          pose,
+          animationClip,
+        );
       return this.#createModelPropFromTemplate(
         asset.model,
         template,
