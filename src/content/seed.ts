@@ -1633,29 +1633,45 @@ export const seedContentPack = async (
 
   try {
     const publications: PackedPublication[] = [];
-    for (const [index, selection] of selections.entries()) {
-      if (selection.previous && reuse) {
+    for (const selection of selections) {
+      try {
+        if (selection.previous && reuse) {
+          publications.push(
+            await materializeReusedPublication(
+              selection,
+              reuse.directory,
+              stagingDirectory,
+              publications.length,
+              options.assetPathPrefix,
+              options.persistentAssetDirectory,
+            ),
+          );
+          continue;
+        }
         publications.push(
-          await materializeReusedPublication(
+          await materializePublication(
             selection,
-            reuse.directory,
             stagingDirectory,
-            index,
+            publications.length,
             options.assetPathPrefix,
-            options.persistentAssetDirectory,
           ),
         );
-        continue;
+      } catch (error) {
+        const diagnostic: ContentSeedDiagnostic = {
+          code: "invalid-assets",
+          sourceId: selection.candidate.document.id,
+          message: `Failed to materialize ${selection.candidate.document.id}: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        };
+        diagnostics.push(diagnostic);
+        options.onDiagnostic?.(diagnostic);
       }
-      publications.push(
-        await materializePublication(
-          selection,
-          stagingDirectory,
-          index,
-          options.assetPathPrefix,
-        ),
-      );
     }
+
+    const selectedPublicationIds = publications.map(
+      (publication) => publication.id,
+    );
     const atlases = {
       front: await createAtlases(
         publications,

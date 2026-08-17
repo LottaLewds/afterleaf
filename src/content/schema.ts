@@ -131,6 +131,7 @@ export interface SeedContentPackOptions extends PublicationSearchQuery {
   assetPathPrefix?: string;
   dryRun: boolean;
   force: boolean;
+  onDiagnostic?: (diagnostic: ContentSeedDiagnostic) => void;
   outputDirectory: string;
   packId: string;
   persistentAssetDirectory?: string;
