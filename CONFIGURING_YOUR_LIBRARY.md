@@ -15,7 +15,7 @@ content/books/
 ```
 
 Or open **Options → Additional content locations** and add a folder as
-**Comics** or **Manga**. Then choose **Import & scan**.
+**Comics** or **Manga**. Then choose **Scan new**.
 
 You can also edit `afterleaf.library.json`:
 
@@ -94,11 +94,12 @@ restore at least one real book before re-enrolling.
 
 ## Scan actions
 
-### Import & scan
+### Scan new
 
 This is the normal, fast scan. It:
 
-- scans local roots without contacting an online provider;
+- scans local roots without loading, contacting, searching, or synchronizing an
+  online provider;
 - adds, updates, and removes books;
 - recognizes unambiguous folder and archive moves;
 - preserves stable publication IDs and shelf positions; and

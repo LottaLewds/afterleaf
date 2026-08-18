@@ -694,8 +694,8 @@ const AdditionalLocationsControl = (props: {
             Additional content locations
           </p>
           <p class="mt-1 text-[9px] leading-4 text-[#65716c]">
-            Book locations apply on the next Import & scan. TV, poster, and art
-            frame locations refresh automatically.
+            Book locations apply on the next Scan new. TV, poster, and art frame
+            locations refresh automatically.
           </p>
         </div>
         <button
@@ -1660,13 +1660,13 @@ export const App = () => {
     await saveLibraryConfig(config);
     if (bookLocationsChanged && visualMediaLocationsChanged) {
       setLibraryUpdateNotice(
-        "Locations saved. Visual media will refresh automatically; run Import & scan to update books.",
+        "Locations saved. Visual media will refresh automatically; run Scan new to update books.",
       );
       return;
     }
     if (bookLocationsChanged) {
       setLibraryUpdateNotice(
-        "Book locations saved. Run Import & scan to update the library.",
+        "Book locations saved. Run Scan new to update the library.",
       );
       return;
     }
@@ -1804,7 +1804,7 @@ export const App = () => {
     await reenrollLibraryRoot(path);
     await refetchLibrarySourceStatus();
     setLibraryUpdateNotice(
-      "Library root re-enrolled. Run Import & scan to reconcile its books.",
+      "Library root re-enrolled. Run Scan new to reconcile its books.",
     );
   };
   createEffect(

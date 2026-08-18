@@ -304,7 +304,7 @@ export class LibraryUpdateService implements LibraryUpdateClient {
     this.#setRunningState(
       "syncing",
       mode === "scan"
-        ? "Checking local publications for required migrations"
+        ? "Scanning local publications"
         : "Searching for new publications",
       completedSteps,
       requestId,
@@ -326,10 +326,13 @@ export class LibraryUpdateService implements LibraryUpdateClient {
         remoteRequest?.providerId ??
         this.#dependencies.defaultProviderId ??
         DEFAULT_LIBRARY_PROVIDER_ID;
-      const providerDescriptor =
-        this.#dependencies.getProviderDescriptor?.(providerId);
-      const acquisitionLanguages = request.languages ??
-        providerDescriptor?.defaultLanguages ?? [...DEFAULT_LANGUAGES];
+      const providerDescriptor = remoteRequest
+        ? this.#dependencies.getProviderDescriptor?.(providerId)
+        : undefined;
+      const acquisitionLanguages = remoteRequest
+        ? (request.languages ??
+          providerDescriptor?.defaultLanguages ?? [...DEFAULT_LANGUAGES])
+        : (request.languages ?? [...DEFAULT_LANGUAGES]);
       const catalogLanguages = remoteRequest
         ? [...DEFAULT_LANGUAGES]
         : acquisitionLanguages;
@@ -365,25 +368,26 @@ export class LibraryUpdateService implements LibraryUpdateClient {
             },
             providerId,
           );
-      const migrationReport = this.#dependencies.runMigrations
-        ? await this.#dependencies.runMigrations(
-            this.#sourceDirectory,
-            (message) =>
-              this.#setRunningState(
-                "syncing",
-                message,
-                completedSteps,
-                requestId,
-                startedAt,
-                previousSnapshot,
-              ),
-          )
-        : {
-            diagnostics: [],
-            failedCount: 0,
-            migratedCount: 0,
-            pendingCount: 0,
-          };
+      const migrationReport =
+        remoteRequest && this.#dependencies.runMigrations
+          ? await this.#dependencies.runMigrations(
+              this.#sourceDirectory,
+              (message) =>
+                this.#setRunningState(
+                  "syncing",
+                  message,
+                  completedSteps,
+                  requestId,
+                  startedAt,
+                  previousSnapshot,
+                ),
+            )
+          : {
+              diagnostics: [],
+              failedCount: 0,
+              migratedCount: 0,
+              pendingCount: 0,
+            };
       completedSteps = 1;
       if (
         syncReport &&

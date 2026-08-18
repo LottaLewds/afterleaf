@@ -297,7 +297,7 @@ for playback, shuffle, aspect-ratio, spatial-audio, and interaction details.
 ## Library management
 
 Afterleaf's normal library workflow is UI-first. Add local media, open the
-Escape menu, and choose **Import & scan**. That one operation:
+Escape menu, and choose **Scan new**. That one operation:
 
 1. discovers configured archives and image folders;
 2. creates or refreshes local publication metadata;
@@ -343,7 +343,7 @@ content-sources/catalog/
     003.jpg
 ```
 
-**Import & scan** recognizes both layouts. Image folders receive a
+**Scan new** recognizes both layouts. Image folders receive a
 `publication.json` manifest automatically. Later scans refresh the managed image
 list when pages are added, replaced, or removed while preserving edited title,
 tag, and other publication metadata.
@@ -410,9 +410,9 @@ mount points whose underlying empty directory remains after an unmount.
 Remounting the path clears the warning and unlocks updates.
 
 Restart the local server after changing the configured visual-media path lists.
-After changing `comicPaths`, `mangaPaths`, or their books, choose **Import & scan** again. The
-browser receives only the number of unavailable book roots, never their
-filesystem paths.
+After changing `comicPaths`, `mangaPaths`, or their books, choose **Scan new** again. The
+same-origin local UI receives re-enrollment eligibility only for configured
+book roots; those paths are not exposed to remote origins.
 
 ### Names, languages, and reading direction
 
@@ -441,7 +441,7 @@ magazine families and receive structured issue metadata.
 ### Updating and removing publications
 
 - Add media, replace an archive in place, or change files in an image folder,
-  then choose **Import & scan**. Existing user-edited metadata is preserved.
+  then choose **Scan new**. Existing user-edited metadata is preserved.
 - Moving or renaming an archive or image-folder book preserves its publication
   ID and shelf position when Afterleaf can match it unambiguously. Unchanged
   generated assets are reused while source location and direction metadata are
@@ -450,7 +450,7 @@ magazine families and receive structured issue metadata.
   ID, so later scans do not bring it back. The blacklist is stored at
   `content-packs/library/publication-blacklist.json`.
 - Deleting a book from a completely scanned, enrolled root removes its prepared
-  catalog entry on the next **Import & scan**, including configured external
+  catalog entry on the next **Scan new**, including configured external
   roots. A missing or mismatched root marker locks updates instead, preserving
   the active catalog until the expected storage is restored.
 
@@ -465,7 +465,7 @@ The UI and CLI use the same ingestion pipeline. These commands are useful for
 automation and diagnostics, but are not required for library management:
 
 ```sh
-# The exact equivalent of Import & scan
+# The exact equivalent of Scan new
 bun run library:scan --write
 
 # Add paths for this run without editing afterleaf.library.json

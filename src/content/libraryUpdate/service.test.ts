@@ -506,7 +506,7 @@ describe("LibraryUpdateService", () => {
     await expect(firstFetch).resolves.toMatchObject({requestId: "request-1"});
   });
 
-  test("runs host migrations before scanning without invoking provider search", async () => {
+  test("scans local content without loading, syncing, or migrating providers", async () => {
     const calls: string[] = [];
     const service = new LibraryUpdateService(
       {
@@ -525,16 +525,11 @@ describe("LibraryUpdateService", () => {
           };
         },
         readBlacklist: async () => ["removed"],
-        runMigrations: async (sourceDirectory, onProgress) => {
-          calls.push("migrate");
-          expect(sourceDirectory).toBe(resolve("/source"));
-          onProgress?.("Library migrations: running test migration");
-          return {
-            diagnostics: [],
-            failedCount: 0,
-            migratedCount: 1,
-            pendingCount: 1,
-          };
+        getProviderDescriptor: () => {
+          throw new Error("scan must not inspect a selected provider");
+        },
+        runMigrations: async () => {
+          throw new Error("scan must not run provider migrations");
         },
         runSeed: async (
           catalogDirectory,
@@ -559,7 +554,7 @@ describe("LibraryUpdateService", () => {
 
     const result = await service.scan({});
 
-    expect(calls).toEqual(["migrate", "seed", "activate"]);
+    expect(calls).toEqual(["seed", "activate"]);
     expect(result.blacklistedPublicationIds).toEqual(["removed"]);
     expect(result.diff.removedPublicationIds).toEqual(["removed"]);
     expect(service.getState()).toMatchObject({
@@ -718,7 +713,7 @@ describe("LibraryUpdateService", () => {
     expect(result.snapshot.publicationCount).toBe(1);
   });
 
-  test("continues scanning and reports isolated migration failures", async () => {
+  test("continues fetching and reports isolated provider migration failures", async () => {
     const localSeedResult = structuredClone(seedResult);
     const service = new LibraryUpdateService(
       {libraryDirectory: "/library", sourceDirectory: "/source"},
@@ -739,7 +734,7 @@ describe("LibraryUpdateService", () => {
       }),
     );
 
-    const result = await service.scan({});
+    const result = await service.fetchMore({});
 
     expect(result.seedReport.diagnostics).toContainEqual({
       code: "migration-failed",
@@ -807,6 +802,15 @@ describe("LibraryUpdateService", () => {
           };
         },
         readBlacklist: async () => ["nhentai-99"],
+        runMigrations: async () => {
+          calls.push("migrate");
+          return {
+            diagnostics: [],
+            failedCount: 0,
+            migratedCount: 1,
+            pendingCount: 1,
+          };
+        },
         runSeed: async (catalogDirectory, options, excludedIds) => {
           calls.push("seed");
           expect(catalogDirectory).toBe(resolve("/catalog"));
@@ -827,7 +831,7 @@ describe("LibraryUpdateService", () => {
 
     const result = await service.fetchMore(request);
 
-    expect(calls).toEqual(["sync", "seed", "activate"]);
+    expect(calls).toEqual(["sync", "migrate", "seed", "activate"]);
     expect(result.blacklistedPublicationIds).toEqual(["nhentai-99"]);
   });
 });
