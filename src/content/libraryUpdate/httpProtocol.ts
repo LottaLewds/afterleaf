@@ -9,6 +9,7 @@ export const LIBRARY_BLACKLIST_ENDPOINT = "/api/library/blacklist";
 export const LIBRARY_STATUS_ENDPOINT = "/api/library/status";
 export const LIBRARY_SOURCE_STATUS_ENDPOINT = "/api/library/source-status";
 export const LIBRARY_CONFIG_ENDPOINT = "/api/library/config";
+export const LIBRARY_ROOT_ENROLL_ENDPOINT = "/api/library/root-enroll";
 export const LIBRARY_BROWSE_ENDPOINT = "/api/library/browse";
 export const MAX_LIBRARY_OPERATION_BODY_BYTES = 64 * 1_024;
 export const MAX_LIBRARY_OPERATION_RESPONSE_BYTES = 1024 * 1_024;
@@ -31,7 +32,11 @@ const PROVIDER_ID_PATTERN = /^[a-z][a-z0-9-]{0,63}$/u;
 
 export type LibrarySnapshotOperation = "fetch-more" | "scan";
 
-export type LibraryScanRequest = Record<string, never>;
+export type LibraryScanRequest = {
+  redownloadProviderAssets?: boolean;
+  repair?: boolean;
+  repairProviderMetadata?: boolean;
+};
 
 export type LibraryFetchMoreRequest = {
   blockedTags?: readonly string[];
@@ -150,6 +155,7 @@ export type LibraryPasteResolveHttpResponse =
 
 export type LibrarySourceStatusHttpSuccess = {
   ok: true;
+  reenrollableBookPaths: readonly string[];
   unavailableBookPathCount: number;
 };
 
@@ -227,8 +233,37 @@ const parseFailure = (
 };
 
 export const parseLibraryScanRequest = (value: unknown): LibraryScanRequest => {
-  requireExactKeys(value, [], "scan");
-  return {};
+  if (!isRecord(value))
+    throw new Error("Library scan request must be an object");
+  const expectedKeys = [
+    ...(value.redownloadProviderAssets === undefined
+      ? []
+      : ["redownloadProviderAssets"]),
+    ...(value.repair === undefined ? [] : ["repair"]),
+    ...(value.repairProviderMetadata === undefined
+      ? []
+      : ["repairProviderMetadata"]),
+  ];
+  const request = requireExactKeys(value, expectedKeys, "scan");
+  for (const field of expectedKeys) {
+    if (typeof request[field] !== "boolean")
+      throw new Error(`Library scan ${field} must be a boolean`);
+  }
+  if (
+    request.repair !== true &&
+    (request.repairProviderMetadata === true ||
+      request.redownloadProviderAssets === true)
+  )
+    throw new Error("Remote repair options require a deep repair scan");
+  return {
+    ...(request.redownloadProviderAssets === undefined
+      ? {}
+      : {redownloadProviderAssets: request.redownloadProviderAssets}),
+    ...(request.repair === undefined ? {} : {repair: request.repair}),
+    ...(request.repairProviderMetadata === undefined
+      ? {}
+      : {repairProviderMetadata: request.repairProviderMetadata}),
+  };
 };
 
 export const parseLibraryPasteResolveRequest = (
@@ -371,8 +406,18 @@ export const parseLibrarySourceStatusHttpResponse = (
   if (failure) return failure;
   if (value.ok !== true)
     throw new Error("Library source-status response is malformed");
+  if (
+    !Array.isArray(value.reenrollableBookPaths) ||
+    !value.reenrollableBookPaths.every(
+      (path) => typeof path === "string" && path.length > 0,
+    )
+  )
+    throw new Error(
+      "Library source-status reenrollableBookPaths must be an array of paths",
+    );
   return {
     ok: true,
+    reenrollableBookPaths: value.reenrollableBookPaths,
     unavailableBookPathCount: nonNegativeInteger(
       value.unavailableBookPathCount,
       "unavailableBookPathCount",

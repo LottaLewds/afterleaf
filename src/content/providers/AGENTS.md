@@ -9,10 +9,11 @@ When adding or changing an Afterleaf content provider:
    Vite config, HTTP routes, or UI to register it.
 3. Prefer an official documented API. Keep remote DTO parsing inside the
    provider and validate every untrusted response before using it.
-4. Use `createRepresentativePagePlan(pageCount)` for the default local sample:
-   pages 1, 2, 3, and N. Keep initial `assets.pages` contiguous, use page N as
-   `assets.back`, retain the full `pageCount`, and lazily materialize other
-   pages by their true one-based number.
+4. Use `createRepresentativePagePlan(pageCount)` for the default local sample.
+   Keep initial `assets.pages` contiguous at pages 1, 2, and 3; use page N as
+   `assets.back`; and retain the full `pageCount`. The plan may include
+   transient interior dimension samples that are not stored as preview assets.
+   Lazily materialize other pages by their true one-based number.
 5. Treat `defaultQuery`, `defaultLanguages`, and `defaultBlockedTags` as UI
    defaults. Honor the final values in `LibraryProviderSyncOptions`; do not
    silently re-add defaults the user removed.

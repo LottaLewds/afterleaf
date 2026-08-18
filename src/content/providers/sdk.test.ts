@@ -1,11 +1,17 @@
 import {expect, test} from "bun:test";
+import sharp from "sharp";
+import {BOOK_ASPECT_RATIO_INFERENCE_VERSION} from "~/content/bookAspectRatio";
 import {
   createConcurrentAcquisitionPipeline,
   createRepresentativePagePlan,
+  finalizeProviderPublicationDocument,
 } from "~/content/providers/sdk";
+import type {LocalPublicationDocument} from "~/content/schema";
 
-test("selects pages 1, 2, 3, N for a representative preview", () => {
+test("selects preview, dimension sample, and back pages", () => {
   expect(createRepresentativePagePlan(20)).toEqual({
+    acquisitionPageIndexes: [0, 1, 2, 9, 10, 19],
+    aspectRatioPageIndexes: [1, 2, 9, 10],
     backPageIndex: 19,
     initialPageIndexes: [0, 1, 2],
     representativePageIndexes: [0, 1, 2, 19],
@@ -14,10 +20,41 @@ test("selects pages 1, 2, 3, N for a representative preview", () => {
 
 test("deduplicates representative pages for short publications", () => {
   expect(createRepresentativePagePlan(2)).toEqual({
+    acquisitionPageIndexes: [0, 1],
+    aspectRatioPageIndexes: [0, 1],
     backPageIndex: 1,
     initialPageIndexes: [0, 1],
     representativePageIndexes: [0, 1],
   });
+});
+
+test("finalizes provider metadata from downloaded interior pages", async () => {
+  const portrait = await sharp({
+    create: {background: "white", channels: 3, height: 300, width: 180},
+  })
+    .png()
+    .toBuffer();
+  const document: LocalPublicationDocument = {
+    assets: {pages: ["1.png", "2.png", "3.png"]},
+    id: "book",
+    language: "english",
+    pageCount: 20,
+    schemaVersion: 1,
+    tags: ["manga"],
+    title: "Book",
+  };
+
+  const finalized = await finalizeProviderPublicationDocument(document, [
+    {bytes: portrait, pageIndex: 1},
+    {bytes: portrait, pageIndex: 2},
+    {bytes: portrait, pageIndex: 9},
+    {bytes: portrait, pageIndex: 10},
+  ]);
+
+  expect(finalized.aspectRatioInferenceVersion).toBe(
+    BOOK_ASPECT_RATIO_INFERENCE_VERSION,
+  );
+  expect(finalized.physical?.aspectRatio).toBeCloseTo(0.6);
 });
 
 test("rejects invalid page counts", () => {

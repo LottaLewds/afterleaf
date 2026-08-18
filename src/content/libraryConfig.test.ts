@@ -1,13 +1,16 @@
 import {afterEach, describe, expect, test} from "bun:test";
-import {mkdir, mkdtemp, readFile, rm, writeFile} from "node:fs/promises";
+import {mkdir, mkdtemp, readFile, rm, stat, writeFile} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {resolve} from "node:path";
 import {zipSync} from "fflate";
 import sharp from "sharp";
 
 import {
+  LIBRARY_ROOT_MARKER_FILE_NAME,
+  LIBRARY_ROOT_REGISTRY_FILE_NAME,
   readAfterleafLibraryConfig,
   readAfterleafLibraryConfigSync,
+  reenrollLibraryRootPath,
   unavailableLibraryPaths,
 } from "~/content/libraryConfig";
 import {
@@ -97,6 +100,21 @@ describe("Afterleaf library config", () => {
     );
   });
 
+  test("rejects nested book roots with conflicting reading directions", async () => {
+    const root = await createRoot();
+    await writeFile(
+      resolve(root, "afterleaf.library.json"),
+      JSON.stringify({
+        comicPaths: ["external"],
+        mangaPaths: ["external/manga"],
+      }),
+    );
+
+    await expect(
+      importLocalMedia(root, resolve(root, "content-sources/catalog")),
+    ).rejects.toThrow("conflicting reading directions");
+  });
+
   test("applies the configured manga direction to archive books", async () => {
     const root = await createRoot();
     const mangaPath = resolve(root, "manga");
@@ -147,5 +165,74 @@ describe("Afterleaf library config", () => {
     await expect(
       importLocalMedia(root, resolve(root, "content-sources/catalog")),
     ).resolves.toMatchObject({mediaPaths: expect.arrayContaining([bookPath])});
+  });
+
+  test("accepts an empty enrolled root but rejects a missing or mismatched marker", async () => {
+    const root = await createRoot();
+    const bookPath = resolve(root, "mounted-library");
+    const publicationPath = resolve(bookPath, "Book");
+    const registryPath = resolve(
+      root,
+      "content-sources",
+      LIBRARY_ROOT_REGISTRY_FILE_NAME,
+    );
+    await mkdir(publicationPath, {recursive: true});
+    await sharp({
+      create: {background: "#223344", channels: 3, height: 96, width: 64},
+    })
+      .png()
+      .toFile(resolve(publicationPath, "001.png"));
+
+    expect(await unavailableLibraryPaths([bookPath], registryPath)).toEqual([]);
+    await rm(publicationPath, {force: true, recursive: true});
+    expect(await unavailableLibraryPaths([bookPath], registryPath)).toEqual([]);
+
+    const markerPath = resolve(bookPath, LIBRARY_ROOT_MARKER_FILE_NAME);
+    const marker = await readFile(markerPath, "utf8");
+    await rm(markerPath);
+    expect(await unavailableLibraryPaths([bookPath], registryPath)).toEqual([
+      bookPath,
+    ]);
+
+    const parsed = JSON.parse(marker) as {rootId: string; schemaVersion: 1};
+    await writeFile(
+      markerPath,
+      `${JSON.stringify({...parsed, rootId: "00000000-0000-4000-8000-000000000000"}, null, 2)}\n`,
+    );
+    expect(await unavailableLibraryPaths([bookPath], registryPath)).toEqual([
+      bookPath,
+    ]);
+    await expect(
+      reenrollLibraryRootPath(bookPath, registryPath),
+    ).rejects.toThrow("contains no supported books");
+    await mkdir(publicationPath, {recursive: true});
+    await sharp({
+      create: {background: "#334455", channels: 3, height: 96, width: 64},
+    })
+      .png()
+      .toFile(resolve(publicationPath, "001.png"));
+    await reenrollLibraryRootPath(bookPath, registryPath);
+    expect(await unavailableLibraryPaths([bookPath], registryPath)).toEqual([]);
+  });
+
+  test("does not automatically enroll an empty unverified root", async () => {
+    const root = await createRoot();
+    const bookPath = resolve(root, "empty-library");
+    const registryPath = resolve(
+      root,
+      "content-sources",
+      LIBRARY_ROOT_REGISTRY_FILE_NAME,
+    );
+    await mkdir(bookPath);
+
+    expect(await unavailableLibraryPaths([bookPath], registryPath)).toEqual([
+      bookPath,
+    ]);
+    await expect(
+      stat(resolve(bookPath, LIBRARY_ROOT_MARKER_FILE_NAME)),
+    ).rejects.toThrow();
+    await expect(
+      reenrollLibraryRootPath(bookPath, registryPath),
+    ).rejects.toThrow("contains no supported books");
   });
 });

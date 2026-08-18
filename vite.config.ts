@@ -16,6 +16,7 @@ import {
   LIBRARY_PASTE_RESOLVE_ENDPOINT,
   LIBRARY_PROVIDERS_ENDPOINT,
   LIBRARY_SCAN_ENDPOINT,
+  LIBRARY_ROOT_ENROLL_ENDPOINT,
   LIBRARY_SOURCE_STATUS_ENDPOINT,
   LIBRARY_STATUS_ENDPOINT,
   MAX_LIBRARY_OPERATION_BODY_BYTES,
@@ -46,8 +47,11 @@ import {materializeArchiveReaderPage} from "./src/content/archiveSparsePage";
 import {
   readAfterleafLibraryConfig,
   readAfterleafLibraryConfigSync,
+  libraryRootContainsMedia,
+  reenrollLibraryRootPath,
   writeAfterleafLibraryConfig,
   unavailableLibraryPaths,
+  LIBRARY_ROOT_REGISTRY_FILE_NAME,
 } from "./src/content/libraryConfig";
 import type {PackedPublication} from "./src/content/schema";
 import {createCachedTvVideoAnalyzer} from "./src/tv/channelAnalysis";
@@ -246,8 +250,10 @@ const configuredBookPaths = [
   ...configuredLibraryPaths.mangaPaths,
   ...(configuredLibraryPaths.mediaPaths ?? []),
 ];
-const unavailableBookPathsAtStartup =
-  await unavailableLibraryPaths(configuredBookPaths);
+const unavailableBookPathsAtStartup = await unavailableLibraryPaths(
+  configuredBookPaths,
+  path.resolve(acquisitionDirectory, LIBRARY_ROOT_REGISTRY_FILE_NAME),
+);
 if (unavailableBookPathsAtStartup.length > 0)
   console.warn(
     `\x1b[31m[afterleaf] ${unavailableBookPathsAtStartup.length} configured book ${unavailableBookPathsAtStartup.length === 1 ? "path is" : "paths are"} unavailable. Library scans are locked to protect the current catalog:\n${unavailableBookPathsAtStartup.join("\n")}\x1b[0m`,
@@ -736,10 +742,27 @@ type LocalLibraryOperation =
       providerId?: string;
       query?: string;
     }
-  | {kind: "scan"};
+  | {
+      kind: "scan";
+      redownloadProviderAssets?: boolean;
+      repair?: boolean;
+      repairProviderMetadata?: boolean;
+    };
 
 const libraryOperationArguments = (operation: LocalLibraryOperation) => {
-  if (operation.kind === "scan") return ["run", "library:scan", "--write"];
+  if (operation.kind === "scan")
+    return [
+      "run",
+      "library:scan",
+      "--write",
+      ...(operation.redownloadProviderAssets
+        ? ["--redownload-provider-assets"]
+        : []),
+      ...(operation.repair ? ["--repair"] : []),
+      ...(operation.repairProviderMetadata
+        ? ["--repair-provider-metadata"]
+        : []),
+    ];
   if (operation.kind === "blacklist-list")
     return ["run", "library:blacklist", "--list"];
   if (operation.kind === "blacklist")
@@ -911,11 +934,65 @@ const localLibraryOperationsPlugin = (): Plugin => ({
         pathname !== LIBRARY_PROVIDERS_ENDPOINT &&
         pathname !== LIBRARY_BLACKLIST_ENDPOINT &&
         pathname !== LIBRARY_SOURCE_STATUS_ENDPOINT &&
+        pathname !== LIBRARY_ROOT_ENROLL_ENDPOINT &&
         pathname !== LIBRARY_CONFIG_ENDPOINT &&
         pathname !== LIBRARY_BROWSE_ENDPOINT &&
         pathname !== LIBRARY_STATUS_ENDPOINT
       )
         return next();
+      if (pathname === LIBRARY_ROOT_ENROLL_ENDPOINT) {
+        if (request.method !== "POST" || !hasSameOrigin(request)) {
+          sendJson(
+            response,
+            request.method === "POST" ? 403 : 405,
+            libraryOperationFailure(
+              request.method === "POST"
+                ? "forbidden_origin"
+                : "method_not_allowed",
+              "Library root enrollment requires a same-origin POST request",
+            ),
+          );
+          return;
+        }
+        try {
+          const body = await readBoundedJsonBody(request);
+          const requestedPath =
+            body &&
+            typeof body === "object" &&
+            !Array.isArray(body) &&
+            "path" in body &&
+            typeof body.path === "string"
+              ? path.resolve(body.path)
+              : undefined;
+          if (!requestedPath)
+            throw new Error("Library root enrollment requires a path");
+          const config = await readAfterleafLibraryConfig(import.meta.dirname);
+          const configuredBookPaths = new Set([
+            ...config.comicPaths,
+            ...config.mangaPaths,
+            ...(config.mediaPaths ?? []),
+          ]);
+          if (!configuredBookPaths.has(requestedPath))
+            throw new Error("Only a configured book root can be re-enrolled");
+          await reenrollLibraryRootPath(
+            requestedPath,
+            path.resolve(acquisitionDirectory, LIBRARY_ROOT_REGISTRY_FILE_NAME),
+          );
+          sendJson(response, 200, {ok: true});
+        } catch (error) {
+          sendJson(
+            response,
+            422,
+            libraryOperationFailure(
+              "invalid_config",
+              error instanceof Error
+                ? error.message
+                : "Could not re-enroll library root",
+            ),
+          );
+        }
+        return;
+      }
       if (pathname === LIBRARY_CONFIG_ENDPOINT) {
         if (!hasSameOrigin(request)) {
           sendJson(
@@ -1054,15 +1131,26 @@ const localLibraryOperationsPlugin = (): Plugin => ({
         const currentLibraryPaths = await readAfterleafLibraryConfig(
           import.meta.dirname,
         );
+        const currentBookPaths = [
+          ...currentLibraryPaths.comicPaths,
+          ...currentLibraryPaths.mangaPaths,
+          ...(currentLibraryPaths.mediaPaths ?? []),
+        ];
+        const unavailableBookPaths = await unavailableLibraryPaths(
+          currentBookPaths,
+          path.resolve(acquisitionDirectory, LIBRARY_ROOT_REGISTRY_FILE_NAME),
+        );
+        const reenrollableBookPaths = (
+          await Promise.all(
+            unavailableBookPaths.map(async (bookPath) =>
+              (await libraryRootContainsMedia(bookPath)) ? bookPath : undefined,
+            ),
+          )
+        ).filter((bookPath) => bookPath !== undefined);
         sendJson(response, 200, {
           ok: true,
-          unavailableBookPathCount: (
-            await unavailableLibraryPaths([
-              ...currentLibraryPaths.comicPaths,
-              ...currentLibraryPaths.mangaPaths,
-              ...(currentLibraryPaths.mediaPaths ?? []),
-            ])
-          ).length,
+          reenrollableBookPaths,
+          unavailableBookPathCount: unavailableBookPaths.length,
         });
         return;
       }
@@ -1291,8 +1379,24 @@ const localLibraryOperationsPlugin = (): Plugin => ({
         try {
           const body = await readBoundedJsonBody(request);
           if (pathname === LIBRARY_SCAN_ENDPOINT) {
-            parseLibraryScanRequest(body);
-            operation = {kind: "scan"};
+            const scanRequest = parseLibraryScanRequest(body);
+            operation = {
+              kind: "scan",
+              ...(scanRequest.redownloadProviderAssets === undefined
+                ? {}
+                : {
+                    redownloadProviderAssets:
+                      scanRequest.redownloadProviderAssets,
+                  }),
+              ...(scanRequest.repair === undefined
+                ? {}
+                : {repair: scanRequest.repair}),
+              ...(scanRequest.repairProviderMetadata === undefined
+                ? {}
+                : {
+                    repairProviderMetadata: scanRequest.repairProviderMetadata,
+                  }),
+            };
           } else if (pathname === LIBRARY_FETCH_MORE_ENDPOINT) {
             const fetchMoreRequest = parseLibraryFetchMoreRequest(body);
             operation = {

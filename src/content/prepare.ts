@@ -1,4 +1,4 @@
-import {randomUUID} from "node:crypto";
+import {createHash, randomUUID} from "node:crypto";
 import {
   access,
   mkdir,
@@ -9,6 +9,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import {basename, dirname, extname, relative, resolve, sep} from "node:path";
+import {discoverLocalMedia} from "~/content/localMediaDiscovery";
 import {normalizeTag, normalizeTags} from "~/content/normalize";
 import {
   CONTENT_SCHEMA_VERSION,
@@ -19,6 +20,7 @@ import {
 } from "~/content/schema";
 import {parseLocalPublicationDocument} from "~/content/validation";
 
+const VALID_ID_PATTERN = /^[a-z0-9][a-z0-9._-]*$/u;
 const IMAGE_EXTENSIONS = new Set([".avif", ".jpeg", ".jpg", ".png", ".webp"]);
 const FRONT_FILE_NAMES = new Set(["cover", "folder", "front"]);
 const BACK_FILE_NAMES = new Set(["back", "rear"]);
@@ -94,9 +96,12 @@ export interface ContentPrepareDiagnostic {
   code:
     | "conflicting-reading-direction"
     | "existing-manifest"
+    | "ignored-container-images"
     | "inferred-magazine"
     | "missing-tags"
     | "no-images"
+    | "processing-failed"
+    | "shadowed-manifest"
     | "skipped-language"
     | "skipped-symlink";
   directory: string;
@@ -254,19 +259,6 @@ const findImages = async (
   );
 };
 
-const findPublicationDirectories = async (rootDirectory: string) => {
-  const rootEntries = await readdir(rootDirectory, {withFileTypes: true});
-  const hasRootImages = rootEntries.some(
-    (entry) =>
-      entry.isFile() && IMAGE_EXTENSIONS.has(extname(entry.name).toLowerCase()),
-  );
-  if (hasRootImages) return [rootDirectory];
-  return rootEntries
-    .filter((entry) => entry.isDirectory() && !entry.isSymbolicLink())
-    .map((entry) => resolve(rootDirectory, entry.name))
-    .sort((left, right) => NATURAL_COLLATOR.compare(left, right));
-};
-
 const findNamedImage = (paths: readonly string[], names: ReadonlySet<string>) =>
   paths.find((path) => names.has(basename(path, extname(path)).toLowerCase()));
 
@@ -283,11 +275,14 @@ const createDocument = (
   const pageImages = images.filter((path) => path !== back && path !== spine);
   const toRelativeAsset = (path: string) =>
     toPortablePath(relative(publicationDirectory, path));
-  const id = normalizeTag(identity.title);
-  if (!id)
-    throw new Error(
-      `Could not derive a filesystem-safe publication ID from ${publicationDirectory}`,
-    );
+  let id = normalizeTag(identity.title);
+  if (!id || !VALID_ID_PATTERN.test(id)) {
+    const fallbackHash = createHash("sha256")
+      .update(publicationDirectory)
+      .digest("hex")
+      .slice(0, 10);
+    id = `untitled-${fallbackHash}`;
+  }
   return {
     schemaVersion: CONTENT_SCHEMA_VERSION,
     id,
@@ -330,13 +325,40 @@ export const prepareLocalCatalog = async (
   const diagnostics: ContentPrepareDiagnostic[] = [];
   const publications: PreparedPublication[] = [];
   let skippedCount = 0;
-  const publicationDirectories =
-    await findPublicationDirectories(rootDirectory);
-
+  const discovery = await discoverLocalMedia(rootDirectory);
+  diagnostics.push(
+    ...discovery.diagnostics.map((diagnostic) => ({
+      code: diagnostic.code,
+      directory: diagnostic.path,
+      message:
+        diagnostic.code === "ignored-container-images"
+          ? `Ignored loose images in organizational directory ${diagnostic.path} because it contains nested publications`
+          : diagnostic.code === "shadowed-manifest"
+            ? `Ignored outer manifest ${diagnostic.path} because nested publication manifests take precedence`
+            : `Skipped symbolic link ${diagnostic.path}`,
+    })),
+  );
+  const publicationDirectories = discovery.publicationDirectories;
+  const claimedPublicationIds = new Set<string>();
   for (const publicationDirectory of publicationDirectories) {
-    const portableDirectory = toPortablePath(
-      relative(rootDirectory, publicationDirectory) || ".",
-    );
+    const manifestPath = resolve(publicationDirectory, "publication.json");
+    if (!(await fileExists(manifestPath))) continue;
+    try {
+      claimedPublicationIds.add(
+        parseLocalPublicationDocument(
+          JSON.parse(await readFile(manifestPath, "utf8")) as unknown,
+          manifestPath,
+        ).id,
+      );
+    } catch {
+      continue;
+    }
+  }
+
+  const processPublicationDirectory = async (
+    publicationDirectory: string,
+    portableDirectory: string,
+  ) => {
     const manifestPath = resolve(publicationDirectory, "publication.json");
     const manifestExists = await fileExists(manifestPath);
     if (manifestExists && !options.force && !options.refreshExisting) {
@@ -346,7 +368,7 @@ export const prepareLocalCatalog = async (
         directory: portableDirectory,
         message: `Skipped existing manifest in ${portableDirectory}; pass --force to replace it`,
       });
-      continue;
+      return;
     }
     const detectedLanguage = detectPreparedPublicationLanguage(
       basename(publicationDirectory),
@@ -359,7 +381,7 @@ export const prepareLocalCatalog = async (
         directory: portableDirectory,
         message: `Skipped ${portableDirectory} because its name indicates ${detectedLanguage.unsupportedLabel ?? "an unsupported language"}`,
       });
-      continue;
+      return;
     }
     const images = await findImages(publicationDirectory, diagnostics);
     const usablePages = images.filter((path) => {
@@ -373,7 +395,7 @@ export const prepareLocalCatalog = async (
         directory: portableDirectory,
         message: `Skipped ${portableDirectory} because it contains no supported page images`,
       });
-      continue;
+      return;
     }
     const identity = inferPreparedPublicationIdentity(
       basename(publicationDirectory),
@@ -405,7 +427,7 @@ export const prepareLocalCatalog = async (
         directory: portableDirectory,
         message: `Skipped ${portableDirectory} because its configured and filename reading-direction directives conflict`,
       });
-      continue;
+      return;
     }
     const readingDirection =
       filenameReadingDirection ?? options.readingDirection;
@@ -416,6 +438,16 @@ export const prepareLocalCatalog = async (
       readingDirection,
       identity,
     );
+    if (!manifestExists) {
+      if (claimedPublicationIds.has(document.id)) {
+        const suffix = createHash("sha256")
+          .update(publicationDirectory)
+          .digest("hex")
+          .slice(0, 10);
+        document.id = `${document.id.slice(0, 189)}-${suffix}`;
+      }
+      claimedPublicationIds.add(document.id);
+    }
     if (manifestExists && options.refreshExisting && !options.force) {
       const existingDocument = parseLocalPublicationDocument(
         JSON.parse(await readFile(manifestPath, "utf8")) as unknown,
@@ -428,7 +460,7 @@ export const prepareLocalCatalog = async (
           directory: portableDirectory,
           message: `Skipped provider-managed manifest in ${portableDirectory}`,
         });
-        continue;
+        return;
       }
       const readingDirectionChanged =
         existingDocument.physical?.readingDirection !==
@@ -444,7 +476,7 @@ export const prepareLocalCatalog = async (
           directory: portableDirectory,
           message: `Skipped unchanged manifest in ${portableDirectory}`,
         });
-        continue;
+        return;
       }
       const physical = {...(existingDocument.physical ?? {})};
       if (document.physical?.readingDirection === undefined)
@@ -472,7 +504,11 @@ export const prepareLocalCatalog = async (
           throw error;
         }
       } else {
-        await mkdir(dirname(manifestPath), {recursive: true});
+        try {
+          await mkdir(dirname(manifestPath), {recursive: true});
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+        }
         await writeManifestAtomically(manifestPath, document);
       }
     }
@@ -481,6 +517,27 @@ export const prepareLocalCatalog = async (
       manifestPath,
       document,
     });
+  };
+
+  for (const publicationDirectory of publicationDirectories) {
+    const portableDirectory = toPortablePath(
+      relative(rootDirectory, publicationDirectory) || ".",
+    );
+    try {
+      await processPublicationDirectory(
+        publicationDirectory,
+        portableDirectory,
+      );
+    } catch (error) {
+      skippedCount += 1;
+      diagnostics.push({
+        code: "processing-failed",
+        directory: portableDirectory,
+        message: `Failed to process ${portableDirectory}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      });
+    }
   }
 
   return {

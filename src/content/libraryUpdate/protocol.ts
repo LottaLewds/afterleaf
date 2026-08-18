@@ -57,6 +57,9 @@ export type LibraryScanRequest = Pick<
   "languages" | "match" | "seed" | "tags"
 > & {
   limit?: number;
+  repair?: boolean;
+  repairProviderMetadata?: boolean;
+  redownloadProviderAssets?: boolean;
 };
 
 export interface LibraryScanResult {

@@ -1,4 +1,4 @@
-import {readdir, readFile, rm, stat} from "node:fs/promises";
+import {appendFile, readdir, readFile, rm, stat} from "node:fs/promises";
 import {isAbsolute, relative, resolve, sep} from "node:path";
 import {fileURLToPath} from "node:url";
 import {
@@ -8,10 +8,14 @@ import {
 import {isContentArchivePath} from "~/content/archiveReader";
 import {
   LIBRARY_CONFIG_FILE_NAME,
+  LIBRARY_ROOT_REGISTRY_FILE_NAME,
   readAfterleafLibraryConfig,
   unavailableLibraryPaths,
 } from "~/content/libraryConfig";
-import {prepareLocalCatalog} from "~/content/prepare";
+import {
+  prepareLocalCatalog,
+  type ContentPrepareDiagnostic,
+} from "~/content/prepare";
 import {parseLocalPublicationDocument} from "~/content/validation";
 
 export {LIBRARY_CONFIG_FILE_NAME};
@@ -37,6 +41,10 @@ export interface LocalMediaImportResult {
   catalogDirectories: string[];
   imageFolderPreparedCount: number;
   mediaPaths: string[];
+}
+
+export interface LocalMediaImportOptions {
+  repair?: boolean;
 }
 
 export const configuredLibraryMediaPaths = async (
@@ -97,9 +105,35 @@ const pathIsWithin = (parent: string, candidate: string) => {
   );
 };
 
-const pruneMissingDefaultArchives = async (
+const pruneNestedMediaPaths = (paths: readonly ConfiguredMediaPath[]) => {
+  for (const path of paths) {
+    const conflict = paths.find(
+      (candidate) =>
+        candidate !== path &&
+        pathIsWithin(candidate.path, path.path) &&
+        candidate.readingDirection !== undefined &&
+        path.readingDirection !== undefined &&
+        candidate.readingDirection !== path.readingDirection,
+    );
+    if (conflict)
+      throw new Error(
+        `Nested book paths cannot use conflicting reading directions: ${conflict.path} and ${path.path}`,
+      );
+  }
+  return paths.filter(
+    (path) =>
+      !paths.some(
+        (candidate) =>
+          candidate !== path &&
+          candidate.readingDirection === path.readingDirection &&
+          pathIsWithin(candidate.path, path.path),
+      ),
+  );
+};
+
+const pruneMissingArchives = async (
   outputDirectory: string,
-  defaultArchiveDirectory: string,
+  authoritativeDirectories: readonly string[],
 ) => {
   let entries;
   try {
@@ -136,7 +170,12 @@ const pruneMissingDefaultArchives = async (
     } catch {
       continue;
     }
-    if (!pathIsWithin(defaultArchiveDirectory, sourcePath)) continue;
+    if (
+      !authoritativeDirectories.some((directory) =>
+        pathIsWithin(directory, sourcePath),
+      )
+    )
+      continue;
     try {
       await stat(sourcePath);
       continue;
@@ -153,6 +192,7 @@ export const importLocalMedia = async (
   workingDirectory: string,
   outputDirectory: string,
   cliMediaPaths: readonly string[] = [],
+  options: LocalMediaImportOptions = {},
 ): Promise<LocalMediaImportResult> => {
   const configMediaPaths = await configuredLibraryMediaPaths(workingDirectory);
   const defaultMediaPaths = DEFAULT_MEDIA_PATHS.map((path) =>
@@ -160,7 +200,7 @@ export const importLocalMedia = async (
   );
   const defaultMediaPathSet = new Set(defaultMediaPaths);
   const defaultArchiveDirectory = defaultMediaPaths[0];
-  const mediaPaths = uniqueMediaPaths([
+  const configuredMediaPaths = uniqueMediaPaths([
     ...defaultMediaPaths.map((path) => ({
       optional: true,
       path,
@@ -180,10 +220,16 @@ export const importLocalMedia = async (
       protectsExistingLibrary: false,
     })),
   ]);
+  const mediaPaths = pruneNestedMediaPaths(configuredMediaPaths);
   const unavailableProtectedPaths = await unavailableLibraryPaths(
-    mediaPaths
+    configuredMediaPaths
       .filter((mediaPath) => mediaPath.protectsExistingLibrary)
       .map((mediaPath) => mediaPath.path),
+    resolve(
+      workingDirectory,
+      "content-sources",
+      LIBRARY_ROOT_REGISTRY_FILE_NAME,
+    ),
   );
   if (unavailableProtectedPaths.length > 0)
     throw new UnavailableLibraryMediaPathsError(unavailableProtectedPaths);
@@ -228,6 +274,8 @@ export const importLocalMedia = async (
     });
   }
 
+  const folderDiagnostics: ContentPrepareDiagnostic[] = [];
+
   for (const mediaPath of availableMedia) {
     if (!mediaPath.stat.isDirectory()) continue;
 
@@ -243,6 +291,7 @@ export const importLocalMedia = async (
         : {readingDirection: mediaPath.readingDirection}),
     });
     imageFolderPreparedCount += folderReport.preparedCount;
+    folderDiagnostics.push(...folderReport.diagnostics);
     catalogDirectories.push(mediaPath.path);
   }
 
@@ -253,15 +302,35 @@ export const importLocalMedia = async (
     })),
     archivesDirectory: defaultArchiveDirectory,
     defaultLanguage: "english",
-    force: false,
+    force: options.repair === true,
     outputDirectory,
     tags: [],
     write: true,
   });
 
-  const archiveRemovedCount = await pruneMissingDefaultArchives(
+  const failureLogPath = resolve(
+    workingDirectory,
+    "content-sources",
+    "scan-failures.log",
+  );
+  const failures = [...folderDiagnostics, ...archiveReport.diagnostics].filter(
+    (diagnostic) => diagnostic.code === "processing-failed",
+  );
+  if (failures.length > 0) {
+    const lines = failures
+      .map(
+        (diagnostic) =>
+          `[${new Date().toISOString()}] ${JSON.stringify(diagnostic)}`,
+      )
+      .join("\n");
+    await appendFile(failureLogPath, `${lines}\n`);
+  }
+
+  const archiveRemovedCount = await pruneMissingArchives(
     outputDirectory,
-    defaultArchiveDirectory,
+    availableMedia
+      .filter(({stat: mediaStat}) => mediaStat.isDirectory())
+      .map(({path}) => path),
   );
 
   try {

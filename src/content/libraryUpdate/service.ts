@@ -24,6 +24,10 @@ import {normalizeTags} from "~/content/normalize";
 import {migrateLibrarySourcesWithRegistry} from "~/content/librarySourceMigrationRegistry";
 import type {LibrarySourceMigrationReport} from "~/content/librarySourceMigrations";
 import {
+  repairCachedProviderPublications,
+  type ProviderCacheRepairReport,
+} from "~/content/providerCacheRepair";
+import {
   createLibraryProviderRegistry,
   DEFAULT_LIBRARY_PROVIDER_ID,
   type LibraryProviderRegistry,
@@ -50,7 +54,11 @@ const DEFAULT_LANGUAGES = ["english", "japanese"] as const;
 
 export interface SnapshotCatalogSummary {
   contentHash: string;
-  publications: Array<{contentHash: string; id: string}>;
+  publications: Array<{
+    contentHash: string;
+    id: string;
+    localSourceId?: string;
+  }>;
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -76,7 +84,21 @@ const parseSnapshotCatalogSummary = (
       throw new Error(
         `${field}.publications[${index}].contentHash must be a non-empty string`,
       );
-    return {contentHash: publication.contentHash, id: publication.id};
+    if (
+      publication.localSourceId !== undefined &&
+      (typeof publication.localSourceId !== "string" ||
+        !publication.localSourceId)
+    )
+      throw new Error(
+        `${field}.publications[${index}].localSourceId must be a non-empty string`,
+      );
+    return {
+      contentHash: publication.contentHash,
+      id: publication.id,
+      ...(publication.localSourceId === undefined
+        ? {}
+        : {localSourceId: publication.localSourceId}),
+    };
   });
   if (
     new Set(publications.map((publication) => publication.id)).size !==
@@ -158,6 +180,10 @@ export interface LibraryUpdateServiceDependencies {
     sourceDirectory: string,
     onProgress?: (message: string) => void,
   ) => Promise<LibrarySourceMigrationReport>;
+  runProviderRepairs?: (
+    sourceDirectory: string,
+    onProgress?: (message: string) => void,
+  ) => Promise<ProviderCacheRepairReport>;
   runSeed(
     catalogDirectory: string,
     options: SeedContentPackOptions,
@@ -286,7 +312,7 @@ export class LibraryUpdateService implements LibraryUpdateClient {
     this.#setRunningState(
       "syncing",
       mode === "scan"
-        ? "Checking local publications for required migrations"
+        ? "Scanning local publications"
         : "Searching for new publications",
       completedSteps,
       requestId,
@@ -304,14 +330,19 @@ export class LibraryUpdateService implements LibraryUpdateClient {
       const excludedPublicationIds = new Set(blacklistedPublicationIds);
       const remoteRequest =
         mode === "scan" ? undefined : (request as LibraryFetchMoreRequest);
+      const repairScan =
+        mode === "scan" && (request as LibraryScanRequest).repair === true;
       const providerId =
         remoteRequest?.providerId ??
         this.#dependencies.defaultProviderId ??
         DEFAULT_LIBRARY_PROVIDER_ID;
-      const providerDescriptor =
-        this.#dependencies.getProviderDescriptor?.(providerId);
-      const acquisitionLanguages = request.languages ??
-        providerDescriptor?.defaultLanguages ?? [...DEFAULT_LANGUAGES];
+      const providerDescriptor = remoteRequest
+        ? this.#dependencies.getProviderDescriptor?.(providerId)
+        : undefined;
+      const acquisitionLanguages = remoteRequest
+        ? (request.languages ??
+          providerDescriptor?.defaultLanguages ?? [...DEFAULT_LANGUAGES])
+        : (request.languages ?? [...DEFAULT_LANGUAGES]);
       const catalogLanguages = remoteRequest
         ? [...DEFAULT_LANGUAGES]
         : acquisitionLanguages;
@@ -347,25 +378,50 @@ export class LibraryUpdateService implements LibraryUpdateClient {
             },
             providerId,
           );
-      const migrationReport = this.#dependencies.runMigrations
-        ? await this.#dependencies.runMigrations(
-            this.#sourceDirectory,
-            (message) =>
-              this.#setRunningState(
-                "syncing",
-                message,
-                completedSteps,
-                requestId,
-                startedAt,
-                previousSnapshot,
-              ),
-          )
-        : {
-            diagnostics: [],
-            failedCount: 0,
-            migratedCount: 0,
-            pendingCount: 0,
-          };
+      const providerRepairReport =
+        repairScan &&
+        (request as LibraryScanRequest).redownloadProviderAssets === true &&
+        this.#dependencies.runProviderRepairs
+          ? await this.#dependencies.runProviderRepairs(
+              this.#sourceDirectory,
+              (message) =>
+                this.#setRunningState(
+                  "syncing",
+                  message,
+                  completedSteps,
+                  requestId,
+                  startedAt,
+                  previousSnapshot,
+                ),
+            )
+          : {
+              diagnostics: [],
+              failedCount: 0,
+              repairedCount: 0,
+              requestedCount: 0,
+            };
+      const migrationReport =
+        repairScan &&
+        (request as LibraryScanRequest).repairProviderMetadata === true &&
+        this.#dependencies.runMigrations
+          ? await this.#dependencies.runMigrations(
+              this.#sourceDirectory,
+              (message) =>
+                this.#setRunningState(
+                  "syncing",
+                  message,
+                  completedSteps,
+                  requestId,
+                  startedAt,
+                  previousSnapshot,
+                ),
+            )
+          : {
+              diagnostics: [],
+              failedCount: 0,
+              migratedCount: 0,
+              pendingCount: 0,
+            };
       completedSteps = 1;
       if (
         syncReport &&
@@ -441,9 +497,20 @@ export class LibraryUpdateService implements LibraryUpdateClient {
           dryRun: false,
           excludedTags: [],
           force: false,
+          forceRebuild:
+            mode === "scan" && (request as LibraryScanRequest).repair === true,
           languages: catalogLanguages,
           limit: snapshotLimit,
           match: request.match ?? "all",
+          onDiagnostic: (diagnostic) =>
+            this.#setRunningState(
+              "seeding",
+              `Scan issue: ${diagnostic.message}`,
+              completedSteps,
+              requestId,
+              startedAt,
+              previousSnapshot,
+            ),
           outputDirectory: snapshotDirectory,
           packId: this.#packId,
           assetPathPrefix: `assets/${snapshotId}`,
@@ -455,6 +522,11 @@ export class LibraryUpdateService implements LibraryUpdateClient {
         previousSnapshot,
       );
       seedResult.report.diagnostics.unshift(
+        ...providerRepairReport.diagnostics.map(({message, sourceId}) => ({
+          code: "provider-repair-failed" as const,
+          message,
+          sourceId,
+        })),
         ...migrationReport.diagnostics.map(({message, sourceId}) => ({
           code: "migration-failed" as const,
           message,
@@ -471,6 +543,46 @@ export class LibraryUpdateService implements LibraryUpdateClient {
         previousCatalog,
         nextCatalog,
       );
+      const unsafeRemovalDiagnostics = new Set([
+        "duplicate-id",
+        "invalid-assets",
+        "invalid-manifest",
+        "provider-repair-failed",
+      ]);
+      const unsafeSourceIds = new Set(
+        seedResult.report.diagnostics.flatMap((diagnostic) =>
+          unsafeRemovalDiagnostics.has(diagnostic.code) && diagnostic.sourceId
+            ? [diagnostic.sourceId]
+            : [],
+        ),
+      );
+      const previousPublicationById = new Map(
+        previousCatalog?.publications.map((publication) => [
+          publication.id,
+          publication,
+        ]) ?? [],
+      );
+      const removalAffectedByScanErrors =
+        publicationDiff.removedPublicationIds.some((publicationId) => {
+          const publication = previousPublicationById.get(publicationId);
+          // Catalogs created before source tracking cannot safely attribute an
+          // error, so retain the conservative behavior for their first scan.
+          if (!publication?.localSourceId) return unsafeSourceIds.size > 0;
+          return unsafeSourceIds.has(publication.localSourceId);
+        });
+      if (
+        previousCatalog &&
+        publicationDiff.removedPublicationIds.length > 0 &&
+        removalAffectedByScanErrors
+      ) {
+        await Promise.allSettled([
+          this.#dependencies.discardSnapshot?.(snapshotDirectory),
+          this.#dependencies.discardAssetSet?.(snapshotId),
+        ]);
+        throw new Error(
+          `Library scan kept the current catalog because ${publicationDiff.removedPublicationIds.length} existing ${publicationDiff.removedPublicationIds.length === 1 ? "publication was" : "publications were"} missing after scan errors`,
+        );
+      }
       if (syncReport && Array.isArray(syncReport.selectedPublicationIds)) {
         const materializedPublicationIds = syncReport.selectedPublicationIds;
         const cataloguedSourcePublicationIds = new Set(
@@ -781,6 +893,12 @@ export const createLibraryUpdateService = (
           providerRegistry,
           onProgress,
         ),
+      runProviderRepairs: (sourceDirectory, onProgress) =>
+        repairCachedProviderPublications({
+          ...(onProgress === undefined ? {} : {onProgress}),
+          providerRegistry,
+          sourceDirectory,
+        }),
       runSync: (options, providerId) =>
         providerRegistry
           .load(providerId)

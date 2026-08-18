@@ -155,17 +155,16 @@ test("host migration samples exact remote pages and marks the manifest once", as
     BOOK_ASPECT_RATIO_INFERENCE_VERSION,
   );
   expect(progress).toEqual([
-    "Library migrations: 0/1 complete (0%); 0 migrated, 0 failed",
-    "Library migrations: 0/1 complete (0%); running aspect-ratio inference for test-provider/book",
-    "Library migrations: 1/1 complete (100%); migrated test-provider/book with aspect-ratio inference (1 migrated, 0 failed)",
+    "Updating older cached publications: 0/1 complete (0%); 0 updated, 0 failed",
+    "Updating older cached publications: 0/1 complete (0%); running aspect-ratio inference for test-provider/book",
+    "Updating older cached publications: 1/1 complete (100%); updated test-provider/book with aspect-ratio inference (1 updated, 0 failed)",
   ]);
 
+  const progressCount = progress.length;
   const second = await runLibrarySourceMigrations(options);
   expect(second).toMatchObject({migratedCount: 0, pendingCount: 0});
   expect(requestedPages).toEqual([5, 6]);
-  expect(progress.at(-1)).toBe(
-    "Library migrations: no publications require repair",
-  );
+  expect(progress).toHaveLength(progressCount);
 });
 
 test("failed host migration preserves stale metadata and retries later", async () => {
@@ -202,7 +201,7 @@ test("failed host migration preserves stale metadata and retries later", async (
   expect(await readFile(manifestPath, "utf8")).toBe(originalManifest);
   expect(requestedPages).toEqual([5]);
   expect(progress.at(-1)).toBe(
-    "Library migrations: 1/1 complete (100%); failed aspect-ratio inference for test-provider/book, will retry next scan (0 migrated, 1 failed)",
+    "Updating older cached publications: 1/1 complete (100%); failed aspect-ratio inference for test-provider/book, will retry next scan (0 updated, 1 failed)",
   );
 
   const portrait = await image(800, 1_200, "#eeeeee");

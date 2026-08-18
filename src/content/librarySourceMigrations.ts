@@ -187,18 +187,16 @@ export const runLibrarySourceMigrations = async (
   const candidates = await publicationCandidates(options.sourceDirectory);
   const pending = pendingMigrations(candidates, options.migrations);
   const pendingCount = pending.length;
-  if (pendingCount === 0) {
-    options.onProgress?.("Library migrations: no publications require repair");
+  if (pendingCount === 0)
     return {diagnostics, failedCount, migratedCount, pendingCount};
-  }
   options.onProgress?.(
-    `Library migrations: 0/${pendingCount} complete (0%); 0 migrated, 0 failed`,
+    `Updating older cached publications: 0/${pendingCount} complete (0%); 0 updated, 0 failed`,
   );
   for (const [index, job] of pending.entries()) {
     const {candidate, migration} = job;
     const completedCount = index;
     options.onProgress?.(
-      `Library migrations: ${completedCount}/${pendingCount} complete (${progressPercentage(completedCount, pendingCount)}%); running ${migration.label} for ${candidate.sourceId}`,
+      `Updating older cached publications: ${completedCount}/${pendingCount} complete (${progressPercentage(completedCount, pendingCount)}%); running ${migration.label} for ${candidate.sourceId}`,
     );
     try {
       if (job.eligibilityError !== undefined) throw job.eligibilityError.value;
@@ -213,7 +211,7 @@ export const runLibrarySourceMigrations = async (
       migratedCount += 1;
       const nextCompletedCount = index + 1;
       options.onProgress?.(
-        `Library migrations: ${nextCompletedCount}/${pendingCount} complete (${progressPercentage(nextCompletedCount, pendingCount)}%); migrated ${candidate.sourceId} with ${migration.label} (${migratedCount} migrated, ${failedCount} failed)`,
+        `Updating older cached publications: ${nextCompletedCount}/${pendingCount} complete (${progressPercentage(nextCompletedCount, pendingCount)}%); updated ${candidate.sourceId} with ${migration.label} (${migratedCount} updated, ${failedCount} failed)`,
       );
     } catch (error) {
       failedCount += 1;
@@ -224,7 +222,7 @@ export const runLibrarySourceMigrations = async (
       });
       const nextCompletedCount = index + 1;
       options.onProgress?.(
-        `Library migrations: ${nextCompletedCount}/${pendingCount} complete (${progressPercentage(nextCompletedCount, pendingCount)}%); failed ${migration.label} for ${candidate.sourceId}, will retry next scan (${migratedCount} migrated, ${failedCount} failed)`,
+        `Updating older cached publications: ${nextCompletedCount}/${pendingCount} complete (${progressPercentage(nextCompletedCount, pendingCount)}%); failed ${migration.label} for ${candidate.sourceId}, will retry next scan (${migratedCount} updated, ${failedCount} failed)`,
       );
     }
   }

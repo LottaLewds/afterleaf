@@ -3,6 +3,7 @@ import {mkdtemp, readdir, readFile, rm, writeFile} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {join, resolve} from "node:path";
 import sharp from "sharp";
+import {BOOK_ASPECT_RATIO_INFERENCE_VERSION} from "~/content/bookAspectRatio";
 import {
   NhentaiClient,
   parseNhentaiGallery,
@@ -688,9 +689,13 @@ describe("syncNhentaiCatalog", () => {
     );
 
     expect(document.pageCount).toBe(5);
+    expect(document.aspectRatioInferenceVersion).toBe(
+      BOOK_ASPECT_RATIO_INFERENCE_VERSION,
+    );
+    expect(document.physical?.aspectRatio).toBeCloseTo(2 / 3);
     expect(document.assets.pages).toHaveLength(3);
     expect(document.assets.back).toBe("pages/005.png");
-    expect(remote.imageRequestCount()).toBe(4);
+    expect(remote.imageRequestCount()).toBe(5);
     expect(
       await sharp(
         resolve(sourceDirectory, "nhentai-9/pages/005.png"),

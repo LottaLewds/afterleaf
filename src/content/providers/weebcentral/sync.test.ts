@@ -10,6 +10,7 @@ import {
 } from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {resolve} from "node:path";
+import {BOOK_ASPECT_RATIO_INFERENCE_VERSION} from "~/content/bookAspectRatio";
 import {WeebCentralClient} from "~/content/providers/weebcentral/client";
 import {WEEBCENTRAL_SPARSE_METADATA_FILE} from "~/content/providers/weebcentral/sparseMetadata";
 import {syncWeebCentralCatalog} from "~/content/providers/weebcentral/sync";
@@ -131,6 +132,7 @@ test("WeebCentral sync writes a sparse local catalog", async () => {
     selectedPublicationIds: ["weebcentral-series-id-chapter-1"],
   });
   expect(manifest).toMatchObject({
+    aspectRatioInferenceVersion: BOOK_ASPECT_RATIO_INFERENCE_VERSION,
     assets: {
       back: "pages/004.png",
       front: "pages/001.png",
@@ -141,6 +143,7 @@ test("WeebCentral sync writes a sparse local catalog", async () => {
     issue: {label: "Chapter 1", number: 1},
     language: "english",
     pageCount: 4,
+    physical: {aspectRatio: 2 / 3},
     source: {
       provider: "weebcentral",
       remoteId: "chapter-1",

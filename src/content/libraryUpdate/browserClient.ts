@@ -5,6 +5,7 @@ import {
   LIBRARY_FETCH_MORE_ENDPOINT,
   LIBRARY_PASTE_RESOLVE_ENDPOINT,
   LIBRARY_PROVIDERS_ENDPOINT,
+  LIBRARY_ROOT_ENROLL_ENDPOINT,
   LIBRARY_SCAN_ENDPOINT,
   LIBRARY_SOURCE_STATUS_ENDPOINT,
   LIBRARY_STATUS_ENDPOINT,
@@ -20,6 +21,7 @@ import {
   type LibraryFetchMoreRequest,
   type LibraryOperationHttpFailure,
   type LibraryPasteImportMatch,
+  type LibraryScanRequest,
   type LibrarySnapshotOperation,
 } from "~/content/libraryUpdate/httpProtocol";
 import type {LibraryProviderDescriptor} from "~/content/providers/types";
@@ -168,8 +170,21 @@ const requestSnapshotOperation = async (
   };
 };
 
-export const scanLocalLibrary = (fetcher: LibraryOperationFetch = fetch) =>
-  requestSnapshotOperation(LIBRARY_SCAN_ENDPOINT, "scan", {}, fetcher);
+export const scanLocalLibrary = (
+  optionsOrFetcher: LibraryScanRequest | LibraryOperationFetch = {},
+  fetcher: LibraryOperationFetch = fetch,
+) => {
+  const options =
+    typeof optionsOrFetcher === "function" ? {} : optionsOrFetcher;
+  const requestFetcher =
+    typeof optionsOrFetcher === "function" ? optionsOrFetcher : fetcher;
+  return requestSnapshotOperation(
+    LIBRARY_SCAN_ENDPOINT,
+    "scan",
+    options,
+    requestFetcher,
+  );
+};
 
 export const loadLibraryOperationStatus = async (
   jobId: string,
@@ -309,6 +324,7 @@ export const loadLibrarySourceStatus = async (
   }
   throwResponseError(response, result);
   return {
+    reenrollableBookPaths: result.ok ? result.reenrollableBookPaths : [],
     unavailableBookPathCount: result.ok ? result.unavailableBookPathCount : 0,
   };
 };
@@ -422,6 +438,33 @@ export const saveLibraryConfig = async (
       response.status,
     );
   return (value as {config: AfterleafLibraryConfig}).config;
+};
+
+export const reenrollLibraryRoot = async (
+  path: string,
+  fetcher: LibraryOperationFetch = fetch,
+) => {
+  const {response, value} = await requestJson(
+    LIBRARY_ROOT_ENROLL_ENDPOINT,
+    {
+      body: JSON.stringify({path}),
+      headers: {"Content-Type": "application/json"},
+      method: "POST",
+    },
+    fetcher,
+  );
+  if (
+    !response.ok ||
+    !value ||
+    typeof value !== "object" ||
+    !("ok" in value) ||
+    value.ok !== true
+  )
+    throw new BrowserLibraryOperationError(
+      "Could not re-enroll library root",
+      "config_failed",
+      response.status,
+    );
 };
 
 export type LibraryDirectoryEntry = {name: string; path: string};

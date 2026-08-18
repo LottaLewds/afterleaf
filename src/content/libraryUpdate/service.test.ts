@@ -340,15 +340,8 @@ describe("LibraryUpdateService", () => {
     });
   });
 
-  test("reports a failed migration instead of taking the unchanged fetch fast path", async () => {
+  test("reports a failed cached-provider update during deep repair", async () => {
     const calls: string[] = [];
-    const unchangedSyncReport = {
-      ...syncReport,
-      addedCount: 0,
-      selectedPublicationIds: [],
-      unchangedCount: 403,
-      updatedCount: 0,
-    };
     const localSeedResult = structuredClone(seedResult);
     const service = new LibraryUpdateService(
       {libraryDirectory: "/library", sourceDirectory: "/source"},
@@ -377,24 +370,31 @@ describe("LibraryUpdateService", () => {
             pendingCount: 1,
           };
         },
+        runProviderRepairs: async (sourceDirectory) => {
+          calls.push("repair-remotes");
+          expect(sourceDirectory).toBe(resolve("/source"));
+          return {
+            diagnostics: [],
+            failedCount: 0,
+            repairedCount: 2,
+            requestedCount: 2,
+          };
+        },
         runSeed: async () => {
           calls.push("seed");
           return localSeedResult;
         },
-        runSync: async () => {
-          calls.push("sync");
-          return unchangedSyncReport;
-        },
       }),
     );
 
-    const result = await service.fetchMore({
-      ...request,
-      localSourceChanged: false,
+    const result = await service.scan({
+      redownloadProviderAssets: true,
+      repair: true,
+      repairProviderMetadata: true,
     });
 
-    expect(calls).toEqual(["sync", "migrate", "seed", "activate"]);
-    expect(result.seedReport?.diagnostics).toContainEqual({
+    expect(calls).toEqual(["repair-remotes", "migrate", "seed", "activate"]);
+    expect(result.seedReport.diagnostics).toContainEqual({
       code: "migration-failed",
       message: "Could not migrate provider/book: remote unavailable",
       sourceId: "provider/book",
@@ -506,7 +506,7 @@ describe("LibraryUpdateService", () => {
     await expect(firstFetch).resolves.toMatchObject({requestId: "request-1"});
   });
 
-  test("runs host migrations before scanning without invoking provider search", async () => {
+  test("scans local content without loading, syncing, or migrating providers", async () => {
     const calls: string[] = [];
     const service = new LibraryUpdateService(
       {
@@ -525,16 +525,11 @@ describe("LibraryUpdateService", () => {
           };
         },
         readBlacklist: async () => ["removed"],
-        runMigrations: async (sourceDirectory, onProgress) => {
-          calls.push("migrate");
-          expect(sourceDirectory).toBe(resolve("/source"));
-          onProgress?.("Library migrations: running test migration");
-          return {
-            diagnostics: [],
-            failedCount: 0,
-            migratedCount: 1,
-            pendingCount: 1,
-          };
+        getProviderDescriptor: () => {
+          throw new Error("scan must not inspect a selected provider");
+        },
+        runMigrations: async () => {
+          throw new Error("scan must not run provider migrations");
         },
         runSeed: async (
           catalogDirectory,
@@ -559,7 +554,7 @@ describe("LibraryUpdateService", () => {
 
     const result = await service.scan({});
 
-    expect(calls).toEqual(["migrate", "seed", "activate"]);
+    expect(calls).toEqual(["seed", "activate"]);
     expect(result.blacklistedPublicationIds).toEqual(["removed"]);
     expect(result.diff.removedPublicationIds).toEqual(["removed"]);
     expect(service.getState()).toMatchObject({
@@ -624,7 +619,111 @@ describe("LibraryUpdateService", () => {
     });
   });
 
-  test("continues scanning and reports isolated migration failures", async () => {
+  test("repair scans force publication rebuilding", async () => {
+    const service = new LibraryUpdateService(
+      {libraryDirectory: "/library", sourceDirectory: "/source"},
+      createDependencies({
+        runMigrations: async () => {
+          throw new Error(
+            "local-only repair must not update provider metadata",
+          );
+        },
+        runProviderRepairs: async () => {
+          throw new Error(
+            "local-only repair must not redownload provider assets",
+          );
+        },
+        runSeed: async (_catalogDirectory, options) => {
+          expect(options.forceRebuild).toBe(true);
+          return seedResult;
+        },
+      }),
+    );
+
+    await service.scan({repair: true});
+  });
+
+  test("keeps the active catalog when scan errors would remove publications", async () => {
+    const calls: string[] = [];
+    const unsafeSeedResult = structuredClone(seedResult);
+    if (!unsafeSeedResult.catalog)
+      throw new Error("Test seed result must contain a catalog");
+    unsafeSeedResult.catalog.publications = [publication("kept", "kept-v2")];
+    unsafeSeedResult.report.diagnostics = [
+      {
+        code: "invalid-manifest",
+        message: "Broken publication manifest",
+        sourceId: "removed",
+      },
+    ];
+    const service = new LibraryUpdateService(
+      {libraryDirectory: "/library", sourceDirectory: "/source"},
+      createDependencies({
+        activateSnapshot: async () => {
+          calls.push("activate");
+          return previousIndex;
+        },
+        discardAssetSet: async () => {
+          calls.push("discard-assets");
+        },
+        discardSnapshot: async () => {
+          calls.push("discard-snapshot");
+        },
+        runSeed: async () => unsafeSeedResult,
+      }),
+    );
+
+    await expect(service.scan({})).rejects.toThrow("kept the current catalog");
+    expect(calls).toEqual(["discard-snapshot", "discard-assets"]);
+    expect(service.getState()).toMatchObject({
+      activeSnapshot: previousSnapshot,
+      status: "failed",
+    });
+  });
+
+  test("allows a verified deletion when a scan error belongs to another source", async () => {
+    const isolatedSeedResult = structuredClone(seedResult);
+    if (!isolatedSeedResult.catalog)
+      throw new Error("Test seed result must contain a catalog");
+    isolatedSeedResult.catalog.publications = [
+      {...publication("kept", "kept-v2"), localSourceId: "books/kept"},
+    ];
+    isolatedSeedResult.report.diagnostics = [
+      {
+        code: "invalid-manifest",
+        message: "Unrelated broken publication manifest",
+        sourceId: "books/unrelated-broken",
+      },
+    ];
+    const service = new LibraryUpdateService(
+      {libraryDirectory: "/library", sourceDirectory: "/source"},
+      createDependencies({
+        readSnapshotCatalog: async () => ({
+          contentHash: "previous-catalog-hash",
+          publications: [
+            {
+              contentHash: "kept-v1",
+              id: "kept",
+              localSourceId: "books/kept",
+            },
+            {
+              contentHash: "removed-v1",
+              id: "removed",
+              localSourceId: "books/removed",
+            },
+          ],
+        }),
+        runSeed: async () => isolatedSeedResult,
+      }),
+    );
+
+    const result = await service.scan({});
+
+    expect(result.diff.removedPublicationIds).toEqual(["removed"]);
+    expect(result.snapshot.publicationCount).toBe(1);
+  });
+
+  test("continues deep repair and reports isolated cached-provider failures", async () => {
     const localSeedResult = structuredClone(seedResult);
     const service = new LibraryUpdateService(
       {libraryDirectory: "/library", sourceDirectory: "/source"},
@@ -645,7 +744,10 @@ describe("LibraryUpdateService", () => {
       }),
     );
 
-    const result = await service.scan({});
+    const result = await service.scan({
+      repair: true,
+      repairProviderMetadata: true,
+    });
 
     expect(result.seedReport.diagnostics).toContainEqual({
       code: "migration-failed",
@@ -694,7 +796,7 @@ describe("LibraryUpdateService", () => {
     expect(result.diff.unchangedPublicationIds).toEqual(["kept"]);
   });
 
-  test("fetch-more performs unseen sync before the shared disk scan", async () => {
+  test("fetch-more performs unseen sync without running legacy updates", async () => {
     const calls: string[] = [];
     const service = new LibraryUpdateService(
       {
@@ -713,6 +815,12 @@ describe("LibraryUpdateService", () => {
           };
         },
         readBlacklist: async () => ["nhentai-99"],
+        runMigrations: async () => {
+          throw new Error("fetch-more must not update older cached content");
+        },
+        runProviderRepairs: async () => {
+          throw new Error("fetch-more must not deep-repair cached content");
+        },
         runSeed: async (catalogDirectory, options, excludedIds) => {
           calls.push("seed");
           expect(catalogDirectory).toBe(resolve("/catalog"));

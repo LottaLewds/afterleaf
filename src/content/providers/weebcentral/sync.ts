@@ -14,6 +14,7 @@ import {
   CONTENT_SCHEMA_VERSION,
   createConcurrentAcquisitionPipeline,
   createRepresentativePagePlan,
+  finalizeProviderPublicationDocument,
   inferPreparedPublicationIdentity,
   normalizeTag,
   normalizeTags,
@@ -315,10 +316,11 @@ const materializeChapter = async (
   await mkdir(resolve(stagingDirectory, "pages"), {recursive: true});
   try {
     const pagePlan = createRepresentativePagePlan(pageUrls.length);
-    const downloads = pagePlan.representativePageIndexes.map((pageIndex) => ({
+    const downloads = pagePlan.acquisitionPageIndexes.map((pageIndex) => ({
       pageIndex,
       path: document.assets.pages[pageIndex] ?? document.assets.back,
     }));
+    const downloadedPages: Array<{bytes: Uint8Array; pageIndex: number}> = [];
     let nextDownloadIndex = 0;
     await Promise.all(
       Array.from({length: Math.min(3, downloads.length)}, async () => {
@@ -332,16 +334,23 @@ const materializeChapter = async (
               `WeebCentral chapter ${chapter.id} has incomplete page metadata`,
             );
           markStarted();
-          await writeFile(
-            resolve(stagingDirectory, download.path),
-            await client.downloadPage(pageUrl),
-          );
+          const bytes = await client.downloadPage(pageUrl);
+          downloadedPages.push({bytes, pageIndex: download.pageIndex});
+          if (
+            document.assets.pages[download.pageIndex] ||
+            download.pageIndex === pagePlan.backPageIndex
+          )
+            await writeFile(resolve(stagingDirectory, download.path), bytes);
         }
       }),
     );
+    const finalizedDocument = await finalizeProviderPublicationDocument(
+      document,
+      downloadedPages,
+    );
     await writeFile(
       resolve(stagingDirectory, "publication.json"),
-      `${JSON.stringify(document, null, 2)}\n`,
+      `${JSON.stringify(finalizedDocument, null, 2)}\n`,
     );
     await writeFile(
       resolve(stagingDirectory, WEEBCENTRAL_SPARSE_METADATA_FILE),

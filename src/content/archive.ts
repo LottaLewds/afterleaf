@@ -1,4 +1,4 @@
-import {randomUUID} from "node:crypto";
+import {createHash, randomUUID} from "node:crypto";
 import {
   access,
   cp,
@@ -11,7 +11,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import {basename, dirname, extname, resolve} from "node:path";
-import {pathToFileURL} from "node:url";
+import {fileURLToPath, pathToFileURL} from "node:url";
 import {
   ARCHIVE_SOURCE_PROVIDER,
   inspectContentArchive,
@@ -48,7 +48,7 @@ export {
   readContentArchiveImage,
 };
 export type {ArchiveInspection};
-
+const VALID_ID_PATTERN = /^[a-z0-9][a-z0-9._-]*$/u;
 const NATURAL_COLLATOR = new Intl.Collator("en-US", {
   numeric: true,
   sensitivity: "base",
@@ -79,6 +79,7 @@ export interface ArchiveImportDiagnostic {
     | "duplicate-destination"
     | "existing-destination"
     | "invalid-archive"
+    | "processing-failed"
     | "skipped-language"
     | "skipped-symlink";
   message: string;
@@ -116,6 +117,7 @@ interface ArchivePlan {
   document?: LocalPublicationDocument;
   groupId?: string;
   inspection: ArchiveInspection;
+  idSuffix?: string;
   issue?: PublicationIssue;
   kind?: PublicationKind;
   language: SupportedLanguage;
@@ -169,6 +171,7 @@ const findArchives = async (
   ) => {
     const entries = await readdir(directory, {withFileTypes: true});
     for (const entry of entries) {
+      if (entry.name.startsWith(".")) continue;
       const archiveName = prefix ? `${prefix}/${entry.name}` : entry.name;
       if (entry.isSymbolicLink()) {
         diagnostics.push({
@@ -239,11 +242,15 @@ const createArchiveDocument = (
       },
     };
   }
-  const id = normalizeTag(plan.title);
-  if (!id)
-    throw new Error(
-      `Could not derive a publication ID from ${plan.archiveName}`,
-    );
+  let id = normalizeTag(plan.title);
+  if (!id || !VALID_ID_PATTERN.test(id)) {
+    const fallbackHash = createHash("sha256")
+      .update(plan.archivePath)
+      .digest("hex")
+      .slice(0, 10);
+    id = `untitled-${fallbackHash}`;
+  }
+  if (plan.idSuffix) id = `${id}-${plan.idSuffix}`;
   return {
     schemaVersion: CONTENT_SCHEMA_VERSION,
     aspectRatioInferenceVersion: BOOK_ASPECT_RATIO_INFERENCE_VERSION,
@@ -313,14 +320,19 @@ const readArchiveAspectSamples = async (plan: ArchivePlan) => {
   );
   const representativeIndices =
     aspectSampleIndices.length > 0 ? aspectSampleIndices : sourceIndices;
-  const dimensions = await Promise.all(
-    representativeIndices.flatMap((index) => {
-      const source = sources.get(index);
-      return source
-        ? [sharp(source, {limitInputPixels: 100_000_000}).metadata()]
-        : [];
-    }),
-  );
+  const dimensions = (
+    await Promise.all(
+      representativeIndices.flatMap((index) => {
+        const source = sources.get(index);
+        if (!source) return [];
+        return [
+          sharp(source, {limitInputPixels: 100_000_000})
+            .metadata()
+            .catch(() => undefined),
+        ];
+      }),
+    )
+  ).filter((metadata) => metadata !== undefined);
   return {
     aspectRatio: inferRepresentativeBookAspectRatio(
       dimensions.flatMap((metadata) =>
@@ -444,6 +456,46 @@ const readExistingArchiveDocument = async (destinationPath: string) => {
   }
 };
 
+const existingArchiveDestinations = async (outputDirectory: string) => {
+  const bySourceUrl = new Map<string, string>();
+  const names = new Set<string>();
+  const staleNames = new Set<string>();
+  const staleNamesByMetadataHash = new Map<string, string[]>();
+  let entries;
+  try {
+    entries = await readdir(outputDirectory, {withFileTypes: true});
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT")
+      return {bySourceUrl, names, staleNames, staleNamesByMetadataHash};
+    throw error;
+  }
+  for (const entry of entries) {
+    if (!entry.isDirectory() || entry.isSymbolicLink()) continue;
+    names.add(entry.name.toLocaleLowerCase("en-US"));
+    const document = await readExistingArchiveDocument(
+      resolve(outputDirectory, entry.name),
+    );
+    if (document?.source?.provider !== ARCHIVE_SOURCE_PROVIDER) continue;
+    bySourceUrl.set(document.source.sourceUrl, entry.name);
+    try {
+      const sourceUrl = new URL(document.source.sourceUrl);
+      if (
+        sourceUrl.protocol === "file:" &&
+        !(await fileExists(fileURLToPath(sourceUrl)))
+      ) {
+        staleNames.add(entry.name.toLocaleLowerCase("en-US"));
+        const candidates =
+          staleNamesByMetadataHash.get(document.source.metadataHash) ?? [];
+        candidates.push(entry.name);
+        staleNamesByMetadataHash.set(document.source.metadataHash, candidates);
+      }
+    } catch {
+      continue;
+    }
+  }
+  return {bySourceUrl, names, staleNames, staleNamesByMetadataHash};
+};
+
 const refreshArchiveMetadata = (
   document: LocalPublicationDocument,
   plan: ArchivePlan,
@@ -517,11 +569,25 @@ export const importContentArchives = async (
       )),
     );
   }
+  const uniqueArchives = new Map<string, DiscoveredArchive>();
+  for (const archive of archives) {
+    const existing = uniqueArchives.get(archive.archivePath);
+    if (
+      !existing ||
+      (existing.readingDirection === undefined &&
+        archive.readingDirection !== undefined)
+    )
+      uniqueArchives.set(archive.archivePath, archive);
+  }
+  archives.splice(0, archives.length, ...uniqueArchives.values());
   archives.sort((left, right) =>
     NATURAL_COLLATOR.compare(left.archiveName, right.archiveName),
   );
   const plans: ArchivePlan[] = [];
-  const destinationKeys = new Set<string>();
+  const existingDestinations =
+    await existingArchiveDestinations(outputDirectory);
+  const destinationKeys = new Set(existingDestinations.names);
+  const claimedExistingDestinations = new Set<string>();
 
   for (const archive of archives) {
     const {archiveName, archivePath} = archive;
@@ -553,8 +619,8 @@ export const importContentArchives = async (
       });
       continue;
     }
-    const destinationName = sanitizeDestinationName(stem);
-    if (!destinationName) {
+    const baseDestinationName = sanitizeDestinationName(stem);
+    if (!baseDestinationName) {
       diagnostics.push({
         archive: archiveName,
         code: "invalid-archive",
@@ -562,19 +628,48 @@ export const importContentArchives = async (
       });
       continue;
     }
-    const destinationKey = destinationName.toLocaleLowerCase("en-US");
-    if (destinationKeys.has(destinationKey)) {
-      diagnostics.push({
-        archive: archiveName,
-        code: "duplicate-destination",
-        message: `Skipped archive with colliding destination ${destinationName}`,
-      });
-      continue;
-    }
-    const destinationPath = resolve(outputDirectory, destinationName);
-    const destinationExists = await fileExists(destinationPath);
     try {
       const inspection = await inspectContentArchive(archivePath);
+      const directDestinationName = existingDestinations.bySourceUrl.get(
+        pathToFileURL(archivePath).href,
+      );
+      const renameCandidates =
+        existingDestinations.staleNamesByMetadataHash.get(
+          inspection.metadataHash,
+        ) ?? [];
+      const renamedDestinationName =
+        renameCandidates.length === 1 &&
+        !claimedExistingDestinations.has(renameCandidates[0] ?? "")
+          ? renameCandidates[0]
+          : undefined;
+      const existingDestinationName =
+        directDestinationName ?? renamedDestinationName;
+      if (existingDestinationName)
+        claimedExistingDestinations.add(existingDestinationName);
+      const baseDestinationKey = baseDestinationName.toLocaleLowerCase("en-US");
+      const generatedSuffix = createHash("sha256")
+        .update(archivePath)
+        .digest("hex")
+        .slice(0, 10);
+      let idSuffix: string | undefined;
+      if (existingDestinationName?.startsWith(`${baseDestinationName}--`))
+        idSuffix = existingDestinationName.slice(
+          baseDestinationName.length + 2,
+        );
+      else if (
+        !existingDestinationName &&
+        destinationKeys.has(baseDestinationKey) &&
+        !existingDestinations.staleNames.has(baseDestinationKey)
+      )
+        idSuffix = generatedSuffix;
+      const destinationName =
+        existingDestinationName ??
+        (idSuffix
+          ? `${baseDestinationName}--${idSuffix}`
+          : baseDestinationName);
+      const destinationKey = destinationName.toLocaleLowerCase("en-US");
+      const destinationPath = resolve(outputDirectory, destinationName);
+      const destinationExists = await fileExists(destinationPath);
       const identity = inferPreparedPublicationIdentity(stem, options.tags);
       destinationKeys.add(destinationKey);
       const plan: ArchivePlan = {
@@ -584,6 +679,7 @@ export const importContentArchives = async (
         destinationPath,
         ...(identity.groupId === undefined ? {} : {groupId: identity.groupId}),
         inspection,
+        ...(idSuffix === undefined ? {} : {idSuffix}),
         ...(identity.issue === undefined ? {} : {issue: identity.issue}),
         ...(identity.kind === undefined ? {} : {kind: identity.kind}),
         language: detectedLanguage.language,
@@ -645,15 +741,29 @@ export const importContentArchives = async (
   await mkdir(stagingRoot, {recursive: true});
   try {
     const documentsByDirectory = new Map<string, LocalPublicationDocument>();
+    const failedPlans = new Set<ArchivePlan>();
     for (const plan of plans) {
       const publicationDirectory = resolve(stagingRoot, plan.destinationName);
-      documentsByDirectory.set(
-        plan.destinationName,
-        await materializeArchivePlan(plan, publicationDirectory),
-      );
+      try {
+        documentsByDirectory.set(
+          plan.destinationName,
+          await materializeArchivePlan(plan, publicationDirectory),
+        );
+      } catch (error) {
+        failedPlans.add(plan);
+        diagnostics.push({
+          archive: plan.archiveName,
+          code: "processing-failed",
+          message: `Failed to process ${plan.archiveName}: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        });
+        await rm(publicationDirectory, {recursive: true, force: true});
+      }
     }
+    const survivingPlans = plans.filter((plan) => !failedPlans.has(plan));
     await commitImportedDirectories(
-      plans.map((plan) => ({
+      survivingPlans.map((plan) => ({
         sourcePath: resolve(stagingRoot, plan.destinationName),
         destinationPath: plan.destinationPath,
         replaceExisting: plan.replaceExisting,
@@ -664,9 +774,9 @@ export const importContentArchives = async (
       outputDirectory,
       wroteCatalog: true,
       discoveredCount: archives.length,
-      preparedCount: plans.length,
-      skippedCount: archives.length - plans.length,
-      publications: plans.map((plan) =>
+      preparedCount: survivingPlans.length,
+      skippedCount: archives.length - survivingPlans.length,
+      publications: survivingPlans.map((plan) =>
         toReportPublication(
           plan,
           documentsByDirectory.get(plan.destinationName),

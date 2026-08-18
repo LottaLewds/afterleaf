@@ -14,6 +14,7 @@ import {
   CONTENT_SCHEMA_VERSION,
   createConcurrentAcquisitionPipeline,
   createRepresentativePagePlan,
+  finalizeProviderPublicationDocument,
   inferPreparedPublicationIdentity,
   normalizeTag,
   normalizeTags,
@@ -354,14 +355,20 @@ const materializeGallery = async (
   const pagesDirectory = resolve(stagingDirectory, "pages");
   await mkdir(pagesDirectory, {recursive: true});
   try {
-    const downloads = document.assets.pages.map((path, pageIndex) => ({
+    const pagePlan = createRepresentativePagePlan(
+      selected.gallery.numPages,
+      previewPageCount,
+    );
+    const localPathByPageIndex = new Map(
+      document.assets.pages.map((path, pageIndex) => [pageIndex, path]),
+    );
+    if (document.assets.back)
+      localPathByPageIndex.set(pagePlan.backPageIndex, document.assets.back);
+    const downloads = pagePlan.acquisitionPageIndexes.map((pageIndex) => ({
       pageIndex,
-      path,
+      path: localPathByPageIndex.get(pageIndex),
     }));
-    const lastPageIndex = selected.gallery.numPages - 1;
-    const backPath = document.assets.back;
-    if (backPath && !downloads.some(({path}) => path === backPath))
-      downloads.push({pageIndex: lastPageIndex, path: backPath});
+    const downloadedPages: Array<{bytes: Uint8Array; pageIndex: number}> = [];
     let nextDownloadIndex = 0;
     const workerCount = Math.min(3, downloads.length);
     await Promise.all(
@@ -375,13 +382,19 @@ const materializeGallery = async (
             selected.gallery,
             download.pageIndex,
           );
-          await writeFile(resolve(stagingDirectory, download.path), bytes);
+          downloadedPages.push({bytes, pageIndex: download.pageIndex});
+          if (download.path)
+            await writeFile(resolve(stagingDirectory, download.path), bytes);
         }
       }),
     );
+    const finalizedDocument = await finalizeProviderPublicationDocument(
+      document,
+      downloadedPages,
+    );
     await writeFile(
       resolve(stagingDirectory, "publication.json"),
-      `${JSON.stringify(document, null, 2)}\n`,
+      `${JSON.stringify(finalizedDocument, null, 2)}\n`,
     );
     await writeFile(
       resolve(stagingDirectory, NHENTAI_SPARSE_METADATA_FILE),
@@ -389,7 +402,7 @@ const materializeGallery = async (
     );
     const incompleteReason = await publicationIncompleteReason(
       stagingDirectory,
-      document,
+      finalizedDocument,
     );
     if (incompleteReason)
       throw new Error(

@@ -44,6 +44,7 @@ import {
 } from "~/content/bookAspectRatio";
 import {generateContentPackPreview} from "~/content/preview";
 import {physicalBookDepth} from "~/game/bookDimensions";
+import {ARCHIVE_SOURCE_PROVIDER} from "~/content/archiveReader";
 
 const COVER_WIDTH = 256;
 const COVER_HEIGHT = 384;
@@ -98,6 +99,7 @@ interface ValidatedSelection {
   images: ReadonlyMap<string, ValidatedImage>;
   material: PublicationMaterial;
   previous?: PackedPublication;
+  reusePrevious?: boolean;
 }
 
 interface SourceRegion {
@@ -121,6 +123,11 @@ const hashAsset = (path: string, buffer: Buffer) => {
   hash.update("\0");
   return hash.digest("hex");
 };
+
+const stableAssetPath = (path: string, assetPathPrefix?: string) =>
+  assetPathPrefix && path.startsWith(`${assetPathPrefix}/`)
+    ? path.slice(assetPathPrefix.length + 1)
+    : path;
 
 const updateAssetHash = (
   hash: ReturnType<typeof createHash>,
@@ -644,8 +651,9 @@ const writeHashedAsset = async (
   path: string,
   buffer: Buffer,
   hash: ReturnType<typeof createHash>,
+  assetPathPrefix?: string,
 ) => {
-  updateAssetHash(hash, path, buffer);
+  updateAssetHash(hash, stableAssetPath(path, assetPathPrefix), buffer);
   await writeAsset(stagingDirectory, path, buffer);
 };
 
@@ -686,7 +694,19 @@ const reusablePublicationMetadata = (
         ? {}
         : {trim: document.physical.trim}),
     },
-    source: document.source,
+    source:
+      document.source?.provider === ARCHIVE_SOURCE_PROVIDER
+        ? {
+            metadataHash: document.source.metadataHash,
+            provider: document.source.provider,
+          }
+        : document.source === undefined
+          ? undefined
+          : {
+              metadataHash: document.source.metadataHash,
+              provider: document.source.provider,
+              remoteId: document.source.remoteId,
+            },
     materialPageCount: material.pages.length,
   };
 };
@@ -727,8 +747,20 @@ const previousPublicationMetadata = (
       ? {}
       : {trim: previous.physical.trim}),
   },
-  source: previous.source,
-  materialPageCount: previous.assets.pages.length,
+  source:
+    previous.source?.provider === ARCHIVE_SOURCE_PROVIDER
+      ? {
+          metadataHash: previous.source.metadataHash,
+          provider: previous.source.provider,
+        }
+      : previous.source === undefined
+        ? undefined
+        : {
+            metadataHash: previous.source.metadataHash,
+            provider: previous.source.provider,
+            remoteId: previous.source.remoteId,
+          },
+  materialPageCount: previous.materialPageCount ?? previous.assets.pages.length,
 });
 
 const canReusePublication = (
@@ -737,13 +769,23 @@ const canReusePublication = (
   previous: PackedPublication,
 ) => {
   const currentSource = candidate.document.source;
-  if (!currentSource || !previous.source) return false;
-  if (
-    currentSource.provider !== previous.source.provider ||
-    currentSource.remoteId !== previous.source.remoteId ||
-    currentSource.metadataHash !== previous.source.metadataHash
-  )
+  const previousSource = previous.source;
+  if (currentSource || previousSource) {
+    if (!currentSource || !previousSource) return false;
+    if (
+      currentSource.provider !== previousSource.provider ||
+      (currentSource.provider !== ARCHIVE_SOURCE_PROVIDER &&
+        currentSource.remoteId !== previousSource.remoteId) ||
+      currentSource.metadataHash !== previousSource.metadataHash
+    )
+      return false;
+  } else if (
+    !material.fingerprint ||
+    material.fingerprint !== previous.materialFingerprint
+  ) {
     return false;
+  }
+
   const usesInferredAspectRatio =
     candidate.document.physical?.aspectRatio === undefined ||
     candidate.document.aspectRatioInferenceVersion !== undefined;
@@ -831,6 +873,25 @@ const materializeReusedPublication = async (
   const previous = selection.previous;
   if (!previous)
     throw new Error("A reused publication requires its previous catalog entry");
+  const currentSource = selection.candidate.document.source;
+  const localSourceId = selection.candidate.localSourceId;
+  const sourceChanged =
+    JSON.stringify(previous.source) !== JSON.stringify(currentSource);
+  const localSourceChanged = previous.localSourceId !== localSourceId;
+  const reusedPrevious: PackedPublication = {
+    ...previous,
+    ...(localSourceId === undefined ? {} : {localSourceId}),
+    ...(currentSource === undefined ? {} : {source: currentSource}),
+    ...(sourceChanged || localSourceChanged
+      ? {
+          contentHash: hashJson({
+            localSourceId,
+            previousContentHash: previous.contentHash,
+            source: currentSource,
+          }),
+        }
+      : {}),
+  };
   const migrateBack =
     previous.backFormatVersion !== BACK_DERIVATIVE_FORMAT_VERSION ||
     previous.assets.backDetail === undefined;
@@ -957,7 +1018,7 @@ const materializeReusedPublication = async (
     else if (previous.assets.backDetail)
       nextBackDetailPath = migratedPath(previous.assets.backDetail);
     return {
-      ...previous,
+      ...reusedPrevious,
       alternates: previous.alternates.map((alternate) => ({
         ...alternate,
         page0: migratedPath(alternate.page0),
@@ -976,12 +1037,20 @@ const materializeReusedPublication = async (
       contentHash: hashJson({
         ...(backDetailBuffer
           ? {
-              backDetailAssetHash: hashAsset(backDetailPath, backDetailBuffer),
+              backDetailAssetHash: hashAsset(
+                stableAssetPath(backDetailPath, assetPathPrefix),
+                backDetailBuffer,
+              ),
             }
           : {}),
-        previousContentHash: previous.contentHash,
+        previousContentHash: reusedPrevious.contentHash,
         ...(spineBuffer
-          ? {spineAssetHash: hashAsset(spinePath, spineBuffer)}
+          ? {
+              spineAssetHash: hashAsset(
+                stableAssetPath(spinePath, assetPathPrefix),
+                spineBuffer,
+              ),
+            }
           : {}),
         backFormatVersion: BACK_DERIVATIVE_FORMAT_VERSION,
         spineFormatVersion: SPINE_DERIVATIVE_FORMAT_VERSION,
@@ -989,7 +1058,7 @@ const materializeReusedPublication = async (
     };
   }
   if (await persistentPublicationExists(previous, persistentAssetDirectory))
-    return {...previous, shelfAtlasIndex};
+    return {...reusedPrevious, shelfAtlasIndex};
 
   const migratedPath = (assetPath: string) =>
     prefixedAssetPath(assetPathPrefix, assetPath);
@@ -1004,7 +1073,7 @@ const materializeReusedPublication = async (
     ),
   );
   return {
-    ...previous,
+    ...reusedPrevious,
     alternates: previous.alternates.map((alternate) => ({
       ...alternate,
       page0: migratedPath(alternate.page0),
@@ -1114,6 +1183,7 @@ const materializePublication = async (
       surface.path,
       buffer,
       publicationHash,
+      assetPathPrefix,
     );
   }
   const detailCoverHeight = Math.min(
@@ -1132,6 +1202,7 @@ const materializePublication = async (
       wraparoundLayout?.front,
     ),
     publicationHash,
+    assetPathPrefix,
   );
   const backSource = wraparoundLayout ? frontSource : fallbackBackSource;
   const backImage = selection.images.get(backSource);
@@ -1153,6 +1224,7 @@ const materializePublication = async (
       wraparoundLayout?.back,
     ),
     publicationHash,
+    assetPathPrefix,
   );
   const spinePath = `${publicationDirectory}/spine.webp`;
   const spineWidth = spineTextureWidth(document.physical?.thicknessMm);
@@ -1172,6 +1244,7 @@ const materializePublication = async (
         )
       : await spineDerivative(selection.candidate, spineWidth),
     publicationHash,
+    assetPathPrefix,
   );
   const pagePaths: string[] = [];
   for (
@@ -1196,7 +1269,11 @@ const materializePublication = async (
       }),
     );
     for (const asset of assets) {
-      updateAssetHash(publicationHash, asset.path, asset.buffer);
+      updateAssetHash(
+        publicationHash,
+        stableAssetPath(asset.path, assetPathPrefix),
+        asset.buffer,
+      );
       pagePaths.push(asset.path);
     }
     await Promise.all(
@@ -1236,7 +1313,11 @@ const materializePublication = async (
   if (alternateMaterialById.size !== alternateAssets.length)
     throw new Error(`Alternate metadata and page-zero assets do not match`);
   for (const alternate of alternateAssets)
-    updateAssetHash(publicationHash, alternate.page0, alternate.buffer);
+    updateAssetHash(
+      publicationHash,
+      stableAssetPath(alternate.page0, assetPathPrefix),
+      alternate.buffer,
+    );
   await Promise.all(
     alternateAssets.map(({buffer, page0}) =>
       writeAsset(stagingDirectory, page0, buffer),
@@ -1262,6 +1343,9 @@ const materializePublication = async (
     throw new Error(`Failed to define surfaces for ${document.id}`);
   const publication = {
     id: document.id,
+    ...(selection.candidate.localSourceId === undefined
+      ? {}
+      : {localSourceId: selection.candidate.localSourceId}),
     ...(document.groupId === undefined ? {} : {groupId: document.groupId}),
     ...(document.issue === undefined ? {} : {issue: document.issue}),
     ...(document.kind === undefined ? {} : {kind: document.kind}),
@@ -1288,6 +1372,10 @@ const materializePublication = async (
       ? {aspectRatioInferenceVersion: BOOK_ASPECT_RATIO_INFERENCE_VERSION}
       : {}),
     backFormatVersion: BACK_DERIVATIVE_FORMAT_VERSION,
+    ...(selection.material.fingerprint === undefined
+      ? {}
+      : {materialFingerprint: selection.material.fingerprint}),
+    materialPageCount: selection.material.pages.length,
     spineFormatVersion: SPINE_DERIVATIVE_FORMAT_VERSION,
   };
   const {shelfAtlasIndex: _shelfAtlasIndex, ...publicationContent} =
@@ -1296,7 +1384,43 @@ const materializePublication = async (
     ...publication,
     contentHash: hashJson({
       assetContentHash: publicationHash.digest("hex"),
-      publication: publicationContent,
+      publication: {
+        ...publicationContent,
+        alternates: publicationContent.alternates.map((alternate) => ({
+          ...alternate,
+          page0: stableAssetPath(alternate.page0, assetPathPrefix),
+        })),
+        assets: {
+          ...publicationContent.assets,
+          back: stableAssetPath(
+            publicationContent.assets.back,
+            assetPathPrefix,
+          ),
+          ...(publicationContent.assets.backDetail === undefined
+            ? {}
+            : {
+                backDetail: stableAssetPath(
+                  publicationContent.assets.backDetail,
+                  assetPathPrefix,
+                ),
+              }),
+          front: stableAssetPath(
+            publicationContent.assets.front,
+            assetPathPrefix,
+          ),
+          frontDetail: stableAssetPath(
+            publicationContent.assets.frontDetail,
+            assetPathPrefix,
+          ),
+          pages: publicationContent.assets.pages.map((path) =>
+            stableAssetPath(path, assetPathPrefix),
+          ),
+          spine: stableAssetPath(
+            publicationContent.assets.spine,
+            assetPathPrefix,
+          ),
+        },
+      },
     }),
   };
 };
@@ -1391,7 +1515,7 @@ const createAtlas = async (
     rows,
     width,
     height,
-    contentHash: hashAsset(path, buffer),
+    contentHash: hashAsset(stableAssetPath(path, assetPathPrefix), buffer),
     firstPublicationIndex,
     publicationCount: publications.length,
     ...(regions ? {regions} : {}),
@@ -1558,30 +1682,84 @@ export const seedContentPack = async (
       publication,
     ]) ?? [],
   );
+  const reportDiagnostic = (diagnostic: ContentSeedDiagnostic) => {
+    diagnostics.push(diagnostic);
+    options.onDiagnostic?.(diagnostic);
+  };
 
   for (const reference of references) {
     if (selections.length >= options.limit) break;
+    let candidate: PublicationCandidate;
     try {
-      const [candidate, material] = await Promise.all([
-        source.getMetadata(reference),
-        source.materialize(reference),
-      ]);
+      candidate = await source.getMetadata(reference);
+    } catch (error) {
+      reportDiagnostic({
+        code: "invalid-assets",
+        sourceId: reference.sourceId,
+        message: `Skipped ${reference.sourceId}: ${error instanceof Error ? error.message : String(error)}`,
+      });
+      continue;
+    }
+    const previous = previousPublicationById.get(candidate.document.id);
+    let material: PublicationMaterial;
+    try {
+      material = await source.materialize(reference);
+    } catch (error) {
+      reportDiagnostic({
+        code: "invalid-assets",
+        sourceId: reference.sourceId,
+        message: `Skipped ${reference.sourceId}: ${error instanceof Error ? error.message : String(error)}`,
+      });
+      if (previous && reuse)
+        selections.push({
+          candidate,
+          images: new Map(),
+          material: {pages: []},
+          previous,
+          reusePrevious: true,
+        });
+      continue;
+    }
+    try {
       const previous = previousPublicationById.get(candidate.document.id);
-      if (previous && canReusePublication(candidate, material, previous)) {
-        selections.push({candidate, images: new Map(), material, previous});
+      if (
+        previous &&
+        !options.forceRebuild &&
+        canReusePublication(candidate, material, previous)
+      ) {
+        selections.push({
+          candidate,
+          images: new Map(),
+          material,
+          previous,
+          reusePrevious: true,
+        });
         continue;
       }
       const images = await validateMaterial(
         material,
         candidate.sourceDirectory,
       );
-      selections.push({candidate, images, material});
+      selections.push({
+        candidate,
+        images,
+        material,
+        ...(previous === undefined ? {} : {previous}),
+      });
     } catch (error) {
-      diagnostics.push({
+      reportDiagnostic({
         code: "invalid-assets",
         sourceId: reference.sourceId,
         message: `Skipped ${reference.sourceId}: ${error instanceof Error ? error.message : String(error)}`,
       });
+      if (previous && reuse)
+        selections.push({
+          candidate,
+          images: new Map(),
+          material,
+          previous,
+          reusePrevious: true,
+        });
     }
   }
 
@@ -1633,29 +1811,70 @@ export const seedContentPack = async (
 
   try {
     const publications: PackedPublication[] = [];
-    for (const [index, selection] of selections.entries()) {
-      if (selection.previous && reuse) {
+    let failedMaterializationCount = 0;
+    for (const selection of selections) {
+      if (selection.reusePrevious && selection.previous && reuse) {
         publications.push(
           await materializeReusedPublication(
             selection,
             reuse.directory,
             stagingDirectory,
-            index,
+            publications.length,
             options.assetPathPrefix,
             options.persistentAssetDirectory,
           ),
         );
         continue;
       }
-      publications.push(
-        await materializePublication(
-          selection,
-          stagingDirectory,
-          index,
+      try {
+        publications.push(
+          await materializePublication(
+            selection,
+            stagingDirectory,
+            publications.length,
+            options.assetPathPrefix,
+          ),
+        );
+      } catch (error) {
+        failedMaterializationCount += 1;
+        const publicationDirectory = prefixedAssetPath(
           options.assetPathPrefix,
-        ),
-      );
+          `publications/${selection.candidate.document.id}`,
+        );
+        await rm(resolveReusableAsset(stagingDirectory, publicationDirectory), {
+          force: true,
+          recursive: true,
+        }).catch(() => {});
+        const diagnostic: ContentSeedDiagnostic = {
+          code: "invalid-assets",
+          sourceId:
+            selection.candidate.localSourceId ??
+            selection.candidate.document.id,
+          message: `Failed to materialize ${selection.candidate.document.id}: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        };
+        reportDiagnostic(diagnostic);
+        if (selection.previous && reuse)
+          publications.push(
+            await materializeReusedPublication(
+              {...selection, images: new Map(), reusePrevious: true},
+              reuse.directory,
+              stagingDirectory,
+              publications.length,
+              options.assetPathPrefix,
+              options.persistentAssetDirectory,
+            ),
+          );
+      }
     }
+
+    if (publications.length === 0 && failedMaterializationCount > 0)
+      throw new Error("Every selected publication failed to materialize");
+
+    const selectedPublicationIds = publications.map(
+      (publication) => publication.id,
+    );
     const atlases = {
       front: await createAtlases(
         publications,

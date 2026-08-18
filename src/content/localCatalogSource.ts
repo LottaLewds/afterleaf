@@ -1,5 +1,5 @@
-import {readdir, readFile} from "node:fs/promises";
-import {dirname, relative, resolve, sep} from "node:path";
+import {access, readFile, stat} from "node:fs/promises";
+import {dirname, isAbsolute, relative, resolve, sep} from "node:path";
 import {createHash} from "node:crypto";
 import {
   type ContentSeedDiagnostic,
@@ -14,13 +14,17 @@ import {
   normalizeTags,
   parseSupportedLanguage,
 } from "~/content/normalize";
+import {
+  discoverLocalMedia,
+  LOCAL_PUBLICATION_MANIFEST,
+} from "~/content/localMediaDiscovery";
 import {associatePublicationAlternates} from "~/content/publicationAlternates";
 import {
   parseLocalPublicationDocument,
   resolveContainedPath,
 } from "~/content/validation";
 
-const MANIFEST_FILE_NAME = "publication.json";
+const FINGERPRINT_STAT_CONCURRENCY = 64;
 
 interface LocalCatalogEntry {
   candidate: PublicationCandidate;
@@ -44,6 +48,14 @@ export interface LocalCatalogSourceOptions {
 }
 
 const toPortablePath = (path: string) => path.split(sep).join("/");
+
+const pathIsWithin = (parent: string, candidate: string) => {
+  const path = relative(parent, candidate);
+  return (
+    path === "" ||
+    (!path.startsWith(`..${sep}`) && path !== ".." && !isAbsolute(path))
+  );
+};
 
 const matchesQuery = (
   candidate: PublicationCandidate,
@@ -79,6 +91,52 @@ const resolveMaterial = (
     : {spine: resolveContainedPath(sourceDirectory, assets.spine)}),
 });
 
+const materialFingerprint = async (
+  sourceDirectory: string,
+  material: PublicationMaterial,
+) => {
+  const assets = [
+    ...material.pages.map((path, index) => ({role: `page:${index}`, path})),
+    ...(material.front ? [{role: "front", path: material.front}] : []),
+    ...(material.back ? [{role: "back", path: material.back}] : []),
+    ...(material.spine ? [{role: "spine", path: material.spine}] : []),
+    ...(material.alternates?.map(({id, page0}) => ({
+      role: `alternate:${id}`,
+      path: page0,
+    })) ?? []),
+  ];
+  const hash = createHash("sha256");
+  for (
+    let batchStart = 0;
+    batchStart < assets.length;
+    batchStart += FINGERPRINT_STAT_CONCURRENCY
+  ) {
+    const batch = assets.slice(
+      batchStart,
+      batchStart + FINGERPRINT_STAT_CONCURRENCY,
+    );
+    const metadata = await Promise.all(
+      batch.map(async (asset) => ({
+        ...asset,
+        metadata: await stat(asset.path),
+      })),
+    );
+    for (const {metadata: assetMetadata, path, role} of metadata)
+      hash
+        .update(role)
+        .update("\0")
+        .update(toPortablePath(relative(sourceDirectory, path)))
+        .update("\0")
+        .update(String(assetMetadata.size))
+        .update("\0")
+        .update(String(assetMetadata.mtimeMs))
+        .update("\0")
+        .update(String(assetMetadata.ctimeMs))
+        .update("\0");
+  }
+  return hash.digest("hex");
+};
+
 export class LocalCatalogSource implements PublicationSource {
   readonly name = "local-catalog";
   diagnostics: readonly ContentSeedDiagnostic[] = [];
@@ -95,12 +153,21 @@ export class LocalCatalogSource implements PublicationSource {
     const catalogDirectories = Array.isArray(catalogDirectory)
       ? catalogDirectory
       : [catalogDirectory];
-    this.#catalogRoots = [
+    const resolvedDirectories = [
       ...new Set(catalogDirectories.map((directory) => resolve(directory))),
-    ].map((directory, index) => ({
-      directory,
-      sourcePrefix: index === 0 ? "" : `@media-${index}/`,
-    }));
+    ];
+    this.#catalogRoots = resolvedDirectories
+      .filter(
+        (directory) =>
+          !resolvedDirectories.some(
+            (candidate) =>
+              candidate !== directory && pathIsWithin(candidate, directory),
+          ),
+      )
+      .map((directory, index) => ({
+        directory,
+        sourcePrefix: index === 0 ? "" : `@media-${index}/`,
+      }));
     this.#excludedPublicationIds =
       options.excludedPublicationIds ?? new Set<string>();
     this.#requiresLanguageTag = options.requiresLanguageTag;
@@ -168,7 +235,15 @@ export class LocalCatalogSource implements PublicationSource {
   async materialize(
     reference: PublicationSourceReference,
   ): Promise<PublicationMaterial> {
-    return this.#getEntry(reference).material;
+    const entry = this.#getEntry(reference);
+    if (entry.candidate.document.source) return entry.material;
+    return {
+      ...entry.material,
+      fingerprint: await materialFingerprint(
+        entry.candidate.sourceDirectory,
+        entry.material,
+      ),
+    };
   }
 
   #getEntry(reference: PublicationSourceReference) {
@@ -222,6 +297,7 @@ export class LocalCatalogSource implements PublicationSource {
         const candidate: PublicationCandidate = {
           document,
           language,
+          localSourceId: sourceId,
           normalizedTags,
           sourceDirectory,
         };
@@ -243,37 +319,35 @@ export class LocalCatalogSource implements PublicationSource {
   }
 
   async #findManifestPaths(diagnostics: ContentSeedDiagnostic[]) {
-    const pendingDirectories = this.#catalogRoots.map((root) => ({
-      directory: root.directory,
-      root,
-    }));
     const manifestPaths: LocalManifestPath[] = [];
-
-    while (pendingDirectories.length > 0) {
-      const pending = pendingDirectories.pop();
-      if (!pending) break;
-      const entries = await readdir(pending.directory, {withFileTypes: true});
-      entries.sort((left, right) => left.name.localeCompare(right.name));
-      for (const entry of entries) {
-        const path = resolve(pending.directory, entry.name);
-        if (entry.isSymbolicLink()) {
+    for (const root of this.#catalogRoots) {
+      const discovery = await discoverLocalMedia(root.directory);
+      for (const diagnostic of discovery.diagnostics) {
+        if (diagnostic.code === "ignored-container-images") continue;
+        if (diagnostic.code === "skipped-symlink") {
           diagnostics.push({
             code: "skipped-symlink",
-            sourceId: `${pending.root.sourcePrefix}${toPortablePath(relative(pending.root.directory, path))}`,
-            message: `Skipped symbolic link ${toPortablePath(relative(pending.root.directory, path))}`,
+            sourceId: `${root.sourcePrefix}${diagnostic.path}`,
+            message: `Skipped symbolic link ${diagnostic.path}`,
           });
           continue;
         }
-        if (entry.isDirectory()) {
-          if (entry.name.startsWith(".")) continue;
-          pendingDirectories.push({directory: path, root: pending.root});
+        diagnostics.push({
+          code: "shadowed-manifest",
+          sourceId: `${root.sourcePrefix}${diagnostic.path}`,
+          message: `Skipped outer publication manifest ${diagnostic.path} because nested publications take precedence`,
+        });
+      }
+      for (const directory of discovery.publicationDirectories) {
+        const manifestPath = resolve(directory, LOCAL_PUBLICATION_MANIFEST);
+        try {
+          await access(manifestPath);
+        } catch {
           continue;
         }
-        if (entry.isFile() && entry.name === MANIFEST_FILE_NAME)
-          manifestPaths.push({manifestPath: path, root: pending.root});
+        manifestPaths.push({manifestPath, root});
       }
     }
-
     return manifestPaths.sort((left, right) =>
       left.manifestPath.localeCompare(right.manifestPath),
     );

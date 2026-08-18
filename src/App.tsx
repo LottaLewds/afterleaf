@@ -19,6 +19,7 @@ import {
   FiShield,
   FiSliders,
   FiTag,
+  FiTool,
   FiTv,
   FiTrash2,
   FiX,
@@ -58,6 +59,7 @@ import {
   scanLocalLibrary,
   browseLibraryLocation,
   loadLibraryConfig,
+  reenrollLibraryRoot,
   saveLibraryConfig,
   type LocalLibraryJob,
   type LocalLibrarySnapshotResult,
@@ -107,6 +109,11 @@ const ShopViewport = lazy(async () => {
 
 type LanguageFilter = "all" | CatalogLanguage;
 type LibraryOperation = "fetch-more" | "scan";
+type LibraryScanMode = "quick" | "repair";
+interface LibraryRepairOptions {
+  redownloadProviderAssets: boolean;
+  repairProviderMetadata: boolean;
+}
 type LibraryUpdateStage = "loading-library" | "working";
 type MenuTab = "library" | "options";
 
@@ -507,6 +514,8 @@ const configLocationsChanged = (
 const AdditionalLocationsControl = (props: {
   config: AfterleafLibraryConfig;
   onChange: (config: AfterleafLibraryConfig) => void;
+  onReenroll: (path: string) => Promise<void>;
+  reenrollableBookPaths: ReadonlySet<string>;
 }) => {
   const [kind, setKind] = createSignal<AdditionalLocationKind>("comicPaths");
   const [listing, setListing] = createSignal<LibraryDirectoryListing>();
@@ -515,6 +524,7 @@ const AdditionalLocationsControl = (props: {
   const [browserPending, setBrowserPending] = createSignal(false);
   const [confirmedPathInput, setConfirmedPathInput] = createSignal("");
   const [pathInput, setPathInput] = createSignal("");
+  const [reenrollingPath, setReenrollingPath] = createSignal("");
   let browseRequest = 0;
   let browseTimer: ReturnType<typeof setTimeout> | undefined;
   const labels: Record<AdditionalLocationKind, string> = {
@@ -656,6 +666,27 @@ const AdditionalLocationsControl = (props: {
       ...props.config,
       [key]: locationsFor(key).filter((entry) => entry !== path),
     });
+  const reenroll = async (path: string) => {
+    if (
+      !window.confirm(
+        "Re-enroll this book root only if it is the intended mounted library. Re-enrolling an empty unmounted mountpoint can make missing books count as deletions.",
+      )
+    )
+      return;
+    setBrowserError("");
+    setReenrollingPath(path);
+    try {
+      await props.onReenroll(path);
+    } catch (error) {
+      setBrowserError(
+        error instanceof Error
+          ? error.message
+          : "Could not re-enroll that library root",
+      );
+    } finally {
+      setReenrollingPath("");
+    }
+  };
   return (
     <div class="border border-white/8 bg-[#151e1c] px-4 py-4 sm:px-5">
       <div class="flex flex-wrap items-start gap-4">
@@ -667,8 +698,8 @@ const AdditionalLocationsControl = (props: {
             Additional content locations
           </p>
           <p class="mt-1 text-[9px] leading-4 text-[#65716c]">
-            Book locations apply on the next Import & scan. TV, poster, and art
-            frame locations refresh automatically.
+            Book locations apply on the next Scan new. TV, poster, and art frame
+            locations refresh automatically.
           </p>
         </div>
         <button
@@ -720,6 +751,30 @@ const AdditionalLocationsControl = (props: {
                   >
                     {location}
                   </span>
+                  <Show
+                    when={bookLocationKeys.includes(
+                      key as (typeof bookLocationKeys)[number],
+                    )}
+                  >
+                    <button
+                      class="shrink-0 text-[9px] text-[#b9a28f] transition hover:text-white disabled:cursor-wait disabled:opacity-40"
+                      disabled={
+                        reenrollingPath() === location ||
+                        !props.reenrollableBookPaths.has(location)
+                      }
+                      title={
+                        props.reenrollableBookPaths.has(location)
+                          ? "Replace this root's missing or mismatched Afterleaf mount marker"
+                          : "Re-enrollment is available only when an unavailable root contains supported books"
+                      }
+                      type="button"
+                      onClick={() => void reenroll(location)}
+                    >
+                      {reenrollingPath() === location
+                        ? "Enrolling…"
+                        : "Re-enroll"}
+                    </button>
+                  </Show>
                   <button
                     class="text-[#df776e]"
                     type="button"
@@ -851,6 +906,8 @@ const OptionsPanel = (props: {
   availableTags: readonly string[];
   libraryConfig: AfterleafLibraryConfig;
   onLibraryConfigChange: (config: AfterleafLibraryConfig) => void;
+  onReenrollLibraryRoot: (path: string) => Promise<void>;
+  reenrollableBookPaths: ReadonlySet<string>;
   blacklistedTags: readonly string[];
   defaultReadingDirection: ReadingDirection;
   mouseSensitivity: number;
@@ -917,6 +974,8 @@ const OptionsPanel = (props: {
         <AdditionalLocationsControl
           config={props.libraryConfig}
           onChange={props.onLibraryConfigChange}
+          onReenroll={props.onReenrollLibraryRoot}
+          reenrollableBookPaths={props.reenrollableBookPaths}
         />
         <TagBlacklistControl
           availableTags={props.availableTags}
@@ -1053,6 +1112,119 @@ const AdultGate = (props: {onEnter: () => void}) => (
     </div>
   </div>
 );
+
+const LibraryRepairDialog = (props: {
+  onCancel: () => void;
+  onConfirm: (options: LibraryRepairOptions) => void;
+}) => {
+  const [repairProviderMetadata, setRepairProviderMetadata] =
+    createSignal(false);
+  const [redownloadProviderAssets, setRedownloadProviderAssets] =
+    createSignal(false);
+  return (
+    <div
+      class="fixed inset-0 z-[70] grid place-items-center bg-black/80 p-4 backdrop-blur-md"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="deep-repair-title"
+      onClick={() => props.onCancel()}
+    >
+      <div
+        class="w-full max-w-lg border border-white/12 bg-[#151d1b] p-6 shadow-[0_30px_100px_#000] sm:p-8"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div class="flex items-start gap-4">
+          <span class="grid size-11 shrink-0 place-items-center border border-[#d55247]/35 bg-[#d55247]/10 text-[#e16458]">
+            <FiTool size={17} />
+          </span>
+          <div>
+            <p class="text-[9px] font-bold tracking-[0.2em] text-[#d55247] uppercase">
+              Library maintenance
+            </p>
+            <h2
+              id="deep-repair-title"
+              class="mt-2 font-serif text-2xl text-[#f0ebdf]"
+            >
+              Deep scan and repair
+            </h2>
+          </div>
+        </div>
+
+        <p class="mt-5 text-xs leading-5 text-[#929e99]">
+          Every local publication and generated asset will be validated and
+          rebuilt. This takes longer than Scan new but does not contact online
+          providers unless you select an option below.
+        </p>
+
+        <div class="mt-5 space-y-3">
+          <label class="flex cursor-pointer items-start gap-3 border border-white/8 bg-white/[0.025] p-4 text-xs leading-5 text-[#b7c0bb]">
+            <input
+              class="mt-0.5 size-4 accent-[#d94c3f]"
+              type="checkbox"
+              checked={repairProviderMetadata()}
+              onInput={(event) =>
+                setRepairProviderMetadata(event.currentTarget.checked)
+              }
+            />
+            <span>
+              <span class="block font-semibold text-[#d6dcd8]">
+                Update older provider metadata
+              </span>
+              <span class="mt-1 block text-[10px] leading-4 text-[#707c77]">
+                Upgrade cached books that need current metadata. This may
+                download a few representative pages, but it does not search for
+                new books.
+              </span>
+            </span>
+          </label>
+          <label class="flex cursor-pointer items-start gap-3 border border-white/8 bg-white/[0.025] p-4 text-xs leading-5 text-[#b7c0bb]">
+            <input
+              class="mt-0.5 size-4 accent-[#d94c3f]"
+              type="checkbox"
+              checked={redownloadProviderAssets()}
+              onInput={(event) =>
+                setRedownloadProviderAssets(event.currentTarget.checked)
+              }
+            />
+            <span>
+              <span class="block font-semibold text-[#d6dcd8]">
+                Re-download cached provider images
+              </span>
+              <span class="mt-1 block text-[10px] leading-4 text-[#707c77]">
+                Refresh preview and back-cover images for every cached remote
+                book. Use this only when those images appear damaged or
+                incomplete.
+              </span>
+            </span>
+          </label>
+        </div>
+
+        <div class="mt-7 flex justify-end gap-3">
+          <button
+            class="border border-white/10 px-4 py-2.5 text-[10px] font-semibold tracking-[0.12em] text-[#9da7a2] uppercase transition hover:border-white/20 hover:bg-white/5 hover:text-white"
+            type="button"
+            onClick={() => props.onCancel()}
+          >
+            Cancel
+          </button>
+          <button
+            class="flex items-center gap-2 bg-[#d94c3f] px-4 py-2.5 text-[10px] font-bold tracking-[0.12em] text-white uppercase transition hover:bg-[#e45a4e]"
+            type="button"
+            onClick={() =>
+              props.onConfirm({
+                redownloadProviderAssets: redownloadProviderAssets(),
+                repairProviderMetadata: repairProviderMetadata(),
+              })
+            }
+          >
+            <FiTool size={12} />
+            Start deep repair
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 const LibraryUpdateDialog = (props: {
   busy: boolean;
@@ -1605,13 +1777,13 @@ export const App = () => {
     await saveLibraryConfig(config);
     if (bookLocationsChanged && visualMediaLocationsChanged) {
       setLibraryUpdateNotice(
-        "Locations saved. Visual media will refresh automatically; run Import & scan to update books.",
+        "Locations saved. Visual media will refresh automatically; run Scan new to update books.",
       );
       return;
     }
     if (bookLocationsChanged) {
       setLibraryUpdateNotice(
-        "Book locations saved. Run Import & scan to update the library.",
+        "Book locations saved. Run Scan new to update the library.",
       );
       return;
     }
@@ -1643,6 +1815,7 @@ export const App = () => {
   };
   const [menuTab, setMenuTab] = createSignal<MenuTab>("library");
   const [purgeBlacklistedOpen, setPurgeBlacklistedOpen] = createSignal(false);
+  const [libraryRepairOpen, setLibraryRepairOpen] = createSignal(false);
   const [unstuckRequest, setUnstuckRequest] = createSignal(0);
   const [selectedId, setSelectedId] = createSignal("");
   const [mobileDetailOpen, setMobileDetailOpen] = createSignal(false);
@@ -1653,6 +1826,8 @@ export const App = () => {
   const [libraryUpdating, setLibraryUpdating] = createSignal(false);
   const [libraryOperation, setLibraryOperation] =
     createSignal<LibraryOperation>();
+  const [libraryScanMode, setLibraryScanMode] =
+    createSignal<LibraryScanMode>("quick");
   const [libraryUpdateStage, setLibraryUpdateStage] =
     createSignal<LibraryUpdateStage>("working");
   const [libraryUpdateCompletedSteps, setLibraryUpdateCompletedSteps] =
@@ -1707,7 +1882,10 @@ export const App = () => {
       return [];
     }
   });
-  let latestLibrarySourceStatus = {unavailableBookPathCount: 0};
+  let latestLibrarySourceStatus = {
+    reenrollableBookPaths: [] as readonly string[],
+    unavailableBookPathCount: 0,
+  };
   const [librarySourceStatus, {refetch: refetchLibrarySourceStatus}] =
     createResource(async () => {
       try {
@@ -1732,6 +1910,21 @@ export const App = () => {
   );
   const unavailableBookPathCount = () =>
     librarySourceStatus.latest?.unavailableBookPathCount ?? 0;
+  const reenrollableBookPaths = createMemo(
+    () =>
+      new Set(
+        librarySourceStatus.latest?.reenrollableBookPaths ??
+          librarySourceStatus()?.reenrollableBookPaths ??
+          [],
+      ),
+  );
+  const reenrollBookRoot = async (path: string) => {
+    await reenrollLibraryRoot(path);
+    await refetchLibrarySourceStatus();
+    setLibraryUpdateNotice(
+      "Library root re-enrolled. Run Scan new to reconcile its books.",
+    );
+  };
   createEffect(
     on(availableLibraryProviders, (providers) => {
       if (providers.some((provider) => provider.id === selectedProviderId()))
@@ -1801,9 +1994,9 @@ export const App = () => {
   const scanButtonLabel = () => {
     if (runtimeLibrary.loading) return "Loading…";
     if (libraryOperation() === "scan")
-      return `Importing & scanning · ${libraryUpdateElapsedSeconds()}s`;
+      return `${libraryScanMode() === "repair" ? "Repairing" : "Scanning"} · ${libraryUpdateElapsedSeconds()}s`;
     if (libraryUpdating()) return "Library busy…";
-    return "Import & scan";
+    return "Scan new";
   };
   const fetchButtonLabel = () =>
     libraryOperation() === "fetch-more"
@@ -2040,12 +2233,28 @@ export const App = () => {
     }
   };
 
-  const scanLibrary = async () => {
+  const scanLibrary = async (
+    mode: LibraryScanMode = "quick",
+    repairOptions?: LibraryRepairOptions,
+  ) => {
     if (libraryUpdating()) return;
+    setLibraryScanMode(mode);
     beginLibraryUpdate("scan");
     setLibraryUpdateNotice(undefined);
     try {
-      const job = await scanLocalLibrary();
+      const job = await scanLocalLibrary(
+        mode === "repair"
+          ? {
+              repair: true,
+              ...(repairOptions?.redownloadProviderAssets
+                ? {redownloadProviderAssets: true}
+                : {}),
+              ...(repairOptions?.repairProviderMetadata
+                ? {repairProviderMetadata: true}
+                : {}),
+            }
+          : {},
+      );
       monitorLibraryJob(job, false);
     } catch (error) {
       reportLibraryFailure(
@@ -2143,6 +2352,7 @@ export const App = () => {
     )
       return;
 
+    setLibraryScanMode("quick");
     beginLibraryUpdate("scan");
     setLibraryUpdateNotice(undefined);
     setLibraryUpdateTotalSteps(candidates.length + 3);
@@ -2240,6 +2450,10 @@ export const App = () => {
           event.preventDefault();
           if (purgeBlacklistedOpen()) {
             if (!libraryUpdating()) setPurgeBlacklistedOpen(false);
+            return;
+          }
+          if (libraryRepairOpen()) {
+            setLibraryRepairOpen(false);
             return;
           }
           if (libraryUpdateOpen()) {
@@ -2340,9 +2554,10 @@ export const App = () => {
                   {count()} configured book{" "}
                   {count() === 1 ? "path is" : "paths are"} unavailable. Library
                   updates are locked so the current books cannot be removed.
-                  Remount the missing storage to continue. Unlike TV, poster,
-                  and art-frame paths, each configured book path must contain at
-                  least one supported archive, image, or publication.json file.
+                  Remount the expected storage and restore its Afterleaf library
+                  root marker to continue. Enrolled book roots may be empty;
+                  missing or mismatched markers are treated as unavailable
+                  storage.
                 </p>
               </aside>
             )}
@@ -2356,7 +2571,7 @@ export const App = () => {
               aria-label="Afterleaf pause menu"
             >
               <div class="mx-auto flex size-full max-w-[1800px] flex-col overflow-hidden border-white/10 bg-[#101716]/98 shadow-[0_30px_120px_#000] sm:border">
-                <header class="flex h-[72px] shrink-0 items-center border-b border-white/8 bg-[#121918]/95 px-4 sm:px-7 lg:px-9">
+                <header class="flex h-[72px] shrink-0 items-center border-b border-white/8 bg-[#121918]/95 px-4 sm:px-5 lg:px-6">
                   <div class="flex min-w-0 items-center gap-4">
                     <div class="brand-mark grid size-9 shrink-0 place-items-center bg-[#d94c3f] font-serif text-lg text-white">
                       葉
@@ -2376,28 +2591,17 @@ export const App = () => {
                       Local library
                     </div>
                     <button
-                      class="grid size-9 place-items-center text-[#8d9893] transition hover:bg-white/5 hover:text-white"
-                      aria-label="Close menu and return to shop"
-                      title="Return to shop (Escape)"
-                      on:pointerdown={(event) => {
-                        if (event.button === 0) closeMenu();
-                      }}
-                      onClick={() => closeMenu()}
-                    >
-                      <FiX size={17} />
-                    </button>
-                    <button
                       class="flex h-9 items-center gap-2 border border-white/10 px-3 text-[11px] text-[#aab2ae] transition hover:border-white/20 hover:bg-white/5 hover:text-white disabled:cursor-wait disabled:opacity-50"
                       disabled={
                         runtimeLibrary.loading ||
                         libraryUpdating() ||
                         unavailableBookPathCount() > 0
                       }
-                      onClick={() => void scanLibrary()}
+                      onClick={() => void scanLibrary("quick")}
                       title={
                         unavailableBookPathCount() > 0
                           ? "Remount the configured book paths before updating the library"
-                          : "Import new CBZ/ZIP files and refresh the local library without contacting nHentai"
+                          : "Find new or normally changed local books and reuse unchanged generated assets"
                       }
                     >
                       <FiRefreshCw
@@ -2408,6 +2612,23 @@ export const App = () => {
                         size={14}
                       />
                       <span class="hidden sm:inline">{scanButtonLabel()}</span>
+                    </button>
+                    <button
+                      aria-label="Deep scan and repair library"
+                      class="grid size-9 place-items-center border border-white/10 text-[#8d9893] transition hover:border-white/20 hover:bg-white/5 hover:text-white disabled:cursor-wait disabled:opacity-50"
+                      disabled={
+                        runtimeLibrary.loading ||
+                        libraryUpdating() ||
+                        unavailableBookPathCount() > 0
+                      }
+                      onClick={() => setLibraryRepairOpen(true)}
+                      title={
+                        unavailableBookPathCount() > 0
+                          ? "Remount the configured book paths before repairing the library"
+                          : "Choose local and optional provider repair actions"
+                      }
+                    >
+                      <FiTool size={14} />
                     </button>
                     <button
                       class="flex h-9 items-center gap-2 bg-[#ece6d8] px-3.5 text-[11px] font-bold text-[#1b2321] transition hover:bg-white disabled:cursor-wait"
@@ -2425,6 +2646,17 @@ export const App = () => {
                     >
                       <FiDownload size={14} />
                       <span class="hidden sm:inline">{fetchButtonLabel()}</span>
+                    </button>
+                    <button
+                      class="grid size-9 place-items-center text-[#8d9893] transition hover:bg-white/5 hover:text-white"
+                      aria-label="Close menu and return to shop"
+                      title="Return to shop (Escape)"
+                      on:pointerdown={(event) => {
+                        if (event.button === 0) closeMenu();
+                      }}
+                      onClick={() => closeMenu()}
+                    >
+                      <FiX size={17} />
                     </button>
                   </div>
                 </header>
@@ -2775,6 +3007,8 @@ export const App = () => {
                       onLibraryConfigChange={(config) =>
                         void updateLibraryConfig(config)
                       }
+                      onReenrollLibraryRoot={reenrollBookRoot}
+                      reenrollableBookPaths={reenrollableBookPaths()}
                       blacklistedTags={blacklistedTags()}
                       defaultReadingDirection={defaultReadingDirection()}
                       mouseSensitivity={mouseSensitivity()}
@@ -2841,6 +3075,16 @@ export const App = () => {
               workCount={blacklistedTagWorkCandidates().length}
               onCancel={() => setPurgeBlacklistedOpen(false)}
               onConfirm={() => void purgeBlacklistedWorks()}
+            />
+          </Show>
+
+          <Show when={libraryRepairOpen()}>
+            <LibraryRepairDialog
+              onCancel={() => setLibraryRepairOpen(false)}
+              onConfirm={(options) => {
+                setLibraryRepairOpen(false);
+                void scanLibrary("repair", options);
+              }}
             />
           </Show>
 

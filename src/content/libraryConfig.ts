@@ -1,8 +1,32 @@
+import {randomUUID} from "node:crypto";
 import {readFileSync} from "node:fs";
-import {readFile, readdir, stat, writeFile, rename, rm} from "node:fs/promises";
-import {extname, resolve} from "node:path";
+import {
+  lstat,
+  mkdir,
+  readFile,
+  readdir,
+  stat,
+  writeFile,
+  rename,
+  rm,
+} from "node:fs/promises";
+import {dirname, extname, resolve} from "node:path";
 
 export const LIBRARY_CONFIG_FILE_NAME = "afterleaf.library.json";
+export const LIBRARY_ROOT_MARKER_FILE_NAME = ".afterleaf-library-root.json";
+export const LIBRARY_ROOT_REGISTRY_FILE_NAME = "library-roots.json";
+
+const LIBRARY_ROOT_MARKER_SCHEMA_VERSION = 1;
+
+interface LibraryRootMarker {
+  rootId: string;
+  schemaVersion: typeof LIBRARY_ROOT_MARKER_SCHEMA_VERSION;
+}
+
+interface LibraryRootRegistry {
+  roots: Record<string, string>;
+  schemaVersion: typeof LIBRARY_ROOT_MARKER_SCHEMA_VERSION;
+}
 
 const PATH_PROPERTIES = [
   "mangaPaths",
@@ -182,7 +206,151 @@ const LIBRARY_MEDIA_EXTENSIONS = new Set([
   ".zip",
 ]);
 
-const directoryContainsLibraryMedia = async (
+const isMissing = (error: unknown) =>
+  error instanceof Error && "code" in error && error.code === "ENOENT";
+
+const isLibraryRootMarker = (value: unknown): value is LibraryRootMarker => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const marker = value as Partial<LibraryRootMarker>;
+  return (
+    marker.schemaVersion === LIBRARY_ROOT_MARKER_SCHEMA_VERSION &&
+    typeof marker.rootId === "string" &&
+    /^[0-9a-f-]{36}$/iu.test(marker.rootId)
+  );
+};
+
+const readLibraryRootMarker = async (directory: string) => {
+  const markerPath = resolve(directory, LIBRARY_ROOT_MARKER_FILE_NAME);
+  try {
+    const markerStat = await lstat(markerPath);
+    if (!markerStat.isFile() || markerStat.isSymbolicLink()) return undefined;
+    const parsed: unknown = JSON.parse(await readFile(markerPath, "utf8"));
+    return isLibraryRootMarker(parsed) ? parsed : undefined;
+  } catch (error) {
+    if (isMissing(error) || error instanceof SyntaxError) return undefined;
+    throw error;
+  }
+};
+
+const createLibraryRootMarker = async (directory: string) => {
+  const markerPath = resolve(directory, LIBRARY_ROOT_MARKER_FILE_NAME);
+  const marker: LibraryRootMarker = {
+    rootId: randomUUID(),
+    schemaVersion: LIBRARY_ROOT_MARKER_SCHEMA_VERSION,
+  };
+  try {
+    await writeFile(markerPath, `${JSON.stringify(marker, null, 2)}\n`, {
+      flag: "wx",
+    });
+    return marker;
+  } catch (error) {
+    if (
+      !(error instanceof Error) ||
+      !("code" in error) ||
+      error.code !== "EEXIST"
+    )
+      throw error;
+    const existing = await readLibraryRootMarker(directory);
+    if (!existing)
+      throw new Error(`Library root marker is invalid: ${markerPath}`);
+    return existing;
+  }
+};
+
+const emptyLibraryRootRegistry = (): LibraryRootRegistry => ({
+  roots: {},
+  schemaVersion: LIBRARY_ROOT_MARKER_SCHEMA_VERSION,
+});
+
+const readLibraryRootRegistry = async (registryPath: string) => {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(await readFile(registryPath, "utf8")) as unknown;
+  } catch (error) {
+    if (isMissing(error)) return emptyLibraryRootRegistry();
+    throw new Error(
+      `Could not read library root registry ${registryPath}: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
+    throw new Error(`Library root registry is malformed: ${registryPath}`);
+  const registry = parsed as Partial<LibraryRootRegistry>;
+  if (
+    registry.schemaVersion !== LIBRARY_ROOT_MARKER_SCHEMA_VERSION ||
+    !registry.roots ||
+    typeof registry.roots !== "object" ||
+    Array.isArray(registry.roots) ||
+    Object.entries(registry.roots).some(
+      ([path, rootId]) =>
+        !path ||
+        typeof rootId !== "string" ||
+        !/^[0-9a-f-]{36}$/iu.test(rootId),
+    )
+  )
+    throw new Error(`Library root registry is malformed: ${registryPath}`);
+  return registry as LibraryRootRegistry;
+};
+
+const writeLibraryRootRegistry = async (
+  registryPath: string,
+  registry: LibraryRootRegistry,
+) => {
+  await mkdir(dirname(registryPath), {recursive: true});
+  const temporaryPath = `${registryPath}.staging-${randomUUID()}`;
+  await writeFile(
+    temporaryPath,
+    `${JSON.stringify(registry, null, 2)}\n`,
+    "utf8",
+  );
+  try {
+    // The registry is generated state. Removing this exact file enables an
+    // atomic-style replacement on Windows without touching source media.
+    await rm(registryPath, {force: true});
+    await rename(temporaryPath, registryPath);
+  } catch (error) {
+    await rm(temporaryPath, {force: true}).catch(() => {});
+    throw error;
+  }
+};
+
+export const reenrollLibraryRootPath = async (
+  path: string,
+  registryPath: string,
+) => {
+  const resolvedPath = resolve(path);
+  const pathStat = await stat(resolvedPath);
+  if (!pathStat.isDirectory())
+    throw new Error(`Library root must be a directory: ${resolvedPath}`);
+  if (!(await libraryRootContainsMedia(resolvedPath)))
+    throw new Error(
+      `Library root cannot be re-enrolled while it contains no supported books: ${resolvedPath}`,
+    );
+  const marker: LibraryRootMarker = {
+    rootId: randomUUID(),
+    schemaVersion: LIBRARY_ROOT_MARKER_SCHEMA_VERSION,
+  };
+  const markerPath = resolve(resolvedPath, LIBRARY_ROOT_MARKER_FILE_NAME);
+  const temporaryMarkerPath = `${markerPath}.staging-${randomUUID()}`;
+  await writeFile(temporaryMarkerPath, `${JSON.stringify(marker, null, 2)}\n`, {
+    flag: "wx",
+  });
+  try {
+    // This explicit recovery action replaces only Afterleaf's marker. It never
+    // removes source media from the enrolled directory.
+    await rm(markerPath, {force: true});
+    await rename(temporaryMarkerPath, markerPath);
+  } catch (error) {
+    await rm(temporaryMarkerPath, {force: true}).catch(() => {});
+    throw error;
+  }
+  const resolvedRegistryPath = resolve(registryPath);
+  const registry = await readLibraryRootRegistry(resolvedRegistryPath);
+  registry.roots[resolvedPath] = marker.rootId;
+  await writeLibraryRootRegistry(resolvedRegistryPath, registry);
+  return marker;
+};
+
+export const libraryRootContainsMedia = async (
   directory: string,
 ): Promise<boolean> => {
   let entries;
@@ -201,29 +369,81 @@ const directoryContainsLibraryMedia = async (
       return true;
     if (
       entry.isDirectory() &&
-      (await directoryContainsLibraryMedia(resolve(directory, entry.name)))
+      (await libraryRootContainsMedia(resolve(directory, entry.name)))
     )
       return true;
   }
   return false;
 };
 
-export const unavailableLibraryPaths = async (paths: readonly string[]) => {
-  const unavailable = await Promise.all(
-    paths.map(async (path) => {
-      try {
-        const pathStat = await stat(path);
-        if (pathStat.isFile()) return;
-        if (
-          pathStat.isDirectory() &&
-          (await directoryContainsLibraryMedia(path))
-        )
-          return;
-        return path;
-      } catch {
-        return path;
+export const unavailableLibraryPaths = async (
+  paths: readonly string[],
+  registryPath?: string,
+) => {
+  if (!registryPath) {
+    const unavailable = await Promise.all(
+      paths.map(async (path) => {
+        try {
+          const pathStat = await stat(path);
+          if (pathStat.isFile()) return;
+          if (pathStat.isDirectory() && (await libraryRootContainsMedia(path)))
+            return;
+          return path;
+        } catch {
+          return path;
+        }
+      }),
+    );
+    return unavailable.filter((path) => path !== undefined);
+  }
+
+  const registry = await readLibraryRootRegistry(resolve(registryPath));
+  const resolvedPaths = [...new Set(paths.map((path) => resolve(path)))];
+  const availableRootIds = new Map<string, string>();
+  const unavailable: string[] = [];
+  let registryChanged = false;
+
+  for (const path of resolvedPaths) {
+    let pathStat: Awaited<ReturnType<typeof stat>>;
+    try {
+      pathStat = await stat(path);
+    } catch {
+      unavailable.push(path);
+      continue;
+    }
+    if (pathStat.isFile()) continue;
+    if (!pathStat.isDirectory()) {
+      unavailable.push(path);
+      continue;
+    }
+
+    const expectedRootId = registry.roots[path];
+    let marker = await readLibraryRootMarker(path);
+    if (expectedRootId) {
+      if (marker?.rootId !== expectedRootId) {
+        unavailable.push(path);
+        continue;
       }
-    }),
-  );
-  return unavailable.filter((path) => path !== undefined);
+    } else {
+      if (!marker && (await libraryRootContainsMedia(path)))
+        marker = await createLibraryRootMarker(path);
+      if (!marker) {
+        unavailable.push(path);
+        continue;
+      }
+      registry.roots[path] = marker.rootId;
+      registryChanged = true;
+    }
+
+    const existingPath = availableRootIds.get(marker.rootId);
+    if (existingPath && existingPath !== path) {
+      unavailable.push(existingPath, path);
+      continue;
+    }
+    availableRootIds.set(marker.rootId, path);
+  }
+
+  if (registryChanged)
+    await writeLibraryRootRegistry(resolve(registryPath), registry);
+  return [...new Set(unavailable)];
 };

@@ -26,11 +26,13 @@ export {parseLocalPublicationDocument} from "../validation";
 export {
   createConcurrentAcquisitionPipeline,
   createRepresentativePagePlan,
+  finalizeProviderPublicationDocument,
   type ConcurrentAcquisitionContext,
   type ConcurrentAcquisitionHandle,
   type ConcurrentAcquisitionOutcome,
   type ConcurrentAcquisitionPipeline,
   type ConcurrentAcquisitionPipelineOptions,
+  type DownloadedProviderPage,
   type RepresentativePagePlan,
 } from "./sdk";
 export {

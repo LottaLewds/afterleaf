@@ -8,6 +8,7 @@ import {
   loadBlacklistedPublications,
   loadLibraryOperationStatus,
   loadLibrarySourceStatus,
+  reenrollLibraryRoot,
   resolvePastedLibraryImport,
   scanLocalLibrary,
   type LibraryOperationFetch,
@@ -17,6 +18,7 @@ import {
   LIBRARY_FETCH_MORE_ENDPOINT,
   LIBRARY_PASTE_RESOLVE_ENDPOINT,
   LIBRARY_SCAN_ENDPOINT,
+  LIBRARY_ROOT_ENROLL_ENDPOINT,
   LIBRARY_SOURCE_STATUS_ENDPOINT,
   LIBRARY_STATUS_ENDPOINT,
   libraryOperationFailure,
@@ -142,6 +144,27 @@ describe("browser library operation client", () => {
     });
   });
 
+  test("requests an explicit deep repair scan", async () => {
+    let requestInit: RequestInit | undefined;
+    const fetcher: LibraryOperationFetch = async (_input, init) => {
+      requestInit = init;
+      return response(jobStartResponse("scan"), 202);
+    };
+
+    await scanLocalLibrary(
+      {
+        redownloadProviderAssets: true,
+        repair: true,
+        repairProviderMetadata: true,
+      },
+      fetcher,
+    );
+
+    expect(requestInit?.body).toBe(
+      '{"redownloadProviderAssets":true,"repair":true,"repairProviderMetadata":true}',
+    );
+  });
+
   test("sends bounded fetch-more requests", async () => {
     let requestInput: string | undefined;
     let requestInit: RequestInit | undefined;
@@ -254,13 +277,35 @@ describe("browser library operation client", () => {
     let requestInput: string | undefined;
     const fetcher: LibraryOperationFetch = async (input) => {
       requestInput = input;
-      return response({ok: true, unavailableBookPathCount: 2});
+      return response({
+        ok: true,
+        reenrollableBookPaths: ["/mnt/manga"],
+        unavailableBookPathCount: 2,
+      });
     };
 
     await expect(loadLibrarySourceStatus(fetcher)).resolves.toEqual({
+      reenrollableBookPaths: ["/mnt/manga"],
       unavailableBookPathCount: 2,
     });
     expect(requestInput).toBe(LIBRARY_SOURCE_STATUS_ENDPOINT);
+  });
+
+  test("explicitly re-enrolls a configured library root", async () => {
+    let requestInput: string | undefined;
+    let requestInit: RequestInit | undefined;
+    const fetcher: LibraryOperationFetch = async (input, init) => {
+      requestInput = input;
+      requestInit = init;
+      return response({ok: true});
+    };
+
+    await expect(
+      reenrollLibraryRoot("/mnt/manga", fetcher),
+    ).resolves.toBeUndefined();
+    expect(requestInput).toBe(LIBRARY_ROOT_ENROLL_ENDPOINT);
+    expect(requestInit?.method).toBe("POST");
+    expect(JSON.parse(String(requestInit?.body))).toEqual({path: "/mnt/manga"});
   });
 
   test("loads a completed background operation result", async () => {
@@ -391,9 +436,27 @@ describe("browser library operation client", () => {
 describe("library operation HTTP protocol", () => {
   test("keeps all three request bodies narrow", () => {
     expect(parseLibraryScanRequest({})).toEqual({});
+    expect(parseLibraryScanRequest({repair: true})).toEqual({repair: true});
+    expect(
+      parseLibraryScanRequest({
+        redownloadProviderAssets: true,
+        repair: true,
+        repairProviderMetadata: true,
+      }),
+    ).toEqual({
+      redownloadProviderAssets: true,
+      repair: true,
+      repairProviderMetadata: true,
+    });
+    expect(() => parseLibraryScanRequest({repair: "yes"})).toThrow(
+      "must be a boolean",
+    );
     expect(() => parseLibraryScanRequest({fetch: true})).toThrow(
       "unsupported fields",
     );
+    expect(() =>
+      parseLibraryScanRequest({repairProviderMetadata: true}),
+    ).toThrow("require a deep repair scan");
     expect(parseLibraryFetchMoreRequest({})).toEqual({});
     expect(
       parseLibraryFetchMoreRequest({
