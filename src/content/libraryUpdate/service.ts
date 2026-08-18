@@ -444,6 +444,15 @@ export class LibraryUpdateService implements LibraryUpdateClient {
           languages: catalogLanguages,
           limit: snapshotLimit,
           match: request.match ?? "all",
+          onDiagnostic: (diagnostic) =>
+            this.#setRunningState(
+              "seeding",
+              `Scan issue: ${diagnostic.message}`,
+              completedSteps,
+              requestId,
+              startedAt,
+              previousSnapshot,
+            ),
           outputDirectory: snapshotDirectory,
           packId: this.#packId,
           assetPathPrefix: `assets/${snapshotId}`,

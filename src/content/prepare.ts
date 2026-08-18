@@ -1,4 +1,4 @@
-import {randomUUID} from "node:crypto";
+import {createHash, randomUUID} from "node:crypto";
 import {
   access,
   mkdir,
@@ -19,6 +19,7 @@ import {
 } from "~/content/schema";
 import {parseLocalPublicationDocument} from "~/content/validation";
 
+const VALID_ID_PATTERN = /^[a-z0-9][a-z0-9._-]*$/u;
 const IMAGE_EXTENSIONS = new Set([".avif", ".jpeg", ".jpg", ".png", ".webp"]);
 const FRONT_FILE_NAMES = new Set(["cover", "folder", "front"]);
 const BACK_FILE_NAMES = new Set(["back", "rear"]);
@@ -97,6 +98,7 @@ export interface ContentPrepareDiagnostic {
     | "inferred-magazine"
     | "missing-tags"
     | "no-images"
+    | "processing-failed"
     | "skipped-language"
     | "skipped-symlink";
   directory: string;
@@ -141,11 +143,14 @@ const fileExists = async (path: string) => {
 
 const prettifyDirectoryName = (directoryName: string) =>
   directoryName
-    .normalize("NFKC")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/gu, "")
     .replace(LANGUAGE_ANNOTATION_PATTERN, " ")
     .replace(/_/gu, " ")
     .replace(/\s+/gu, " ")
-    .trim();
+    .trim()
+    .replace(/^[-\s]+/u, "")
+    .replace(/[-\s]+$/u, "");
 
 const parseComicIssue = (title: string) => {
   const undecoratedTitle = title
@@ -283,11 +288,14 @@ const createDocument = (
   const pageImages = images.filter((path) => path !== back && path !== spine);
   const toRelativeAsset = (path: string) =>
     toPortablePath(relative(publicationDirectory, path));
-  const id = normalizeTag(identity.title);
-  if (!id)
-    throw new Error(
-      `Could not derive a filesystem-safe publication ID from ${publicationDirectory}`,
-    );
+  let id = normalizeTag(identity.title);
+  if (!id || !VALID_ID_PATTERN.test(id)) {
+    const fallbackHash = createHash("sha1")
+      .update(publicationDirectory)
+      .digest("hex")
+      .slice(0, 10);
+    id = `untitled-${fallbackHash}`;
+  }
   return {
     schemaVersion: CONTENT_SCHEMA_VERSION,
     id,
@@ -333,10 +341,10 @@ export const prepareLocalCatalog = async (
   const publicationDirectories =
     await findPublicationDirectories(rootDirectory);
 
-  for (const publicationDirectory of publicationDirectories) {
-    const portableDirectory = toPortablePath(
-      relative(rootDirectory, publicationDirectory) || ".",
-    );
+  const processPublicationDirectory = async (
+    publicationDirectory: string,
+    portableDirectory: string,
+  ) => {
     const manifestPath = resolve(publicationDirectory, "publication.json");
     const manifestExists = await fileExists(manifestPath);
     if (manifestExists && !options.force && !options.refreshExisting) {
@@ -346,7 +354,7 @@ export const prepareLocalCatalog = async (
         directory: portableDirectory,
         message: `Skipped existing manifest in ${portableDirectory}; pass --force to replace it`,
       });
-      continue;
+      return;
     }
     const detectedLanguage = detectPreparedPublicationLanguage(
       basename(publicationDirectory),
@@ -359,7 +367,7 @@ export const prepareLocalCatalog = async (
         directory: portableDirectory,
         message: `Skipped ${portableDirectory} because its name indicates ${detectedLanguage.unsupportedLabel ?? "an unsupported language"}`,
       });
-      continue;
+      return;
     }
     const images = await findImages(publicationDirectory, diagnostics);
     const usablePages = images.filter((path) => {
@@ -373,7 +381,7 @@ export const prepareLocalCatalog = async (
         directory: portableDirectory,
         message: `Skipped ${portableDirectory} because it contains no supported page images`,
       });
-      continue;
+      return;
     }
     const identity = inferPreparedPublicationIdentity(
       basename(publicationDirectory),
@@ -405,7 +413,7 @@ export const prepareLocalCatalog = async (
         directory: portableDirectory,
         message: `Skipped ${portableDirectory} because its configured and filename reading-direction directives conflict`,
       });
-      continue;
+      return;
     }
     const readingDirection =
       filenameReadingDirection ?? options.readingDirection;
@@ -417,46 +425,53 @@ export const prepareLocalCatalog = async (
       identity,
     );
     if (manifestExists && options.refreshExisting && !options.force) {
-      const existingDocument = parseLocalPublicationDocument(
-        JSON.parse(await readFile(manifestPath, "utf8")) as unknown,
-        manifestPath,
-      );
-      if (existingDocument.source) {
-        skippedCount += 1;
-        diagnostics.push({
-          code: "existing-manifest",
-          directory: portableDirectory,
-          message: `Skipped provider-managed manifest in ${portableDirectory}`,
-        });
-        continue;
+      let existingDocument: LocalPublicationDocument | undefined;
+      try {
+        existingDocument = parseLocalPublicationDocument(
+          JSON.parse(await readFile(manifestPath, "utf8")) as unknown,
+          manifestPath,
+        );
+      } catch {
+        existingDocument = undefined;
       }
-      const readingDirectionChanged =
-        existingDocument.physical?.readingDirection !==
-        document.physical?.readingDirection;
-      if (
-        JSON.stringify(existingDocument.assets) ===
-          JSON.stringify(document.assets) &&
-        !readingDirectionChanged
-      ) {
-        skippedCount += 1;
-        diagnostics.push({
-          code: "existing-manifest",
-          directory: portableDirectory,
-          message: `Skipped unchanged manifest in ${portableDirectory}`,
-        });
-        continue;
+      if (existingDocument !== undefined) {
+        if (existingDocument.source) {
+          skippedCount += 1;
+          diagnostics.push({
+            code: "existing-manifest",
+            directory: portableDirectory,
+            message: `Skipped provider-managed manifest in ${portableDirectory}`,
+          });
+          return;
+        }
+        const readingDirectionChanged =
+          existingDocument.physical?.readingDirection !==
+          document.physical?.readingDirection;
+        if (
+          JSON.stringify(existingDocument.assets) ===
+            JSON.stringify(document.assets) &&
+          !readingDirectionChanged
+        ) {
+          skippedCount += 1;
+          diagnostics.push({
+            code: "existing-manifest",
+            directory: portableDirectory,
+            message: `Skipped unchanged manifest in ${portableDirectory}`,
+          });
+          return;
+        }
+        const physical = {...(existingDocument.physical ?? {})};
+        if (document.physical?.readingDirection === undefined)
+          delete physical.readingDirection;
+        else physical.readingDirection = document.physical.readingDirection;
+        const {physical: _physical, ...existingDocumentWithoutPhysical} =
+          existingDocument;
+        document = {
+          ...existingDocumentWithoutPhysical,
+          assets: document.assets,
+          ...(Object.keys(physical).length === 0 ? {} : {physical}),
+        };
       }
-      const physical = {...(existingDocument.physical ?? {})};
-      if (document.physical?.readingDirection === undefined)
-        delete physical.readingDirection;
-      else physical.readingDirection = document.physical.readingDirection;
-      const {physical: _physical, ...existingDocumentWithoutPhysical} =
-        existingDocument;
-      document = {
-        ...existingDocumentWithoutPhysical,
-        assets: document.assets,
-        ...(Object.keys(physical).length === 0 ? {} : {physical}),
-      };
     }
     if (options.write) {
       if (manifestExists && (options.force || options.refreshExisting)) {
@@ -472,7 +487,11 @@ export const prepareLocalCatalog = async (
           throw error;
         }
       } else {
-        await mkdir(dirname(manifestPath), {recursive: true});
+        try {
+          await mkdir(dirname(manifestPath), {recursive: true});
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+        }
         await writeManifestAtomically(manifestPath, document);
       }
     }
@@ -481,6 +500,27 @@ export const prepareLocalCatalog = async (
       manifestPath,
       document,
     });
+  };
+
+  for (const publicationDirectory of publicationDirectories) {
+    const portableDirectory = toPortablePath(
+      relative(rootDirectory, publicationDirectory) || ".",
+    );
+    try {
+      await processPublicationDirectory(
+        publicationDirectory,
+        portableDirectory,
+      );
+    } catch (error) {
+      skippedCount += 1;
+      diagnostics.push({
+        code: "processing-failed",
+        directory: portableDirectory,
+        message: `Failed to process ${portableDirectory}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      });
+    }
   }
 
   return {

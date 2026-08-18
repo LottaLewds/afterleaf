@@ -1,4 +1,4 @@
-import {readdir, readFile, rm, stat} from "node:fs/promises";
+import {appendFile, readdir, readFile, rm, stat} from "node:fs/promises";
 import {isAbsolute, relative, resolve, sep} from "node:path";
 import {fileURLToPath} from "node:url";
 import {
@@ -11,7 +11,10 @@ import {
   readAfterleafLibraryConfig,
   unavailableLibraryPaths,
 } from "~/content/libraryConfig";
-import {prepareLocalCatalog} from "~/content/prepare";
+import {
+  prepareLocalCatalog,
+  type ContentPrepareDiagnostic,
+} from "~/content/prepare";
 import {parseLocalPublicationDocument} from "~/content/validation";
 
 export {LIBRARY_CONFIG_FILE_NAME};
@@ -228,6 +231,8 @@ export const importLocalMedia = async (
     });
   }
 
+  const folderDiagnostics: ContentPrepareDiagnostic[] = [];
+
   for (const mediaPath of availableMedia) {
     if (!mediaPath.stat.isDirectory()) continue;
 
@@ -243,6 +248,7 @@ export const importLocalMedia = async (
         : {readingDirection: mediaPath.readingDirection}),
     });
     imageFolderPreparedCount += folderReport.preparedCount;
+    folderDiagnostics.push(...folderReport.diagnostics);
     catalogDirectories.push(mediaPath.path);
   }
 
@@ -258,6 +264,24 @@ export const importLocalMedia = async (
     tags: [],
     write: true,
   });
+
+  const failureLogPath = resolve(
+    workingDirectory,
+    "content-sources",
+    "scan-failures.log",
+  );
+  const failures = [...folderDiagnostics, ...archiveReport.diagnostics].filter(
+    (diagnostic) => diagnostic.code === "processing-failed",
+  );
+  if (failures.length > 0) {
+    const lines = failures
+      .map(
+        (diagnostic) =>
+          `[${new Date().toISOString()}] ${JSON.stringify(diagnostic)}`,
+      )
+      .join("\n");
+    await appendFile(failureLogPath, `${lines}\n`);
+  }
 
   const archiveRemovedCount = await pruneMissingDefaultArchives(
     outputDirectory,
