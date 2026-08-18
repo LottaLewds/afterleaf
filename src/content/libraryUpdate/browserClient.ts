@@ -168,8 +168,21 @@ const requestSnapshotOperation = async (
   };
 };
 
-export const scanLocalLibrary = (fetcher: LibraryOperationFetch = fetch) =>
-  requestSnapshotOperation(LIBRARY_SCAN_ENDPOINT, "scan", {}, fetcher);
+export const scanLocalLibrary = (
+  optionsOrFetcher: {repair?: boolean} | LibraryOperationFetch = {},
+  fetcher: LibraryOperationFetch = fetch,
+) => {
+  const options =
+    typeof optionsOrFetcher === "function" ? {} : optionsOrFetcher;
+  const requestFetcher =
+    typeof optionsOrFetcher === "function" ? optionsOrFetcher : fetcher;
+  return requestSnapshotOperation(
+    LIBRARY_SCAN_ENDPOINT,
+    "scan",
+    options,
+    requestFetcher,
+  );
+};
 
 export const loadLibraryOperationStatus = async (
   jobId: string,

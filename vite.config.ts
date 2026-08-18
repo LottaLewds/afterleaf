@@ -736,10 +736,16 @@ type LocalLibraryOperation =
       providerId?: string;
       query?: string;
     }
-  | {kind: "scan"};
+  | {kind: "scan"; repair?: boolean};
 
 const libraryOperationArguments = (operation: LocalLibraryOperation) => {
-  if (operation.kind === "scan") return ["run", "library:scan", "--write"];
+  if (operation.kind === "scan")
+    return [
+      "run",
+      "library:scan",
+      "--write",
+      ...(operation.repair ? ["--repair"] : []),
+    ];
   if (operation.kind === "blacklist-list")
     return ["run", "library:blacklist", "--list"];
   if (operation.kind === "blacklist")
@@ -1291,8 +1297,13 @@ const localLibraryOperationsPlugin = (): Plugin => ({
         try {
           const body = await readBoundedJsonBody(request);
           if (pathname === LIBRARY_SCAN_ENDPOINT) {
-            parseLibraryScanRequest(body);
-            operation = {kind: "scan"};
+            const scanRequest = parseLibraryScanRequest(body);
+            operation = {
+              kind: "scan",
+              ...(scanRequest.repair === undefined
+                ? {}
+                : {repair: scanRequest.repair}),
+            };
           } else if (pathname === LIBRARY_FETCH_MORE_ENDPOINT) {
             const fetchMoreRequest = parseLibraryFetchMoreRequest(body);
             operation = {

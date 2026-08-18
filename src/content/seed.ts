@@ -98,6 +98,7 @@ interface ValidatedSelection {
   images: ReadonlyMap<string, ValidatedImage>;
   material: PublicationMaterial;
   previous?: PackedPublication;
+  reusePrevious?: boolean;
 }
 
 interface SourceRegion {
@@ -734,7 +735,7 @@ const previousPublicationMetadata = (
       : {trim: previous.physical.trim}),
   },
   source: previous.source,
-  materialPageCount: previous.assets.pages.length,
+  materialPageCount: previous.materialPageCount ?? previous.assets.pages.length,
 });
 
 const canReusePublication = (
@@ -744,8 +745,6 @@ const canReusePublication = (
 ) => {
   const currentSource = candidate.document.source;
   const previousSource = previous.source;
-
-  // Cas provider externe : les deux sources doivent exister et correspondre.
   if (currentSource || previousSource) {
     if (!currentSource || !previousSource) return false;
     if (
@@ -754,9 +753,12 @@ const canReusePublication = (
       currentSource.metadataHash !== previousSource.metadataHash
     )
       return false;
+  } else if (
+    !material.fingerprint ||
+    material.fingerprint !== previous.materialFingerprint
+  ) {
+    return false;
   }
-  // Si les deux sont absents (contenu local scanné à la main), on continue
-  // et on se fie uniquement à la comparaison de métadonnées ci-dessous.
 
   const usesInferredAspectRatio =
     candidate.document.physical?.aspectRatio === undefined ||
@@ -1322,6 +1324,10 @@ const materializePublication = async (
       ? {aspectRatioInferenceVersion: BOOK_ASPECT_RATIO_INFERENCE_VERSION}
       : {}),
     backFormatVersion: BACK_DERIVATIVE_FORMAT_VERSION,
+    ...(selection.material.fingerprint === undefined
+      ? {}
+      : {materialFingerprint: selection.material.fingerprint}),
+    materialPageCount: selection.material.pages.length,
     spineFormatVersion: SPINE_DERIVATIVE_FORMAT_VERSION,
   };
   const {shelfAtlasIndex: _shelfAtlasIndex, ...publicationContent} =
@@ -1330,7 +1336,43 @@ const materializePublication = async (
     ...publication,
     contentHash: hashJson({
       assetContentHash: publicationHash.digest("hex"),
-      publication: publicationContent,
+      publication: {
+        ...publicationContent,
+        alternates: publicationContent.alternates.map((alternate) => ({
+          ...alternate,
+          page0: stableAssetPath(alternate.page0, assetPathPrefix),
+        })),
+        assets: {
+          ...publicationContent.assets,
+          back: stableAssetPath(
+            publicationContent.assets.back,
+            assetPathPrefix,
+          ),
+          ...(publicationContent.assets.backDetail === undefined
+            ? {}
+            : {
+                backDetail: stableAssetPath(
+                  publicationContent.assets.backDetail,
+                  assetPathPrefix,
+                ),
+              }),
+          front: stableAssetPath(
+            publicationContent.assets.front,
+            assetPathPrefix,
+          ),
+          frontDetail: stableAssetPath(
+            publicationContent.assets.frontDetail,
+            assetPathPrefix,
+          ),
+          pages: publicationContent.assets.pages.map((path) =>
+            stableAssetPath(path, assetPathPrefix),
+          ),
+          spine: stableAssetPath(
+            publicationContent.assets.spine,
+            assetPathPrefix,
+          ),
+        },
+      },
     }),
   };
 };
@@ -1425,7 +1467,7 @@ const createAtlas = async (
     rows,
     width,
     height,
-    contentHash: hashAsset(path, buffer),
+    contentHash: hashAsset(stableAssetPath(path, assetPathPrefix), buffer),
     firstPublicationIndex,
     publicationCount: publications.length,
     ...(regions ? {regions} : {}),
@@ -1592,30 +1634,84 @@ export const seedContentPack = async (
       publication,
     ]) ?? [],
   );
+  const reportDiagnostic = (diagnostic: ContentSeedDiagnostic) => {
+    diagnostics.push(diagnostic);
+    options.onDiagnostic?.(diagnostic);
+  };
 
   for (const reference of references) {
     if (selections.length >= options.limit) break;
+    let candidate: PublicationCandidate;
     try {
-      const [candidate, material] = await Promise.all([
-        source.getMetadata(reference),
-        source.materialize(reference),
-      ]);
+      candidate = await source.getMetadata(reference);
+    } catch (error) {
+      reportDiagnostic({
+        code: "invalid-assets",
+        sourceId: reference.sourceId,
+        message: `Skipped ${reference.sourceId}: ${error instanceof Error ? error.message : String(error)}`,
+      });
+      continue;
+    }
+    const previous = previousPublicationById.get(candidate.document.id);
+    let material: PublicationMaterial;
+    try {
+      material = await source.materialize(reference);
+    } catch (error) {
+      reportDiagnostic({
+        code: "invalid-assets",
+        sourceId: reference.sourceId,
+        message: `Skipped ${reference.sourceId}: ${error instanceof Error ? error.message : String(error)}`,
+      });
+      if (previous && reuse)
+        selections.push({
+          candidate,
+          images: new Map(),
+          material: {pages: []},
+          previous,
+          reusePrevious: true,
+        });
+      continue;
+    }
+    try {
       const previous = previousPublicationById.get(candidate.document.id);
-      if (previous && canReusePublication(candidate, material, previous)) {
-        selections.push({candidate, images: new Map(), material, previous});
+      if (
+        previous &&
+        !options.forceRebuild &&
+        canReusePublication(candidate, material, previous)
+      ) {
+        selections.push({
+          candidate,
+          images: new Map(),
+          material,
+          previous,
+          reusePrevious: true,
+        });
         continue;
       }
       const images = await validateMaterial(
         material,
         candidate.sourceDirectory,
       );
-      selections.push({candidate, images, material});
+      selections.push({
+        candidate,
+        images,
+        material,
+        ...(previous === undefined ? {} : {previous}),
+      });
     } catch (error) {
-      diagnostics.push({
+      reportDiagnostic({
         code: "invalid-assets",
         sourceId: reference.sourceId,
         message: `Skipped ${reference.sourceId}: ${error instanceof Error ? error.message : String(error)}`,
       });
+      if (previous && reuse)
+        selections.push({
+          candidate,
+          images: new Map(),
+          material,
+          previous,
+          reusePrevious: true,
+        });
     }
   }
 
@@ -1667,21 +1763,22 @@ export const seedContentPack = async (
 
   try {
     const publications: PackedPublication[] = [];
+    let failedMaterializationCount = 0;
     for (const selection of selections) {
+      if (selection.reusePrevious && selection.previous && reuse) {
+        publications.push(
+          await materializeReusedPublication(
+            selection,
+            reuse.directory,
+            stagingDirectory,
+            publications.length,
+            options.assetPathPrefix,
+            options.persistentAssetDirectory,
+          ),
+        );
+        continue;
+      }
       try {
-        if (selection.previous && reuse) {
-          publications.push(
-            await materializeReusedPublication(
-              selection,
-              reuse.directory,
-              stagingDirectory,
-              publications.length,
-              options.assetPathPrefix,
-              options.persistentAssetDirectory,
-            ),
-          );
-          continue;
-        }
         publications.push(
           await materializePublication(
             selection,
@@ -1691,6 +1788,15 @@ export const seedContentPack = async (
           ),
         );
       } catch (error) {
+        failedMaterializationCount += 1;
+        const publicationDirectory = prefixedAssetPath(
+          options.assetPathPrefix,
+          `publications/${selection.candidate.document.id}`,
+        );
+        await rm(resolveReusableAsset(stagingDirectory, publicationDirectory), {
+          force: true,
+          recursive: true,
+        }).catch(() => {});
         const diagnostic: ContentSeedDiagnostic = {
           code: "invalid-assets",
           sourceId: selection.candidate.document.id,
@@ -1698,10 +1804,23 @@ export const seedContentPack = async (
             error instanceof Error ? error.message : String(error)
           }`,
         };
-        diagnostics.push(diagnostic);
-        options.onDiagnostic?.(diagnostic);
+        reportDiagnostic(diagnostic);
+        if (selection.previous && reuse)
+          publications.push(
+            await materializeReusedPublication(
+              {...selection, images: new Map(), reusePrevious: true},
+              reuse.directory,
+              stagingDirectory,
+              publications.length,
+              options.assetPathPrefix,
+              options.persistentAssetDirectory,
+            ),
+          );
       }
     }
+
+    if (publications.length === 0 && failedMaterializationCount > 0)
+      throw new Error("Every selected publication failed to materialize");
 
     const selectedPublicationIds = publications.map(
       (publication) => publication.id,

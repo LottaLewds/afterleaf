@@ -624,6 +624,58 @@ describe("LibraryUpdateService", () => {
     });
   });
 
+  test("repair scans force publication rebuilding", async () => {
+    const service = new LibraryUpdateService(
+      {libraryDirectory: "/library", sourceDirectory: "/source"},
+      createDependencies({
+        runSeed: async (_catalogDirectory, options) => {
+          expect(options.forceRebuild).toBe(true);
+          return seedResult;
+        },
+      }),
+    );
+
+    await service.scan({repair: true});
+  });
+
+  test("keeps the active catalog when scan errors would remove publications", async () => {
+    const calls: string[] = [];
+    const unsafeSeedResult = structuredClone(seedResult);
+    if (!unsafeSeedResult.catalog)
+      throw new Error("Test seed result must contain a catalog");
+    unsafeSeedResult.catalog.publications = [publication("kept", "kept-v2")];
+    unsafeSeedResult.report.diagnostics = [
+      {
+        code: "invalid-manifest",
+        message: "Broken publication manifest",
+        sourceId: "removed",
+      },
+    ];
+    const service = new LibraryUpdateService(
+      {libraryDirectory: "/library", sourceDirectory: "/source"},
+      createDependencies({
+        activateSnapshot: async () => {
+          calls.push("activate");
+          return previousIndex;
+        },
+        discardAssetSet: async () => {
+          calls.push("discard-assets");
+        },
+        discardSnapshot: async () => {
+          calls.push("discard-snapshot");
+        },
+        runSeed: async () => unsafeSeedResult,
+      }),
+    );
+
+    await expect(service.scan({})).rejects.toThrow("kept the current catalog");
+    expect(calls).toEqual(["discard-snapshot", "discard-assets"]);
+    expect(service.getState()).toMatchObject({
+      activeSnapshot: previousSnapshot,
+      status: "failed",
+    });
+  });
+
   test("continues scanning and reports isolated migration failures", async () => {
     const localSeedResult = structuredClone(seedResult);
     const service = new LibraryUpdateService(

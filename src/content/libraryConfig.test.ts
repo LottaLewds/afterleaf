@@ -97,6 +97,21 @@ describe("Afterleaf library config", () => {
     );
   });
 
+  test("rejects nested book roots with conflicting reading directions", async () => {
+    const root = await createRoot();
+    await writeFile(
+      resolve(root, "afterleaf.library.json"),
+      JSON.stringify({
+        comicPaths: ["external"],
+        mangaPaths: ["external/manga"],
+      }),
+    );
+
+    await expect(
+      importLocalMedia(root, resolve(root, "content-sources/catalog")),
+    ).rejects.toThrow("conflicting reading directions");
+  });
+
   test("applies the configured manga direction to archive books", async () => {
     const root = await createRoot();
     const mangaPath = resolve(root, "manga");

@@ -6,6 +6,7 @@ import {
   readFile,
   rm,
   stat,
+  utimes,
   writeFile,
 } from "node:fs/promises";
 import {tmpdir} from "node:os";
@@ -683,6 +684,172 @@ describe("seedContentPack", () => {
         libraryDirectory,
         firstRevision.catalog.publications[0]?.assets.front ?? "missing",
       ),
+    );
+  });
+
+  test("quick scans reuse stat-identical local books and rebuild changed local assets", async () => {
+    const root = await mkdtemp(join(tmpdir(), "afterleaf-seed-local-reuse-"));
+    temporaryDirectories.push(root);
+    const catalogDirectory = resolve(root, "catalog");
+    const libraryDirectory = resolve(root, "library");
+    await createPublication(
+      catalogDirectory,
+      "local-book",
+      "english",
+      "#703050",
+    );
+    const options = {
+      assetPathPrefix: "assets/revision-1",
+      dryRun: false,
+      excludedTags: [],
+      force: false,
+      languages: ["english"],
+      limit: 10,
+      match: "all" as const,
+      outputDirectory: resolve(libraryDirectory, "revisions/revision-1"),
+      packId: "local-reuse",
+      persistentAssetDirectory: libraryDirectory,
+      seed: "local-reuse",
+      tags: [],
+    };
+    const first = await seedContentPack(
+      new LocalCatalogSource(catalogDirectory),
+      options,
+    );
+    if (!first.catalog) throw new Error("First local catalog is missing");
+    await promoteLibraryAssetSet(
+      libraryDirectory,
+      options.outputDirectory,
+      "revision-1",
+    );
+
+    const secondDirectory = resolve(libraryDirectory, "revisions/revision-2");
+    const second = await seedContentPack(
+      new LocalCatalogSource(catalogDirectory),
+      {
+        ...options,
+        assetPathPrefix: "assets/revision-2",
+        outputDirectory: secondDirectory,
+        reuse: {catalog: first.catalog, directory: options.outputDirectory},
+      },
+    );
+    if (!second.catalog) throw new Error("Second local catalog is missing");
+    expect(second.catalog.publications[0]?.assets).toEqual(
+      first.catalog.publications[0]?.assets,
+    );
+    await expect(
+      access(resolve(secondDirectory, "assets/revision-2/publications")),
+    ).rejects.toThrow();
+
+    const changedPage = resolve(catalogDirectory, "local-book/pages/001.png");
+    await sharp({
+      create: {
+        width: 120,
+        height: 180,
+        channels: 3,
+        background: "#205070",
+      },
+    })
+      .png()
+      .toFile(changedPage);
+    const changedTime = new Date(Date.now() + 2_000);
+    await utimes(changedPage, changedTime, changedTime);
+    const thirdDirectory = resolve(libraryDirectory, "revisions/revision-3");
+    const third = await seedContentPack(
+      new LocalCatalogSource(catalogDirectory),
+      {
+        ...options,
+        assetPathPrefix: "assets/revision-3",
+        outputDirectory: thirdDirectory,
+        reuse: {catalog: second.catalog, directory: secondDirectory},
+      },
+    );
+    if (!third.catalog) throw new Error("Third local catalog is missing");
+    expect(third.catalog.publications[0]?.assets.front).toStartWith(
+      "assets/revision-3/",
+    );
+    expect(third.catalog.publications[0]?.materialFingerprint).not.toBe(
+      second.catalog.publications[0]?.materialFingerprint,
+    );
+
+    const repaired = await seedContentPack(
+      new LocalCatalogSource(catalogDirectory),
+      {
+        ...options,
+        assetPathPrefix: "assets/revision-4",
+        forceRebuild: true,
+        outputDirectory: resolve(libraryDirectory, "revisions/revision-4"),
+        reuse: {catalog: third.catalog, directory: thirdDirectory},
+      },
+    );
+    expect(repaired.catalog?.publications[0]?.assets.front).toStartWith(
+      "assets/revision-4/",
+    );
+    expect(repaired.catalog?.publications[0]?.contentHash).toBe(
+      third.catalog.publications[0]?.contentHash,
+    );
+  });
+
+  test("keeps the previous local publication when changed source assets are corrupt", async () => {
+    const root = await mkdtemp(join(tmpdir(), "afterleaf-seed-corrupt-local-"));
+    temporaryDirectories.push(root);
+    const catalogDirectory = resolve(root, "catalog");
+    const libraryDirectory = resolve(root, "library");
+    const firstDirectory = resolve(libraryDirectory, "revisions/revision-1");
+    await createPublication(
+      catalogDirectory,
+      "local-book",
+      "english",
+      "#703050",
+    );
+    const baseOptions = {
+      assetPathPrefix: "assets/revision-1",
+      dryRun: false,
+      excludedTags: [],
+      force: false,
+      languages: ["english"],
+      limit: 10,
+      match: "all" as const,
+      outputDirectory: firstDirectory,
+      packId: "corrupt-local",
+      persistentAssetDirectory: libraryDirectory,
+      seed: "corrupt-local",
+      tags: [],
+    };
+    const first = await seedContentPack(
+      new LocalCatalogSource(catalogDirectory),
+      baseOptions,
+    );
+    if (!first.catalog) throw new Error("First local catalog is missing");
+    await promoteLibraryAssetSet(
+      libraryDirectory,
+      firstDirectory,
+      "revision-1",
+    );
+    await writeFile(
+      resolve(catalogDirectory, "local-book/pages/001.png"),
+      "corrupt image",
+    );
+
+    const second = await seedContentPack(
+      new LocalCatalogSource(catalogDirectory),
+      {
+        ...baseOptions,
+        assetPathPrefix: "assets/revision-2",
+        forceRebuild: true,
+        outputDirectory: resolve(libraryDirectory, "revisions/revision-2"),
+        reuse: {catalog: first.catalog, directory: firstDirectory},
+      },
+    );
+
+    expect(second.catalog?.publications).toHaveLength(1);
+    expect(second.catalog?.publications[0]?.assets).toEqual(
+      first.catalog.publications[0]?.assets,
+    );
+    expect(second.report.diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({code: "invalid-assets"}),
+      ]),
     );
   });
 

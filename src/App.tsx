@@ -19,6 +19,7 @@ import {
   FiShield,
   FiSliders,
   FiTag,
+  FiTool,
   FiTv,
   FiTrash2,
   FiX,
@@ -107,6 +108,7 @@ const ShopViewport = lazy(async () => {
 
 type LanguageFilter = "all" | CatalogLanguage;
 type LibraryOperation = "fetch-more" | "scan";
+type LibraryScanMode = "quick" | "repair";
 type LibraryUpdateStage = "loading-library" | "working";
 type MenuTab = "library" | "options";
 
@@ -1653,6 +1655,8 @@ export const App = () => {
   const [libraryUpdating, setLibraryUpdating] = createSignal(false);
   const [libraryOperation, setLibraryOperation] =
     createSignal<LibraryOperation>();
+  const [libraryScanMode, setLibraryScanMode] =
+    createSignal<LibraryScanMode>("quick");
   const [libraryUpdateStage, setLibraryUpdateStage] =
     createSignal<LibraryUpdateStage>("working");
   const [libraryUpdateCompletedSteps, setLibraryUpdateCompletedSteps] =
@@ -1801,9 +1805,9 @@ export const App = () => {
   const scanButtonLabel = () => {
     if (runtimeLibrary.loading) return "Loading…";
     if (libraryOperation() === "scan")
-      return `Importing & scanning · ${libraryUpdateElapsedSeconds()}s`;
+      return `${libraryScanMode() === "repair" ? "Repairing" : "Scanning"} · ${libraryUpdateElapsedSeconds()}s`;
     if (libraryUpdating()) return "Library busy…";
-    return "Import & scan";
+    return "Scan new";
   };
   const fetchButtonLabel = () =>
     libraryOperation() === "fetch-more"
@@ -2040,12 +2044,15 @@ export const App = () => {
     }
   };
 
-  const scanLibrary = async () => {
+  const scanLibrary = async (mode: LibraryScanMode = "quick") => {
     if (libraryUpdating()) return;
+    setLibraryScanMode(mode);
     beginLibraryUpdate("scan");
     setLibraryUpdateNotice(undefined);
     try {
-      const job = await scanLocalLibrary();
+      const job = await scanLocalLibrary(
+        mode === "repair" ? {repair: true} : {},
+      );
       monitorLibraryJob(job, false);
     } catch (error) {
       reportLibraryFailure(
@@ -2143,6 +2150,7 @@ export const App = () => {
     )
       return;
 
+    setLibraryScanMode("quick");
     beginLibraryUpdate("scan");
     setLibraryUpdateNotice(undefined);
     setLibraryUpdateTotalSteps(candidates.length + 3);
@@ -2393,11 +2401,11 @@ export const App = () => {
                         libraryUpdating() ||
                         unavailableBookPathCount() > 0
                       }
-                      onClick={() => void scanLibrary()}
+                      onClick={() => void scanLibrary("quick")}
                       title={
                         unavailableBookPathCount() > 0
                           ? "Remount the configured book paths before updating the library"
-                          : "Import new CBZ/ZIP files and refresh the local library without contacting nHentai"
+                          : "Find new or normally changed local books and reuse unchanged generated assets"
                       }
                     >
                       <FiRefreshCw
@@ -2408,6 +2416,23 @@ export const App = () => {
                         size={14}
                       />
                       <span class="hidden sm:inline">{scanButtonLabel()}</span>
+                    </button>
+                    <button
+                      aria-label="Deep scan and repair library"
+                      class="grid size-9 place-items-center border border-white/10 text-[#8d9893] transition hover:border-white/20 hover:bg-white/5 hover:text-white disabled:cursor-wait disabled:opacity-50"
+                      disabled={
+                        runtimeLibrary.loading ||
+                        libraryUpdating() ||
+                        unavailableBookPathCount() > 0
+                      }
+                      onClick={() => void scanLibrary("repair")}
+                      title={
+                        unavailableBookPathCount() > 0
+                          ? "Remount the configured book paths before repairing the library"
+                          : "Deep scan and repair: validate and rebuild every local publication"
+                      }
+                    >
+                      <FiTool size={14} />
                     </button>
                     <button
                       class="flex h-9 items-center gap-2 bg-[#ece6d8] px-3.5 text-[11px] font-bold text-[#1b2321] transition hover:bg-white disabled:cursor-wait"

@@ -441,6 +441,8 @@ export class LibraryUpdateService implements LibraryUpdateClient {
           dryRun: false,
           excludedTags: [],
           force: false,
+          forceRebuild:
+            mode === "scan" && (request as LibraryScanRequest).repair === true,
           languages: catalogLanguages,
           limit: snapshotLimit,
           match: request.match ?? "all",
@@ -480,6 +482,26 @@ export class LibraryUpdateService implements LibraryUpdateClient {
         previousCatalog,
         nextCatalog,
       );
+      const unsafeRemovalDiagnostics = new Set([
+        "duplicate-id",
+        "invalid-assets",
+        "invalid-manifest",
+      ]);
+      if (
+        previousCatalog &&
+        publicationDiff.removedPublicationIds.length > 0 &&
+        seedResult.report.diagnostics.some(({code}) =>
+          unsafeRemovalDiagnostics.has(code),
+        )
+      ) {
+        await Promise.allSettled([
+          this.#dependencies.discardSnapshot?.(snapshotDirectory),
+          this.#dependencies.discardAssetSet?.(snapshotId),
+        ]);
+        throw new Error(
+          `Library scan kept the current catalog because ${publicationDiff.removedPublicationIds.length} existing ${publicationDiff.removedPublicationIds.length === 1 ? "publication was" : "publications were"} missing after scan errors`,
+        );
+      }
       if (syncReport && Array.isArray(syncReport.selectedPublicationIds)) {
         const materializedPublicationIds = syncReport.selectedPublicationIds;
         const cataloguedSourcePublicationIds = new Set(

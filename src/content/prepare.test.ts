@@ -1,5 +1,5 @@
 import {afterEach, describe, expect, test} from "bun:test";
-import {mkdtemp, mkdir, readFile, rm} from "node:fs/promises";
+import {mkdtemp, mkdir, readFile, rm, writeFile} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {join, resolve} from "node:path";
 import sharp from "sharp";
@@ -100,8 +100,8 @@ test("prepareLocalCatalog writes natural page order and skips Chinese folders", 
   const japaneseDirectory = resolve(root, "Quiet Office [Japanese]");
   const chineseDirectory = resolve(root, "Skipped Book [Chinese]");
   await Promise.all([
-    createImage(resolve(englishDirectory, "pages/10.png"), "#101010"),
-    createImage(resolve(englishDirectory, "pages/2.png"), "#202020"),
+    createImage(resolve(englishDirectory, "10.png"), "#101010"),
+    createImage(resolve(englishDirectory, "2.png"), "#202020"),
     createImage(resolve(englishDirectory, "cover.png"), "#303030"),
     createImage(resolve(japaneseDirectory, "001.png"), "#404040"),
     createImage(resolve(chineseDirectory, "001.png"), "#505050"),
@@ -135,7 +135,7 @@ test("prepareLocalCatalog writes natural page order and skips Chinese folders", 
     language: "english",
   });
   expect(englishManifest.assets).toEqual({
-    pages: ["cover.png", "pages/2.png", "pages/10.png"],
+    pages: ["2.png", "10.png", "cover.png"],
     front: "cover.png",
   });
   expect(englishManifest.physical?.readingDirection).toBeUndefined();
@@ -146,6 +146,200 @@ test("prepareLocalCatalog writes natural page order and skips Chinese folders", 
     "publication.json",
   );
   expect(japaneseManifest.physical?.readingDirection).toBeUndefined();
+});
+
+test("prepareLocalCatalog recursively discovers media leaves and keeps organizational folders inert", async () => {
+  const root = await mkdtemp(join(tmpdir(), "afterleaf-prepare-nested-"));
+  temporaryDirectories.push(root);
+  const firstBook = resolve(root, "authorA/series/Book One");
+  const secondBook = resolve(root, "authorB/Book Two");
+  const archiveContainer = resolve(root, "authorC");
+  await mkdir(archiveContainer, {recursive: true});
+  await Promise.all([
+    createImage(resolve(root, "authorA/portrait.jpg"), "#101010"),
+    createImage(resolve(firstBook, "001.jpg"), "#202020"),
+    createImage(resolve(secondBook, "001.jpg"), "#303030"),
+    createImage(resolve(archiveContainer, "random.jpg"), "#404040"),
+    writeFile(
+      resolve(archiveContainer, "Book Three.cbz"),
+      "not inspected here",
+    ),
+  ]);
+
+  const report = await prepareLocalCatalog({
+    defaultLanguage: "english",
+    force: false,
+    readingDirection: "rtl",
+    rootDirectory: root,
+    tags: [],
+    write: true,
+  });
+
+  expect(report.publications.map(({directory}) => directory)).toEqual([
+    "authorA/series/Book One",
+    "authorB/Book Two",
+  ]);
+  expect(report.diagnostics).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        code: "ignored-container-images",
+        directory: "authorA",
+      }),
+      expect.objectContaining({
+        code: "ignored-container-images",
+        directory: "authorC",
+      }),
+    ]),
+  );
+  await expect(
+    Bun.file(resolve(root, "authorA/publication.json")).exists(),
+  ).resolves.toBe(false);
+  await expect(
+    Bun.file(resolve(archiveContainer, "publication.json")).exists(),
+  ).resolves.toBe(false);
+  for (const directory of [firstBook, secondBook]) {
+    const document = parseLocalPublicationDocument(
+      JSON.parse(
+        await readFile(resolve(directory, "publication.json"), "utf8"),
+      ) as unknown,
+      "publication.json",
+    );
+    expect(document.physical?.readingDirection).toBe("rtl");
+  }
+});
+
+test("prepareLocalCatalog preserves nested publications when a configured root moves upward", async () => {
+  const root = await mkdtemp(join(tmpdir(), "afterleaf-prepare-root-move-"));
+  temporaryDirectories.push(root);
+  const libraryDirectory = resolve(root, "manga");
+  const publicationDirectory = resolve(
+    libraryDirectory,
+    "author/Existing Book",
+  );
+  await createImage(resolve(publicationDirectory, "001.jpg"), "#505050");
+  const options = {
+    defaultLanguage: "english" as const,
+    force: false,
+    readingDirection: "rtl" as const,
+    tags: [],
+    write: true,
+  };
+
+  await prepareLocalCatalog({...options, rootDirectory: libraryDirectory});
+  const parentReport = await prepareLocalCatalog({
+    ...options,
+    refreshExisting: true,
+    rootDirectory: root,
+  });
+
+  expect(parentReport.publications).toEqual([]);
+  expect(parentReport.diagnostics.map(({code}) => code)).toContain(
+    "existing-manifest",
+  );
+  await expect(
+    Bun.file(resolve(libraryDirectory, "publication.json")).exists(),
+  ).resolves.toBe(false);
+  await expect(
+    Bun.file(resolve(publicationDirectory, "publication.json")).exists(),
+  ).resolves.toBe(true);
+});
+
+test("prepareLocalCatalog ignores an accidental outer manifest without deleting it", async () => {
+  const root = await mkdtemp(join(tmpdir(), "afterleaf-prepare-shadowed-"));
+  temporaryDirectories.push(root);
+  const child = resolve(root, "container/Book");
+  await createImage(resolve(child, "001.jpg"), "#606060");
+  await prepareLocalCatalog({
+    defaultLanguage: "english",
+    force: false,
+    rootDirectory: root,
+    tags: [],
+    write: true,
+  });
+  const outerManifest = resolve(root, "container/publication.json");
+  const outerContents = JSON.stringify({
+    assets: {pages: ["Book/001.jpg"]},
+    id: "accidental-container",
+    language: "english",
+    schemaVersion: 1,
+    tags: ["unclassified"],
+    title: "Accidental Container",
+  });
+  await writeFile(outerManifest, outerContents);
+
+  const report = await prepareLocalCatalog({
+    defaultLanguage: "english",
+    force: false,
+    refreshExisting: true,
+    rootDirectory: root,
+    tags: [],
+    write: true,
+  });
+
+  expect(report.diagnostics).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({code: "shadowed-manifest"}),
+    ]),
+  );
+  expect(await readFile(outerManifest, "utf8")).toBe(outerContents);
+});
+
+test("prepareLocalCatalog preserves malformed manifests and continues scanning", async () => {
+  const root = await mkdtemp(join(tmpdir(), "afterleaf-prepare-invalid-"));
+  temporaryDirectories.push(root);
+  const broken = resolve(root, "Broken Book");
+  const healthy = resolve(root, "Healthy Book");
+  await Promise.all([
+    createImage(resolve(broken, "001.jpg"), "#707070"),
+    createImage(resolve(healthy, "001.jpg"), "#808080"),
+  ]);
+  const manifestPath = resolve(broken, "publication.json");
+  await writeFile(manifestPath, "{ definitely not valid JSON");
+
+  const report = await prepareLocalCatalog({
+    defaultLanguage: "english",
+    force: false,
+    refreshExisting: true,
+    rootDirectory: root,
+    tags: [],
+    write: true,
+  });
+
+  expect(await readFile(manifestPath, "utf8")).toBe(
+    "{ definitely not valid JSON",
+  );
+  expect(report.publications.map(({directory}) => directory)).toEqual([
+    "Healthy Book",
+  ]);
+  expect(report.diagnostics).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        code: "processing-failed",
+        directory: "Broken Book",
+      }),
+    ]),
+  );
+});
+
+test("publication titles preserve Unicode and duplicate leaf names receive unique IDs", async () => {
+  const root = await mkdtemp(join(tmpdir(), "afterleaf-prepare-unicode-"));
+  temporaryDirectories.push(root);
+  await Promise.all([
+    createImage(resolve(root, "著者A/Café 東京/001.jpg"), "#909090"),
+    createImage(resolve(root, "著者B/Café 東京/001.jpg"), "#a0a0a0"),
+  ]);
+
+  const report = await prepareLocalCatalog({
+    defaultLanguage: "english",
+    force: false,
+    rootDirectory: root,
+    tags: [],
+    write: true,
+  });
+  const documents = report.publications.map(({document}) => document);
+
+  expect(documents.map(({title}) => title)).toEqual(["Café 東京", "Café 東京"]);
+  expect(new Set(documents.map(({id}) => id)).size).toBe(2);
 });
 
 test("prepareLocalCatalog removes a configured reading direction on refresh", async () => {

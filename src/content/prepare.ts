@@ -9,6 +9,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import {basename, dirname, extname, relative, resolve, sep} from "node:path";
+import {discoverLocalMedia} from "~/content/localMediaDiscovery";
 import {normalizeTag, normalizeTags} from "~/content/normalize";
 import {
   CONTENT_SCHEMA_VERSION,
@@ -95,10 +96,12 @@ export interface ContentPrepareDiagnostic {
   code:
     | "conflicting-reading-direction"
     | "existing-manifest"
+    | "ignored-container-images"
     | "inferred-magazine"
     | "missing-tags"
     | "no-images"
     | "processing-failed"
+    | "shadowed-manifest"
     | "skipped-language"
     | "skipped-symlink";
   directory: string;
@@ -143,14 +146,11 @@ const fileExists = async (path: string) => {
 
 const prettifyDirectoryName = (directoryName: string) =>
   directoryName
-    .normalize("NFKD")
-    .replace(/[\u0300-\u036f]/gu, "")
+    .normalize("NFKC")
     .replace(LANGUAGE_ANNOTATION_PATTERN, " ")
     .replace(/_/gu, " ")
     .replace(/\s+/gu, " ")
-    .trim()
-    .replace(/^[-\s]+/u, "")
-    .replace(/[-\s]+$/u, "");
+    .trim();
 
 const parseComicIssue = (title: string) => {
   const undecoratedTitle = title
@@ -259,19 +259,6 @@ const findImages = async (
   );
 };
 
-const findPublicationDirectories = async (rootDirectory: string) => {
-  const rootEntries = await readdir(rootDirectory, {withFileTypes: true});
-  const hasRootImages = rootEntries.some(
-    (entry) =>
-      entry.isFile() && IMAGE_EXTENSIONS.has(extname(entry.name).toLowerCase()),
-  );
-  if (hasRootImages) return [rootDirectory];
-  return rootEntries
-    .filter((entry) => entry.isDirectory() && !entry.isSymbolicLink())
-    .map((entry) => resolve(rootDirectory, entry.name))
-    .sort((left, right) => NATURAL_COLLATOR.compare(left, right));
-};
-
 const findNamedImage = (paths: readonly string[], names: ReadonlySet<string>) =>
   paths.find((path) => names.has(basename(path, extname(path)).toLowerCase()));
 
@@ -290,7 +277,7 @@ const createDocument = (
     toPortablePath(relative(publicationDirectory, path));
   let id = normalizeTag(identity.title);
   if (!id || !VALID_ID_PATTERN.test(id)) {
-    const fallbackHash = createHash("sha1")
+    const fallbackHash = createHash("sha256")
       .update(publicationDirectory)
       .digest("hex")
       .slice(0, 10);
@@ -338,8 +325,35 @@ export const prepareLocalCatalog = async (
   const diagnostics: ContentPrepareDiagnostic[] = [];
   const publications: PreparedPublication[] = [];
   let skippedCount = 0;
-  const publicationDirectories =
-    await findPublicationDirectories(rootDirectory);
+  const discovery = await discoverLocalMedia(rootDirectory);
+  diagnostics.push(
+    ...discovery.diagnostics.map((diagnostic) => ({
+      code: diagnostic.code,
+      directory: diagnostic.path,
+      message:
+        diagnostic.code === "ignored-container-images"
+          ? `Ignored loose images in organizational directory ${diagnostic.path} because it contains nested publications`
+          : diagnostic.code === "shadowed-manifest"
+            ? `Ignored outer manifest ${diagnostic.path} because nested publication manifests take precedence`
+            : `Skipped symbolic link ${diagnostic.path}`,
+    })),
+  );
+  const publicationDirectories = discovery.publicationDirectories;
+  const claimedPublicationIds = new Set<string>();
+  for (const publicationDirectory of publicationDirectories) {
+    const manifestPath = resolve(publicationDirectory, "publication.json");
+    if (!(await fileExists(manifestPath))) continue;
+    try {
+      claimedPublicationIds.add(
+        parseLocalPublicationDocument(
+          JSON.parse(await readFile(manifestPath, "utf8")) as unknown,
+          manifestPath,
+        ).id,
+      );
+    } catch {
+      continue;
+    }
+  }
 
   const processPublicationDirectory = async (
     publicationDirectory: string,
@@ -424,54 +438,57 @@ export const prepareLocalCatalog = async (
       readingDirection,
       identity,
     );
+    if (!manifestExists) {
+      if (claimedPublicationIds.has(document.id)) {
+        const suffix = createHash("sha256")
+          .update(publicationDirectory)
+          .digest("hex")
+          .slice(0, 10);
+        document.id = `${document.id.slice(0, 189)}-${suffix}`;
+      }
+      claimedPublicationIds.add(document.id);
+    }
     if (manifestExists && options.refreshExisting && !options.force) {
-      let existingDocument: LocalPublicationDocument | undefined;
-      try {
-        existingDocument = parseLocalPublicationDocument(
-          JSON.parse(await readFile(manifestPath, "utf8")) as unknown,
-          manifestPath,
-        );
-      } catch {
-        existingDocument = undefined;
+      const existingDocument = parseLocalPublicationDocument(
+        JSON.parse(await readFile(manifestPath, "utf8")) as unknown,
+        manifestPath,
+      );
+      if (existingDocument.source) {
+        skippedCount += 1;
+        diagnostics.push({
+          code: "existing-manifest",
+          directory: portableDirectory,
+          message: `Skipped provider-managed manifest in ${portableDirectory}`,
+        });
+        return;
       }
-      if (existingDocument !== undefined) {
-        if (existingDocument.source) {
-          skippedCount += 1;
-          diagnostics.push({
-            code: "existing-manifest",
-            directory: portableDirectory,
-            message: `Skipped provider-managed manifest in ${portableDirectory}`,
-          });
-          return;
-        }
-        const readingDirectionChanged =
-          existingDocument.physical?.readingDirection !==
-          document.physical?.readingDirection;
-        if (
-          JSON.stringify(existingDocument.assets) ===
-            JSON.stringify(document.assets) &&
-          !readingDirectionChanged
-        ) {
-          skippedCount += 1;
-          diagnostics.push({
-            code: "existing-manifest",
-            directory: portableDirectory,
-            message: `Skipped unchanged manifest in ${portableDirectory}`,
-          });
-          return;
-        }
-        const physical = {...(existingDocument.physical ?? {})};
-        if (document.physical?.readingDirection === undefined)
-          delete physical.readingDirection;
-        else physical.readingDirection = document.physical.readingDirection;
-        const {physical: _physical, ...existingDocumentWithoutPhysical} =
-          existingDocument;
-        document = {
-          ...existingDocumentWithoutPhysical,
-          assets: document.assets,
-          ...(Object.keys(physical).length === 0 ? {} : {physical}),
-        };
+      const readingDirectionChanged =
+        existingDocument.physical?.readingDirection !==
+        document.physical?.readingDirection;
+      if (
+        JSON.stringify(existingDocument.assets) ===
+          JSON.stringify(document.assets) &&
+        !readingDirectionChanged
+      ) {
+        skippedCount += 1;
+        diagnostics.push({
+          code: "existing-manifest",
+          directory: portableDirectory,
+          message: `Skipped unchanged manifest in ${portableDirectory}`,
+        });
+        return;
       }
+      const physical = {...(existingDocument.physical ?? {})};
+      if (document.physical?.readingDirection === undefined)
+        delete physical.readingDirection;
+      else physical.readingDirection = document.physical.readingDirection;
+      const {physical: _physical, ...existingDocumentWithoutPhysical} =
+        existingDocument;
+      document = {
+        ...existingDocumentWithoutPhysical,
+        assets: document.assets,
+        ...(Object.keys(physical).length === 0 ? {} : {physical}),
+      };
     }
     if (options.write) {
       if (manifestExists && (options.force || options.refreshExisting)) {

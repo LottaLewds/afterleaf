@@ -21,6 +21,7 @@ export interface LibraryUpdateCliOptions {
     limit: number;
     maxSearchPages: number;
     query: string;
+    repair: boolean;
     write: boolean;
   };
 }
@@ -115,7 +116,7 @@ const genericProviderOptions = new Set([
   "max-search-pages",
   "query",
 ]);
-const genericProviderFlags = new Set(["help", "write"]);
+const genericProviderFlags = new Set(["help", "repair", "write"]);
 
 const parseGenericProviderSyncOptions = (
   arguments_: readonly string[],
@@ -193,6 +194,7 @@ const parseGenericProviderSyncOptions = (
       limit: parsePositiveInteger("limit", 20),
       maxSearchPages: parsePositiveInteger("max-search-pages", 10),
       query: values.get("query")?.trim() ?? descriptor.defaultQuery,
+      repair: flags.has("repair"),
       write: flags.has("write"),
     },
   };
@@ -230,6 +232,7 @@ const importPendingLocalMedia = async (
     workingDirectory,
     resolve(workingDirectory, "content-sources/catalog"),
     options.mediaPaths,
+    {repair: options.sync.repair},
   );
   return {
     ...result,
@@ -242,7 +245,7 @@ const importPendingLocalMedia = async (
 export const LIBRARY_SCAN_HELP = `Scan existing disk content and activate a new Afterleaf library catalog revision.
 
 Usage:
-  bun run library:scan --write [options]
+  bun run library:scan --write [--repair] [options]
 
 This command never contacts a remote provider. It imports CBZ, ZIP, CBR, RAR,
 and image-folder publications from built-in and configured media paths, scans
@@ -253,6 +256,9 @@ catalog revision.
 Repeat --media-path <file-or-directory> to add media for this run. Import & scan
 also reads comicPaths and mangaPaths from afterleaf.library.json in the Afterleaf
 directory.
+
+Quick scans reuse unchanged generated assets using local file metadata. Pass
+--repair to rebuild and validate every publication and archive.
 `;
 
 export const LIBRARY_FETCH_MORE_HELP = `Fetch unseen publications from a discovered provider, then update and activate the library catalog.
@@ -288,6 +294,7 @@ export const runLibraryScanCli = async (
   try {
     return await service.scan({
       languages: options.sync.languages,
+      ...(options.sync.repair ? {repair: true} : {}),
     });
   } finally {
     unsubscribe?.();

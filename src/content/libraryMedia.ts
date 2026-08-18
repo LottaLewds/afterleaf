@@ -42,6 +42,10 @@ export interface LocalMediaImportResult {
   mediaPaths: string[];
 }
 
+export interface LocalMediaImportOptions {
+  repair?: boolean;
+}
+
 export const configuredLibraryMediaPaths = async (
   workingDirectory: string,
 ): Promise<readonly ConfiguredMediaRoot[]> => {
@@ -97,6 +101,32 @@ const pathIsWithin = (parent: string, candidate: string) => {
   return (
     path === "" ||
     (!path.startsWith(`..${sep}`) && path !== ".." && !isAbsolute(path))
+  );
+};
+
+const pruneNestedMediaPaths = (paths: readonly ConfiguredMediaPath[]) => {
+  for (const path of paths) {
+    const conflict = paths.find(
+      (candidate) =>
+        candidate !== path &&
+        pathIsWithin(candidate.path, path.path) &&
+        candidate.readingDirection !== undefined &&
+        path.readingDirection !== undefined &&
+        candidate.readingDirection !== path.readingDirection,
+    );
+    if (conflict)
+      throw new Error(
+        `Nested book paths cannot use conflicting reading directions: ${conflict.path} and ${path.path}`,
+      );
+  }
+  return paths.filter(
+    (path) =>
+      !paths.some(
+        (candidate) =>
+          candidate !== path &&
+          candidate.readingDirection === path.readingDirection &&
+          pathIsWithin(candidate.path, path.path),
+      ),
   );
 };
 
@@ -156,6 +186,7 @@ export const importLocalMedia = async (
   workingDirectory: string,
   outputDirectory: string,
   cliMediaPaths: readonly string[] = [],
+  options: LocalMediaImportOptions = {},
 ): Promise<LocalMediaImportResult> => {
   const configMediaPaths = await configuredLibraryMediaPaths(workingDirectory);
   const defaultMediaPaths = DEFAULT_MEDIA_PATHS.map((path) =>
@@ -163,7 +194,7 @@ export const importLocalMedia = async (
   );
   const defaultMediaPathSet = new Set(defaultMediaPaths);
   const defaultArchiveDirectory = defaultMediaPaths[0];
-  const mediaPaths = uniqueMediaPaths([
+  const configuredMediaPaths = uniqueMediaPaths([
     ...defaultMediaPaths.map((path) => ({
       optional: true,
       path,
@@ -183,8 +214,9 @@ export const importLocalMedia = async (
       protectsExistingLibrary: false,
     })),
   ]);
+  const mediaPaths = pruneNestedMediaPaths(configuredMediaPaths);
   const unavailableProtectedPaths = await unavailableLibraryPaths(
-    mediaPaths
+    configuredMediaPaths
       .filter((mediaPath) => mediaPath.protectsExistingLibrary)
       .map((mediaPath) => mediaPath.path),
   );
@@ -259,7 +291,7 @@ export const importLocalMedia = async (
     })),
     archivesDirectory: defaultArchiveDirectory,
     defaultLanguage: "english",
-    force: false,
+    force: options.repair === true,
     outputDirectory,
     tags: [],
     write: true,

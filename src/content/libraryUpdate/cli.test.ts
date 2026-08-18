@@ -59,6 +59,19 @@ test("library update CLI accepts repeatable media paths", () => {
   ]);
 });
 
+test("library update CLI distinguishes quick and repair scans", () => {
+  expect(
+    parseLibraryUpdateCliOptions(["--write"], "/workspace/afterleaf").sync
+      .repair,
+  ).toBe(false);
+  expect(
+    parseLibraryUpdateCliOptions(
+      ["--write", "--repair"],
+      "/workspace/afterleaf",
+    ).sync.repair,
+  ).toBe(true);
+});
+
 test("library scan imports new archives before activating the combined catalog", async () => {
   const root = await mkdtemp(resolve(tmpdir(), "afterleaf-library-cli-"));
   temporaryDirectories.push(root);

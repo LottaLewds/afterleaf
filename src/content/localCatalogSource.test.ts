@@ -140,6 +140,57 @@ test("local catalog source ignores interrupted hidden staging directories", asyn
   expect(source.diagnostics).toEqual([]);
 });
 
+test("local catalog source prefers nested manifests and deduplicates overlapping roots", async () => {
+  const root = await mkdtemp(resolve(tmpdir(), "afterleaf-nested-manifest-"));
+  temporaryDirectories.push(root);
+  const container = resolve(root, "manga");
+  const publicationDirectory = resolve(container, "author/book");
+  await mkdir(publicationDirectory, {recursive: true});
+  const publication = (id: string, page: string) => ({
+    assets: {pages: [page]},
+    id,
+    language: "english",
+    schemaVersion: 1,
+    tags: ["unclassified"],
+    title: id,
+  });
+  await Promise.all([
+    writeFile(
+      resolve(container, "publication.json"),
+      JSON.stringify(
+        publication("accidental-container", "author/book/001.jpg"),
+      ),
+    ),
+    writeFile(
+      resolve(publicationDirectory, "publication.json"),
+      JSON.stringify(publication("real-book", "001.jpg")),
+    ),
+    writeFile(resolve(publicationDirectory, "001.jpg"), "page"),
+  ]);
+  const source = new LocalCatalogSource([root, container]);
+
+  const references = await source.search({
+    excludedTags: [],
+    languages: ["english"],
+    limit: 20,
+    match: "all",
+    seed: "nested-manifest",
+    tags: [],
+  });
+
+  expect(references.map(({sourceId}) => sourceId)).toEqual([
+    "manga/author/book",
+  ]);
+  expect(source.diagnostics).toEqual([
+    expect.objectContaining({
+      code: "shadowed-manifest",
+      sourceId: "manga/publication.json",
+    }),
+  ]);
+  const material = await source.materialize(references[0] ?? {sourceId: ""});
+  expect(material.fingerprint).toMatch(/^[0-9a-f]{64}$/u);
+});
+
 test("associates near-name duplicates, prefers uncensored editions, and keeps source tags reversible", async () => {
   const root = await mkdtemp(resolve(tmpdir(), "afterleaf-alternates-"));
   temporaryDirectories.push(root);

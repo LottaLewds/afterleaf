@@ -204,7 +204,7 @@ test("archive import accepts CBR publications", async () => {
   });
 });
 
-test("archive import rejects destination collisions across media paths", async () => {
+test("archive import keeps same-named books from separate media paths", async () => {
   const root = await mkdtemp(join(tmpdir(), "afterleaf-archive-paths-"));
   temporaryDirectories.push(root);
   const firstDirectory = resolve(root, "first");
@@ -226,14 +226,97 @@ test("archive import rejects destination collisions across media paths", async (
   });
 
   expect(report.discoveredCount).toBe(2);
-  expect(report.preparedCount).toBe(1);
-  expect(report.diagnostics).toEqual([
-    {
-      archive: "Same Book.zip",
-      code: "duplicate-destination",
-      message: "Skipped archive with colliding destination Same Book",
-    },
+  expect(report.preparedCount).toBe(2);
+  expect(report.diagnostics).toEqual([]);
+  expect(
+    new Set(report.publications.map(({document}) => document?.id)).size,
+  ).toBe(2);
+  expect(report.publications.map(({destination}) => destination)).toEqual([
+    resolve(root, "catalog/Same Book"),
+    expect.stringMatching(/Same Book--[0-9a-f]{10}$/u),
   ]);
+  const catalogEntries = (await readdir(resolve(root, "catalog"))).toSorted();
+  await rm(resolve(firstDirectory, "Same Book.cbz"));
+  const repeated = await importContentArchives({
+    archivePaths: [firstDirectory, secondDirectory],
+    archivesDirectory: firstDirectory,
+    defaultLanguage: "english",
+    force: false,
+    outputDirectory: resolve(root, "catalog"),
+    tags: [],
+    write: true,
+  });
+  expect(repeated.discoveredCount).toBe(1);
+  expect((await readdir(resolve(root, "catalog"))).toSorted()).toEqual(
+    catalogEntries,
+  );
+});
+
+test("archive processing failure removes only staging and preserves an existing import", async () => {
+  const root = await mkdtemp(join(tmpdir(), "afterleaf-archive-staging-"));
+  temporaryDirectories.push(root);
+  const archivesDirectory = resolve(root, "archives");
+  const outputDirectory = resolve(root, "catalog");
+  const archivePath = resolve(archivesDirectory, "Existing Book.cbz");
+  await writeArchive(archivePath, {"001.png": await createPng("#203040")});
+  const options = {
+    archivesDirectory,
+    defaultLanguage: "english" as const,
+    force: false,
+    outputDirectory,
+    tags: [],
+    write: true,
+  };
+  await importContentArchives(options);
+  const existingDirectory = resolve(outputDirectory, "Existing Book");
+  const originalManifest = await readFile(
+    resolve(existingDirectory, "publication.json"),
+  );
+  const originalFront = await readFile(
+    resolve(existingDirectory, "front.webp"),
+  );
+  await writeArchive(archivePath, {
+    "001.jpg": Buffer.from("corrupt JPEG payload"),
+  });
+
+  const report = await importContentArchives({...options, force: true});
+
+  expect(report.preparedCount).toBe(0);
+  expect(report.diagnostics).toEqual([
+    expect.objectContaining({
+      archive: "Existing Book.cbz",
+      code: "processing-failed",
+    }),
+  ]);
+  expect(
+    await readFile(resolve(existingDirectory, "publication.json")),
+  ).toEqual(originalManifest);
+  expect(await readFile(resolve(existingDirectory, "front.webp"))).toEqual(
+    originalFront,
+  );
+  expect(await Bun.file(archivePath).exists()).toBe(true);
+});
+
+test("archive import scans overlapping roots only once", async () => {
+  const root = await mkdtemp(join(tmpdir(), "afterleaf-archive-overlap-"));
+  temporaryDirectories.push(root);
+  const nested = resolve(root, "author");
+  await writeArchive(resolve(nested, "Book.cbz"), {
+    "001.png": await createPng("#203040"),
+  });
+
+  const report = await importContentArchives({
+    archivePaths: [root, nested],
+    archivesDirectory: root,
+    defaultLanguage: "english",
+    force: false,
+    outputDirectory: resolve(root, "catalog"),
+    tags: [],
+    write: true,
+  });
+
+  expect(report.discoveredCount).toBe(1);
+  expect(report.preparedCount).toBe(1);
 });
 
 test("archive import creates sparse English/Japanese catalogs and skips Chinese", async () => {

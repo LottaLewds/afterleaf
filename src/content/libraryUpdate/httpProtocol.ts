@@ -31,7 +31,7 @@ const PROVIDER_ID_PATTERN = /^[a-z][a-z0-9-]{0,63}$/u;
 
 export type LibrarySnapshotOperation = "fetch-more" | "scan";
 
-export type LibraryScanRequest = Record<string, never>;
+export type LibraryScanRequest = {repair?: boolean};
 
 export type LibraryFetchMoreRequest = {
   blockedTags?: readonly string[];
@@ -227,8 +227,13 @@ const parseFailure = (
 };
 
 export const parseLibraryScanRequest = (value: unknown): LibraryScanRequest => {
-  requireExactKeys(value, [], "scan");
-  return {};
+  if (!isRecord(value))
+    throw new Error("Library scan request must be an object");
+  const expectedKeys = value.repair === undefined ? [] : ["repair"];
+  const request = requireExactKeys(value, expectedKeys, "scan");
+  if (request.repair !== undefined && typeof request.repair !== "boolean")
+    throw new Error("Library scan repair must be a boolean");
+  return request.repair === undefined ? {} : {repair: request.repair};
 };
 
 export const parseLibraryPasteResolveRequest = (

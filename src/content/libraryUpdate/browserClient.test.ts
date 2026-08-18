@@ -142,6 +142,18 @@ describe("browser library operation client", () => {
     });
   });
 
+  test("requests an explicit deep repair scan", async () => {
+    let requestInit: RequestInit | undefined;
+    const fetcher: LibraryOperationFetch = async (_input, init) => {
+      requestInit = init;
+      return response(jobStartResponse("scan"), 202);
+    };
+
+    await scanLocalLibrary({repair: true}, fetcher);
+
+    expect(requestInit?.body).toBe('{"repair":true}');
+  });
+
   test("sends bounded fetch-more requests", async () => {
     let requestInput: string | undefined;
     let requestInit: RequestInit | undefined;
@@ -391,6 +403,10 @@ describe("browser library operation client", () => {
 describe("library operation HTTP protocol", () => {
   test("keeps all three request bodies narrow", () => {
     expect(parseLibraryScanRequest({})).toEqual({});
+    expect(parseLibraryScanRequest({repair: true})).toEqual({repair: true});
+    expect(() => parseLibraryScanRequest({repair: "yes"})).toThrow(
+      "must be a boolean",
+    );
     expect(() => parseLibraryScanRequest({fetch: true})).toThrow(
       "unsupported fields",
     );

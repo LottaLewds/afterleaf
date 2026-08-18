@@ -83,6 +83,7 @@ export interface PublicationMaterial {
   back?: string;
   spine?: string;
   alternates?: PublicationAlternateMaterial[];
+  fingerprint?: string;
 }
 
 export interface PublicationAlternateMaterial {
@@ -98,6 +99,7 @@ export interface ContentSeedDiagnostic {
     | "invalid-assets"
     | "invalid-manifest"
     | "migration-failed"
+    | "shadowed-manifest"
     | "suspected-duplicate"
     | "skipped-symlink"
     | "unsupported-language";
@@ -131,6 +133,7 @@ export interface SeedContentPackOptions extends PublicationSearchQuery {
   assetPathPrefix?: string;
   dryRun: boolean;
   force: boolean;
+  forceRebuild?: boolean;
   onDiagnostic?: (diagnostic: ContentSeedDiagnostic) => void;
   outputDirectory: string;
   packId: string;
@@ -189,6 +192,8 @@ export interface PackedPublication {
   backFormatVersion?: number;
   spineFormatVersion?: number;
   contentHash: string;
+  materialFingerprint?: string;
+  materialPageCount?: number;
 }
 
 export interface PackedPublicationAlternate {
