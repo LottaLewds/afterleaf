@@ -122,6 +122,11 @@ const hashAsset = (path: string, buffer: Buffer) => {
   return hash.digest("hex");
 };
 
+const stableAssetPath = (path: string, assetPathPrefix?: string) =>
+  assetPathPrefix && path.startsWith(`${assetPathPrefix}/`)
+    ? path.slice(assetPathPrefix.length + 1)
+    : path;
+
 const updateAssetHash = (
   hash: ReturnType<typeof createHash>,
   path: string,
@@ -644,8 +649,9 @@ const writeHashedAsset = async (
   path: string,
   buffer: Buffer,
   hash: ReturnType<typeof createHash>,
+  assetPathPrefix?: string,
 ) => {
-  updateAssetHash(hash, path, buffer);
+  updateAssetHash(hash, stableAssetPath(path, assetPathPrefix), buffer);
   await writeAsset(stagingDirectory, path, buffer);
 };
 
@@ -737,13 +743,21 @@ const canReusePublication = (
   previous: PackedPublication,
 ) => {
   const currentSource = candidate.document.source;
-  if (!currentSource || !previous.source) return false;
-  if (
-    currentSource.provider !== previous.source.provider ||
-    currentSource.remoteId !== previous.source.remoteId ||
-    currentSource.metadataHash !== previous.source.metadataHash
-  )
-    return false;
+  const previousSource = previous.source;
+
+  // Cas provider externe : les deux sources doivent exister et correspondre.
+  if (currentSource || previousSource) {
+    if (!currentSource || !previousSource) return false;
+    if (
+      currentSource.provider !== previousSource.provider ||
+      currentSource.remoteId !== previousSource.remoteId ||
+      currentSource.metadataHash !== previousSource.metadataHash
+    )
+      return false;
+  }
+  // Si les deux sont absents (contenu local scanné à la main), on continue
+  // et on se fie uniquement à la comparaison de métadonnées ci-dessous.
+
   const usesInferredAspectRatio =
     candidate.document.physical?.aspectRatio === undefined ||
     candidate.document.aspectRatioInferenceVersion !== undefined;
@@ -976,12 +990,20 @@ const materializeReusedPublication = async (
       contentHash: hashJson({
         ...(backDetailBuffer
           ? {
-              backDetailAssetHash: hashAsset(backDetailPath, backDetailBuffer),
+              backDetailAssetHash: hashAsset(
+                stableAssetPath(backDetailPath, assetPathPrefix),
+                backDetailBuffer,
+              ),
             }
           : {}),
         previousContentHash: previous.contentHash,
         ...(spineBuffer
-          ? {spineAssetHash: hashAsset(spinePath, spineBuffer)}
+          ? {
+              spineAssetHash: hashAsset(
+                stableAssetPath(spinePath, assetPathPrefix),
+                spineBuffer,
+              ),
+            }
           : {}),
         backFormatVersion: BACK_DERIVATIVE_FORMAT_VERSION,
         spineFormatVersion: SPINE_DERIVATIVE_FORMAT_VERSION,
@@ -1114,6 +1136,7 @@ const materializePublication = async (
       surface.path,
       buffer,
       publicationHash,
+      assetPathPrefix,
     );
   }
   const detailCoverHeight = Math.min(
@@ -1132,6 +1155,7 @@ const materializePublication = async (
       wraparoundLayout?.front,
     ),
     publicationHash,
+    assetPathPrefix,
   );
   const backSource = wraparoundLayout ? frontSource : fallbackBackSource;
   const backImage = selection.images.get(backSource);
@@ -1153,6 +1177,7 @@ const materializePublication = async (
       wraparoundLayout?.back,
     ),
     publicationHash,
+    assetPathPrefix,
   );
   const spinePath = `${publicationDirectory}/spine.webp`;
   const spineWidth = spineTextureWidth(document.physical?.thicknessMm);
@@ -1172,6 +1197,7 @@ const materializePublication = async (
         )
       : await spineDerivative(selection.candidate, spineWidth),
     publicationHash,
+    assetPathPrefix,
   );
   const pagePaths: string[] = [];
   for (
@@ -1196,7 +1222,11 @@ const materializePublication = async (
       }),
     );
     for (const asset of assets) {
-      updateAssetHash(publicationHash, asset.path, asset.buffer);
+      updateAssetHash(
+        publicationHash,
+        stableAssetPath(asset.path, assetPathPrefix),
+        asset.buffer,
+      );
       pagePaths.push(asset.path);
     }
     await Promise.all(
@@ -1236,7 +1266,11 @@ const materializePublication = async (
   if (alternateMaterialById.size !== alternateAssets.length)
     throw new Error(`Alternate metadata and page-zero assets do not match`);
   for (const alternate of alternateAssets)
-    updateAssetHash(publicationHash, alternate.page0, alternate.buffer);
+    updateAssetHash(
+      publicationHash,
+      stableAssetPath(alternate.page0, assetPathPrefix),
+      alternate.buffer,
+    );
   await Promise.all(
     alternateAssets.map(({buffer, page0}) =>
       writeAsset(stagingDirectory, page0, buffer),
