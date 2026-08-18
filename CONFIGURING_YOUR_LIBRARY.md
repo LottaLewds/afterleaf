@@ -109,15 +109,29 @@ Use it after changing local files or library paths.
 
 ### Deep scan and repair
 
-The wrench button validates and rebuilds every local publication and generated
-asset. It is slower. Use it when source files changed without being detected,
-assets appear damaged, or a normal scan reports persistent problems.
+The wrench button opens the deep-repair options. Every deep repair validates
+and rebuilds each local publication and generated asset. The optional provider
+actions are:
+
+- **Update older provider metadata**, which may download a few representative
+  pages only for cached books that need an upgrade; and
+- **Re-download cached provider images**, which refreshes the preview and back
+  cover of every cached remote book and is substantially slower.
+
+Both options may contact providers, but neither searches for or adds new books.
+Leave both unchecked for a local-only deep repair.
+
+Deep repair is slower than **Scan new**. Use it when source files changed
+without being detected, assets appear damaged, or a normal scan reports
+persistent problems.
 
 ### Fetch more
 
 **Fetch more** asks the selected online provider for unseen books, subject to
 the current query, language, limit, and blocked tags. It then runs the shared
-disk scan and activates one catalog revision.
+disk scan and activates one catalog revision. Newly downloaded books are
+written in the current format during import; **Fetch more** does not run legacy
+updates across other cached provider books.
 
 Built-in providers currently include:
 

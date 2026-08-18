@@ -2,6 +2,7 @@ import {afterEach, expect, test} from "bun:test";
 import {mkdtemp, readFile, rm} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {resolve} from "node:path";
+import {BOOK_ASPECT_RATIO_INFERENCE_VERSION} from "~/content/bookAspectRatio";
 import {MangaDexClient} from "~/content/providers/mangadex/client";
 import {MANGADEX_SPARSE_METADATA_FILE} from "~/content/providers/mangadex/sparseMetadata";
 import {syncMangaDexCatalog} from "~/content/providers/mangadex/sync";
@@ -112,9 +113,11 @@ test("MangaDex sync writes a sparse local catalog", async () => {
     selectedPublicationIds: ["mangadex-manga-id-chapter-id"],
   });
   expect(manifest).toMatchObject({
+    aspectRatioInferenceVersion: BOOK_ASPECT_RATIO_INFERENCE_VERSION,
     id: "mangadex-manga-id-chapter-id",
     language: "english",
     pageCount: 4,
+    physical: {aspectRatio: 2 / 3},
     source: {provider: "mangadex", remoteId: "chapter-id"},
   });
   expect(sparseMetadata).toMatchObject({

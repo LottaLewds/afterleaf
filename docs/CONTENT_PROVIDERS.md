@@ -178,14 +178,22 @@ rate limits, retries, metadata mapping, and source-specific diagnostics.
 ## Acquisition defaults
 
 Use `createRepresentativePagePlan(pageCount)` from
-`@afterleaf/provider-sdk`. It selects pages `1, 2, 3, N`, deduplicating short
-publications. The first three pages form a contiguous initial preview; page
-`N` is the back cover. Keep the full remote `pageCount` and implement
+`@afterleaf/provider-sdk`. The first three pages form a contiguous initial
+preview, page `N` is the back cover, and a bounded set of interior pages is
+sampled for derived dimensions. Deduplicated short publications need fewer
+downloads. Acquire `acquisitionPageIndexes`, store only the initial preview and
+back cover, then pass all sampled bytes to
+`finalizeProviderPublicationDocument` before committing the manifest. The
+existing `representativePageIndexes` remains the preview-and-back subset for
+version-1 compatibility. Keep the full remote `pageCount` and implement
 `materializePage` so the reader can lazily request every page by its true
-one-based number. Afterleaf may also use this source-level capability during
-Import & Scan to perform host-owned migrations. Providers return the requested
-source bytes; they do not detect, version, or implement Afterleaf migrations.
-Afterleaf registers and orders those migrations centrally, then validates and
+one-based number.
+
+When the user selects remote image refresh during deep repair, Afterleaf uses
+`materializePage` to refresh cached preview, back-cover, and dimension-sample
+pages without running provider search. Providers return the requested source
+bytes; they do not detect, version, or implement Afterleaf migrations.
+Afterleaf registers and orders those updates centrally, then validates and
 atomically persists each successful manifest update.
 
 Providers should use interfaces intended for programmatic access and observe
@@ -222,9 +230,10 @@ A provider should:
 6. normalize tags and include the selected language when the manifest enables
    `requiresLanguageTag`;
 7. preserve complete unchanged entries and repair interrupted/incomplete ones;
-8. treat `write: false` as a network-light preview and never mutate disk;
-9. keep downloaded content, credentials, cookies, and live API fixtures out of
-   version control.
+8. finalize current derived publication metadata during materialization;
+9. treat `write: false` as a network-light preview and never mutate disk;
+10. keep downloaded content, credentials, cookies, and live API fixtures out of
+    version control.
 
 ## Tests and acceptance
 

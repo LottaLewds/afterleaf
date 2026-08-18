@@ -151,9 +151,18 @@ describe("browser library operation client", () => {
       return response(jobStartResponse("scan"), 202);
     };
 
-    await scanLocalLibrary({repair: true}, fetcher);
+    await scanLocalLibrary(
+      {
+        redownloadProviderAssets: true,
+        repair: true,
+        repairProviderMetadata: true,
+      },
+      fetcher,
+    );
 
-    expect(requestInit?.body).toBe('{"repair":true}');
+    expect(requestInit?.body).toBe(
+      '{"redownloadProviderAssets":true,"repair":true,"repairProviderMetadata":true}',
+    );
   });
 
   test("sends bounded fetch-more requests", async () => {
@@ -428,12 +437,26 @@ describe("library operation HTTP protocol", () => {
   test("keeps all three request bodies narrow", () => {
     expect(parseLibraryScanRequest({})).toEqual({});
     expect(parseLibraryScanRequest({repair: true})).toEqual({repair: true});
+    expect(
+      parseLibraryScanRequest({
+        redownloadProviderAssets: true,
+        repair: true,
+        repairProviderMetadata: true,
+      }),
+    ).toEqual({
+      redownloadProviderAssets: true,
+      repair: true,
+      repairProviderMetadata: true,
+    });
     expect(() => parseLibraryScanRequest({repair: "yes"})).toThrow(
       "must be a boolean",
     );
     expect(() => parseLibraryScanRequest({fetch: true})).toThrow(
       "unsupported fields",
     );
+    expect(() =>
+      parseLibraryScanRequest({repairProviderMetadata: true}),
+    ).toThrow("require a deep repair scan");
     expect(parseLibraryFetchMoreRequest({})).toEqual({});
     expect(
       parseLibraryFetchMoreRequest({

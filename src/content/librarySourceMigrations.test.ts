@@ -85,7 +85,7 @@ test("runs registered migrations in order and preserves earlier successes", asyn
   expect(partiallyMigrated.title).toBe("Migrated title");
   expect(partiallyMigrated.tags).toEqual(["manga"]);
   expect(progress.at(-1)).toBe(
-    "Library migrations: 2/2 complete (100%); failed tag migration for provider/book, will retry next scan (1 migrated, 1 failed)",
+    "Updating older cached publications: 2/2 complete (100%); failed tag migration for provider/book, will retry next scan (1 updated, 1 failed)",
   );
 
   failSecondMigration = false;
@@ -100,11 +100,10 @@ test("runs registered migrations in order and preserves earlier successes", asyn
   expect(migrated.title).toBe("Migrated title");
   expect(migrated.tags).toEqual(["manga", "future-migration"]);
 
+  const progressCount = progress.length;
   const current = await runLibrarySourceMigrations(options);
   expect(current).toMatchObject({pendingCount: 0});
-  expect(progress.at(-1)).toBe(
-    "Library migrations: no publications require repair",
-  );
+  expect(progress).toHaveLength(progressCount);
 });
 
 test("rejects identity-changing migration results without touching the manifest", async () => {

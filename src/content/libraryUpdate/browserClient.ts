@@ -21,6 +21,7 @@ import {
   type LibraryFetchMoreRequest,
   type LibraryOperationHttpFailure,
   type LibraryPasteImportMatch,
+  type LibraryScanRequest,
   type LibrarySnapshotOperation,
 } from "~/content/libraryUpdate/httpProtocol";
 import type {LibraryProviderDescriptor} from "~/content/providers/types";
@@ -170,7 +171,7 @@ const requestSnapshotOperation = async (
 };
 
 export const scanLocalLibrary = (
-  optionsOrFetcher: {repair?: boolean} | LibraryOperationFetch = {},
+  optionsOrFetcher: LibraryScanRequest | LibraryOperationFetch = {},
   fetcher: LibraryOperationFetch = fetch,
 ) => {
   const options =

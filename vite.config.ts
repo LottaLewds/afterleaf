@@ -742,7 +742,12 @@ type LocalLibraryOperation =
       providerId?: string;
       query?: string;
     }
-  | {kind: "scan"; repair?: boolean};
+  | {
+      kind: "scan";
+      redownloadProviderAssets?: boolean;
+      repair?: boolean;
+      repairProviderMetadata?: boolean;
+    };
 
 const libraryOperationArguments = (operation: LocalLibraryOperation) => {
   if (operation.kind === "scan")
@@ -750,7 +755,13 @@ const libraryOperationArguments = (operation: LocalLibraryOperation) => {
       "run",
       "library:scan",
       "--write",
+      ...(operation.redownloadProviderAssets
+        ? ["--redownload-provider-assets"]
+        : []),
       ...(operation.repair ? ["--repair"] : []),
+      ...(operation.repairProviderMetadata
+        ? ["--repair-provider-metadata"]
+        : []),
     ];
   if (operation.kind === "blacklist-list")
     return ["run", "library:blacklist", "--list"];
@@ -1371,9 +1382,20 @@ const localLibraryOperationsPlugin = (): Plugin => ({
             const scanRequest = parseLibraryScanRequest(body);
             operation = {
               kind: "scan",
+              ...(scanRequest.redownloadProviderAssets === undefined
+                ? {}
+                : {
+                    redownloadProviderAssets:
+                      scanRequest.redownloadProviderAssets,
+                  }),
               ...(scanRequest.repair === undefined
                 ? {}
                 : {repair: scanRequest.repair}),
+              ...(scanRequest.repairProviderMetadata === undefined
+                ? {}
+                : {
+                    repairProviderMetadata: scanRequest.repairProviderMetadata,
+                  }),
             };
           } else if (pathname === LIBRARY_FETCH_MORE_ENDPOINT) {
             const fetchMoreRequest = parseLibraryFetchMoreRequest(body);

@@ -21,7 +21,9 @@ export interface LibraryUpdateCliOptions {
     limit: number;
     maxSearchPages: number;
     query: string;
+    redownloadProviderAssets: boolean;
     repair: boolean;
+    repairProviderMetadata: boolean;
     write: boolean;
   };
 }
@@ -116,7 +118,13 @@ const genericProviderOptions = new Set([
   "max-search-pages",
   "query",
 ]);
-const genericProviderFlags = new Set(["help", "repair", "write"]);
+const genericProviderFlags = new Set([
+  "help",
+  "redownload-provider-assets",
+  "repair",
+  "repair-provider-metadata",
+  "write",
+]);
 
 const parseGenericProviderSyncOptions = (
   arguments_: readonly string[],
@@ -182,6 +190,11 @@ const parseGenericProviderSyncOptions = (
       throw new Error("--blocked-tags-json must be an array of strings");
     blockedTags = parsed;
   }
+  const repair = flags.has("repair");
+  const redownloadProviderAssets = flags.has("redownload-provider-assets");
+  const repairProviderMetadata = flags.has("repair-provider-metadata");
+  if (!repair && (redownloadProviderAssets || repairProviderMetadata))
+    throw new Error("Remote repair options require --repair");
   return {
     help: flags.has("help"),
     sync: {
@@ -194,7 +207,9 @@ const parseGenericProviderSyncOptions = (
       limit: parsePositiveInteger("limit", 20),
       maxSearchPages: parsePositiveInteger("max-search-pages", 10),
       query: values.get("query")?.trim() ?? descriptor.defaultQuery,
-      repair: flags.has("repair"),
+      redownloadProviderAssets,
+      repair,
+      repairProviderMetadata,
       write: flags.has("write"),
     },
   };
@@ -258,7 +273,11 @@ also reads comicPaths and mangaPaths from afterleaf.library.json in the Afterlea
 directory.
 
 Quick scans reuse unchanged generated assets using local file metadata. Pass
---repair to rebuild and validate every publication and archive.
+--repair to rebuild and validate every local publication and archive. Add
+--repair-provider-metadata to upgrade older cached provider manifests, or
+--redownload-provider-assets to refresh every cached provider preview and back
+cover. The provider options may contact remotes but do not search for or add
+books.
 `;
 
 export const LIBRARY_FETCH_MORE_HELP = `Fetch unseen publications from a discovered provider, then update and activate the library catalog.
@@ -294,7 +313,13 @@ export const runLibraryScanCli = async (
   try {
     return await service.scan({
       languages: options.sync.languages,
+      ...(options.sync.redownloadProviderAssets
+        ? {redownloadProviderAssets: true}
+        : {}),
       ...(options.sync.repair ? {repair: true} : {}),
+      ...(options.sync.repairProviderMetadata
+        ? {repairProviderMetadata: true}
+        : {}),
     });
   } finally {
     unsubscribe?.();

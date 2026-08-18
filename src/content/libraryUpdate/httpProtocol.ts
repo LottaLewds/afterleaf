@@ -32,7 +32,11 @@ const PROVIDER_ID_PATTERN = /^[a-z][a-z0-9-]{0,63}$/u;
 
 export type LibrarySnapshotOperation = "fetch-more" | "scan";
 
-export type LibraryScanRequest = {repair?: boolean};
+export type LibraryScanRequest = {
+  redownloadProviderAssets?: boolean;
+  repair?: boolean;
+  repairProviderMetadata?: boolean;
+};
 
 export type LibraryFetchMoreRequest = {
   blockedTags?: readonly string[];
@@ -231,11 +235,35 @@ const parseFailure = (
 export const parseLibraryScanRequest = (value: unknown): LibraryScanRequest => {
   if (!isRecord(value))
     throw new Error("Library scan request must be an object");
-  const expectedKeys = value.repair === undefined ? [] : ["repair"];
+  const expectedKeys = [
+    ...(value.redownloadProviderAssets === undefined
+      ? []
+      : ["redownloadProviderAssets"]),
+    ...(value.repair === undefined ? [] : ["repair"]),
+    ...(value.repairProviderMetadata === undefined
+      ? []
+      : ["repairProviderMetadata"]),
+  ];
   const request = requireExactKeys(value, expectedKeys, "scan");
-  if (request.repair !== undefined && typeof request.repair !== "boolean")
-    throw new Error("Library scan repair must be a boolean");
-  return request.repair === undefined ? {} : {repair: request.repair};
+  for (const field of expectedKeys) {
+    if (typeof request[field] !== "boolean")
+      throw new Error(`Library scan ${field} must be a boolean`);
+  }
+  if (
+    request.repair !== true &&
+    (request.repairProviderMetadata === true ||
+      request.redownloadProviderAssets === true)
+  )
+    throw new Error("Remote repair options require a deep repair scan");
+  return {
+    ...(request.redownloadProviderAssets === undefined
+      ? {}
+      : {redownloadProviderAssets: request.redownloadProviderAssets}),
+    ...(request.repair === undefined ? {} : {repair: request.repair}),
+    ...(request.repairProviderMetadata === undefined
+      ? {}
+      : {repairProviderMetadata: request.repairProviderMetadata}),
+  };
 };
 
 export const parseLibraryPasteResolveRequest = (

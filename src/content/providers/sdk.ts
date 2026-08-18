@@ -1,14 +1,28 @@
+import {
+  BOOK_ASPECT_RATIO_INFERENCE_VERSION,
+  bookAspectRatioSamplePageIndices,
+  inferRepresentativeBookAspectRatio,
+} from "~/content/bookAspectRatio";
+import {readImageDimensions} from "~/content/imageDimensions";
+import type {LocalPublicationDocument} from "~/content/schema";
+
+const DEFAULT_PROVIDER_BOOK_ASPECT_RATIO = 2 / 3;
+
 export interface RepresentativePagePlan {
   /** Zero-based pages downloaded for the initial local preview. */
   initialPageIndexes: readonly number[];
-  /** Zero-based pages downloaded in total, including the back page. */
+  /** Zero-based interior pages used to infer the publication's dimensions. */
+  aspectRatioPageIndexes: readonly number[];
+  /** Zero-based pages acquired for previews, dimensions, and the back page. */
+  acquisitionPageIndexes: readonly number[];
+  /** Zero-based initial preview and back pages retained for API compatibility. */
   representativePageIndexes: readonly number[];
   backPageIndex: number;
 }
 
 /**
- * Selects pages 1, 2, 3, N by default, deduplicating short publications.
- * Initial pages stay contiguous so sparse-page URLs retain their true numbering.
+ * Selects a contiguous initial preview, bounded interior dimension samples,
+ * and the back page. Sparse-page URLs retain their true numbering.
  */
 export const createRepresentativePagePlan = (
   pageCount: number,
@@ -23,12 +37,59 @@ export const createRepresentativePagePlan = (
     (_, index) => index,
   );
   const backPageIndex = pageCount - 1;
+  const interiorPageIndexes = bookAspectRatioSamplePageIndices(pageCount);
+  const aspectRatioPageIndexes =
+    interiorPageIndexes.length > 0
+      ? interiorPageIndexes
+      : [...new Set([0, backPageIndex])];
   return {
+    acquisitionPageIndexes: [
+      ...new Set([
+        ...initialPageIndexes,
+        ...aspectRatioPageIndexes,
+        backPageIndex,
+      ]),
+    ],
+    aspectRatioPageIndexes,
     initialPageIndexes,
     representativePageIndexes: [
       ...new Set([...initialPageIndexes, backPageIndex]),
     ],
     backPageIndex,
+  };
+};
+
+export interface DownloadedProviderPage {
+  bytes: Uint8Array;
+  pageIndex: number;
+}
+
+/** Completes current derived metadata while downloaded page bytes are in memory. */
+export const finalizeProviderPublicationDocument = async (
+  document: LocalPublicationDocument,
+  pages: readonly DownloadedProviderPage[],
+): Promise<LocalPublicationDocument> => {
+  const pageCount = document.pageCount ?? document.assets.pages.length;
+  const samplePageIndexes = new Set(
+    createRepresentativePagePlan(pageCount).aspectRatioPageIndexes,
+  );
+  const dimensions = (
+    await Promise.all(
+      pages
+        .filter(({pageIndex}) => samplePageIndexes.has(pageIndex))
+        .map(({bytes}) => readImageDimensions(bytes)),
+    )
+  ).filter((value) => value !== undefined);
+  return {
+    ...document,
+    aspectRatioInferenceVersion: BOOK_ASPECT_RATIO_INFERENCE_VERSION,
+    physical: {
+      ...(document.physical ?? {}),
+      aspectRatio: inferRepresentativeBookAspectRatio(
+        dimensions,
+        DEFAULT_PROVIDER_BOOK_ASPECT_RATIO,
+      ),
+    },
   };
 };
 

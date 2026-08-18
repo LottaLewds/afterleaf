@@ -340,15 +340,8 @@ describe("LibraryUpdateService", () => {
     });
   });
 
-  test("reports a failed migration instead of taking the unchanged fetch fast path", async () => {
+  test("reports a failed cached-provider update during deep repair", async () => {
     const calls: string[] = [];
-    const unchangedSyncReport = {
-      ...syncReport,
-      addedCount: 0,
-      selectedPublicationIds: [],
-      unchangedCount: 403,
-      updatedCount: 0,
-    };
     const localSeedResult = structuredClone(seedResult);
     const service = new LibraryUpdateService(
       {libraryDirectory: "/library", sourceDirectory: "/source"},
@@ -377,24 +370,31 @@ describe("LibraryUpdateService", () => {
             pendingCount: 1,
           };
         },
+        runProviderRepairs: async (sourceDirectory) => {
+          calls.push("repair-remotes");
+          expect(sourceDirectory).toBe(resolve("/source"));
+          return {
+            diagnostics: [],
+            failedCount: 0,
+            repairedCount: 2,
+            requestedCount: 2,
+          };
+        },
         runSeed: async () => {
           calls.push("seed");
           return localSeedResult;
         },
-        runSync: async () => {
-          calls.push("sync");
-          return unchangedSyncReport;
-        },
       }),
     );
 
-    const result = await service.fetchMore({
-      ...request,
-      localSourceChanged: false,
+    const result = await service.scan({
+      redownloadProviderAssets: true,
+      repair: true,
+      repairProviderMetadata: true,
     });
 
-    expect(calls).toEqual(["sync", "migrate", "seed", "activate"]);
-    expect(result.seedReport?.diagnostics).toContainEqual({
+    expect(calls).toEqual(["repair-remotes", "migrate", "seed", "activate"]);
+    expect(result.seedReport.diagnostics).toContainEqual({
       code: "migration-failed",
       message: "Could not migrate provider/book: remote unavailable",
       sourceId: "provider/book",
@@ -623,6 +623,16 @@ describe("LibraryUpdateService", () => {
     const service = new LibraryUpdateService(
       {libraryDirectory: "/library", sourceDirectory: "/source"},
       createDependencies({
+        runMigrations: async () => {
+          throw new Error(
+            "local-only repair must not update provider metadata",
+          );
+        },
+        runProviderRepairs: async () => {
+          throw new Error(
+            "local-only repair must not redownload provider assets",
+          );
+        },
         runSeed: async (_catalogDirectory, options) => {
           expect(options.forceRebuild).toBe(true);
           return seedResult;
@@ -713,7 +723,7 @@ describe("LibraryUpdateService", () => {
     expect(result.snapshot.publicationCount).toBe(1);
   });
 
-  test("continues fetching and reports isolated provider migration failures", async () => {
+  test("continues deep repair and reports isolated cached-provider failures", async () => {
     const localSeedResult = structuredClone(seedResult);
     const service = new LibraryUpdateService(
       {libraryDirectory: "/library", sourceDirectory: "/source"},
@@ -734,7 +744,10 @@ describe("LibraryUpdateService", () => {
       }),
     );
 
-    const result = await service.fetchMore({});
+    const result = await service.scan({
+      repair: true,
+      repairProviderMetadata: true,
+    });
 
     expect(result.seedReport.diagnostics).toContainEqual({
       code: "migration-failed",
@@ -783,7 +796,7 @@ describe("LibraryUpdateService", () => {
     expect(result.diff.unchangedPublicationIds).toEqual(["kept"]);
   });
 
-  test("fetch-more performs unseen sync before the shared disk scan", async () => {
+  test("fetch-more performs unseen sync without running legacy updates", async () => {
     const calls: string[] = [];
     const service = new LibraryUpdateService(
       {
@@ -803,13 +816,10 @@ describe("LibraryUpdateService", () => {
         },
         readBlacklist: async () => ["nhentai-99"],
         runMigrations: async () => {
-          calls.push("migrate");
-          return {
-            diagnostics: [],
-            failedCount: 0,
-            migratedCount: 1,
-            pendingCount: 1,
-          };
+          throw new Error("fetch-more must not update older cached content");
+        },
+        runProviderRepairs: async () => {
+          throw new Error("fetch-more must not deep-repair cached content");
         },
         runSeed: async (catalogDirectory, options, excludedIds) => {
           calls.push("seed");
@@ -831,7 +841,7 @@ describe("LibraryUpdateService", () => {
 
     const result = await service.fetchMore(request);
 
-    expect(calls).toEqual(["sync", "migrate", "seed", "activate"]);
+    expect(calls).toEqual(["sync", "seed", "activate"]);
     expect(result.blacklistedPublicationIds).toEqual(["nhentai-99"]);
   });
 });

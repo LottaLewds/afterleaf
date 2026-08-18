@@ -58,6 +58,8 @@ export type LibraryScanRequest = Pick<
 > & {
   limit?: number;
   repair?: boolean;
+  repairProviderMetadata?: boolean;
+  redownloadProviderAssets?: boolean;
 };
 
 export interface LibraryScanResult {

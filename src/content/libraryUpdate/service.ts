@@ -24,6 +24,10 @@ import {normalizeTags} from "~/content/normalize";
 import {migrateLibrarySourcesWithRegistry} from "~/content/librarySourceMigrationRegistry";
 import type {LibrarySourceMigrationReport} from "~/content/librarySourceMigrations";
 import {
+  repairCachedProviderPublications,
+  type ProviderCacheRepairReport,
+} from "~/content/providerCacheRepair";
+import {
   createLibraryProviderRegistry,
   DEFAULT_LIBRARY_PROVIDER_ID,
   type LibraryProviderRegistry,
@@ -176,6 +180,10 @@ export interface LibraryUpdateServiceDependencies {
     sourceDirectory: string,
     onProgress?: (message: string) => void,
   ) => Promise<LibrarySourceMigrationReport>;
+  runProviderRepairs?: (
+    sourceDirectory: string,
+    onProgress?: (message: string) => void,
+  ) => Promise<ProviderCacheRepairReport>;
   runSeed(
     catalogDirectory: string,
     options: SeedContentPackOptions,
@@ -322,6 +330,8 @@ export class LibraryUpdateService implements LibraryUpdateClient {
       const excludedPublicationIds = new Set(blacklistedPublicationIds);
       const remoteRequest =
         mode === "scan" ? undefined : (request as LibraryFetchMoreRequest);
+      const repairScan =
+        mode === "scan" && (request as LibraryScanRequest).repair === true;
       const providerId =
         remoteRequest?.providerId ??
         this.#dependencies.defaultProviderId ??
@@ -368,8 +378,32 @@ export class LibraryUpdateService implements LibraryUpdateClient {
             },
             providerId,
           );
+      const providerRepairReport =
+        repairScan &&
+        (request as LibraryScanRequest).redownloadProviderAssets === true &&
+        this.#dependencies.runProviderRepairs
+          ? await this.#dependencies.runProviderRepairs(
+              this.#sourceDirectory,
+              (message) =>
+                this.#setRunningState(
+                  "syncing",
+                  message,
+                  completedSteps,
+                  requestId,
+                  startedAt,
+                  previousSnapshot,
+                ),
+            )
+          : {
+              diagnostics: [],
+              failedCount: 0,
+              repairedCount: 0,
+              requestedCount: 0,
+            };
       const migrationReport =
-        remoteRequest && this.#dependencies.runMigrations
+        repairScan &&
+        (request as LibraryScanRequest).repairProviderMetadata === true &&
+        this.#dependencies.runMigrations
           ? await this.#dependencies.runMigrations(
               this.#sourceDirectory,
               (message) =>
@@ -488,6 +522,11 @@ export class LibraryUpdateService implements LibraryUpdateClient {
         previousSnapshot,
       );
       seedResult.report.diagnostics.unshift(
+        ...providerRepairReport.diagnostics.map(({message, sourceId}) => ({
+          code: "provider-repair-failed" as const,
+          message,
+          sourceId,
+        })),
         ...migrationReport.diagnostics.map(({message, sourceId}) => ({
           code: "migration-failed" as const,
           message,
@@ -508,6 +547,7 @@ export class LibraryUpdateService implements LibraryUpdateClient {
         "duplicate-id",
         "invalid-assets",
         "invalid-manifest",
+        "provider-repair-failed",
       ]);
       const unsafeSourceIds = new Set(
         seedResult.report.diagnostics.flatMap((diagnostic) =>
@@ -853,6 +893,12 @@ export const createLibraryUpdateService = (
           providerRegistry,
           onProgress,
         ),
+      runProviderRepairs: (sourceDirectory, onProgress) =>
+        repairCachedProviderPublications({
+          ...(onProgress === undefined ? {} : {onProgress}),
+          providerRegistry,
+          sourceDirectory,
+        }),
       runSync: (options, providerId) =>
         providerRegistry
           .load(providerId)

@@ -78,6 +78,23 @@ test("library update CLI distinguishes quick and repair scans", () => {
       "/workspace/afterleaf",
     ).sync.repair,
   ).toBe(true);
+  const remoteRepair = parseLibraryUpdateCliOptions(
+    [
+      "--write",
+      "--repair",
+      "--repair-provider-metadata",
+      "--redownload-provider-assets",
+    ],
+    "/workspace/afterleaf",
+  ).sync;
+  expect(remoteRepair.repairProviderMetadata).toBe(true);
+  expect(remoteRepair.redownloadProviderAssets).toBe(true);
+  expect(() =>
+    parseLibraryUpdateCliOptions(
+      ["--write", "--repair-provider-metadata"],
+      "/workspace/afterleaf",
+    ),
+  ).toThrow("require --repair");
 });
 
 test("library scan imports new archives before activating the combined catalog", async () => {

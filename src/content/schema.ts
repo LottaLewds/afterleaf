@@ -100,6 +100,7 @@ export interface ContentSeedDiagnostic {
     | "invalid-assets"
     | "invalid-manifest"
     | "migration-failed"
+    | "provider-repair-failed"
     | "shadowed-manifest"
     | "suspected-duplicate"
     | "skipped-symlink"
