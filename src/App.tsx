@@ -2571,7 +2571,7 @@ export const App = () => {
               aria-label="Afterleaf pause menu"
             >
               <div class="mx-auto flex size-full max-w-[1800px] flex-col overflow-hidden border-white/10 bg-[#101716]/98 shadow-[0_30px_120px_#000] sm:border">
-                <header class="flex h-[72px] shrink-0 items-center border-b border-white/8 bg-[#121918]/95 px-4 sm:px-7 lg:px-9">
+                <header class="flex h-[72px] shrink-0 items-center border-b border-white/8 bg-[#121918]/95 px-4 sm:px-5 lg:px-6">
                   <div class="flex min-w-0 items-center gap-4">
                     <div class="brand-mark grid size-9 shrink-0 place-items-center bg-[#d94c3f] font-serif text-lg text-white">
                       葉
@@ -2590,17 +2590,6 @@ export const App = () => {
                       <span class="size-1.5 rounded-full bg-[#75aa91] shadow-[0_0_8px_#75aa91]"></span>{" "}
                       Local library
                     </div>
-                    <button
-                      class="grid size-9 place-items-center text-[#8d9893] transition hover:bg-white/5 hover:text-white"
-                      aria-label="Close menu and return to shop"
-                      title="Return to shop (Escape)"
-                      on:pointerdown={(event) => {
-                        if (event.button === 0) closeMenu();
-                      }}
-                      onClick={() => closeMenu()}
-                    >
-                      <FiX size={17} />
-                    </button>
                     <button
                       class="flex h-9 items-center gap-2 border border-white/10 px-3 text-[11px] text-[#aab2ae] transition hover:border-white/20 hover:bg-white/5 hover:text-white disabled:cursor-wait disabled:opacity-50"
                       disabled={
@@ -2657,6 +2646,17 @@ export const App = () => {
                     >
                       <FiDownload size={14} />
                       <span class="hidden sm:inline">{fetchButtonLabel()}</span>
+                    </button>
+                    <button
+                      class="grid size-9 place-items-center text-[#8d9893] transition hover:bg-white/5 hover:text-white"
+                      aria-label="Close menu and return to shop"
+                      title="Return to shop (Escape)"
+                      on:pointerdown={(event) => {
+                        if (event.button === 0) closeMenu();
+                      }}
+                      onClick={() => closeMenu()}
+                    >
+                      <FiX size={17} />
                     </button>
                   </div>
                 </header>
