@@ -321,6 +321,10 @@ export const reenrollLibraryRootPath = async (
   const pathStat = await stat(resolvedPath);
   if (!pathStat.isDirectory())
     throw new Error(`Library root must be a directory: ${resolvedPath}`);
+  if (!(await libraryRootContainsMedia(resolvedPath)))
+    throw new Error(
+      `Library root cannot be re-enrolled while it contains no supported books: ${resolvedPath}`,
+    );
   const marker: LibraryRootMarker = {
     rootId: randomUUID(),
     schemaVersion: LIBRARY_ROOT_MARKER_SCHEMA_VERSION,
@@ -346,7 +350,7 @@ export const reenrollLibraryRootPath = async (
   return marker;
 };
 
-const directoryContainsLibraryMedia = async (
+export const libraryRootContainsMedia = async (
   directory: string,
 ): Promise<boolean> => {
   let entries;
@@ -365,7 +369,7 @@ const directoryContainsLibraryMedia = async (
       return true;
     if (
       entry.isDirectory() &&
-      (await directoryContainsLibraryMedia(resolve(directory, entry.name)))
+      (await libraryRootContainsMedia(resolve(directory, entry.name)))
     )
       return true;
   }
@@ -382,10 +386,7 @@ export const unavailableLibraryPaths = async (
         try {
           const pathStat = await stat(path);
           if (pathStat.isFile()) return;
-          if (
-            pathStat.isDirectory() &&
-            (await directoryContainsLibraryMedia(path))
-          )
+          if (pathStat.isDirectory() && (await libraryRootContainsMedia(path)))
             return;
           return path;
         } catch {
@@ -424,7 +425,7 @@ export const unavailableLibraryPaths = async (
         continue;
       }
     } else {
-      if (!marker && (await directoryContainsLibraryMedia(path)))
+      if (!marker && (await libraryRootContainsMedia(path)))
         marker = await createLibraryRootMarker(path);
       if (!marker) {
         unavailable.push(path);

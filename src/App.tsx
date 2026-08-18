@@ -511,6 +511,7 @@ const AdditionalLocationsControl = (props: {
   config: AfterleafLibraryConfig;
   onChange: (config: AfterleafLibraryConfig) => void;
   onReenroll: (path: string) => Promise<void>;
+  reenrollableBookPaths: ReadonlySet<string>;
 }) => {
   const [kind, setKind] = createSignal<AdditionalLocationKind>("comicPaths");
   const [listing, setListing] = createSignal<LibraryDirectoryListing>();
@@ -753,8 +754,15 @@ const AdditionalLocationsControl = (props: {
                   >
                     <button
                       class="shrink-0 text-[9px] text-[#b9a28f] transition hover:text-white disabled:cursor-wait disabled:opacity-40"
-                      disabled={reenrollingPath() === location}
-                      title="Replace this root's Afterleaf mount marker"
+                      disabled={
+                        reenrollingPath() === location ||
+                        !props.reenrollableBookPaths.has(location)
+                      }
+                      title={
+                        props.reenrollableBookPaths.has(location)
+                          ? "Replace this root's missing or mismatched Afterleaf mount marker"
+                          : "Re-enrollment is available only when an unavailable root contains supported books"
+                      }
                       type="button"
                       onClick={() => void reenroll(location)}
                     >
@@ -895,6 +903,7 @@ const OptionsPanel = (props: {
   libraryConfig: AfterleafLibraryConfig;
   onLibraryConfigChange: (config: AfterleafLibraryConfig) => void;
   onReenrollLibraryRoot: (path: string) => Promise<void>;
+  reenrollableBookPaths: ReadonlySet<string>;
   blacklistedTags: readonly string[];
   defaultReadingDirection: ReadingDirection;
   mouseSensitivity: number;
@@ -962,6 +971,7 @@ const OptionsPanel = (props: {
           config={props.libraryConfig}
           onChange={props.onLibraryConfigChange}
           onReenroll={props.onReenrollLibraryRoot}
+          reenrollableBookPaths={props.reenrollableBookPaths}
         />
         <TagBlacklistControl
           availableTags={props.availableTags}
@@ -1754,7 +1764,10 @@ export const App = () => {
       return [];
     }
   });
-  let latestLibrarySourceStatus = {unavailableBookPathCount: 0};
+  let latestLibrarySourceStatus = {
+    reenrollableBookPaths: [] as readonly string[],
+    unavailableBookPathCount: 0,
+  };
   const [librarySourceStatus, {refetch: refetchLibrarySourceStatus}] =
     createResource(async () => {
       try {
@@ -1779,6 +1792,14 @@ export const App = () => {
   );
   const unavailableBookPathCount = () =>
     librarySourceStatus.latest?.unavailableBookPathCount ?? 0;
+  const reenrollableBookPaths = createMemo(
+    () =>
+      new Set(
+        librarySourceStatus.latest?.reenrollableBookPaths ??
+          librarySourceStatus()?.reenrollableBookPaths ??
+          [],
+      ),
+  );
   const reenrollBookRoot = async (path: string) => {
     await reenrollLibraryRoot(path);
     await refetchLibrarySourceStatus();
@@ -2852,6 +2873,7 @@ export const App = () => {
                         void updateLibraryConfig(config)
                       }
                       onReenrollLibraryRoot={reenrollBookRoot}
+                      reenrollableBookPaths={reenrollableBookPaths()}
                       blacklistedTags={blacklistedTags()}
                       defaultReadingDirection={defaultReadingDirection()}
                       mouseSensitivity={mouseSensitivity()}

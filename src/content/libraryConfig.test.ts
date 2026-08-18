@@ -202,6 +202,15 @@ describe("Afterleaf library config", () => {
     expect(await unavailableLibraryPaths([bookPath], registryPath)).toEqual([
       bookPath,
     ]);
+    await expect(
+      reenrollLibraryRootPath(bookPath, registryPath),
+    ).rejects.toThrow("contains no supported books");
+    await mkdir(publicationPath, {recursive: true});
+    await sharp({
+      create: {background: "#334455", channels: 3, height: 96, width: 64},
+    })
+      .png()
+      .toFile(resolve(publicationPath, "001.png"));
     await reenrollLibraryRootPath(bookPath, registryPath);
     expect(await unavailableLibraryPaths([bookPath], registryPath)).toEqual([]);
   });
@@ -222,5 +231,8 @@ describe("Afterleaf library config", () => {
     await expect(
       stat(resolve(bookPath, LIBRARY_ROOT_MARKER_FILE_NAME)),
     ).rejects.toThrow();
+    await expect(
+      reenrollLibraryRootPath(bookPath, registryPath),
+    ).rejects.toThrow("contains no supported books");
   });
 });

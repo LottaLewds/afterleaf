@@ -323,6 +323,7 @@ export const loadLibrarySourceStatus = async (
   }
   throwResponseError(response, result);
   return {
+    reenrollableBookPaths: result.ok ? result.reenrollableBookPaths : [],
     unavailableBookPathCount: result.ok ? result.unavailableBookPathCount : 0,
   };
 };

@@ -47,6 +47,7 @@ import {materializeArchiveReaderPage} from "./src/content/archiveSparsePage";
 import {
   readAfterleafLibraryConfig,
   readAfterleafLibraryConfigSync,
+  libraryRootContainsMedia,
   reenrollLibraryRootPath,
   writeAfterleafLibraryConfig,
   unavailableLibraryPaths,
@@ -1119,21 +1120,26 @@ const localLibraryOperationsPlugin = (): Plugin => ({
         const currentLibraryPaths = await readAfterleafLibraryConfig(
           import.meta.dirname,
         );
+        const currentBookPaths = [
+          ...currentLibraryPaths.comicPaths,
+          ...currentLibraryPaths.mangaPaths,
+          ...(currentLibraryPaths.mediaPaths ?? []),
+        ];
+        const unavailableBookPaths = await unavailableLibraryPaths(
+          currentBookPaths,
+          path.resolve(acquisitionDirectory, LIBRARY_ROOT_REGISTRY_FILE_NAME),
+        );
+        const reenrollableBookPaths = (
+          await Promise.all(
+            unavailableBookPaths.map(async (bookPath) =>
+              (await libraryRootContainsMedia(bookPath)) ? bookPath : undefined,
+            ),
+          )
+        ).filter((bookPath) => bookPath !== undefined);
         sendJson(response, 200, {
           ok: true,
-          unavailableBookPathCount: (
-            await unavailableLibraryPaths(
-              [
-                ...currentLibraryPaths.comicPaths,
-                ...currentLibraryPaths.mangaPaths,
-                ...(currentLibraryPaths.mediaPaths ?? []),
-              ],
-              path.resolve(
-                acquisitionDirectory,
-                LIBRARY_ROOT_REGISTRY_FILE_NAME,
-              ),
-            )
-          ).length,
+          reenrollableBookPaths,
+          unavailableBookPathCount: unavailableBookPaths.length,
         });
         return;
       }

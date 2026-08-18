@@ -268,10 +268,15 @@ describe("browser library operation client", () => {
     let requestInput: string | undefined;
     const fetcher: LibraryOperationFetch = async (input) => {
       requestInput = input;
-      return response({ok: true, unavailableBookPathCount: 2});
+      return response({
+        ok: true,
+        reenrollableBookPaths: ["/mnt/manga"],
+        unavailableBookPathCount: 2,
+      });
     };
 
     await expect(loadLibrarySourceStatus(fetcher)).resolves.toEqual({
+      reenrollableBookPaths: ["/mnt/manga"],
       unavailableBookPathCount: 2,
     });
     expect(requestInput).toBe(LIBRARY_SOURCE_STATUS_ENDPOINT);

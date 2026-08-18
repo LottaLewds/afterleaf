@@ -109,6 +109,9 @@ The poster, art-frame, and TV workflows are described in more detail below.
 
 ![Reading manga in Afterleaf](screenshots/reader-view.webp)
 
+For setup, recursive-folder semantics, scanning, root-marker recovery, and
+troubleshooting, see [Configuring Your Library](CONFIGURING_YOUR_LIBRARY.md).
+
 Place local book archives beneath `content/books`, grouped by their reading
 format:
 

@@ -151,6 +151,7 @@ export type LibraryPasteResolveHttpResponse =
 
 export type LibrarySourceStatusHttpSuccess = {
   ok: true;
+  reenrollableBookPaths: readonly string[];
   unavailableBookPathCount: number;
 };
 
@@ -377,8 +378,18 @@ export const parseLibrarySourceStatusHttpResponse = (
   if (failure) return failure;
   if (value.ok !== true)
     throw new Error("Library source-status response is malformed");
+  if (
+    !Array.isArray(value.reenrollableBookPaths) ||
+    !value.reenrollableBookPaths.every(
+      (path) => typeof path === "string" && path.length > 0,
+    )
+  )
+    throw new Error(
+      "Library source-status reenrollableBookPaths must be an array of paths",
+    );
   return {
     ok: true,
+    reenrollableBookPaths: value.reenrollableBookPaths,
     unavailableBookPathCount: nonNegativeInteger(
       value.unavailableBookPathCount,
       "unavailableBookPathCount",
