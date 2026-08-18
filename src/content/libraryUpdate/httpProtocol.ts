@@ -9,6 +9,7 @@ export const LIBRARY_BLACKLIST_ENDPOINT = "/api/library/blacklist";
 export const LIBRARY_STATUS_ENDPOINT = "/api/library/status";
 export const LIBRARY_SOURCE_STATUS_ENDPOINT = "/api/library/source-status";
 export const LIBRARY_CONFIG_ENDPOINT = "/api/library/config";
+export const LIBRARY_ROOT_ENROLL_ENDPOINT = "/api/library/root-enroll";
 export const LIBRARY_BROWSE_ENDPOINT = "/api/library/browse";
 export const MAX_LIBRARY_OPERATION_BODY_BYTES = 64 * 1_024;
 export const MAX_LIBRARY_OPERATION_RESPONSE_BYTES = 1024 * 1_024;

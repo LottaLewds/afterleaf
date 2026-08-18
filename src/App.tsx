@@ -59,6 +59,7 @@ import {
   scanLocalLibrary,
   browseLibraryLocation,
   loadLibraryConfig,
+  reenrollLibraryRoot,
   saveLibraryConfig,
   type LocalLibraryJob,
   type LocalLibrarySnapshotResult,
@@ -509,6 +510,7 @@ const configLocationsChanged = (
 const AdditionalLocationsControl = (props: {
   config: AfterleafLibraryConfig;
   onChange: (config: AfterleafLibraryConfig) => void;
+  onReenroll: (path: string) => Promise<void>;
 }) => {
   const [kind, setKind] = createSignal<AdditionalLocationKind>("comicPaths");
   const [listing, setListing] = createSignal<LibraryDirectoryListing>();
@@ -517,6 +519,7 @@ const AdditionalLocationsControl = (props: {
   const [browserPending, setBrowserPending] = createSignal(false);
   const [confirmedPathInput, setConfirmedPathInput] = createSignal("");
   const [pathInput, setPathInput] = createSignal("");
+  const [reenrollingPath, setReenrollingPath] = createSignal("");
   let browseRequest = 0;
   let browseTimer: ReturnType<typeof setTimeout> | undefined;
   const labels: Record<AdditionalLocationKind, string> = {
@@ -658,6 +661,27 @@ const AdditionalLocationsControl = (props: {
       ...props.config,
       [key]: locationsFor(key).filter((entry) => entry !== path),
     });
+  const reenroll = async (path: string) => {
+    if (
+      !window.confirm(
+        "Re-enroll this book root only if it is the intended mounted library. Re-enrolling an empty unmounted mountpoint can make missing books count as deletions.",
+      )
+    )
+      return;
+    setBrowserError("");
+    setReenrollingPath(path);
+    try {
+      await props.onReenroll(path);
+    } catch (error) {
+      setBrowserError(
+        error instanceof Error
+          ? error.message
+          : "Could not re-enroll that library root",
+      );
+    } finally {
+      setReenrollingPath("");
+    }
+  };
   return (
     <div class="border border-white/8 bg-[#151e1c] px-4 py-4 sm:px-5">
       <div class="flex flex-wrap items-start gap-4">
@@ -722,6 +746,23 @@ const AdditionalLocationsControl = (props: {
                   >
                     {location}
                   </span>
+                  <Show
+                    when={bookLocationKeys.includes(
+                      key as (typeof bookLocationKeys)[number],
+                    )}
+                  >
+                    <button
+                      class="shrink-0 text-[9px] text-[#b9a28f] transition hover:text-white disabled:cursor-wait disabled:opacity-40"
+                      disabled={reenrollingPath() === location}
+                      title="Replace this root's Afterleaf mount marker"
+                      type="button"
+                      onClick={() => void reenroll(location)}
+                    >
+                      {reenrollingPath() === location
+                        ? "Enrolling…"
+                        : "Re-enroll"}
+                    </button>
+                  </Show>
                   <button
                     class="text-[#df776e]"
                     type="button"
@@ -853,6 +894,7 @@ const OptionsPanel = (props: {
   availableTags: readonly string[];
   libraryConfig: AfterleafLibraryConfig;
   onLibraryConfigChange: (config: AfterleafLibraryConfig) => void;
+  onReenrollLibraryRoot: (path: string) => Promise<void>;
   blacklistedTags: readonly string[];
   defaultReadingDirection: ReadingDirection;
   mouseSensitivity: number;
@@ -919,6 +961,7 @@ const OptionsPanel = (props: {
         <AdditionalLocationsControl
           config={props.libraryConfig}
           onChange={props.onLibraryConfigChange}
+          onReenroll={props.onReenrollLibraryRoot}
         />
         <TagBlacklistControl
           availableTags={props.availableTags}
@@ -1736,6 +1779,13 @@ export const App = () => {
   );
   const unavailableBookPathCount = () =>
     librarySourceStatus.latest?.unavailableBookPathCount ?? 0;
+  const reenrollBookRoot = async (path: string) => {
+    await reenrollLibraryRoot(path);
+    await refetchLibrarySourceStatus();
+    setLibraryUpdateNotice(
+      "Library root re-enrolled. Run Import & scan to reconcile its books.",
+    );
+  };
   createEffect(
     on(availableLibraryProviders, (providers) => {
       if (providers.some((provider) => provider.id === selectedProviderId()))
@@ -2348,9 +2398,10 @@ export const App = () => {
                   {count()} configured book{" "}
                   {count() === 1 ? "path is" : "paths are"} unavailable. Library
                   updates are locked so the current books cannot be removed.
-                  Remount the missing storage to continue. Unlike TV, poster,
-                  and art-frame paths, each configured book path must contain at
-                  least one supported archive, image, or publication.json file.
+                  Remount the expected storage and restore its Afterleaf library
+                  root marker to continue. Enrolled book roots may be empty;
+                  missing or mismatched markers are treated as unavailable
+                  storage.
                 </p>
               </aside>
             )}
@@ -2800,6 +2851,7 @@ export const App = () => {
                       onLibraryConfigChange={(config) =>
                         void updateLibraryConfig(config)
                       }
+                      onReenrollLibraryRoot={reenrollBookRoot}
                       blacklistedTags={blacklistedTags()}
                       defaultReadingDirection={defaultReadingDirection()}
                       mouseSensitivity={mouseSensitivity()}

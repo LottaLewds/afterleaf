@@ -8,6 +8,7 @@ import {
   loadBlacklistedPublications,
   loadLibraryOperationStatus,
   loadLibrarySourceStatus,
+  reenrollLibraryRoot,
   resolvePastedLibraryImport,
   scanLocalLibrary,
   type LibraryOperationFetch,
@@ -17,6 +18,7 @@ import {
   LIBRARY_FETCH_MORE_ENDPOINT,
   LIBRARY_PASTE_RESOLVE_ENDPOINT,
   LIBRARY_SCAN_ENDPOINT,
+  LIBRARY_ROOT_ENROLL_ENDPOINT,
   LIBRARY_SOURCE_STATUS_ENDPOINT,
   LIBRARY_STATUS_ENDPOINT,
   libraryOperationFailure,
@@ -273,6 +275,23 @@ describe("browser library operation client", () => {
       unavailableBookPathCount: 2,
     });
     expect(requestInput).toBe(LIBRARY_SOURCE_STATUS_ENDPOINT);
+  });
+
+  test("explicitly re-enrolls a configured library root", async () => {
+    let requestInput: string | undefined;
+    let requestInit: RequestInit | undefined;
+    const fetcher: LibraryOperationFetch = async (input, init) => {
+      requestInput = input;
+      requestInit = init;
+      return response({ok: true});
+    };
+
+    await expect(
+      reenrollLibraryRoot("/mnt/manga", fetcher),
+    ).resolves.toBeUndefined();
+    expect(requestInput).toBe(LIBRARY_ROOT_ENROLL_ENDPOINT);
+    expect(requestInit?.method).toBe("POST");
+    expect(JSON.parse(String(requestInit?.body))).toEqual({path: "/mnt/manga"});
   });
 
   test("loads a completed background operation result", async () => {

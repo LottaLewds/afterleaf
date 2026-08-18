@@ -676,6 +676,48 @@ describe("LibraryUpdateService", () => {
     });
   });
 
+  test("allows a verified deletion when a scan error belongs to another source", async () => {
+    const isolatedSeedResult = structuredClone(seedResult);
+    if (!isolatedSeedResult.catalog)
+      throw new Error("Test seed result must contain a catalog");
+    isolatedSeedResult.catalog.publications = [
+      {...publication("kept", "kept-v2"), localSourceId: "books/kept"},
+    ];
+    isolatedSeedResult.report.diagnostics = [
+      {
+        code: "invalid-manifest",
+        message: "Unrelated broken publication manifest",
+        sourceId: "books/unrelated-broken",
+      },
+    ];
+    const service = new LibraryUpdateService(
+      {libraryDirectory: "/library", sourceDirectory: "/source"},
+      createDependencies({
+        readSnapshotCatalog: async () => ({
+          contentHash: "previous-catalog-hash",
+          publications: [
+            {
+              contentHash: "kept-v1",
+              id: "kept",
+              localSourceId: "books/kept",
+            },
+            {
+              contentHash: "removed-v1",
+              id: "removed",
+              localSourceId: "books/removed",
+            },
+          ],
+        }),
+        runSeed: async () => isolatedSeedResult,
+      }),
+    );
+
+    const result = await service.scan({});
+
+    expect(result.diff.removedPublicationIds).toEqual(["removed"]);
+    expect(result.snapshot.publicationCount).toBe(1);
+  });
+
   test("continues scanning and reports isolated migration failures", async () => {
     const localSeedResult = structuredClone(seedResult);
     const service = new LibraryUpdateService(

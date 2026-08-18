@@ -460,12 +460,13 @@ const existingArchiveDestinations = async (outputDirectory: string) => {
   const bySourceUrl = new Map<string, string>();
   const names = new Set<string>();
   const staleNames = new Set<string>();
+  const staleNamesByMetadataHash = new Map<string, string[]>();
   let entries;
   try {
     entries = await readdir(outputDirectory, {withFileTypes: true});
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT")
-      return {bySourceUrl, names, staleNames};
+      return {bySourceUrl, names, staleNames, staleNamesByMetadataHash};
     throw error;
   }
   for (const entry of entries) {
@@ -481,13 +482,18 @@ const existingArchiveDestinations = async (outputDirectory: string) => {
       if (
         sourceUrl.protocol === "file:" &&
         !(await fileExists(fileURLToPath(sourceUrl)))
-      )
+      ) {
         staleNames.add(entry.name.toLocaleLowerCase("en-US"));
+        const candidates =
+          staleNamesByMetadataHash.get(document.source.metadataHash) ?? [];
+        candidates.push(entry.name);
+        staleNamesByMetadataHash.set(document.source.metadataHash, candidates);
+      }
     } catch {
       continue;
     }
   }
-  return {bySourceUrl, names, staleNames};
+  return {bySourceUrl, names, staleNames, staleNamesByMetadataHash};
 };
 
 const refreshArchiveMetadata = (
@@ -581,6 +587,7 @@ export const importContentArchives = async (
   const existingDestinations =
     await existingArchiveDestinations(outputDirectory);
   const destinationKeys = new Set(existingDestinations.names);
+  const claimedExistingDestinations = new Set<string>();
 
   for (const archive of archives) {
     const {archiveName, archivePath} = archive;
@@ -621,31 +628,48 @@ export const importContentArchives = async (
       });
       continue;
     }
-    const baseDestinationKey = baseDestinationName.toLocaleLowerCase("en-US");
-    const existingDestinationName = existingDestinations.bySourceUrl.get(
-      pathToFileURL(archivePath).href,
-    );
-    const generatedSuffix = createHash("sha256")
-      .update(archivePath)
-      .digest("hex")
-      .slice(0, 10);
-    let idSuffix: string | undefined;
-    if (existingDestinationName?.startsWith(`${baseDestinationName}--`))
-      idSuffix = existingDestinationName.slice(baseDestinationName.length + 2);
-    else if (
-      !existingDestinationName &&
-      destinationKeys.has(baseDestinationKey) &&
-      !existingDestinations.staleNames.has(baseDestinationKey)
-    )
-      idSuffix = generatedSuffix;
-    const destinationName =
-      existingDestinationName ??
-      (idSuffix ? `${baseDestinationName}--${idSuffix}` : baseDestinationName);
-    const destinationKey = destinationName.toLocaleLowerCase("en-US");
-    const destinationPath = resolve(outputDirectory, destinationName);
-    const destinationExists = await fileExists(destinationPath);
     try {
       const inspection = await inspectContentArchive(archivePath);
+      const directDestinationName = existingDestinations.bySourceUrl.get(
+        pathToFileURL(archivePath).href,
+      );
+      const renameCandidates =
+        existingDestinations.staleNamesByMetadataHash.get(
+          inspection.metadataHash,
+        ) ?? [];
+      const renamedDestinationName =
+        renameCandidates.length === 1 &&
+        !claimedExistingDestinations.has(renameCandidates[0] ?? "")
+          ? renameCandidates[0]
+          : undefined;
+      const existingDestinationName =
+        directDestinationName ?? renamedDestinationName;
+      if (existingDestinationName)
+        claimedExistingDestinations.add(existingDestinationName);
+      const baseDestinationKey = baseDestinationName.toLocaleLowerCase("en-US");
+      const generatedSuffix = createHash("sha256")
+        .update(archivePath)
+        .digest("hex")
+        .slice(0, 10);
+      let idSuffix: string | undefined;
+      if (existingDestinationName?.startsWith(`${baseDestinationName}--`))
+        idSuffix = existingDestinationName.slice(
+          baseDestinationName.length + 2,
+        );
+      else if (
+        !existingDestinationName &&
+        destinationKeys.has(baseDestinationKey) &&
+        !existingDestinations.staleNames.has(baseDestinationKey)
+      )
+        idSuffix = generatedSuffix;
+      const destinationName =
+        existingDestinationName ??
+        (idSuffix
+          ? `${baseDestinationName}--${idSuffix}`
+          : baseDestinationName);
+      const destinationKey = destinationName.toLocaleLowerCase("en-US");
+      const destinationPath = resolve(outputDirectory, destinationName);
+      const destinationExists = await fileExists(destinationPath);
       const identity = inferPreparedPublicationIdentity(stem, options.tags);
       destinationKeys.add(destinationKey);
       const plan: ArchivePlan = {

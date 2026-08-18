@@ -5,6 +5,7 @@ import {
   LIBRARY_FETCH_MORE_ENDPOINT,
   LIBRARY_PASTE_RESOLVE_ENDPOINT,
   LIBRARY_PROVIDERS_ENDPOINT,
+  LIBRARY_ROOT_ENROLL_ENDPOINT,
   LIBRARY_SCAN_ENDPOINT,
   LIBRARY_SOURCE_STATUS_ENDPOINT,
   LIBRARY_STATUS_ENDPOINT,
@@ -435,6 +436,33 @@ export const saveLibraryConfig = async (
       response.status,
     );
   return (value as {config: AfterleafLibraryConfig}).config;
+};
+
+export const reenrollLibraryRoot = async (
+  path: string,
+  fetcher: LibraryOperationFetch = fetch,
+) => {
+  const {response, value} = await requestJson(
+    LIBRARY_ROOT_ENROLL_ENDPOINT,
+    {
+      body: JSON.stringify({path}),
+      headers: {"Content-Type": "application/json"},
+      method: "POST",
+    },
+    fetcher,
+  );
+  if (
+    !response.ok ||
+    !value ||
+    typeof value !== "object" ||
+    !("ok" in value) ||
+    value.ok !== true
+  )
+    throw new BrowserLibraryOperationError(
+      "Could not re-enroll library root",
+      "config_failed",
+      response.status,
+    );
 };
 
 export type LibraryDirectoryEntry = {name: string; path: string};

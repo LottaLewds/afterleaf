@@ -63,6 +63,7 @@ export interface PublicationCandidate {
   language: SupportedLanguage;
   normalizedTags: string[];
   alternates?: PublicationAlternateCandidate[];
+  localSourceId?: string;
   sourceDirectory: string;
 }
 
@@ -168,6 +169,7 @@ export interface ShelfAtlasRegion {
 
 export interface PackedPublication {
   id: string;
+  localSourceId?: string;
   groupId?: string;
   issue?: PublicationIssue;
   kind?: PublicationKind;

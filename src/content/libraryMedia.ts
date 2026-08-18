@@ -8,6 +8,7 @@ import {
 import {isContentArchivePath} from "~/content/archiveReader";
 import {
   LIBRARY_CONFIG_FILE_NAME,
+  LIBRARY_ROOT_REGISTRY_FILE_NAME,
   readAfterleafLibraryConfig,
   unavailableLibraryPaths,
 } from "~/content/libraryConfig";
@@ -130,9 +131,9 @@ const pruneNestedMediaPaths = (paths: readonly ConfiguredMediaPath[]) => {
   );
 };
 
-const pruneMissingDefaultArchives = async (
+const pruneMissingArchives = async (
   outputDirectory: string,
-  defaultArchiveDirectory: string,
+  authoritativeDirectories: readonly string[],
 ) => {
   let entries;
   try {
@@ -169,7 +170,12 @@ const pruneMissingDefaultArchives = async (
     } catch {
       continue;
     }
-    if (!pathIsWithin(defaultArchiveDirectory, sourcePath)) continue;
+    if (
+      !authoritativeDirectories.some((directory) =>
+        pathIsWithin(directory, sourcePath),
+      )
+    )
+      continue;
     try {
       await stat(sourcePath);
       continue;
@@ -219,6 +225,11 @@ export const importLocalMedia = async (
     configuredMediaPaths
       .filter((mediaPath) => mediaPath.protectsExistingLibrary)
       .map((mediaPath) => mediaPath.path),
+    resolve(
+      workingDirectory,
+      "content-sources",
+      LIBRARY_ROOT_REGISTRY_FILE_NAME,
+    ),
   );
   if (unavailableProtectedPaths.length > 0)
     throw new UnavailableLibraryMediaPathsError(unavailableProtectedPaths);
@@ -315,9 +326,11 @@ export const importLocalMedia = async (
     await appendFile(failureLogPath, `${lines}\n`);
   }
 
-  const archiveRemovedCount = await pruneMissingDefaultArchives(
+  const archiveRemovedCount = await pruneMissingArchives(
     outputDirectory,
-    defaultArchiveDirectory,
+    availableMedia
+      .filter(({stat: mediaStat}) => mediaStat.isDirectory())
+      .map(({path}) => path),
   );
 
   try {

@@ -50,7 +50,11 @@ const DEFAULT_LANGUAGES = ["english", "japanese"] as const;
 
 export interface SnapshotCatalogSummary {
   contentHash: string;
-  publications: Array<{contentHash: string; id: string}>;
+  publications: Array<{
+    contentHash: string;
+    id: string;
+    localSourceId?: string;
+  }>;
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -76,7 +80,21 @@ const parseSnapshotCatalogSummary = (
       throw new Error(
         `${field}.publications[${index}].contentHash must be a non-empty string`,
       );
-    return {contentHash: publication.contentHash, id: publication.id};
+    if (
+      publication.localSourceId !== undefined &&
+      (typeof publication.localSourceId !== "string" ||
+        !publication.localSourceId)
+    )
+      throw new Error(
+        `${field}.publications[${index}].localSourceId must be a non-empty string`,
+      );
+    return {
+      contentHash: publication.contentHash,
+      id: publication.id,
+      ...(publication.localSourceId === undefined
+        ? {}
+        : {localSourceId: publication.localSourceId}),
+    };
   });
   if (
     new Set(publications.map((publication) => publication.id)).size !==
@@ -487,12 +505,31 @@ export class LibraryUpdateService implements LibraryUpdateClient {
         "invalid-assets",
         "invalid-manifest",
       ]);
+      const unsafeSourceIds = new Set(
+        seedResult.report.diagnostics.flatMap((diagnostic) =>
+          unsafeRemovalDiagnostics.has(diagnostic.code) && diagnostic.sourceId
+            ? [diagnostic.sourceId]
+            : [],
+        ),
+      );
+      const previousPublicationById = new Map(
+        previousCatalog?.publications.map((publication) => [
+          publication.id,
+          publication,
+        ]) ?? [],
+      );
+      const removalAffectedByScanErrors =
+        publicationDiff.removedPublicationIds.some((publicationId) => {
+          const publication = previousPublicationById.get(publicationId);
+          // Catalogs created before source tracking cannot safely attribute an
+          // error, so retain the conservative behavior for their first scan.
+          if (!publication?.localSourceId) return unsafeSourceIds.size > 0;
+          return unsafeSourceIds.has(publication.localSourceId);
+        });
       if (
         previousCatalog &&
         publicationDiff.removedPublicationIds.length > 0 &&
-        seedResult.report.diagnostics.some(({code}) =>
-          unsafeRemovalDiagnostics.has(code),
-        )
+        removalAffectedByScanErrors
       ) {
         await Promise.allSettled([
           this.#dependencies.discardSnapshot?.(snapshotDirectory),

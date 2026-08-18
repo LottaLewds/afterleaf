@@ -44,6 +44,7 @@ import {
 } from "~/content/bookAspectRatio";
 import {generateContentPackPreview} from "~/content/preview";
 import {physicalBookDepth} from "~/game/bookDimensions";
+import {ARCHIVE_SOURCE_PROVIDER} from "~/content/archiveReader";
 
 const COVER_WIDTH = 256;
 const COVER_HEIGHT = 384;
@@ -693,7 +694,19 @@ const reusablePublicationMetadata = (
         ? {}
         : {trim: document.physical.trim}),
     },
-    source: document.source,
+    source:
+      document.source?.provider === ARCHIVE_SOURCE_PROVIDER
+        ? {
+            metadataHash: document.source.metadataHash,
+            provider: document.source.provider,
+          }
+        : document.source === undefined
+          ? undefined
+          : {
+              metadataHash: document.source.metadataHash,
+              provider: document.source.provider,
+              remoteId: document.source.remoteId,
+            },
     materialPageCount: material.pages.length,
   };
 };
@@ -734,7 +747,19 @@ const previousPublicationMetadata = (
       ? {}
       : {trim: previous.physical.trim}),
   },
-  source: previous.source,
+  source:
+    previous.source?.provider === ARCHIVE_SOURCE_PROVIDER
+      ? {
+          metadataHash: previous.source.metadataHash,
+          provider: previous.source.provider,
+        }
+      : previous.source === undefined
+        ? undefined
+        : {
+            metadataHash: previous.source.metadataHash,
+            provider: previous.source.provider,
+            remoteId: previous.source.remoteId,
+          },
   materialPageCount: previous.materialPageCount ?? previous.assets.pages.length,
 });
 
@@ -749,7 +774,8 @@ const canReusePublication = (
     if (!currentSource || !previousSource) return false;
     if (
       currentSource.provider !== previousSource.provider ||
-      currentSource.remoteId !== previousSource.remoteId ||
+      (currentSource.provider !== ARCHIVE_SOURCE_PROVIDER &&
+        currentSource.remoteId !== previousSource.remoteId) ||
       currentSource.metadataHash !== previousSource.metadataHash
     )
       return false;
@@ -847,6 +873,25 @@ const materializeReusedPublication = async (
   const previous = selection.previous;
   if (!previous)
     throw new Error("A reused publication requires its previous catalog entry");
+  const currentSource = selection.candidate.document.source;
+  const localSourceId = selection.candidate.localSourceId;
+  const sourceChanged =
+    JSON.stringify(previous.source) !== JSON.stringify(currentSource);
+  const localSourceChanged = previous.localSourceId !== localSourceId;
+  const reusedPrevious: PackedPublication = {
+    ...previous,
+    ...(localSourceId === undefined ? {} : {localSourceId}),
+    ...(currentSource === undefined ? {} : {source: currentSource}),
+    ...(sourceChanged || localSourceChanged
+      ? {
+          contentHash: hashJson({
+            localSourceId,
+            previousContentHash: previous.contentHash,
+            source: currentSource,
+          }),
+        }
+      : {}),
+  };
   const migrateBack =
     previous.backFormatVersion !== BACK_DERIVATIVE_FORMAT_VERSION ||
     previous.assets.backDetail === undefined;
@@ -973,7 +1018,7 @@ const materializeReusedPublication = async (
     else if (previous.assets.backDetail)
       nextBackDetailPath = migratedPath(previous.assets.backDetail);
     return {
-      ...previous,
+      ...reusedPrevious,
       alternates: previous.alternates.map((alternate) => ({
         ...alternate,
         page0: migratedPath(alternate.page0),
@@ -998,7 +1043,7 @@ const materializeReusedPublication = async (
               ),
             }
           : {}),
-        previousContentHash: previous.contentHash,
+        previousContentHash: reusedPrevious.contentHash,
         ...(spineBuffer
           ? {
               spineAssetHash: hashAsset(
@@ -1013,7 +1058,7 @@ const materializeReusedPublication = async (
     };
   }
   if (await persistentPublicationExists(previous, persistentAssetDirectory))
-    return {...previous, shelfAtlasIndex};
+    return {...reusedPrevious, shelfAtlasIndex};
 
   const migratedPath = (assetPath: string) =>
     prefixedAssetPath(assetPathPrefix, assetPath);
@@ -1028,7 +1073,7 @@ const materializeReusedPublication = async (
     ),
   );
   return {
-    ...previous,
+    ...reusedPrevious,
     alternates: previous.alternates.map((alternate) => ({
       ...alternate,
       page0: migratedPath(alternate.page0),
@@ -1298,6 +1343,9 @@ const materializePublication = async (
     throw new Error(`Failed to define surfaces for ${document.id}`);
   const publication = {
     id: document.id,
+    ...(selection.candidate.localSourceId === undefined
+      ? {}
+      : {localSourceId: selection.candidate.localSourceId}),
     ...(document.groupId === undefined ? {} : {groupId: document.groupId}),
     ...(document.issue === undefined ? {} : {issue: document.issue}),
     ...(document.kind === undefined ? {} : {kind: document.kind}),
@@ -1799,7 +1847,9 @@ export const seedContentPack = async (
         }).catch(() => {});
         const diagnostic: ContentSeedDiagnostic = {
           code: "invalid-assets",
-          sourceId: selection.candidate.document.id,
+          sourceId:
+            selection.candidate.localSourceId ??
+            selection.candidate.document.id,
           message: `Failed to materialize ${selection.candidate.document.id}: ${
             error instanceof Error ? error.message : String(error)
           }`,

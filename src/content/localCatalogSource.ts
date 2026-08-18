@@ -297,6 +297,7 @@ export class LocalCatalogSource implements PublicationSource {
         const candidate: PublicationCandidate = {
           document,
           language,
+          localSourceId: sourceId,
           normalizedTags,
           sourceDirectory,
         };

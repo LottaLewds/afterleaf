@@ -424,6 +424,14 @@ recursively. Conflicting folder and filename directions reject
 the affected archive. Without a direction hint, Afterleaf uses the player's
 configured default.
 
+The first successful scan enrolls each configured book directory by writing a
+`.afterleaf-library-root.json` marker inside it. Keep this marker with the
+library. Later scans require the same marker before treating the directory as
+authoritative; if a drive is unmounted or a different directory appears at the
+configured path, Afterleaf preserves the active catalog. An enrolled directory
+may be empty, allowing removal of its final book without being mistaken for an
+unmounted drive.
+
 Names resembling `Comic Name 2026-07` or `Comic Name 42` are recognized as
 magazine families and receive structured issue metadata.
 
@@ -431,15 +439,17 @@ magazine families and receive structured issue metadata.
 
 - Add media, replace an archive in place, or change files in an image folder,
   then choose **Import & scan**. Existing user-edited metadata is preserved.
-- Moving an archive into or between `comics/` and `manga/` directories
-  updates its source path and direction on the next scan.
+- Moving or renaming an archive or image-folder book preserves its publication
+  ID and shelf position when Afterleaf can match it unambiguously. Unchanged
+  generated assets are reused while source location and direction metadata are
+  updated.
 - Discarding a publication in the shop permanently blacklists its publication
   ID, so later scans do not bring it back. The blacklist is stored at
   `content-packs/library/publication-blacklist.json`.
-- Deleting an archive beneath the default in-repo `content/books` folder removes
-  its prepared catalog entry on the next **Import & scan**. Configured external
-  media paths are preserved when files or mounts disappear, so use the in-game
-  discard flow for a durable removal from those sources.
+- Deleting a book from a completely scanned, enrolled root removes its prepared
+  catalog entry on the next **Import & scan**, including configured external
+  roots. A missing or mismatched root marker locks updates instead, preserving
+  the active catalog until the expected storage is restored.
 
 Library snapshots live under `content-packs/library/snapshots`. Activation is
 atomic: a failed import or build leaves the previous snapshot active. Unchanged
