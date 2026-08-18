@@ -31,3 +31,5 @@ content/world-state-backups/
 _temp/
 *.bak
 Desktop.ini
+*.ico
+
