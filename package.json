@@ -12,6 +12,8 @@
     "content:seed": "bun scripts/content-seed.ts",
     "content:sync:nhentai": "bun scripts/content-sync-nhentai.ts",
     "library:scan": "bun scripts/library-scan.ts",
+    "library:export": "bun scripts/library-export.ts",
+    "library:import": "bun scripts/library-import.ts",
     "library:fetch-more": "bun scripts/library-fetch-more.ts",
     "library:blacklist": "bun scripts/library-blacklist.ts",
     "tv:analyze": "bun scripts/tv-analyze.ts",
