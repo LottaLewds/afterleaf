@@ -112,7 +112,7 @@ const readRightStickLook = (gamepad: Gamepad, look: GamepadLookInput) => {
   const deadzone = GAMEPAD_MAPPING.rightStick.deadzone;
 
   if (Math.abs(x) > deadzone) look.yaw += x;
-  if (Math.abs(y) > deadzone) look.pitch -= y;
+  if (Math.abs(y) > deadzone) look.pitch += y;
 };
 
 const neutralLook = (): GamepadLookInput => ({pitch: 0, yaw: 0});
