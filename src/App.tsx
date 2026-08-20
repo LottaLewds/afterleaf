@@ -2513,6 +2513,7 @@ export const App = () => {
                     unstuckRequest={unstuckRequest}
                     paused={menuOpen}
                     onOpenMenu={openMenu}
+					onCloseMenu={() => closeMenu()}
                     onPasteText={importPastedPublication}
                     onDiscardPublication={discardPublication}
                     onPageIndexChange={(publicationId, pageIndex) =>

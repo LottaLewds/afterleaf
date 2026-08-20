@@ -67,6 +67,7 @@ export type ShopViewportProps = {
   tvScreenLighting?: Accessor<boolean>;
   unstuckRequest?: Accessor<number>;
   onOpenMenu?: () => void;
+  onCloseMenu?: () => void;
   onPasteText?: (text: string) => boolean | Promise<boolean>;
   onPageIndexChange?: (publicationId: string, pageIndex: number) => void;
   onDiscardPublication?: (publicationId: string) => Promise<boolean>;
@@ -250,6 +251,7 @@ export const ShopViewport = (props: ShopViewportProps) => {
           selectedPublicationId: props.selectedPublicationId,
           onGameStateChange: setGameState,
           onPauseRequest: () => props.onOpenMenu?.(),
+		  onResumeRequest: () => props.onCloseMenu?.(),
           onTextPaste: (text) => props.onPasteText?.(text) ?? false,
           onPageIndexChange: (publicationId, pageIndex) =>
             props.onPageIndexChange?.(publicationId, pageIndex),

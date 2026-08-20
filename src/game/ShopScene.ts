@@ -104,6 +104,7 @@ import {
   type PlanarPoint,
   type ShopCollisionWorld,
 } from "~/game/shopGameplay";
+import {readGamepadInput, type GamepadFrameInput} from "~/game/gamepadInput";
 import {
   formatInteractionKey,
   keyboardLayoutEntry,
@@ -300,6 +301,7 @@ const LEGACY_MODEL_TELEVISION_ROTATION = new Quaternion().setFromAxisAngle(
 const DISCARD_TOSS_DURATION_SECONDS = 0.52;
 const SHELVE_BOOK_DURATION_SECONDS = 0.34;
 const LOOK_SENSITIVITY = 0.0021;
+const GAMEPAD_LOOK_SPEED = 450; // Equivalent mouse pixels per second at full stick deflection.
 const LOOK_SMOOTHING = 32;
 const MAX_LOOK_DELTA_PER_FRAME = (Math.PI / 180) * 10;
 const WORLD_SAVE_INTERVAL_MS = 10_000;
@@ -828,6 +830,7 @@ export type ShopSceneOptions = {
   onMediaChannelCreateRequest?: (kind: "art-frame" | "tv") => void;
   onGameStateChange?: (snapshot: ShopGameSnapshot) => void;
   onPauseRequest?: () => void;
+  onResumeRequest?: () => void;
   onPageIndexChange?: (publicationId: string, pageIndex: number) => void;
   onSignEditRequest?: (request: ShopSignEditRequest) => void;
   onTextPaste?: (text: string) => boolean | Promise<boolean>;
@@ -1099,6 +1102,15 @@ export class ShopScene {
   readonly #movementDelta: PlanarPoint = {x: 0, z: 0};
   readonly #movementInput: PlanarMovementInput = {forward: 0, right: 0};
   readonly #movementPosition: PlanarPoint = {x: 0, z: 0};
+  #gamepadInput: GamepadFrameInput = {
+    movement: {forward: 0, right: 0},
+    look: {pitch: 0, yaw: 0},
+    lookModifier: false,
+    menu: false,
+    jump: false,
+    interact: false,
+    sprint: false,
+  };
   readonly #movableProps = new Map<string, MovablePropRecord>();
   readonly #movablePropTargetMeshes: Mesh[] = [];
   readonly #televisionProps = new Map<ShopTelevision, MovablePropRecord>();
@@ -1117,6 +1129,7 @@ export class ShopScene {
     | ((snapshot: ShopGameSnapshot) => void)
     | undefined;
   readonly #onPauseRequest: (() => void) | undefined;
+  readonly #onResumeRequest: (() => void) | undefined;
   readonly #onPageIndexChange:
     | ((publicationId: string, pageIndex: number) => void)
     | undefined;
@@ -1423,6 +1436,7 @@ export class ShopScene {
     this.#onMediaChannelCreateRequest = options.onMediaChannelCreateRequest;
     this.#onGameStateChange = options.onGameStateChange;
     this.#onPauseRequest = options.onPauseRequest;
+    this.#onResumeRequest = options.onResumeRequest;
     this.#onPageIndexChange = options.onPageIndexChange;
     this.#onSignEditRequest = options.onSignEditRequest;
     this.#onWorldSave = options.onWorldSave;
@@ -1686,6 +1700,8 @@ export class ShopScene {
         this.#inputSuspended = true;
         this.#suspendInput();
       }
+      this.#gamepadInput = readGamepadInput();
+      if (this.#gamepadInput.menu) this.#onResumeRequest?.();
       this.#frameHandle = requestAnimationFrame(this.#animate);
       return;
     }
@@ -7015,6 +7031,15 @@ export class ShopScene {
   };
 
   #consumePointerMovement(deltaSeconds: number) {
+    this.#gamepadInput = readGamepadInput();
+    if (this.#gamepadInput.menu) this.#onPauseRequest?.();
+    if (this.#pointerLocked) {
+      this.#pendingPointerMovementX +=
+        this.#gamepadInput.look.yaw * GAMEPAD_LOOK_SPEED * deltaSeconds;
+      this.#pendingPointerMovementY +=
+        this.#gamepadInput.look.pitch * GAMEPAD_LOOK_SPEED * deltaSeconds;
+    }
+
     const movementX = this.#pendingPointerMovementX;
     const movementY = this.#pendingPointerMovementY;
     const anomalousEventCount = this.#anomalousPointerMovementCount;
@@ -7584,18 +7609,7 @@ export class ShopScene {
     }
     if (event.code === "KeyE") {
       event.preventDefault();
-      if (this.#televisionTargeted) {
-        if (this.#targetedTelevision?.powered())
-          this.#targetedTelevision.nextChannel();
-        else this.#targetedTelevision?.togglePower();
-        return;
-      }
-      if (this.#carriedProp) {
-        this.#dropCarriedProp();
-        return;
-      }
-      if (this.#targetedProp || this.#targetedPosterId) return;
-      this.#interact();
+      this.#triggerInteraction();
       return;
     }
     if (event.code === "KeyF") {
@@ -9193,12 +9207,39 @@ export class ShopScene {
       this.#jumpQueued = false;
       return;
     }
-    this.#movementInput.forward =
-      Number(this.#keysDown.has("KeyW")) - Number(this.#keysDown.has("KeyS"));
-    this.#movementInput.right =
-      Number(this.#keysDown.has("KeyD")) - Number(this.#keysDown.has("KeyA"));
+    this.#movementInput.forward = Math.min(
+      1,
+      Math.max(
+        -1,
+        Number(this.#keysDown.has("KeyW")) -
+          Number(this.#keysDown.has("KeyS")) +
+          this.#gamepadInput.movement.forward,
+      ),
+    );
+    this.#movementInput.right = Math.min(
+      1,
+      Math.max(
+        -1,
+        Number(this.#keysDown.has("KeyD")) -
+          Number(this.#keysDown.has("KeyA")) +
+          this.#gamepadInput.movement.right,
+      ),
+    );
     const sprinting =
-      this.#keysDown.has("ShiftLeft") || this.#keysDown.has("ShiftRight");
+      this.#keysDown.has("ShiftLeft") ||
+      this.#keysDown.has("ShiftRight") ||
+      this.#gamepadInput.sprint;
+    if (this.#gamepadInput.jump) {
+      this.#jumpQueued = true;
+      this.#jumpQueuedAt = performance.now();
+    }
+    if (
+      this.#gamepadInput.interact &&
+      this.#inspectionMode !== "closing" &&
+      !this.#shelveAnimation
+    ) {
+      this.#triggerInteraction();
+    }
     getPlanarMovement(
       this.#movementInput,
       this.#lookAngles.yaw,
@@ -11212,6 +11253,21 @@ export class ShopScene {
     this.#setHoveredPublicationId(
       typeof publicationId === "string" ? publicationId : undefined,
     );
+  }
+
+  #triggerInteraction() {
+    if (this.#televisionTargeted) {
+      if (this.#targetedTelevision?.powered())
+        this.#targetedTelevision.nextChannel();
+      else this.#targetedTelevision?.togglePower();
+      return;
+    }
+    if (this.#carriedProp) {
+      this.#dropCarriedProp();
+      return;
+    }
+    if (this.#targetedProp || this.#targetedPosterId) return;
+    this.#interact();
   }
 
   #interact(allowNonBookPropPickup = true) {
