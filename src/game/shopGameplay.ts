@@ -1,5 +1,5 @@
 const TWO_PI = Math.PI * 2;
-const DEFAULT_PITCH_LIMIT = Math.PI * 0.49;
+export const DEFAULT_PITCH_LIMIT = Math.PI * 0.49;
 const MAX_POINTER_MOVEMENT_DELTA = 256;
 
 export type PlanarPoint = {

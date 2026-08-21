@@ -2448,6 +2448,9 @@ export const App = () => {
         if (event.key === "Escape") {
           if (event.defaultPrevented || event.repeat) return;
           event.preventDefault();
+          // The arcade cabinet consumes Escape to back out of its own UI
+          // (leaving a game, then closing its picker) before shop menus open.
+          if (shopViewportControls?.consumeEscape?.()) return;
           if (purgeBlacklistedOpen()) {
             if (!libraryUpdating()) setPurgeBlacklistedOpen(false);
             return;

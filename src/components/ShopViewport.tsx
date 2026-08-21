@@ -23,6 +23,7 @@ import {
 import type {CatalogAtlases, CatalogIdentity, CatalogItem} from "~/catalog";
 import {importArtFrameImage} from "~/artFrames/browserClient";
 import {artFrameChannelId} from "~/artFrames/protocol";
+import {ArcadeBrowser} from "~/components/ArcadeBrowser";
 import {
   ShopScene,
   type ShopGameSnapshot,
@@ -52,6 +53,11 @@ const keycapParts = (key: string) =>
 
 export type ShopViewportControls = {
   requestPointerLock: () => void;
+  /**
+   * Gives the App-level Escape handler first crack: returns true when the
+   * arcade session consumed the press (backing out of a game or picker).
+   */
+  consumeEscape?: () => boolean;
 };
 
 export type ShopViewportProps = {
@@ -108,10 +114,18 @@ export const ShopViewport = (props: ShopViewportProps) => {
       props.paused?.() !== true &&
       signEditor() === undefined &&
       mediaChannelEditor() === undefined &&
-      gameState().inspectionMode !== "spread",
+      gameState().inspectionMode !== "spread" &&
+      gameState().arcadeStatus === undefined,
   );
   const controls: ShopViewportControls = {
     requestPointerLock: () => shopScene?.requestPointerLock(),
+    consumeEscape: () => {
+      const status = gameState().arcadeStatus;
+      if (status === undefined) return false;
+      if (status === "playing") shopScene?.quitActiveArcadeGame();
+      else shopScene?.exitArcadeUi();
+      return true;
+    },
   };
 
   const openSignEditor = (request: ShopSignEditRequest) => {
@@ -815,6 +829,72 @@ export const ShopViewport = (props: ShopViewportProps) => {
             </form>
           </div>
         )}
+      </Show>
+
+      <Show
+        when={gameState().arcadeStatus === "browsing"}
+        fallback={
+          <Show
+            when={
+              gameState().arcadeStatus === "launching" ||
+              gameState().arcadeStatus === "playing"
+            }
+          >
+            <Show
+              when={gameState().arcadeStatus === "launching"}
+              fallback={
+                <div class="pointer-events-none absolute bottom-5 left-1/2 z-20 -translate-x-1/2">
+                  <div class="pointer-events-auto flex items-center gap-3 border border-white/10 bg-[#08100f]/88 px-4 py-2 shadow-lg backdrop-blur-sm">
+                    <span class="flex h-4 w-28 items-center overflow-hidden border border-white/12 bg-black/40 font-mono text-[8px] tracking-[0.14em] text-[#62b47c] uppercase">
+                      <span class="truncate px-1">
+                        {gameState().arcadeRomName?.replace(/\.[^.]+$/u, "")}
+                      </span>
+                    </span>
+                    <button
+                      class="border border-white/15 px-2 py-1 text-[8px] font-bold tracking-[0.12em] text-[#dc7167] uppercase transition hover:bg-[#a73b34]/15"
+                      onClick={() => shopScene?.quitActiveArcadeGame()}
+                      type="button"
+                    >
+                      Leave
+                    </button>
+                  </div>
+                </div>
+              }
+            >
+              <div class="pointer-events-none absolute inset-0 z-30 grid place-items-center bg-[#07100f]/60 backdrop-blur-[2px]">
+                <div class="text-center">
+                  <span class="mx-auto block size-5 animate-spin rounded-full border-2 border-[#758b84] border-t-[#e55749]" />
+                  <p class="mt-3 text-[9px] font-semibold tracking-[0.2em] text-[#7e918b] uppercase">
+                    {gameState().arcadeDetail ?? "Warming up the cabinet…"}
+                  </p>
+                  <Show when={gameState().arcadeRomName}>
+                    {(name) => (
+                      <p class="mt-1 max-w-72 truncate text-xs text-[#d9d2c6]">
+                        {name()}
+                      </p>
+                    )}
+                  </Show>
+                  <button
+                    class="pointer-events-auto mt-4 border border-white/15 px-3 py-2 text-[9px] font-bold tracking-[0.12em] text-[#98a39e] uppercase transition hover:bg-white/5 hover:text-white"
+                    onClick={() => shopScene?.exitArcadeUi()}
+                    type="button"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            </Show>
+          </Show>
+        }
+      >
+        <ArcadeBrowser
+          onClose={() => shopScene?.exitArcadeUi()}
+          onPlay={(request) => {
+            const cabinetId = gameState().arcadeCabinetId;
+            if (!cabinetId) return;
+            shopScene?.playArcadeRom(cabinetId, request);
+          }}
+        />
       </Show>
 
       <Show when={!ready() && !error()}>

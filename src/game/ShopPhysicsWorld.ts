@@ -6,7 +6,10 @@ import type {
   World,
 } from "@dimforge/rapier3d-compat";
 
-import {SHOP_COLLISION_BOXES} from "~/game/shopLayout";
+import {
+  ARCADE_CABINET_COLLISION_BOXES,
+  SHOP_COLLISION_BOXES,
+} from "~/game/shopLayout";
 import {SHOP_EXPANSION_COLLISION_BOXES} from "~/game/shopExpansionLayout";
 
 export const SHOP_PHYSICS_BOOK_WIDTH = 0.5;
@@ -474,6 +477,7 @@ export class ShopPhysicsWorld {
     for (const box of [
       ...SHOP_COLLISION_BOXES,
       ...SHOP_EXPANSION_COLLISION_BOXES,
+      ...ARCADE_CABINET_COLLISION_BOXES,
     ]) {
       world.createCollider(
         rapier.ColliderDesc.cuboid(

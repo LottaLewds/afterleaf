@@ -52,6 +52,8 @@ import {DEV} from "solid-js";
 import type {ArtFrameFit} from "~/artFrames/aspect";
 import {artFrameChannelId} from "~/artFrames/protocol";
 import type {ArtFrameChannel, ArtFrameImage} from "~/artFrames/protocol";
+import {describeKeyboardEvent} from "~/arcade/emulatorHost";
+import {findArcadeSystem} from "~/arcade/systems";
 import floorAlbedoUrl from "~/assets/materials/laminate-floor-albedo.webp";
 import floorNormalUrl from "~/assets/materials/laminate-floor-normal.webp";
 import floorSurfaceUrl from "~/assets/materials/laminate-floor-surface.webp";
@@ -68,6 +70,12 @@ import type {
 import {bookDropPosition} from "~/game/bookDropPlacement";
 import {physicalBookDepth, physicalBookWidth} from "~/game/bookDimensions";
 import {remapBookGeometryToAtlas} from "~/game/bookAtlasGeometry";
+import {
+  ARCADE_CABINET_HEIGHT,
+  ShopArcadeCabinet,
+  type ArcadeSessionStatus,
+  type ShopArcadePlayRequest,
+} from "~/game/ShopArcadeCabinet";
 import {DigitalArtFrame} from "~/game/DigitalArtFrame";
 import {PageTextureCache} from "~/game/PageTextureCache";
 import {PaperSheetSimulation} from "~/game/PaperSheetSimulation";
@@ -91,6 +99,7 @@ import {
 import {
   clampLookDeltaMagnitude,
   dampLookAngles,
+  DEFAULT_PITCH_LIMIT,
   getPlanarMovement,
   isPlausiblePointerMovement,
   isPointInsideShopObstacle,
@@ -264,6 +273,13 @@ const TRASH_CAN_PROP_ID = "discard-trashcan";
 const TRASH_CAN_SIZE = SHOP_PHYSICS_TRASH_HALF_EXTENT * 2;
 const SIGN_INTERACTION_DISTANCE = 3.4;
 const TELEVISION_INTERACTION_DISTANCE = 3.6;
+const ARCADE_INTERACTION_DISTANCE = 3.4;
+// Each entry places one cabinet (model screen faces +Z; rotationY flips it
+// toward the shop interior). Add entries to open more arcade lanes.
+const ARCADE_CABINET_PLACEMENTS: readonly {
+  position: readonly [number, number, number];
+  rotationY: number;
+}[] = [{position: [2.7, 0, 16.2], rotationY: Math.PI}];
 const MOVABLE_PROP_INTERACTION_DISTANCE = 4;
 const POSTER_INTERACTION_DISTANCE = 4;
 const POSTER_PLACEMENT_DISTANCE = POSTER_INTERACTION_DISTANCE * 2;
@@ -795,6 +811,12 @@ export type ShopGameSnapshot = {
   tvVideoImportError?: string;
   tvVideoImporting?: boolean;
   tvVideoImportMessage?: string;
+  /** Session state of the cabinet driving the arcade UI; absent when idle. */
+  arcadeStatus?: ArcadeSessionStatus;
+  arcadeCabinetId?: string;
+  arcadeSystemId?: string;
+  arcadeDetail?: string;
+  arcadeRomName?: string;
   prompt?: string;
   shelvedCount: number;
   throwCharge?: number;
@@ -1103,6 +1125,13 @@ export class ShopScene {
   readonly #movablePropTargetMeshes: Mesh[] = [];
   readonly #televisionProps = new Map<ShopTelevision, MovablePropRecord>();
   readonly #televisionsBySaveId = new Map<string, ShopTelevision>();
+  // Every placed cabinet runs its own session; the "active" one is the
+  // cabinet whose UI (picker or game) the player is currently driving.
+  readonly #arcadeCabinets: ShopArcadeCabinet[] = [];
+  #targetedArcadeCabinet: ShopArcadeCabinet | undefined;
+  #activeArcadeCabinet: ShopArcadeCabinet | undefined;
+  #activeArcadeSystemId: string | undefined;
+  readonly #arcadeAimTarget = new Vector3();
   readonly #mouseSensitivity: () => number;
   readonly #newPublicationIds: () => readonly string[];
   readonly #tvScreenLighting: () => boolean;
@@ -1520,6 +1549,98 @@ export class ShopScene {
     this.#worldStateDirty = true;
   }
 
+  /** Boots a ROM on the named cabinet; called by the ROM picker UI. */
+  playArcadeRom(cabinetId: string, request: ShopArcadePlayRequest) {
+    if (this.#disposed) return;
+    const cabinet = this.#arcadeCabinets.find(
+      (entry) => entry.id === cabinetId,
+    );
+    if (!cabinet) return;
+    this.#activeArcadeCabinet = cabinet;
+    this.#activeArcadeSystemId = request.systemId;
+    cabinet.play(request);
+    this.#emitGameState();
+  }
+
+  /** Playing → back to the ROM picker of the active session. */
+  quitActiveArcadeGame() {
+    if (this.#disposed) return;
+    this.#activeArcadeCabinet?.quitGame();
+    this.#emitGameState();
+  }
+
+  /** Escape ladder: playing backs out to browsing; browsing exits entirely. */
+  #exitOneArcadeLevel() {
+    const cabinet = this.#activeArcadeCabinet;
+    if (!cabinet) return;
+    if (cabinet.sessionStatus === "playing") this.quitActiveArcadeGame();
+    else this.exitArcadeUi();
+  }
+
+  /**
+   * Backs out of any arcade UI: an open picker or a running game closes and
+   * the player returns to walking around the shop.
+   */
+  exitArcadeUi() {
+    if (this.#disposed) return;
+    const activeCabinet = this.#activeArcadeCabinet;
+    this.#activeArcadeCabinet = undefined;
+    activeCabinet?.exitToIdle();
+    // Any other cabinet left in a UI state closes too; independent cabinets
+    // that are actively playing keep running.
+    for (const cabinet of this.#arcadeCabinets)
+      if (
+        cabinet !== activeCabinet &&
+        cabinet.sessionStatus &&
+        cabinet.sessionStatus !== "playing"
+      )
+        cabinet.exitToIdle();
+    this.#emitGameState();
+    // Hand control back immediately (called from an activating gesture such
+    // as Escape or the Leave button), mirroring inspection close.
+    if (!this.#paused()) this.#requestPointerLock();
+  }
+
+  #enterArcadeBrowsing(cabinet: ShopArcadeCabinet) {
+    // This cabinet must be free; other cabinets' sessions stay untouched so
+    // several machines can run at once.
+    if (cabinet.sessionStatus) return;
+    this.#activeArcadeCabinet = cabinet;
+    this.#suppressNextPointerUnlockPause = true;
+    this.#releasePointerLock();
+    this.#aimCameraAtObject(cabinet.object);
+    cabinet.beginBrowsing();
+  }
+
+  /** Snapshot fields describing the UI-active cabinet's session, if any. */
+  #arcadeStatusForUi(): ArcadeSessionStatus | undefined {
+    const activeCabinet = this.#activeArcadeCabinet;
+    if (!activeCabinet?.sessionStatus) return undefined;
+    return activeCabinet.sessionStatus;
+  }
+
+  /** System of the ROM most recently played on the UI-active cabinet. */
+  #arcadeSystemIdForUi(): string | undefined {
+    return this.#activeArcadeSystemId;
+  }
+
+  /** Gently turns the player's view toward a cabinet's screen on entry. */
+  #aimCameraAtObject(object: Object3D) {
+    object.getWorldPosition(this.#arcadeAimTarget);
+    this.#arcadeAimTarget.y += ARCADE_CABINET_HEIGHT * 0.62;
+    const deltaX = this.#arcadeAimTarget.x - this.#camera.position.x;
+    const deltaY = this.#arcadeAimTarget.y - this.#camera.position.y;
+    const deltaZ = this.#arcadeAimTarget.z - this.#camera.position.z;
+    const horizontal = Math.hypot(deltaX, deltaZ);
+    if (horizontal < Number.EPSILON) return;
+    this.#lookTarget.yaw = Math.atan2(-deltaX, -deltaZ);
+    this.#lookTarget.pitch = MathUtils.clamp(
+      Math.atan2(deltaY, horizontal),
+      -DEFAULT_PITCH_LIMIT,
+      DEFAULT_PITCH_LIMIT,
+    );
+  }
+
   seekInspectionPage(pageIndex: number) {
     const publication = this.#inspectionPublication();
     if (!publication || this.#inspectionMode !== "spread") return;
@@ -1613,6 +1734,10 @@ export class ShopScene {
     for (const television of this.#televisions) television.dispose();
     this.#televisions.length = 0;
     this.#televisionsBySaveId.clear();
+    for (const cabinet of this.#arcadeCabinets) cabinet.dispose();
+    this.#arcadeCabinets.length = 0;
+    this.#targetedArcadeCabinet = undefined;
+    this.#activeArcadeCabinet = undefined;
     this.#carriedProp = undefined;
     this.#targetedTelevision = undefined;
     this.#televisionProps.clear();
@@ -1681,11 +1806,22 @@ export class ShopScene {
       television.setSuspended(paused);
       television.update(deltaSeconds);
     }
+    for (const cabinet of this.#arcadeCabinets) cabinet.update(deltaSeconds);
     if (paused) {
       if (!this.#inputSuspended) {
         this.#inputSuspended = true;
         this.#suspendInput();
       }
+      this.#frameHandle = requestAnimationFrame(this.#animate);
+      return;
+    }
+    // While an arcade session is active the world holds still around the
+    // player (no movement, targeting, or physics) but keeps rendering so
+    // every cabinet's attract mode and live screens stay animated.
+    const arcadeActive = this.#arcadeStatusForUi() !== undefined;
+    if (arcadeActive) {
+      this.#updateCameraLook(deltaSeconds);
+      this.#renderer.render(this.#scene, this.#camera);
       this.#frameHandle = requestAnimationFrame(this.#animate);
       return;
     }
@@ -2004,6 +2140,16 @@ export class ShopScene {
     });
     this.#registerTelevision(FIXED_TELEVISION_SAVE_ID, fixedTelevision);
     this.#registerTelevision(MOVABLE_TELEVISION_SAVE_ID, movableTelevision);
+    for (const placement of ARCADE_CABINET_PLACEMENTS)
+      this.#arcadeCabinets.push(
+        new ShopArcadeCabinet({
+          parent: architecture,
+          position: placement.position,
+          rotationY: placement.rotationY,
+          onInteractRequest: (cabinet) => this.#enterArcadeBrowsing(cabinet),
+          onStateChange: () => this.#emitGameState(),
+        }),
+      );
     const movableTelevisionProp = this.#registerMovableProp({
       density: 45,
       depth: SHOP_MODEL_TELEVISION_SIZE.depth,
@@ -7283,6 +7429,17 @@ export class ShopScene {
   readonly #handleKeyDown = (event: KeyboardEvent) => {
     if (this.#paused()) return;
     this.#observeKeyboardEvent(event);
+    // While a cabinet game runs, shop controls are modal: every key goes to
+    // the emulator except Escape, which backs out one level.
+    if (this.#activeArcadeCabinet?.sessionStatus === "playing") {
+      event.preventDefault();
+      if (event.code === "Escape") {
+        this.#exitOneArcadeLevel();
+        return;
+      }
+      this.#activeArcadeCabinet.forwardKey(true, describeKeyboardEvent(event));
+      return;
+    }
     if (this.#inspectionMode === "spread") {
       if (event.repeat) return;
       const inspectingCarriedBook =
@@ -7648,6 +7805,11 @@ export class ShopScene {
 
   readonly #handleKeyUp = (event: KeyboardEvent) => {
     this.#keysDown.delete(event.code);
+    if (this.#activeArcadeCabinet?.sessionStatus === "playing") {
+      event.preventDefault();
+      this.#activeArcadeCabinet.forwardKey(false, describeKeyboardEvent(event));
+      return;
+    }
     if (event.code === "KeyF" && this.#throwChargeActive) {
       event.preventDefault();
       this.#releaseThrowCharge();
@@ -7709,6 +7871,7 @@ export class ShopScene {
     this.#targetedSignKey = undefined;
     this.#setPropTargeted(undefined);
     this.#setTelevisionTargeted(false);
+    this.#setArcadeTargeted(undefined);
     this.#setTrashTargeted(false);
     this.#emitGameState();
   }
@@ -7735,6 +7898,14 @@ export class ShopScene {
     this.#televisionInteraction = nextInteraction;
     this.#televisionTargeted = nextInteraction !== undefined;
     nextTelevision?.setTargeted(nextInteraction);
+    this.#emitGameState();
+  }
+
+  #setArcadeTargeted(cabinet: ShopArcadeCabinet | undefined) {
+    if (cabinet === this.#targetedArcadeCabinet) return;
+    this.#targetedArcadeCabinet?.setTargeted(false);
+    this.#targetedArcadeCabinet = cabinet;
+    cabinet?.setTargeted(true);
     this.#emitGameState();
   }
 
@@ -10869,6 +11040,8 @@ export class ShopScene {
   }
 
   #updateInteractionTarget() {
+    // An arcade session owns the screen; retargeting would fight its UI.
+    if (this.#arcadeStatusForUi()) return;
     if (this.#inspectionMode !== "none") {
       this.#setHoveredPublicationId(undefined);
       this.#shelfTargeted = false;
@@ -10917,6 +11090,7 @@ export class ShopScene {
         this.#setPropTargeted(undefined);
         this.#trashTargeted = false;
         this.#setTelevisionTargeted(false);
+        this.#setArcadeTargeted(undefined);
         this.#updateShelfTargetVisuals();
         this.#updateSignTargetVisuals();
         this.#emitGameState();
@@ -11051,6 +11225,45 @@ export class ShopScene {
       this.#shelfTargeted = false;
       this.#shelfTargetSelection = undefined;
       this.#updateShelfTargetVisuals();
+    }
+    let arcadeCabinet: ShopArcadeCabinet | undefined;
+    let arcadeIntersection:
+      | ReturnType<Raycaster["intersectObjects"]>[number]
+      | undefined;
+    for (const candidate of this.#arcadeCabinets) {
+      candidate.object.getWorldPosition(this.#televisionTargetPosition);
+      const cabinetDistance = this.#camera.position.distanceTo(
+        this.#televisionTargetPosition,
+      );
+      if (cabinetDistance > ARCADE_INTERACTION_DISTANCE + 1.2) continue;
+      const candidateIntersection = this.#raycaster.intersectObjects(
+        candidate.interactionTargets,
+        false,
+      )[0];
+      if (
+        !candidateIntersection ||
+        (arcadeIntersection &&
+          candidateIntersection.distance >= arcadeIntersection.distance)
+      )
+        continue;
+      arcadeCabinet = candidate;
+      arcadeIntersection = candidateIntersection;
+    }
+    const arcadeTargeted =
+      arcadeCabinet !== undefined &&
+      arcadeIntersection !== undefined &&
+      arcadeIntersection.distance <= ARCADE_INTERACTION_DISTANCE;
+    this.#setArcadeTargeted(arcadeTargeted ? arcadeCabinet : undefined);
+    if (arcadeTargeted) {
+      this.#setTelevisionTargeted(false);
+      this.#setPropTargeted(undefined);
+      this.#setTrashTargeted(false);
+      this.#targetedSignKey = undefined;
+      this.#targetedPosterId = undefined;
+      this.#setDigitalArtFrameTargeted();
+      this.#updateSignTargetVisuals();
+      this.#setHoveredPublicationId(undefined);
+      return;
     }
     let television: ShopTelevision | undefined;
     let televisionIntersection:
@@ -11233,6 +11446,10 @@ export class ShopScene {
         this.#pickUpBook(this.#hoveredPublicationId);
       } else if (this.#trashTargeted) void this.#discardCarriedBook();
       else if (this.#shelfTargeted) this.#shelveCarriedBook();
+      return;
+    }
+    if (this.#targetedArcadeCabinet) {
+      this.#targetedArcadeCabinet.interact();
       return;
     }
     if (this.#televisionTargeted) {
@@ -12250,6 +12467,8 @@ export class ShopScene {
       prompt = `E shelve ${this.#shelfTargetSelection?.presentation ?? this.#shelfPresentation}-out · Q switch shelf presentation · Hold F charge throw · G drop · R inspect${this.#carriedPublicationIds.length > 1 ? " · Wheel cycle books" : ""}`;
     else if (carriedRecord)
       prompt = `Q ${this.#shelfPresentation}-out · Aim at a shelf · Hold F charge throw · G drop · R inspect${this.#carriedPublicationIds.length > 1 ? " · Wheel cycle books" : ""}`;
+    else if (this.#targetedArcadeCabinet?.sessionStatus === undefined)
+      prompt = "E play the arcade";
     else if (this.#televisionTargeted) {
       const televisionPrompt = this.#targetedTelevision?.prompt;
       const televisionProp = this.#targetedTelevision
@@ -12381,6 +12600,14 @@ export class ShopScene {
         interactions.unshift({key: "E", label: "Shelve book"});
       if (this.#trashTargeted)
         interactions.unshift({key: "E", label: "Discard book"});
+    } else if (this.#targetedArcadeCabinet) {
+      const cabinet = this.#targetedArcadeCabinet;
+      interactionContext = cabinet.sessionStatus
+        ? `Arcade · ${cabinet.sessionRomName ?? "cabinet"}`
+        : "Arcade cabinet";
+      interactions = cabinet.sessionStatus
+        ? [{key: "Esc", label: "Back out"}]
+        : [{key: "E", label: "Play the arcade"}];
     } else if (this.#televisionTargeted) {
       const televisionProp = this.#targetedTelevision
         ? this.#televisionProps.get(this.#targetedTelevision)
@@ -12449,7 +12676,19 @@ export class ShopScene {
       ];
     } else if (this.#targetedSignKey !== undefined)
       interactions = [{key: "E", label: "Customize sign"}];
-    else if (hoveredRecord)
+    else if (this.#arcadeStatusForUi() === "playing") {
+      // The emulator owns the keyboard; surface its control layout in the
+      // standard interactions panel.
+      const system = findArcadeSystem(this.#activeArcadeSystemId ?? "");
+      interactionContext = this.#activeArcadeCabinet?.sessionRomName;
+      interactions = [
+        ...(system?.controlHints.map((hint) => ({
+          key: hint.keys,
+          label: hint.action,
+        })) ?? []),
+        {key: "Esc", label: "Leave game"},
+      ];
+    } else if (hoveredRecord)
       interactions =
         hoveredRecord.state.status === "shelved"
           ? [
@@ -12544,6 +12783,23 @@ export class ShopScene {
       ...(this.#tvVideoImportCount > 0 ? {tvVideoImporting: true} : {}),
       ...(this.#tvVideoImportMessage
         ? {tvVideoImportMessage: this.#tvVideoImportMessage}
+        : {}),
+      ...(this.#arcadeStatusForUi()
+        ? {
+            arcadeStatus: this.#arcadeStatusForUi(),
+            arcadeCabinetId: this.#activeArcadeCabinet?.id,
+            ...(this.#arcadeSystemIdForUi()
+              ? {arcadeSystemId: this.#arcadeSystemIdForUi()}
+              : {}),
+            ...(this.#activeArcadeCabinet?.sessionDetail
+              ? {
+                  arcadeDetail: this.#activeArcadeCabinet.sessionDetail,
+                }
+              : {}),
+            ...(this.#activeArcadeCabinet?.sessionRomName
+              ? {arcadeRomName: this.#activeArcadeCabinet.sessionRomName}
+              : {}),
+          }
         : {}),
       ...(prompt ? {prompt} : {}),
       shelvedCount,
