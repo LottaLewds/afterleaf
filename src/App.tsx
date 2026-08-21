@@ -5,6 +5,7 @@ import {
   FiCheck,
   FiChevronRight,
   FiClock,
+  FiCommand,
   FiCrosshair,
   FiDownload,
   FiFolder,
@@ -98,6 +99,18 @@ import {
   type ReadingDirection,
 } from "~/game/controlPreferences";
 import {loadReaderBookmarks, saveReaderBookmark} from "~/reader/bookmarks";
+import {
+  DEFAULT_SHORTCUTS,
+  formatGamepadButton,
+  formatKeyboardCode,
+  loadShortcuts,
+  saveShortcuts,
+  SHORTCUT_CATEGORIES,
+  SHORTCUT_LABELS,
+  type ShortcutAction,
+  type ShortcutBinding,
+  type ShortcutsConfig,
+} from "~/game/shortcuts";
 import type {LibraryProviderDescriptor} from "~/content/providers/types";
 import type {AfterleafLibraryConfig} from "~/content/libraryConfig";
 import type {ShopViewportControls} from "~/components/ShopViewport";
@@ -115,7 +128,7 @@ interface LibraryRepairOptions {
   repairProviderMetadata: boolean;
 }
 type LibraryUpdateStage = "loading-library" | "working";
-type MenuTab = "library" | "options";
+type MenuTab = "library" | "options" | "shortcuts";
 
 const languageLabels: Record<LanguageFilter, string> = {
   all: "All editions",
@@ -990,6 +1003,183 @@ const OptionsPanel = (props: {
   </section>
 );
 
+const ShortcutsPanel = (props: {
+  config: ShortcutsConfig;
+  onChange: (config: ShortcutsConfig) => void;
+}) => {
+  const [listening, setListening] = createSignal<
+    | {
+        action: ShortcutAction;
+        device: ShortcutBinding["device"];
+      }
+    | undefined
+  >();
+
+  const updateBinding = (
+    action: ShortcutAction,
+    device: ShortcutBinding["device"],
+    code: string,
+  ) => {
+    const next: ShortcutsConfig = {...props.config};
+    const existing = next[action];
+    const others = existing.filter((binding) => binding.device !== device);
+    next[action] = [...others, {device, code}];
+    props.onChange(next);
+    setListening(undefined);
+  };
+
+  const resetToDefaults = () => props.onChange({...DEFAULT_SHORTCUTS});
+
+  onMount(() => {
+    const abortController = new AbortController();
+    window.addEventListener(
+      "keydown",
+      (event) => {
+        const current = listening();
+        if (!current || current.device !== "keyboard") return;
+        event.preventDefault();
+        updateBinding(current.action, "keyboard", event.code);
+      },
+      {signal: abortController.signal},
+    );
+
+    let raf = 0;
+    const pollGamepad = () => {
+      const current = listening();
+      if (current?.device === "gamepad") {
+        const gamepads = navigator.getGamepads?.() ?? [];
+        const gamepad = gamepads.find(
+          (g): g is Gamepad => g !== null && g.connected,
+        );
+        if (gamepad) {
+          const pressedIndex = gamepad.buttons.findIndex(
+            (button) => button?.pressed,
+          );
+          if (pressedIndex >= 0)
+            updateBinding(current.action, "gamepad", String(pressedIndex));
+        }
+      }
+      raf = requestAnimationFrame(pollGamepad);
+    };
+    raf = requestAnimationFrame(pollGamepad);
+
+    onCleanup(() => {
+      abortController.abort();
+      cancelAnimationFrame(raf);
+    });
+  });
+
+  return (
+    <section class="min-w-0 overflow-y-auto px-4 pt-7 pb-12 sm:px-7 lg:px-10 lg:pt-9 xl:col-span-2">
+      <div class="mx-auto max-w-4xl">
+        <p class="text-[10px] font-semibold tracking-[0.2em] text-[#d55247] uppercase">
+          Controls
+        </p>
+        <h2 class="mt-2 font-serif text-3xl tracking-[-0.04em] text-[#f0ecdf] sm:text-4xl">
+          Shortcuts
+        </h2>
+        <p class="mt-2 max-w-xl text-xs leading-5 text-[#6e7974]">
+          Click any binding to remap it. Keyboard codes are physical keys; the
+          on-screen prompts adapt to your layout automatically.
+        </p>
+
+        <div class="mt-8 space-y-8">
+          <For each={Object.values(SHORTCUT_CATEGORIES)}>
+            {(category) => (
+              <div>
+                <p class="mb-3 text-[9px] font-bold tracking-[0.2em] text-[#59645f] uppercase">
+                  {category.label}
+                </p>
+                <div class="space-y-2">
+                  <For each={category.actions}>
+                    {(action) => {
+                      const keyboard = () =>
+                        props.config[action].find(
+                          (binding) => binding.device === "keyboard",
+                        );
+                      const gamepad = () =>
+                        props.config[action].find(
+                          (binding) => binding.device === "gamepad",
+                        );
+                      const isListening = (device: ShortcutBinding["device"]) =>
+                        listening()?.action === action &&
+                        listening()?.device === device;
+
+                      return (
+                        <div class="flex items-center justify-between gap-4 border border-white/8 bg-[#151e1c] px-4 py-3">
+                          <span class="text-xs text-[#b8c1bc]">
+                            {SHORTCUT_LABELS[action]}
+                          </span>
+                          <div class="flex items-center gap-2">
+                            <button
+                              class="min-w-[4.5rem] border border-white/10 bg-[#121918] px-2.5 py-1.5 text-center text-[10px] font-semibold tracking-wider text-[#e2ded4] uppercase transition hover:border-[#d94c3f]/40 hover:text-white"
+                              classList={{
+                                "animate-pulse border-[#d94c3f]/60 text-[#d94c3f]":
+                                  isListening("keyboard"),
+                              }}
+                              onClick={() =>
+                                setListening(
+                                  isListening("keyboard")
+                                    ? undefined
+                                    : {action, device: "keyboard"},
+                                )
+                              }
+                              type="button"
+                            >
+                              {(() => {
+                                const binding = keyboard();
+                                return binding
+                                  ? formatKeyboardCode(binding.code)
+                                  : "—";
+                              })()}
+                            </button>
+                            <button
+                              class="min-w-[4.5rem] border border-white/10 bg-[#121918] px-2.5 py-1.5 text-center text-[10px] font-semibold tracking-wider text-[#e2ded4] uppercase transition hover:border-[#d94c3f]/40 hover:text-white"
+                              classList={{
+                                "animate-pulse border-[#d94c3f]/60 text-[#d94c3f]":
+                                  isListening("gamepad"),
+                              }}
+                              onClick={() =>
+                                setListening(
+                                  isListening("gamepad")
+                                    ? undefined
+                                    : {action, device: "gamepad"},
+                                )
+                              }
+                              type="button"
+                            >
+                              {(() => {
+                                const binding = gamepad();
+                                return binding
+                                  ? formatGamepadButton(binding.code)
+                                  : "—";
+                              })()}
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    }}
+                  </For>
+                </div>
+              </div>
+            )}
+          </For>
+        </div>
+
+        <div class="mt-8 flex justify-end">
+          <button
+            class="border border-[#d94c3f]/35 bg-[#d94c3f]/10 px-4 py-2.5 text-[10px] font-semibold tracking-[0.12em] text-[#df776e] uppercase transition hover:border-[#d94c3f]/60 hover:bg-[#d94c3f]/20 hover:text-[#f3a098]"
+            type="button"
+            onClick={resetToDefaults}
+          >
+            Reset to defaults
+          </button>
+        </div>
+      </div>
+    </section>
+  );
+};
+
 const PurgeBlacklistedWorksDialog = (props: {
   blacklistedTags: readonly string[];
   busy: boolean;
@@ -1861,6 +2051,7 @@ export const App = () => {
   );
   const [respectBookReadingDirection, setRespectBookReadingDirection] =
     createSignal(initialControlPreferences.respectBookReadingDirection);
+  const [shortcutsConfig, setShortcutsConfig] = createSignal(loadShortcuts());
   const [blacklistedTags, setBlacklistedTags] =
     createSignal(loadTagBlacklist());
   const [libraryProviderError, setLibraryProviderError] =
@@ -2431,6 +2622,11 @@ export const App = () => {
     setTvScreenLighting(preferences.tvScreenLighting);
   };
 
+  const updateShortcuts = (config: ShortcutsConfig) => {
+    saveShortcuts(config);
+    setShortcutsConfig(config);
+  };
+
   const updateBlacklistedTags = (tags: readonly string[]) => {
     const nextTags = saveTagBlacklist(tags);
     setBlacklistedTags(nextTags);
@@ -2512,7 +2708,9 @@ export const App = () => {
                     tvScreenLighting={tvScreenLighting}
                     unstuckRequest={unstuckRequest}
                     paused={menuOpen}
+                    shortcutsConfig={shortcutsConfig}
                     onOpenMenu={openMenu}
+                    onCloseMenu={() => closeMenu()}
                     onPasteText={importPastedPublication}
                     onDiscardPublication={discardPublication}
                     onPageIndexChange={(publicationId, pageIndex) =>
@@ -2688,6 +2886,19 @@ export const App = () => {
                   >
                     <FiSettings size={13} /> Options
                   </button>
+                  <button
+                    class="flex h-10 flex-1 items-center justify-center gap-2 text-[10px] font-semibold tracking-[0.08em] uppercase transition"
+                    classList={{
+                      "bg-[#1c2523] text-[#ece8dd]": menuTab() === "shortcuts",
+                      "text-[#78837e] hover:bg-white/[0.025] hover:text-white":
+                        menuTab() !== "shortcuts",
+                    }}
+                    aria-pressed={menuTab() === "shortcuts"}
+                    onClick={() => setMenuTab("shortcuts")}
+                    type="button"
+                  >
+                    <FiCommand size={13} /> Shortcuts
+                  </button>
                 </nav>
 
                 <div class="grid min-h-0 flex-1 grid-cols-1 overflow-hidden xl:grid-cols-[220px_minmax(0,1fr)_330px]">
@@ -2726,6 +2937,20 @@ export const App = () => {
                         type="button"
                       >
                         <FiSettings size={14} class="text-[#e25a4d]" /> Options
+                      </button>
+                      <button
+                        class="flex w-full items-center gap-3 px-3 py-2.5 text-xs transition"
+                        classList={{
+                          "bg-[#1c2523] font-semibold text-[#ece8dd]":
+                            menuTab() === "shortcuts",
+                          "text-[#7d8883] hover:bg-white/[0.025] hover:text-[#cbd0cc]":
+                            menuTab() !== "shortcuts",
+                        }}
+                        aria-pressed={menuTab() === "shortcuts"}
+                        onClick={() => setMenuTab("shortcuts")}
+                        type="button"
+                      >
+                        <FiCommand size={14} class="text-[#e25a4d]" /> Shortcuts
                       </button>
                     </div>
 
@@ -3036,6 +3261,12 @@ export const App = () => {
                       purgeWorkCount={blacklistedTagWorkCandidates().length}
                       respectBookReadingDirection={respectBookReadingDirection()}
                       tvScreenLighting={tvScreenLighting()}
+                    />
+                  </Show>
+                  <Show when={menuTab() === "shortcuts"}>
+                    <ShortcutsPanel
+                      config={shortcutsConfig()}
+                      onChange={updateShortcuts}
                     />
                   </Show>
                 </div>
