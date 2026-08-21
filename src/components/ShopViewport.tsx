@@ -29,6 +29,7 @@ import {
   type ShopInteraction,
   type ShopSignEditRequest,
 } from "~/game/ShopScene";
+import type {ShortcutsConfig} from "~/game/shortcuts";
 import {
   loadServerWorldSave,
   queueServerWorldSave,
@@ -73,6 +74,7 @@ export type ShopViewportProps = {
   onDiscardPublication?: (publicationId: string) => Promise<boolean>;
   onSelectPublication?: (publicationId: string) => void;
   paused?: Accessor<boolean>;
+  shortcutsConfig?: Accessor<ShortcutsConfig>;
   class?: string;
 };
 
@@ -251,7 +253,10 @@ export const ShopViewport = (props: ShopViewportProps) => {
           selectedPublicationId: props.selectedPublicationId,
           onGameStateChange: setGameState,
           onPauseRequest: () => props.onOpenMenu?.(),
-		  onResumeRequest: () => props.onCloseMenu?.(),
+          onResumeRequest: () => props.onCloseMenu?.(),
+          ...(props.shortcutsConfig === undefined
+            ? {}
+            : {shortcutsConfig: props.shortcutsConfig}),
           onTextPaste: (text) => props.onPasteText?.(text) ?? false,
           onPageIndexChange: (publicationId, pageIndex) =>
             props.onPageIndexChange?.(publicationId, pageIndex),

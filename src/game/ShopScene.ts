@@ -106,6 +106,15 @@ import {
 } from "~/game/shopGameplay";
 import {readGamepadInput, type GamepadFrameInput} from "~/game/gamepadInput";
 import {
+  isActionDownGamepad,
+  isActionDownKeyboard,
+  isGamepadActionJustDown,
+  isGamepadActionJustUp,
+  loadShortcuts,
+  matchesKeyboardAction,
+  type ShortcutsConfig,
+} from "~/game/shortcuts";
+import {
   formatInteractionKey,
   keyboardLayoutEntry,
   readKeyboardLayout,
@@ -839,6 +848,7 @@ export type ShopSceneOptions = {
   onSelectPublication: (publicationId: string) => void;
   onReady?: () => void;
   paused?: () => boolean;
+  shortcutsConfig?: () => ShortcutsConfig;
 };
 
 type ShopPerformanceDebugHandle = {
@@ -1094,6 +1104,8 @@ export class ShopScene {
   readonly #keysDown = new Set<string>();
   readonly #keyboardLayout = new Map<string, string>();
   readonly #lookAngles: LookAngles = {pitch: 0, yaw: 0};
+  readonly #shortcutsConfig: () => ShortcutsConfig;
+  #previousGamepadButtons: boolean[] = [];
   readonly #lookDelta: LookAngles = {pitch: 0, yaw: 0};
   readonly #lookTarget: LookAngles = {pitch: 0, yaw: 0};
   readonly #markTelevisionSettingChanged = () => {
@@ -1106,10 +1118,7 @@ export class ShopScene {
     movement: {forward: 0, right: 0},
     look: {pitch: 0, yaw: 0},
     lookModifier: false,
-    menu: false,
-    jump: false,
-    interact: false,
-    sprint: false,
+    buttons: [],
   };
   readonly #movableProps = new Map<string, MovablePropRecord>();
   readonly #movablePropTargetMeshes: Mesh[] = [];
@@ -1448,6 +1457,7 @@ export class ShopScene {
       options.initialWorldSave?.televisionVolumes ?? {};
     this.#onReady = options.onReady;
     this.#paused = options.paused ?? (() => false);
+    this.#shortcutsConfig = options.shortcutsConfig ?? loadShortcuts;
 
     this.#renderer = new WebGLRenderer({
       antialias: true,
@@ -1701,7 +1711,17 @@ export class ShopScene {
         this.#suspendInput();
       }
       this.#gamepadInput = readGamepadInput();
-      if (this.#gamepadInput.menu) this.#onResumeRequest?.();
+      const buttons = this.#gamepadInput.buttons;
+      if (
+        isActionDownGamepad(this.#shortcutsConfig(), "toggleMenu", buttons) &&
+        !isActionDownGamepad(
+          this.#shortcutsConfig(),
+          "toggleMenu",
+          this.#previousGamepadButtons,
+        )
+      )
+        this.#onResumeRequest?.();
+      this.#previousGamepadButtons = buttons;
       this.#frameHandle = requestAnimationFrame(this.#animate);
       return;
     }
@@ -1743,6 +1763,7 @@ export class ShopScene {
     this.#animateDiscard(deltaSeconds);
     for (const mixer of this.#modelMixers) mixer.update(deltaSeconds);
     this.#renderer.render(this.#scene, this.#camera);
+    this.#previousGamepadButtons = this.#gamepadInput.buttons;
     this.#frameHandle = requestAnimationFrame(this.#animate);
   };
 
@@ -7030,9 +7051,639 @@ export class ShopScene {
     this.#pendingPointerMovementY += event.movementY;
   };
 
+  #handleGamepadButtons(
+    buttons: ReadonlyArray<boolean>,
+    previousButtons: ReadonlyArray<boolean>,
+  ) {
+    if (this.#paused()) return;
+    if (this.#inspectionMode === "spread") {
+      const inspectingCarriedBook =
+        this.#inspectionPublicationId === this.#carriedPublicationId;
+      const justLeft = isGamepadActionJustDown(
+        this.#shortcutsConfig(),
+        "inspectionTurnLeft",
+        buttons,
+        previousButtons,
+      );
+      if (
+        justLeft ||
+        isGamepadActionJustDown(
+          this.#shortcutsConfig(),
+          "inspectionTurnRight",
+          buttons,
+          previousButtons,
+        )
+      ) {
+        const publication = this.#inspectionPublication();
+        if (!publication) return;
+        this.turnInspectionPage(
+          getArrowNavigation(
+            justLeft ? "ArrowLeft" : "ArrowRight",
+            publication.direction,
+          ),
+        );
+        return;
+      }
+      if (
+        isGamepadActionJustDown(
+          this.#shortcutsConfig(),
+          "inspectionThrow",
+          buttons,
+          previousButtons,
+        ) &&
+        inspectingCarriedBook
+      ) {
+        this.#startInspectionClose("throw");
+        return;
+      }
+      if (
+        isGamepadActionJustDown(
+          this.#shortcutsConfig(),
+          "inspectionDrop",
+          buttons,
+          previousButtons,
+        ) &&
+        inspectingCarriedBook
+      ) {
+        this.#startInspectionClose("drop");
+        return;
+      }
+      if (
+        isGamepadActionJustDown(
+          this.#shortcutsConfig(),
+          "inspectionReturn",
+          buttons,
+          previousButtons,
+        )
+      ) {
+        this.#startInspectionClose("return");
+        return;
+      }
+      return;
+    }
+    if (!this.#pointerLocked) return;
+    if (this.#inspectionMode === "closing" || this.#shelveAnimation) return;
+    if (
+      isGamepadActionJustDown(
+        this.#shortcutsConfig(),
+        "toggleModelPlacement",
+        buttons,
+        previousButtons,
+      ) &&
+      !this.#televisionTargeted
+    ) {
+      if (this.#modelPlacement) {
+        this.#cancelModelPlacement();
+        return;
+      }
+      if (
+        !this.#artFramePlacement &&
+        !this.#posterPlacement &&
+        !this.#carriedPublicationId &&
+        !this.#carriedProp
+      )
+        void this.#startModelPlacement(this.#spawnablePropAssetIndex);
+      return;
+    }
+    if (
+      isGamepadActionJustDown(
+        this.#shortcutsConfig(),
+        "toggleArtFramePlacement",
+        buttons,
+        previousButtons,
+      )
+    ) {
+      if (this.#artFramePlacement) {
+        this.#cancelDigitalArtFramePlacement();
+        return;
+      }
+      if (
+        !this.#posterPlacement &&
+        !this.#modelPlacement &&
+        !this.#carriedPublicationId &&
+        !this.#carriedProp
+      ) {
+        if (this.#artFrameAssets.length > 0)
+          this.#startDigitalArtFramePlacement(this.#artFrameAssetIndex);
+        else this.#startEmptyDigitalArtFramePlacement();
+      }
+      return;
+    }
+    if (
+      isGamepadActionJustDown(
+        this.#shortcutsConfig(),
+        "channelEditorOpen",
+        buttons,
+        previousButtons,
+      ) &&
+      (this.#artFramePlacement ||
+        this.#targetedDigitalArtFrameId ||
+        this.#televisionTargeted)
+    ) {
+      if (!this.#onMediaChannelCreateRequest) return;
+      const kind = this.#televisionTargeted ? "tv" : "art-frame";
+      this.#channelEditorTelevision =
+        kind === "tv" ? this.#targetedTelevision : undefined;
+      this.#channelEditorDigitalArtFrameId =
+        kind === "art-frame" ? this.#targetedDigitalArtFrameId : undefined;
+      this.#suppressNextPointerUnlockPause = true;
+      this.#releasePointerLock();
+      this.#onMediaChannelCreateRequest(kind);
+      return;
+    }
+    if (
+      isGamepadActionJustDown(
+        this.#shortcutsConfig(),
+        "togglePosterPlacement",
+        buttons,
+        previousButtons,
+      )
+    ) {
+      if (this.#posterPlacement) {
+        this.#cancelPosterPlacement();
+        return;
+      }
+      if (
+        !this.#artFramePlacement &&
+        !this.#modelPlacement &&
+        !this.#carriedPublicationId &&
+        !this.#carriedProp
+      ) {
+        if (this.#posterAssets.length > 0)
+          void this.#startPosterPlacement(this.#posterAssetIndex);
+        else this.#startEmptyPosterPlacement();
+      }
+      return;
+    }
+    if (
+      this.#modelPlacement &&
+      (isGamepadActionJustDown(
+        this.#shortcutsConfig(),
+        "placementCycleLeft",
+        buttons,
+        previousButtons,
+      ) ||
+        isGamepadActionJustDown(
+          this.#shortcutsConfig(),
+          "placementCycleRight",
+          buttons,
+          previousButtons,
+        ))
+    ) {
+      this.#cycleModelPlacement(
+        isGamepadActionJustDown(
+          this.#shortcutsConfig(),
+          "placementCycleLeft",
+          buttons,
+          previousButtons,
+        )
+          ? -1
+          : 1,
+      );
+      return;
+    }
+    if (
+      this.#artFramePlacement &&
+      (isGamepadActionJustDown(
+        this.#shortcutsConfig(),
+        "placementCycleLeft",
+        buttons,
+        previousButtons,
+      ) ||
+        isGamepadActionJustDown(
+          this.#shortcutsConfig(),
+          "placementCycleRight",
+          buttons,
+          previousButtons,
+        ))
+    ) {
+      this.#cycleDigitalArtFramePlacementChannel(
+        isGamepadActionJustDown(
+          this.#shortcutsConfig(),
+          "placementCycleLeft",
+          buttons,
+          previousButtons,
+        )
+          ? -1
+          : 1,
+      );
+      return;
+    }
+    if (
+      this.#artFramePlacement &&
+      (isGamepadActionJustDown(
+        this.#shortcutsConfig(),
+        "placementCycleImageLeft",
+        buttons,
+        previousButtons,
+      ) ||
+        isGamepadActionJustDown(
+          this.#shortcutsConfig(),
+          "placementCycleImageRight",
+          buttons,
+          previousButtons,
+        ))
+    ) {
+      this.#cycleDigitalArtFramePlacementImage(
+        isGamepadActionJustDown(
+          this.#shortcutsConfig(),
+          "placementCycleImageLeft",
+          buttons,
+          previousButtons,
+        )
+          ? -1
+          : 1,
+      );
+      return;
+    }
+    if (
+      isGamepadActionJustDown(
+        this.#shortcutsConfig(),
+        "placementToggleFit",
+        buttons,
+        previousButtons,
+      ) &&
+      this.#artFramePlacement
+    ) {
+      this.#artFramePlacement.fit =
+        this.#artFramePlacement.fit === "contain" ? "cover" : "contain";
+      this.#artFramePreview?.setFit(this.#artFramePlacement.fit);
+      this.#emitGameState();
+      return;
+    }
+    if (
+      isGamepadActionJustDown(
+        this.#shortcutsConfig(),
+        "placementToggleInterval",
+        buttons,
+        previousButtons,
+      ) &&
+      this.#artFramePlacement
+    ) {
+      const intervalIndex = DIGITAL_ART_FRAME_INTERVALS.indexOf(
+        this.#artFramePlacement
+          .intervalSeconds as (typeof DIGITAL_ART_FRAME_INTERVALS)[number],
+      );
+      const interval =
+        DIGITAL_ART_FRAME_INTERVALS[
+          (Math.max(0, intervalIndex) + 1) % DIGITAL_ART_FRAME_INTERVALS.length
+        ];
+      if (interval !== undefined)
+        this.#artFramePlacement.intervalSeconds = interval;
+      this.#emitGameState();
+      return;
+    }
+    if (
+      this.#posterPlacement &&
+      (isGamepadActionJustDown(
+        this.#shortcutsConfig(),
+        "placementCycleLeft",
+        buttons,
+        previousButtons,
+      ) ||
+        isGamepadActionJustDown(
+          this.#shortcutsConfig(),
+          "placementCycleRight",
+          buttons,
+          previousButtons,
+        ))
+    ) {
+      this.#cyclePoster(
+        isGamepadActionJustDown(
+          this.#shortcutsConfig(),
+          "placementCycleLeft",
+          buttons,
+          previousButtons,
+        )
+          ? -1
+          : 1,
+      );
+      return;
+    }
+    if (
+      this.#targetedProp?.modelAnimations?.length &&
+      (isGamepadActionJustDown(
+        this.#shortcutsConfig(),
+        "propCycleAnimationLeft",
+        buttons,
+        previousButtons,
+      ) ||
+        isGamepadActionJustDown(
+          this.#shortcutsConfig(),
+          "propCycleAnimationRight",
+          buttons,
+          previousButtons,
+        ))
+    ) {
+      this.#cycleModelAnimation(
+        this.#targetedProp,
+        isGamepadActionJustDown(
+          this.#shortcutsConfig(),
+          "propCycleAnimationLeft",
+          buttons,
+          previousButtons,
+        )
+          ? -1
+          : 1,
+      );
+      return;
+    }
+    if (
+      isGamepadActionJustDown(
+        this.#shortcutsConfig(),
+        "propToggleSnap",
+        buttons,
+        previousButtons,
+      ) &&
+      this.#carriedProp
+    ) {
+      this.#propPlacementSnapping = !this.#propPlacementSnapping;
+      this.#emitGameState();
+      return;
+    }
+    if (
+      isGamepadActionJustDown(
+        this.#shortcutsConfig(),
+        "artFrameRemove",
+        buttons,
+        previousButtons,
+      ) ||
+      isGamepadActionJustDown(
+        this.#shortcutsConfig(),
+        "posterRemove",
+        buttons,
+        previousButtons,
+      )
+    ) {
+      const targetedTelevisionProp = this.#targetedTelevision
+        ? this.#televisionProps.get(this.#targetedTelevision)
+        : undefined;
+      if (targetedTelevisionProp?.spawned) {
+        this.#removeSpawnedProp(targetedTelevisionProp);
+        return;
+      }
+      if (this.#targetedProp?.spawned) {
+        this.#removeSpawnedProp(this.#targetedProp);
+        return;
+      }
+      if (this.#targetedDigitalArtFrameId) {
+        this.#removeTargetedDigitalArtFrame();
+        return;
+      }
+      if (this.#targetedPosterId) {
+        this.#removeTargetedPoster();
+        return;
+      }
+    }
+    if (
+      isGamepadActionJustDown(
+        this.#shortcutsConfig(),
+        "placementToggleGridSnap",
+        buttons,
+        previousButtons,
+      ) &&
+      (this.#artFramePlacement || this.#posterPlacement)
+    ) {
+      const placement = this.#artFramePlacement ?? this.#posterPlacement;
+      if (placement) placement.gridSnap = !placement.gridSnap;
+      this.#updateDigitalArtFramePlacementTarget();
+      this.#updatePosterPlacementTarget();
+      this.#emitGameState();
+      return;
+    }
+    if (
+      isGamepadActionJustDown(
+        this.#shortcutsConfig(),
+        "placementCancel",
+        buttons,
+        previousButtons,
+      ) ||
+      isGamepadActionJustDown(
+        this.#shortcutsConfig(),
+        "pickUpCancel",
+        buttons,
+        previousButtons,
+      )
+    ) {
+      if (this.#modelPlacement) {
+        this.#cancelModelPlacement();
+        return;
+      }
+      if (this.#artFramePlacement) {
+        this.#cancelDigitalArtFramePlacement();
+        return;
+      }
+      if (this.#posterPlacement) {
+        this.#cancelPosterPlacement();
+        return;
+      }
+      if (this.#carriedProp) {
+        this.#cancelCarriedProp();
+        return;
+      }
+      if (this.#televisionTargeted) {
+        const televisionProp = this.#targetedTelevision
+          ? this.#televisionProps.get(this.#targetedTelevision)
+          : undefined;
+        if (televisionProp) this.#pickUpProp(televisionProp);
+        return;
+      }
+      if (this.#targetedProp) {
+        this.#pickUpProp(this.#targetedProp);
+        return;
+      }
+      if (this.#targetedDigitalArtFrameId || this.#targetedPosterId) {
+        this.#interact();
+        return;
+      }
+    }
+    if (
+      this.#targetedDigitalArtFrameId &&
+      (isGamepadActionJustDown(
+        this.#shortcutsConfig(),
+        "artFramePreviousChannel",
+        buttons,
+        previousButtons,
+      ) ||
+        isGamepadActionJustDown(
+          this.#shortcutsConfig(),
+          "artFrameNextChannel",
+          buttons,
+          previousButtons,
+        ))
+    ) {
+      this.#digitalArtFrameRecords
+        .get(this.#targetedDigitalArtFrameId)
+        ?.frame.changeChannel(
+          isGamepadActionJustDown(
+            this.#shortcutsConfig(),
+            "artFramePreviousChannel",
+            buttons,
+            previousButtons,
+          )
+            ? -1
+            : 1,
+        );
+      this.#worldStateDirty = true;
+      this.#emitGameState();
+      return;
+    }
+    if (
+      isGamepadActionJustDown(
+        this.#shortcutsConfig(),
+        "tvPreviousChannel",
+        buttons,
+        previousButtons,
+      ) &&
+      this.#televisionTargeted
+    ) {
+      this.#targetedTelevision?.previousChannel();
+      return;
+    }
+    if (
+      isGamepadActionJustDown(
+        this.#shortcutsConfig(),
+        "toggleShelfPresentation",
+        buttons,
+        previousButtons,
+      ) &&
+      this.#carriedPublicationId
+    ) {
+      this.#shelfPresentation =
+        this.#shelfPresentation === "spine" ? "face" : "spine";
+      this.#updateInteractionTarget();
+      return;
+    }
+    if (
+      isGamepadActionJustDown(
+        this.#shortcutsConfig(),
+        "interact",
+        buttons,
+        previousButtons,
+      )
+    ) {
+      this.#triggerInteraction();
+      return;
+    }
+    if (
+      isGamepadActionJustDown(
+        this.#shortcutsConfig(),
+        "throw",
+        buttons,
+        previousButtons,
+      )
+    ) {
+      if (this.#televisionTargeted) this.#targetedTelevision?.skip();
+      else if (this.#targetedDigitalArtFrameId)
+        this.#digitalArtFrameRecords
+          .get(this.#targetedDigitalArtFrameId)
+          ?.frame.skip();
+      else if (this.#carriedProp) this.#dropCarriedProp(true);
+      else if (this.#carriedPublicationId) this.#startThrowCharge();
+      else this.#keysDown.add("throw");
+      return;
+    }
+    if (
+      isGamepadActionJustDown(
+        this.#shortcutsConfig(),
+        "tvMute",
+        buttons,
+        previousButtons,
+      ) &&
+      this.#televisionTargeted
+    ) {
+      this.#targetedTelevision?.toggleMuted();
+      return;
+    }
+    if (
+      isGamepadActionJustDown(
+        this.#shortcutsConfig(),
+        "drop",
+        buttons,
+        previousButtons,
+      )
+    ) {
+      if (this.#artFramePlacement || this.#posterPlacement) return;
+      if (this.#targetedDigitalArtFrameId)
+        this.#removeTargetedDigitalArtFrame();
+      else if (this.#targetedPosterId) this.#removeTargetedPoster();
+      else if (this.#carriedProp) this.#dropCarriedProp();
+      else this.#dropCarriedBook();
+      return;
+    }
+    if (
+      isGamepadActionJustDown(
+        this.#shortcutsConfig(),
+        "artFrameInterval",
+        buttons,
+        previousButtons,
+      ) &&
+      this.#targetedDigitalArtFrameId
+    ) {
+      this.#cycleTargetedDigitalArtFrameInterval();
+      return;
+    }
+    if (
+      isGamepadActionJustDown(
+        this.#shortcutsConfig(),
+        "artFrameFit",
+        buttons,
+        previousButtons,
+      ) &&
+      this.#targetedDigitalArtFrameId
+    ) {
+      this.#cycleTargetedDigitalArtFrameFit();
+      return;
+    }
+    if (
+      isGamepadActionJustDown(
+        this.#shortcutsConfig(),
+        "inspectionReturn",
+        buttons,
+        previousButtons,
+      )
+    ) {
+      const hoveredRecord = this.#hoveredPublicationId
+        ? this.#booksById.get(this.#hoveredPublicationId)
+        : undefined;
+      if (this.#carriedPublicationId)
+        this.#advanceInspectionMode(this.#carriedPublicationId);
+      else if (hoveredRecord?.state.status === "shelved")
+        this.#advanceInspectionMode(this.#hoveredPublicationId);
+    }
+    if (
+      isGamepadActionJustUp(
+        this.#shortcutsConfig(),
+        "throw",
+        buttons,
+        previousButtons,
+      )
+    ) {
+      this.#keysDown.delete("throw");
+      if (this.#throwChargeActive) {
+        this.#releaseThrowCharge();
+        return;
+      }
+      if (this.#inspectionMode === "none") {
+        this.#shelfBrowsePublicationId = undefined;
+        this.#updateInteractionTarget();
+      }
+    }
+  }
+
   #consumePointerMovement(deltaSeconds: number) {
     this.#gamepadInput = readGamepadInput();
-    if (this.#gamepadInput.menu) this.#onPauseRequest?.();
+    const buttons = this.#gamepadInput.buttons;
+    this.#handleGamepadButtons(buttons, this.#previousGamepadButtons);
+    if (
+      isActionDownGamepad(this.#shortcutsConfig(), "toggleMenu", buttons) &&
+      !isActionDownGamepad(
+        this.#shortcutsConfig(),
+        "toggleMenu",
+        this.#previousGamepadButtons,
+      )
+    )
+      this.#onPauseRequest?.();
     if (this.#pointerLocked) {
       this.#pendingPointerMovementX +=
         this.#gamepadInput.look.yaw * GAMEPAD_LOOK_SPEED * deltaSeconds;
@@ -7219,7 +7870,7 @@ export class ShopScene {
     }
     if (
       !this.#pointerLocked ||
-      !this.#keysDown.has("KeyF") ||
+      !this.#keysDown.has("throw") ||
       event.timeStamp < this.#shelfBrowseReadyAt
     )
       return;
@@ -7312,35 +7963,68 @@ export class ShopScene {
       if (event.repeat) return;
       const inspectingCarriedBook =
         this.#inspectionPublicationId === this.#carriedPublicationId;
-      if (event.code === "KeyA" || event.code === "KeyD") {
+      const turnLeft = matchesKeyboardAction(
+        this.#shortcutsConfig(),
+        "inspectionTurnLeft",
+        event,
+      );
+      if (
+        turnLeft ||
+        matchesKeyboardAction(
+          this.#shortcutsConfig(),
+          "inspectionTurnRight",
+          event,
+        )
+      ) {
         const publication = this.#inspectionPublication();
         if (!publication) return;
         event.preventDefault();
         this.turnInspectionPage(
           getArrowNavigation(
-            event.code === "KeyA" ? "ArrowLeft" : "ArrowRight",
+            turnLeft ? "ArrowLeft" : "ArrowRight",
             publication.direction,
           ),
         );
         return;
       }
-      if (event.code === "KeyF" && inspectingCarriedBook) {
+      if (
+        matchesKeyboardAction(
+          this.#shortcutsConfig(),
+          "inspectionThrow",
+          event,
+        ) &&
+        inspectingCarriedBook
+      ) {
         event.preventDefault();
         this.#startInspectionClose("throw");
         return;
       }
-      if (event.code === "KeyG" && inspectingCarriedBook) {
+      if (
+        matchesKeyboardAction(
+          this.#shortcutsConfig(),
+          "inspectionDrop",
+          event,
+        ) &&
+        inspectingCarriedBook
+      ) {
         event.preventDefault();
         this.#startInspectionClose("drop");
         return;
       }
-      if (event.code !== "KeyR") return;
+      if (
+        !matchesKeyboardAction(
+          this.#shortcutsConfig(),
+          "inspectionReturn",
+          event,
+        )
+      )
+        return;
       event.preventDefault();
       this.#startInspectionClose("return");
       return;
     }
     if (!this.#pointerLocked) return;
-    if (event.code === "Space") {
+    if (matchesKeyboardAction(this.#shortcutsConfig(), "jump", event)) {
       event.preventDefault();
       if (!event.repeat) {
         this.#jumpQueued = true;
@@ -7349,12 +8033,11 @@ export class ShopScene {
       return;
     }
     if (
-      event.code === "KeyW" ||
-      event.code === "KeyA" ||
-      event.code === "KeyS" ||
-      event.code === "KeyD" ||
-      event.code === "ShiftLeft" ||
-      event.code === "ShiftRight"
+      matchesKeyboardAction(this.#shortcutsConfig(), "moveForward", event) ||
+      matchesKeyboardAction(this.#shortcutsConfig(), "moveBackward", event) ||
+      matchesKeyboardAction(this.#shortcutsConfig(), "moveLeft", event) ||
+      matchesKeyboardAction(this.#shortcutsConfig(), "moveRight", event) ||
+      matchesKeyboardAction(this.#shortcutsConfig(), "sprint", event)
     ) {
       event.preventDefault();
       this.#keysDown.add(event.code);
@@ -7363,7 +8046,14 @@ export class ShopScene {
     if (event.code === "KeyV" && (event.ctrlKey || event.metaKey)) return;
     if (event.repeat) return;
     if (this.#inspectionMode === "closing" || this.#shelveAnimation) return;
-    if (event.code === "KeyM" && !this.#televisionTargeted) {
+    if (
+      matchesKeyboardAction(
+        this.#shortcutsConfig(),
+        "toggleModelPlacement",
+        event,
+      ) &&
+      !this.#televisionTargeted
+    ) {
       event.preventDefault();
       if (this.#modelPlacement) {
         this.#cancelModelPlacement();
@@ -7378,7 +8068,13 @@ export class ShopScene {
         void this.#startModelPlacement(this.#spawnablePropAssetIndex);
       return;
     }
-    if (event.code === "KeyV") {
+    if (
+      matchesKeyboardAction(
+        this.#shortcutsConfig(),
+        "toggleArtFramePlacement",
+        event,
+      )
+    ) {
       event.preventDefault();
       if (this.#artFramePlacement) {
         this.#cancelDigitalArtFramePlacement();
@@ -7397,7 +8093,11 @@ export class ShopScene {
       return;
     }
     if (
-      event.code === "KeyN" &&
+      matchesKeyboardAction(
+        this.#shortcutsConfig(),
+        "channelEditorOpen",
+        event,
+      ) &&
       (this.#artFramePlacement ||
         this.#targetedDigitalArtFrameId ||
         this.#televisionTargeted)
@@ -7414,7 +8114,13 @@ export class ShopScene {
       this.#onMediaChannelCreateRequest(kind);
       return;
     }
-    if (event.code === "KeyP") {
+    if (
+      matchesKeyboardAction(
+        this.#shortcutsConfig(),
+        "togglePosterPlacement",
+        event,
+      )
+    ) {
       event.preventDefault();
       if (this.#posterPlacement) {
         this.#cancelPosterPlacement();
@@ -7434,31 +8140,87 @@ export class ShopScene {
     }
     if (
       this.#modelPlacement &&
-      (event.code === "KeyQ" || event.code === "KeyE")
+      (matchesKeyboardAction(
+        this.#shortcutsConfig(),
+        "placementCycleLeft",
+        event,
+      ) ||
+        matchesKeyboardAction(
+          this.#shortcutsConfig(),
+          "placementCycleRight",
+          event,
+        ))
     ) {
       event.preventDefault();
-      this.#cycleModelPlacement(event.code === "KeyQ" ? -1 : 1);
-      return;
-    }
-    if (
-      this.#artFramePlacement &&
-      (event.code === "KeyQ" || event.code === "KeyE")
-    ) {
-      event.preventDefault();
-      this.#cycleDigitalArtFramePlacementChannel(
-        event.code === "KeyQ" ? -1 : 1,
+      this.#cycleModelPlacement(
+        matchesKeyboardAction(
+          this.#shortcutsConfig(),
+          "placementCycleLeft",
+          event,
+        )
+          ? -1
+          : 1,
       );
       return;
     }
     if (
       this.#artFramePlacement &&
-      (event.code === "KeyF" || event.code === "KeyG")
+      (matchesKeyboardAction(
+        this.#shortcutsConfig(),
+        "placementCycleLeft",
+        event,
+      ) ||
+        matchesKeyboardAction(
+          this.#shortcutsConfig(),
+          "placementCycleRight",
+          event,
+        ))
     ) {
       event.preventDefault();
-      this.#cycleDigitalArtFramePlacementImage(event.code === "KeyF" ? -1 : 1);
+      this.#cycleDigitalArtFramePlacementChannel(
+        matchesKeyboardAction(
+          this.#shortcutsConfig(),
+          "placementCycleLeft",
+          event,
+        )
+          ? -1
+          : 1,
+      );
       return;
     }
-    if (event.code === "KeyR" && this.#artFramePlacement) {
+    if (
+      this.#artFramePlacement &&
+      (matchesKeyboardAction(
+        this.#shortcutsConfig(),
+        "placementCycleImageLeft",
+        event,
+      ) ||
+        matchesKeyboardAction(
+          this.#shortcutsConfig(),
+          "placementCycleImageRight",
+          event,
+        ))
+    ) {
+      event.preventDefault();
+      this.#cycleDigitalArtFramePlacementImage(
+        matchesKeyboardAction(
+          this.#shortcutsConfig(),
+          "placementCycleImageLeft",
+          event,
+        )
+          ? -1
+          : 1,
+      );
+      return;
+    }
+    if (
+      matchesKeyboardAction(
+        this.#shortcutsConfig(),
+        "placementToggleFit",
+        event,
+      ) &&
+      this.#artFramePlacement
+    ) {
       event.preventDefault();
       this.#artFramePlacement.fit =
         this.#artFramePlacement.fit === "contain" ? "cover" : "contain";
@@ -7466,7 +8228,14 @@ export class ShopScene {
       this.#emitGameState();
       return;
     }
-    if (event.code === "KeyI" && this.#artFramePlacement) {
+    if (
+      matchesKeyboardAction(
+        this.#shortcutsConfig(),
+        "placementToggleInterval",
+        event,
+      ) &&
+      this.#artFramePlacement
+    ) {
       event.preventDefault();
       const intervalIndex = DIGITAL_ART_FRAME_INTERVALS.indexOf(
         this.#artFramePlacement
@@ -7483,30 +8252,68 @@ export class ShopScene {
     }
     if (
       this.#posterPlacement &&
-      (event.code === "KeyQ" || event.code === "KeyE")
+      (matchesKeyboardAction(
+        this.#shortcutsConfig(),
+        "placementCycleLeft",
+        event,
+      ) ||
+        matchesKeyboardAction(
+          this.#shortcutsConfig(),
+          "placementCycleRight",
+          event,
+        ))
     ) {
       event.preventDefault();
-      this.#cyclePoster(event.code === "KeyQ" ? -1 : 1);
+      this.#cyclePoster(
+        matchesKeyboardAction(
+          this.#shortcutsConfig(),
+          "placementCycleLeft",
+          event,
+        )
+          ? -1
+          : 1,
+      );
       return;
     }
     if (
       this.#targetedProp?.modelAnimations?.length &&
-      (event.code === "KeyQ" || event.code === "KeyE")
+      (matchesKeyboardAction(
+        this.#shortcutsConfig(),
+        "propCycleAnimationLeft",
+        event,
+      ) ||
+        matchesKeyboardAction(
+          this.#shortcutsConfig(),
+          "propCycleAnimationRight",
+          event,
+        ))
     ) {
       event.preventDefault();
       this.#cycleModelAnimation(
         this.#targetedProp,
-        event.code === "KeyQ" ? -1 : 1,
+        matchesKeyboardAction(
+          this.#shortcutsConfig(),
+          "propCycleAnimationLeft",
+          event,
+        )
+          ? -1
+          : 1,
       );
       return;
     }
-    if (event.code === "KeyQ" && this.#carriedProp) {
+    if (
+      matchesKeyboardAction(this.#shortcutsConfig(), "propToggleSnap", event) &&
+      this.#carriedProp
+    ) {
       event.preventDefault();
       this.#propPlacementSnapping = !this.#propPlacementSnapping;
       this.#emitGameState();
       return;
     }
-    if (event.code === "Delete" || event.code === "Backspace") {
+    if (
+      matchesKeyboardAction(this.#shortcutsConfig(), "artFrameRemove", event) ||
+      matchesKeyboardAction(this.#shortcutsConfig(), "posterRemove", event)
+    ) {
       const targetedTelevisionProp = this.#targetedTelevision
         ? this.#televisionProps.get(this.#targetedTelevision)
         : undefined;
@@ -7532,7 +8339,11 @@ export class ShopScene {
       }
     }
     if (
-      event.code === "KeyX" &&
+      matchesKeyboardAction(
+        this.#shortcutsConfig(),
+        "placementToggleGridSnap",
+        event,
+      ) &&
       (this.#artFramePlacement || this.#posterPlacement)
     ) {
       event.preventDefault();
@@ -7543,7 +8354,14 @@ export class ShopScene {
       this.#emitGameState();
       return;
     }
-    if (event.code === "KeyT") {
+    if (
+      matchesKeyboardAction(
+        this.#shortcutsConfig(),
+        "placementCancel",
+        event,
+      ) ||
+      matchesKeyboardAction(this.#shortcutsConfig(), "pickUpCancel", event)
+    ) {
       if (this.#modelPlacement) {
         event.preventDefault();
         this.#cancelModelPlacement();
@@ -7585,34 +8403,65 @@ export class ShopScene {
     }
     if (
       this.#targetedDigitalArtFrameId &&
-      (event.code === "KeyQ" || event.code === "KeyE")
+      (matchesKeyboardAction(
+        this.#shortcutsConfig(),
+        "artFramePreviousChannel",
+        event,
+      ) ||
+        matchesKeyboardAction(
+          this.#shortcutsConfig(),
+          "artFrameNextChannel",
+          event,
+        ))
     ) {
       event.preventDefault();
       this.#digitalArtFrameRecords
         .get(this.#targetedDigitalArtFrameId)
-        ?.frame.changeChannel(event.code === "KeyQ" ? -1 : 1);
+        ?.frame.changeChannel(
+          matchesKeyboardAction(
+            this.#shortcutsConfig(),
+            "artFramePreviousChannel",
+            event,
+          )
+            ? -1
+            : 1,
+        );
       this.#worldStateDirty = true;
       this.#emitGameState();
       return;
     }
-    if (event.code === "KeyQ" && this.#televisionTargeted) {
+    if (
+      matchesKeyboardAction(
+        this.#shortcutsConfig(),
+        "tvPreviousChannel",
+        event,
+      ) &&
+      this.#televisionTargeted
+    ) {
       event.preventDefault();
       this.#targetedTelevision?.previousChannel();
       return;
     }
-    if (event.code === "KeyQ" && this.#carriedPublicationId) {
+    if (
+      matchesKeyboardAction(
+        this.#shortcutsConfig(),
+        "toggleShelfPresentation",
+        event,
+      ) &&
+      this.#carriedPublicationId
+    ) {
       event.preventDefault();
       this.#shelfPresentation =
         this.#shelfPresentation === "spine" ? "face" : "spine";
       this.#updateInteractionTarget();
       return;
     }
-    if (event.code === "KeyE") {
+    if (matchesKeyboardAction(this.#shortcutsConfig(), "interact", event)) {
       event.preventDefault();
       this.#triggerInteraction();
       return;
     }
-    if (event.code === "KeyF") {
+    if (matchesKeyboardAction(this.#shortcutsConfig(), "throw", event)) {
       event.preventDefault();
       if (this.#televisionTargeted) this.#targetedTelevision?.skip();
       else if (this.#targetedDigitalArtFrameId)
@@ -7621,15 +8470,18 @@ export class ShopScene {
           ?.frame.skip();
       else if (this.#carriedProp) this.#dropCarriedProp(true);
       else if (this.#carriedPublicationId) this.#startThrowCharge();
-      else this.#keysDown.add(event.code);
+      else this.#keysDown.add("throw");
       return;
     }
-    if (event.code === "KeyM" && this.#televisionTargeted) {
+    if (
+      matchesKeyboardAction(this.#shortcutsConfig(), "tvMute", event) &&
+      this.#televisionTargeted
+    ) {
       event.preventDefault();
       this.#targetedTelevision?.toggleMuted();
       return;
     }
-    if (event.code === "KeyG") {
+    if (matchesKeyboardAction(this.#shortcutsConfig(), "drop", event)) {
       event.preventDefault();
       if (this.#artFramePlacement || this.#posterPlacement) return;
       if (this.#targetedDigitalArtFrameId)
@@ -7639,17 +8491,30 @@ export class ShopScene {
       else this.#dropCarriedBook();
       return;
     }
-    if (event.code === "KeyI" && this.#targetedDigitalArtFrameId) {
+    if (
+      matchesKeyboardAction(
+        this.#shortcutsConfig(),
+        "artFrameInterval",
+        event,
+      ) &&
+      this.#targetedDigitalArtFrameId
+    ) {
       event.preventDefault();
       this.#cycleTargetedDigitalArtFrameInterval();
       return;
     }
-    if (event.code === "KeyR" && this.#targetedDigitalArtFrameId) {
+    if (
+      matchesKeyboardAction(this.#shortcutsConfig(), "artFrameFit", event) &&
+      this.#targetedDigitalArtFrameId
+    ) {
       event.preventDefault();
       this.#cycleTargetedDigitalArtFrameFit();
       return;
     }
-    if (event.code !== "KeyR") return;
+    if (
+      !matchesKeyboardAction(this.#shortcutsConfig(), "inspectionReturn", event)
+    )
+      return;
     event.preventDefault();
     const hoveredRecord = this.#hoveredPublicationId
       ? this.#booksById.get(this.#hoveredPublicationId)
@@ -7662,12 +8527,18 @@ export class ShopScene {
 
   readonly #handleKeyUp = (event: KeyboardEvent) => {
     this.#keysDown.delete(event.code);
-    if (event.code === "KeyF" && this.#throwChargeActive) {
+    const isThrow = matchesKeyboardAction(
+      this.#shortcutsConfig(),
+      "throw",
+      event,
+    );
+    if (isThrow) this.#keysDown.delete("throw");
+    if (isThrow && this.#throwChargeActive) {
       event.preventDefault();
       this.#releaseThrowCharge();
       return;
     }
-    if (event.code !== "KeyF" || this.#inspectionMode !== "none") return;
+    if (!isThrow || this.#inspectionMode !== "none") return;
     this.#shelfBrowsePublicationId = undefined;
     this.#updateInteractionTarget();
   };
@@ -9207,12 +10078,25 @@ export class ShopScene {
       this.#jumpQueued = false;
       return;
     }
+    const buttons = this.#gamepadInput.buttons;
     this.#movementInput.forward = Math.min(
       1,
       Math.max(
         -1,
-        Number(this.#keysDown.has("KeyW")) -
-          Number(this.#keysDown.has("KeyS")) +
+        Number(
+          isActionDownKeyboard(
+            this.#shortcutsConfig(),
+            "moveForward",
+            this.#keysDown,
+          ),
+        ) -
+          Number(
+            isActionDownKeyboard(
+              this.#shortcutsConfig(),
+              "moveBackward",
+              this.#keysDown,
+            ),
+          ) +
           this.#gamepadInput.movement.forward,
       ),
     );
@@ -9220,21 +10104,44 @@ export class ShopScene {
       1,
       Math.max(
         -1,
-        Number(this.#keysDown.has("KeyD")) -
-          Number(this.#keysDown.has("KeyA")) +
+        Number(
+          isActionDownKeyboard(
+            this.#shortcutsConfig(),
+            "moveRight",
+            this.#keysDown,
+          ),
+        ) -
+          Number(
+            isActionDownKeyboard(
+              this.#shortcutsConfig(),
+              "moveLeft",
+              this.#keysDown,
+            ),
+          ) +
           this.#gamepadInput.movement.right,
       ),
     );
     const sprinting =
-      this.#keysDown.has("ShiftLeft") ||
-      this.#keysDown.has("ShiftRight") ||
-      this.#gamepadInput.sprint;
-    if (this.#gamepadInput.jump) {
+      isActionDownKeyboard(this.#shortcutsConfig(), "sprint", this.#keysDown) ||
+      isActionDownGamepad(this.#shortcutsConfig(), "sprint", buttons);
+    if (
+      isActionDownGamepad(this.#shortcutsConfig(), "jump", buttons) &&
+      !isActionDownGamepad(
+        this.#shortcutsConfig(),
+        "jump",
+        this.#previousGamepadButtons,
+      )
+    ) {
       this.#jumpQueued = true;
       this.#jumpQueuedAt = performance.now();
     }
     if (
-      this.#gamepadInput.interact &&
+      isActionDownGamepad(this.#shortcutsConfig(), "interact", buttons) &&
+      !isActionDownGamepad(
+        this.#shortcutsConfig(),
+        "interact",
+        this.#previousGamepadButtons,
+      ) &&
       this.#inspectionMode !== "closing" &&
       !this.#shelveAnimation
     ) {
@@ -12722,7 +13629,7 @@ export class ShopScene {
           this.#animateShelfPreview(
             record,
             publicationId === this.#hoveredPublicationId &&
-              this.#keysDown.has("KeyF"),
+              this.#keysDown.has("throw"),
             deltaSeconds,
           );
         if (positionChanged || rotationChanged) this.#worldStateDirty = true;
@@ -12733,7 +13640,7 @@ export class ShopScene {
         this.#animateShelfPreview(
           record,
           publicationId === this.#hoveredPublicationId &&
-            this.#keysDown.has("KeyF"),
+            this.#keysDown.has("throw"),
           deltaSeconds,
         );
         continue;

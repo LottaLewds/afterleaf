@@ -4,7 +4,6 @@ import {
   GAMEPAD_MAPPING,
   readGamepadInput,
   resetGamepadInputState,
-  type GamepadFrameInput,
 } from "~/game/gamepadInput";
 
 const mockGamepad = (overrides?: {
@@ -13,7 +12,7 @@ const mockGamepad = (overrides?: {
 }): Gamepad => {
   const buttons =
     overrides?.buttons ?? Array<GamepadButton | null>(16).fill(null);
-  const axes = overrides?.axes ?? Array<number>(2).fill(0);
+  const axes = overrides?.axes ?? Array<number>(4).fill(0);
   return {
     axes,
     buttons: buttons.map((button) =>
@@ -46,7 +45,7 @@ const setButton = (
 };
 
 const expectMovement = (
-  input: GamepadFrameInput,
+  input: ReturnType<typeof readGamepadInput>,
   expected: {forward: number; right: number},
 ) => {
   expect(input.movement.forward).toBeCloseTo(expected.forward);
@@ -54,7 +53,7 @@ const expectMovement = (
 };
 
 const expectLook = (
-  input: GamepadFrameInput,
+  input: ReturnType<typeof readGamepadInput>,
   expected: {pitch: number; yaw: number},
 ) => {
   expect(input.look.pitch).toBeCloseTo(expected.pitch);
@@ -70,9 +69,9 @@ describe("gamepad input", () => {
     globalThis.navigator.getGamepads = () => [];
     const input = readGamepadInput();
     expectMovement(input, {forward: 0, right: 0});
-    expect(input.jump).toBe(false);
-    expect(input.interact).toBe(false);
-    expect(input.sprint).toBe(false);
+    expectLook(input, {pitch: 0, yaw: 0});
+    expect(input.lookModifier).toBe(false);
+    expect(input.buttons).toEqual([]);
   });
 
   test("maps D-pad to movement", () => {
@@ -95,7 +94,7 @@ describe("gamepad input", () => {
 
   test("falls back to the left analog stick when D-pad is neutral", () => {
     globalThis.navigator.getGamepads = () => [
-      mockGamepad({axes: [0.5, -0.75]}),
+      mockGamepad({axes: [0.5, -0.75, 0, 0]}),
     ];
 
     expectMovement(readGamepadInput(), {forward: 0.75, right: 0.5});
@@ -103,7 +102,7 @@ describe("gamepad input", () => {
 
   test("ignores analog stick values below the deadzone", () => {
     globalThis.navigator.getGamepads = () => [
-      mockGamepad({axes: [0.05, -0.05]}),
+      mockGamepad({axes: [0.05, -0.05, 0, 0]}),
     ];
 
     expectMovement(readGamepadInput(), {forward: 0, right: 0});
@@ -113,58 +112,10 @@ describe("gamepad input", () => {
     const buttons: (GamepadButton | null)[] = Array(16).fill(null);
     setButton(buttons, GAMEPAD_MAPPING.dpad.up, true);
     globalThis.navigator.getGamepads = () => [
-      mockGamepad({buttons, axes: [0, 1]}),
+      mockGamepad({buttons, axes: [0, 1, 0, 0]}),
     ];
 
     expectMovement(readGamepadInput(), {forward: 1, right: 0});
-  });
-
-  test("jump is only true on the first pressed frame", () => {
-    const buttons: (GamepadButton | null)[] = Array(16).fill(null);
-    setButton(buttons, GAMEPAD_MAPPING.jump, true);
-    globalThis.navigator.getGamepads = () => [mockGamepad({buttons})];
-
-    expect(readGamepadInput().jump).toBe(true);
-    expect(readGamepadInput().jump).toBe(false);
-
-    setButton(buttons, GAMEPAD_MAPPING.jump, false);
-    globalThis.navigator.getGamepads = () => [mockGamepad({buttons})];
-    expect(readGamepadInput().jump).toBe(false);
-
-    setButton(buttons, GAMEPAD_MAPPING.jump, true);
-    globalThis.navigator.getGamepads = () => [mockGamepad({buttons})];
-    expect(readGamepadInput().jump).toBe(true);
-  });
-
-  test("interact is only true on the first pressed frame", () => {
-    const buttons: (GamepadButton | null)[] = Array(16).fill(null);
-    setButton(buttons, GAMEPAD_MAPPING.interact, true);
-    globalThis.navigator.getGamepads = () => [mockGamepad({buttons})];
-
-    expect(readGamepadInput().interact).toBe(true);
-    expect(readGamepadInput().interact).toBe(false);
-  });
-
-  test("sprint follows the held state of the sprint button", () => {
-    const buttons: (GamepadButton | null)[] = Array(16).fill(null);
-    setButton(buttons, GAMEPAD_MAPPING.sprint, true);
-    globalThis.navigator.getGamepads = () => [mockGamepad({buttons})];
-
-    expect(readGamepadInput().sprint).toBe(true);
-    expect(readGamepadInput().sprint).toBe(true);
-
-    setButton(buttons, GAMEPAD_MAPPING.sprint, false);
-    globalThis.navigator.getGamepads = () => [mockGamepad({buttons})];
-    expect(readGamepadInput().sprint).toBe(false);
-  });
-
-  test("menu is only true on the first pressed frame", () => {
-    const buttons: (GamepadButton | null)[] = Array(16).fill(null);
-    setButton(buttons, GAMEPAD_MAPPING.menu, true);
-    globalThis.navigator.getGamepads = () => [mockGamepad({buttons})];
-
-    expect(readGamepadInput().menu).toBe(true);
-    expect(readGamepadInput().menu).toBe(false);
   });
 
   test("ignores disconnected gamepads", () => {
@@ -179,7 +130,7 @@ describe("gamepad input", () => {
       mockGamepad({axes: [0, 0, 0.6, -0.8]}),
     ];
 
-    expectLook(readGamepadInput(), {pitch: 0.8, yaw: 0.6});
+    expectLook(readGamepadInput(), {pitch: -0.8, yaw: 0.6});
   });
 
   test("ignores right analog stick values below the deadzone", () => {
@@ -218,5 +169,17 @@ describe("gamepad input", () => {
     expectMovement(input, {forward: 1, right: 1});
     expectLook(input, {pitch: 0, yaw: 0});
     expect(input.lookModifier).toBe(false);
+  });
+
+  test("returns raw button states", () => {
+    const buttons: (GamepadButton | null)[] = Array(16).fill(null);
+    setButton(buttons, GAMEPAD_MAPPING.jump, true);
+    setButton(buttons, GAMEPAD_MAPPING.interact, true);
+    globalThis.navigator.getGamepads = () => [mockGamepad({buttons})];
+
+    const input = readGamepadInput();
+    expect(input.buttons[2]).toBe(true);
+    expect(input.buttons[0]).toBe(true);
+    expect(input.buttons[1]).toBe(false);
   });
 });
