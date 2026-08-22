@@ -44,6 +44,12 @@ export const SHOP_TV_CAVE = Object.freeze({
   depth: 9,
   width: 7,
 });
+/**
+ * Vertical centers of the open TV-cave shelf boards. Shared by the visual
+ * shelving and its collision boxes so props can physically rest on every
+ * board instead of an invisible solid slab.
+ */
+export const SHOP_TV_CAVE_SHELF_BOARD_Y_CENTERS = [5.02, 6.32, 7.62, 8.92];
 export const SHOP_TV_CAVE_DOOR_CENTER_Z = 20.75;
 export const SHOP_TV_CAVE_DOOR_WIDTH = 3;
 export const SHOP_TV_CAVE_HALL = Object.freeze({
@@ -479,10 +485,28 @@ const upperFixtureBoxes: readonly ShopExpansionBox[] = [
       size: [row.platformWidth, row.height, 6.4] as const,
     })),
   ),
-  {position: [22.6, 6.95, 18.3], size: [1.2, 4.05, 8.2]},
-  {position: [17.4, 6.95, 16.45], size: [1.2, 4.05, 4.7]},
-  {position: [SHOP_TV_CAVE.centerX, 6.95, 14.7], size: [6.45, 4.05, 1.2]},
-  {position: [SHOP_TV_CAVE.centerX, 6.95, 21.9], size: [6.45, 4.05, 1.2]},
+  // Open TV-cave shelving: backing panels plus one thin collider per shelf
+  // board, mirroring the visible boards so any prop can rest on any board.
+  ...([
+    // Backing panels.
+    {position: [23.03, 6.95, 18.3], size: [0.34, 4.05, 8.2]},
+    {position: [16.97, 6.95, 16.45], size: [0.34, 4.05, 4.7]},
+    {
+      position: [SHOP_TV_CAVE.centerX, 6.95, 14.27],
+      size: [6.45, 4.05, 0.34],
+    },
+    {
+      position: [SHOP_TV_CAVE.centerX, 6.95, 22.33],
+      size: [6.45, 4.05, 0.34],
+    },
+    // Shelf boards.
+    ...SHOP_TV_CAVE_SHELF_BOARD_Y_CENTERS.flatMap((y): ShopExpansionBox[] => [
+      {position: [22.6, y, 18.3], size: [8.2, 0.1, 1.2]},
+      {position: [17.4, y, 16.45], size: [4.7, 0.1, 1.2]},
+      {position: [SHOP_TV_CAVE.centerX, y, 14.7], size: [6.45, 0.1, 1.2]},
+      {position: [SHOP_TV_CAVE.centerX, y, 21.9], size: [6.45, 0.1, 1.2]},
+    ]),
+  ] satisfies readonly ShopExpansionBox[]),
 ];
 
 export const SHOP_EXPANSION_COLLISION_BOXES: readonly ShopCollisionBox[] = [

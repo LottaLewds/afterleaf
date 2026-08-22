@@ -131,6 +131,7 @@ import {
   SHOP_TV_CAVE,
   SHOP_TV_CAVE_DOOR_CENTER_Z,
   SHOP_TV_CAVE_HALL,
+  SHOP_TV_CAVE_SHELF_BOARD_Y_CENTERS,
   SHOP_UPPER_STACK_CENTER_X,
   SHOP_UPPER_STACK_LENGTH,
   SHOP_UPPER_STACK_ZS,
@@ -311,8 +312,6 @@ const MODEL_TELEVISION_PHYSICS_ID = "crt-television";
 const MODEL_TELEVISION_SCREEN_NODE_NAME = "TVScreen";
 const MODEL_TELEVISION_DENSITY = 60;
 const FIXED_TELEVISION_SAVE_ID = "fixed";
-/** Legacy save id of the pre-seeding movable television (channels only). */
-const MOVABLE_TELEVISION_SAVE_ID = "movable";
 const THEATRE_TELEVISION_SAVE_ID = "moonlight-theatre";
 const DISCARD_TOSS_DURATION_SECONDS = 0.52;
 const SHELVE_BOOK_DURATION_SECONDS = 0.34;
@@ -370,7 +369,7 @@ const DEFAULT_MODEL_SCALE = 1;
 const MIN_MODEL_SCALE = 0.1;
 const MAX_MODEL_SCALE = 10;
 const MIN_MODEL_COLLIDER_DIMENSION = 0.02;
-const MAX_USER_MODEL_PROP_COUNT = 256;
+const MAX_USER_MODEL_PROP_COUNT = 512;
 const BUILTIN_CRT_TV_ASSET_ID = "builtin:crt-tv";
 const BUILTIN_READING_TABLE_ASSET_ID = "builtin:reading-table";
 const BUILTIN_READING_CHAIR_ASSET_ID = "builtin:reading-chair";
@@ -554,7 +553,6 @@ type MovablePropRecord = {
   modelMixer?: AnimationMixer;
   modelScale?: number;
   object: Object3D;
-  persistInWorldProps: boolean;
   placementSupport: Object3D;
   rotationSnapStep: number;
   spawnAssetId?: string;
@@ -584,7 +582,6 @@ type MovablePropRegistration = {
   modelMixer?: AnimationMixer;
   modelScale?: number;
   object: Object3D;
-  persistInWorldProps?: boolean;
   placementSupport?: Object3D;
   rotationSnapStep?: number;
   spawnAssetId?: string;
@@ -2527,10 +2524,10 @@ export class ShopScene {
       ),
       modelScale: DEFAULT_MODEL_SCALE,
       object: trashcan,
-      persistInWorldProps: false,
-      spawnAssetId: BUILTIN_TRASH_CAN_ASSET_ID,
       // Matches the spawn-menu trash can: a dynamic body that can be
       // bumped, tipped, locked, or deleted like any other prop.
+      spawnAssetId: BUILTIN_TRASH_CAN_ASSET_ID,
+      spawned: true,
       width: TRASH_CAN_SIZE,
     });
 
@@ -2652,7 +2649,6 @@ export class ShopScene {
         ? {}
         : {modelScale: registration.modelScale}),
       object: registration.object,
-      persistInWorldProps: registration.persistInWorldProps ?? true,
       placementSupport: registration.placementSupport ?? registration.object,
       rotationSnapStep:
         registration.rotationSnapStep ?? PROP_ROTATION_SNAP_STEP,
@@ -3325,8 +3321,8 @@ export class ShopScene {
       id,
       label: id.replaceAll("-", " "),
       object: chair,
-      persistInWorldProps: false,
       spawnAssetId: BUILTIN_READING_CHAIR_ASSET_ID,
+      spawned: true,
       ...(seat ? {placementSupport: seat} : {}),
       rotationSnapStep: Math.PI / 2,
       templateForSpawning: true,
@@ -3461,9 +3457,9 @@ export class ShopScene {
           id,
           label: `reading table ${tableIndex + 1}`,
           object: table,
-          persistInWorldProps: false,
           rotationSnapStep: Math.PI / 2,
           spawnAssetId: BUILTIN_READING_TABLE_ASSET_ID,
+          spawned: true,
           width: 2.4,
         });
       }
@@ -3567,9 +3563,9 @@ export class ShopScene {
           modelBaseSize: new Vector3(lampSize.x, lampSize.y, lampSize.z),
           modelScale: DEFAULT_MODEL_SCALE,
           object: lampRoot,
-          persistInWorldProps: false,
           rotationSnapStep: Math.PI / 2,
           spawnAssetId: BUILTIN_DESK_LAMP_ASSET_ID,
+          spawned: true,
           width: lampSize.x,
         });
       }
@@ -4509,7 +4505,7 @@ export class ShopScene {
 
     const shelfMaterial = woodMaterial.clone();
     shelfMaterial.color.set("#75665d");
-    const shelfYs = [5.02, 6.32, 7.62, 8.92] as const;
+    const shelfYs = SHOP_TV_CAVE_SHELF_BOARD_Y_CENTERS;
     const addShelfBank = (
       axis: "x" | "z",
       backingPosition: readonly [x: number, y: number, z: number],
@@ -4553,67 +4549,51 @@ export class ShopScene {
     const rowYs = shelfYs
       .slice(0, 3)
       .map((y) => y + SHOP_MODEL_TELEVISION_SIZE.height / 2 + 0.04);
-    const addCrt = (
-      wall: "east" | "north" | "south" | "west",
-      row: number,
-      column: number,
-      position: readonly [x: number, y: number, z: number],
-      rotationY: number,
-    ) => {
-      const id = `tv-cave-v6-${wall}-${row + 1}-${column + 1}`;
-      const television = new ShopTelevision({
-        ...this.#sharedTelevisionOptions(
-          this.#pendingWorldSave?.televisionChannels?.[id] ??
-            this.#pendingWorldSave?.televisionChannels?.[
-              MOVABLE_TELEVISION_SAVE_ID
-            ],
-          this.#pendingWorldSave?.televisionVolumes?.[id] ??
-            this.#pendingWorldSave?.televisionVolumes?.[
-              MOVABLE_TELEVISION_SAVE_ID
-            ],
-        ),
-        model: {
-          screenAspect: 4 / 3,
-          screenNodeName: "Screen",
-          screenSafeArea: CRT_TV_SAFE_AREA,
-          scale: SHOP_MODEL_TELEVISION_SCALE,
-          url: crtTvModelUrl,
-        },
-        parent,
-        position,
-        rotationY,
-        tableMaterial: woodMaterial,
-      });
-      television.object.name = id;
-      this.#registerTelevision(id, television);
-      const prop = this.#registerMovableProp({
-        density: 45,
-        depth: SHOP_MODEL_TELEVISION_SIZE.depth,
-        height: SHOP_MODEL_TELEVISION_SIZE.height,
-        heldLocalPosition: new Vector3(0, -0.12, -1.45),
-        id,
-        label: `TV cave ${wall} CRT ${row + 1}-${column + 1}`,
-        object: television.object,
-        spawnAssetId: BUILTIN_CRT_TV_ASSET_ID,
-        // The dedicated arcade raycast owns targeting so E stays "play";
-        // pickup goes through T instead of the generic prop path.
-        targetable: false,
-        width: SHOP_MODEL_TELEVISION_SIZE.width,
-      });
-      this.#televisionProps.set(television, prop);
-    };
+    // Cave CRTs are ordinary spawned televisions: seeded once onto the
+    // shelf banks, then persisted through modelProps like any other prop.
+    // Worlds that already seeded restore them from their saves instead of
+    // re-spawning deleted or moved units.
+    if (this.#shouldSeedDefaults()) {
+      const crtAsset = BUILTIN_SPAWNABLE_PROP_ASSETS.find(
+        (asset) => asset.id === BUILTIN_CRT_TV_ASSET_ID,
+      );
+      if (crtAsset) {
+        const addCrt = (
+          wall: "east" | "north" | "south" | "west",
+          row: number,
+          column: number,
+          position: readonly [x: number, y: number, z: number],
+          rotationY: number,
+        ) => {
+          const id = `tv-cave-v6-${wall}-${row + 1}-${column + 1}`;
+          const quaternion = new Quaternion().setFromAxisAngle(
+            this.#upAxis,
+            rotationY,
+          );
+          this.#createSpawnedCrtTelevision(crtAsset, id, DEFAULT_MODEL_SCALE, {
+            position: {x: position[0], y: position[1], z: position[2]},
+            quaternion: {
+              w: quaternion.w,
+              x: quaternion.x,
+              y: quaternion.y,
+              z: quaternion.z,
+            },
+          });
+        };
 
-    const eastColumnZs = [14.6, 16.3, 18, 19.7, 21.4] as const;
-    const westColumnZs = [14.7, 16.3, 17.9] as const;
-    const crossWallColumnXs = [17.5, 19.5, 21.5] as const;
-    for (const [row, y] of rowYs.entries()) {
-      for (const [column, z] of eastColumnZs.entries())
-        addCrt("east", row, column, [22.4, y, z], Math.PI / 2);
-      for (const [column, z] of westColumnZs.entries())
-        addCrt("west", row, column, [17.6, y, z], -Math.PI / 2);
-      for (const [column, x] of crossWallColumnXs.entries()) {
-        addCrt("north", row, column, [x, y, 14.4], Math.PI);
-        addCrt("south", row, column, [x, y, 22.2], 0);
+        const eastColumnZs = [14.6, 16.3, 18, 19.7, 21.4] as const;
+        const westColumnZs = [14.7, 16.3, 17.9] as const;
+        const crossWallColumnXs = [17.5, 19.5, 21.5] as const;
+        for (const [row, y] of rowYs.entries()) {
+          for (const [column, z] of eastColumnZs.entries())
+            addCrt("east", row, column, [22.4, y, z], Math.PI / 2);
+          for (const [column, z] of westColumnZs.entries())
+            addCrt("west", row, column, [17.6, y, z], -Math.PI / 2);
+          for (const [column, x] of crossWallColumnXs.entries()) {
+            addCrt("north", row, column, [x, y, 14.4], Math.PI);
+            addCrt("south", row, column, [x, y, 22.2], 0);
+          }
+        }
       }
     }
   }
@@ -5407,7 +5387,6 @@ export class ShopScene {
       ...(mixer ? {modelMixer: mixer} : {}),
       modelScale: scale,
       object: root,
-      persistInWorldProps: false,
       spawnAssetId: asset.id,
       spawned: true,
       targetObject: targetProxy,
@@ -5468,7 +5447,6 @@ export class ShopScene {
       ),
       modelScale: scale,
       object,
-      persistInWorldProps: false,
       ...(template.rotationSnapStep === undefined
         ? {}
         : {rotationSnapStep: template.rotationSnapStep}),
@@ -5609,7 +5587,6 @@ export class ShopScene {
       ),
       modelScale: scale,
       object: television.object,
-      persistInWorldProps: false,
       spawnAssetId: asset.id,
       spawned: true,
       targetable: false,
@@ -5631,8 +5608,8 @@ export class ShopScene {
       id: string;
       label: string;
       scale: number;
+      spawnAssetId?: string;
       spawned: boolean;
-      persistInWorldProps?: boolean;
     },
   ) {
     this.#arcadeCabinets.push(cabinet);
@@ -5648,9 +5625,10 @@ export class ShopScene {
       modelBaseSize: new Vector3(size.width, size.height, size.depth),
       modelScale: scale,
       object: cabinet.object,
-      ...(registration.persistInWorldProps === undefined
-        ? {}
-        : {persistInWorldProps: registration.persistInWorldProps}),
+      ...(registration.spawnAssetId
+        ? {spawnAssetId: registration.spawnAssetId}
+        : {}),
+      spawned: registration.spawned,
       // Cabinets simulate like the CRT televisions once released: gravity
       // applies and the player can bump them unless they are locked.
       targetable: false,
@@ -5687,8 +5665,8 @@ export class ShopScene {
     return this.#registerArcadeCabinetProp(cabinet, {
       id,
       label: asset.label,
-      persistInWorldProps: false,
       scale,
+      spawnAssetId: BUILTIN_ARCADE_CABINET_ASSET_ID,
       spawned: true,
     });
   }
@@ -5768,7 +5746,6 @@ export class ShopScene {
       ...(mixer ? {modelMixer: mixer} : {}),
       modelScale: scale,
       object: television.object,
-      persistInWorldProps: false,
       spawnAssetId: asset.id,
       spawned: true,
       targetable: false,
@@ -8514,19 +8491,16 @@ export class ShopScene {
     // saved before default-prop seeding respawn the movable CRT television
     // at its designed spot through #seedDefaultProps instead.
     const savedProps = save.props ?? [];
-    const hasLegacyTvCaveProps = savedProps.some(
-      (savedProp) =>
-        savedProp.id.startsWith("tv-cave-") &&
-        !savedProp.id.startsWith("tv-cave-v6-"),
+    // Cave CRTs live in modelProps now: drop every legacy pose-only
+    // tv-cave entry so they cannot double with the restored props, and
+    // mark the world dirty so the next save drops them from disk.
+    const hasLegacyTvCaveProps = savedProps.some((savedProp) =>
+      savedProp.id.startsWith("tv-cave-"),
     );
     if (hasLegacyTvCaveProps) this.#worldStateDirty = true;
     this.#pendingPropSaves = new Map(
       savedProps
-        .filter(
-          (savedProp) =>
-            !savedProp.id.startsWith("tv-cave-") ||
-            savedProp.id.startsWith("tv-cave-v6-"),
-        )
+        .filter((savedProp) => !savedProp.id.startsWith("tv-cave-"))
         .map((savedProp) => [savedProp.id, savedProp]),
     );
     for (const [id, record] of this.#movableProps) {
@@ -8537,7 +8511,23 @@ export class ShopScene {
     }
     this.#pendingPosterSaves = save.posters ?? [];
     this.#pendingDigitalArtFrameSaves = save.digitalArtFrames ?? [];
-    this.#pendingModelPropSaves = save.modelProps ?? [];
+    // Saved model props whose ids already exist (registered during boot)
+    // adopt their saved pose here; only genuinely missing ids remain for
+    // #restoreSavedModelProps to spawn.
+    const adoptedModelPropSaves: WorldModelPropSave[] = [];
+    for (const savedProp of save.modelProps ?? []) {
+      const record = this.#movableProps.get(savedProp.id);
+      if (!record) {
+        adoptedModelPropSaves.push(savedProp);
+        continue;
+      }
+      this.#applySavedPropPose(record, savedProp);
+      if (savedProp.locked && !record.locked) {
+        record.locked = true;
+        this.#physicsWorld.setPropLocked(record.id, true);
+      }
+    }
+    this.#pendingModelPropSaves = adoptedModelPropSaves;
     void this.#restoreSavedModelProps();
     const playerWasInLegacyTvCave =
       save.player.position.y > SHOP_UPPER_FLOOR_Y &&
@@ -12570,30 +12560,13 @@ export class ShopScene {
       if (channelId) televisionChannels[saveId] = channelId;
       televisionVolumes[saveId] = savedTelevision.volumeLevel();
     }
+    // Every movable prop persists. Asset-backed props live in modelProps;
+    // the plain props list only carries legacy pose-only leftovers from
+    // pre-seeding saves that no registration has claimed yet.
     const props: WorldPropSave[] = [
       ...[...this.#pendingPropSaves.values()].filter(
         (savedProp) => !this.#movableProps.has(savedProp.id),
       ),
-      ...[...this.#movableProps.values()]
-        .filter((record) => record.persistInWorldProps)
-        .map((record) => {
-          record.object.updateWorldMatrix(true, false);
-          const position = record.object.getWorldPosition(new Vector3());
-          const quaternion = record.object.getWorldQuaternion(new Quaternion());
-          return {
-            id: record.id,
-            ...(record.locked ? {locked: true} : {}),
-            pose: {
-              position: {x: position.x, y: position.y, z: position.z},
-              quaternion: {
-                w: quaternion.w,
-                x: quaternion.x,
-                y: quaternion.y,
-                z: quaternion.z,
-              },
-            },
-          };
-        }),
     ];
     const modelProps: WorldModelPropSave[] = [
       ...this.#pendingModelPropSaves.filter(
@@ -12601,7 +12574,7 @@ export class ShopScene {
       ),
       ...[...this.#movableProps.values()].flatMap((record) => {
         const assetId = record.spawnAssetId;
-        if (!record.spawned || !assetId) return [];
+        if (!assetId) return [];
         const animationClip = record.modelAnimations
           ? (record.modelAnimations[record.modelAnimationIndex ?? 0]?.name ??
             null)
