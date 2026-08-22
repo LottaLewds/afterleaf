@@ -376,6 +376,18 @@ describe("world save validation", () => {
     if (!parsedModelProp) throw new Error("Expected model prop fixture");
     expect(parsedModelProp.locked).toBeUndefined();
   });
+
+  test("defaultsSeeded must be true when present and survives a round trip", () => {
+    expect(parseWorldSave(saveFixture()).defaultsSeeded).toBeUndefined();
+    const seeded = parseWorldSave({...saveFixture(), defaultsSeeded: true});
+    expect(seeded.defaultsSeeded).toBe(true);
+    expect(() =>
+      parseWorldSave({...saveFixture(), defaultsSeeded: false}),
+    ).toThrow("defaultsSeeded must be true when present");
+    expect(() =>
+      parseWorldSave({...saveFixture(), defaultsSeeded: "yes"}),
+    ).toThrow("defaultsSeeded must be true when present");
+  });
 });
 
 test("catalog compatibility requires exact pack, hash, and snapshot identity", () => {

@@ -123,11 +123,13 @@ export type WorldSaveV1 = {
   posters?: readonly WorldPosterSave[];
   props?: readonly WorldPropSave[];
   /**
-   * Scene-level default props (lane cabinets, reading furniture, the
-   * movable CRT television, desk lamps) the players discarded; they are
-   * defaults, not permanent fixtures, and stay gone across reloads.
+   * Written once the shop has seeded its default props (lane arcade
+   * cabinet, movable CRT television) into the world as ordinary spawned
+   * props. Absent on fresh and legacy worlds, which are seeded on boot;
+   * once present, the saved modelProps list is authoritative and deleted
+   * defaults stay gone.
    */
-  removedDefaultPropIds?: readonly string[];
+  defaultsSeeded?: true;
   savedAt: string;
   schemaVersion: typeof WORLD_SAVE_SCHEMA_VERSION;
   shelfSigns?: readonly WorldShelfSign[];
@@ -477,17 +479,6 @@ const parseModelProps = (value: unknown): readonly WorldModelPropSave[] => {
   });
 };
 
-const parseRemovedDefaultPropIds = (value: unknown): readonly string[] => {
-  if (!Array.isArray(value) || value.length > MAX_MODEL_PROP_COUNT)
-    throw new Error("removedDefaultPropIds must be a bounded array");
-  const ids = value.map((id, index) =>
-    requiredString(id, `removedDefaultPropIds[${index}]`),
-  );
-  if (new Set(ids).size !== ids.length)
-    throw new Error("removedDefaultPropIds must not contain duplicates");
-  return ids;
-};
-
 const parseShelfSigns = (value: unknown): readonly WorldShelfSign[] => {
   if (!Array.isArray(value) || value.length > MAX_SHELF_SIGN_COUNT)
     throw new Error("shelfSigns must be a bounded array");
@@ -587,10 +578,9 @@ export const parseWorldSave = (value: unknown): WorldSaveV1 => {
     value.modelProps === undefined
       ? undefined
       : parseModelProps(value.modelProps);
-  const removedDefaultPropIds =
-    value.removedDefaultPropIds === undefined
-      ? undefined
-      : parseRemovedDefaultPropIds(value.removedDefaultPropIds);
+  if (value.defaultsSeeded !== undefined && value.defaultsSeeded !== true)
+    throw new Error("defaultsSeeded must be true when present");
+  const defaultsSeeded = value.defaultsSeeded as true | undefined;
   const television =
     value.television === undefined
       ? undefined
@@ -640,13 +630,13 @@ export const parseWorldSave = (value: unknown): WorldSaveV1 => {
     ...(aisleSigns === undefined ? {} : {aisleSigns}),
     books,
     ...(catalog === undefined ? {} : {catalog}),
+    ...(defaultsSeeded === undefined ? {} : {defaultsSeeded}),
     ...(digitalArtFrames === undefined ? {} : {digitalArtFrames}),
     ...(modelProps === undefined ? {} : {modelProps}),
     ...(pendingArrivalIds.length === 0 ? {} : {pendingArrivalIds}),
     player: parsePose(value.player, "player"),
     ...(posters === undefined ? {} : {posters}),
     ...(props === undefined ? {} : {props}),
-    ...(removedDefaultPropIds === undefined ? {} : {removedDefaultPropIds}),
     savedAt: value.savedAt,
     schemaVersion: WORLD_SAVE_SCHEMA_VERSION,
     ...(shelfSigns === undefined ? {} : {shelfSigns}),

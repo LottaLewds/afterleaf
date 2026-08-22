@@ -18,7 +18,7 @@ describe("listArcadeFolderRoms", () => {
         return Promise.resolve(
           jsonResponse({
             ok: true,
-            path: "/games/roms/nes",
+            paths: ["/games/roms/nes", "/other/more-nes"],
             roms: [
               {name: "Alter Ego.nes", sizeBytes: 262160},
               {malformed: true},
@@ -31,7 +31,7 @@ describe("listArcadeFolderRoms", () => {
 
     expect(requestedUrl).toBe("/api/library/roms?system=nes");
     expect(result).toEqual({
-      path: "/games/roms/nes",
+      paths: ["/games/roms/nes", "/other/more-nes"],
       roms: [
         {name: "Alter Ego.nes", sizeBytes: 262160},
         {name: "LJ65.zip", sizeBytes: 0},

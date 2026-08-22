@@ -624,6 +624,57 @@ describe("ShopPhysicsWorld", () => {
     }
   }, 10_000);
 
+  test("rescales multi-part prop colliders on size updates", async () => {
+    const physics = new ShopPhysicsWorld();
+    try {
+      expect(
+        physics.addProp({
+          colliderParts: [
+            {
+              halfExtents: {x: 0.1, y: 0.05, z: 0.1},
+              position: {x: -0.2, y: 0, z: 0},
+            },
+            {
+              halfExtents: {x: 0.1, y: 0.05, z: 0.1},
+              position: {x: 0.2, y: 0, z: 0},
+            },
+          ],
+          depth: 0.2,
+          height: 0.1,
+          id: "parted-prop",
+          pose: identityPose(0, 3, 0),
+          width: 0.6,
+        }),
+      ).toBe(true);
+      expect(await physics.initialize()).toBe(true);
+      // Size updates on part colliders used to be refused outright.
+      expect(
+        physics.updatePropSize("parted-prop", {
+          depth: 0.4,
+          height: 0.2,
+          width: 1.2,
+        }),
+      ).toBe(true);
+      expect(
+        physics.updatePropSize("parted-prop", {
+          depth: 0.2,
+          height: 0.1,
+          width: 0.6,
+        }),
+      ).toBe(true);
+      for (let frame = 0; frame < 120; frame += 1) physics.step(1 / 60);
+      const sample = createSample();
+      expect(
+        physics.sampleInterpolatedPropTransform("parted-prop", sample),
+      ).toBe(true);
+      expect(Number.isFinite(sample.position.x)).toBe(true);
+      expect(sample.position.y).toBeGreaterThan(0);
+      expect(sample.position.y).toBeLessThan(1);
+    } finally {
+      physics.dispose();
+    }
+  }, 10_000);
+
   test("keeps released static props fixed until they are picked up again", async () => {
     const physics = new ShopPhysicsWorld();
     try {

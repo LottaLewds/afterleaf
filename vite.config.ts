@@ -51,6 +51,7 @@ import {createReaderPageDerivative} from "./src/content/readerImage";
 import {ARCHIVE_SOURCE_PROVIDER} from "./src/content/archiveReader";
 import {materializeArchiveReaderPage} from "./src/content/archiveSparsePage";
 import {
+  defaultRomFolderPath,
   readAfterleafLibraryConfig,
   readAfterleafLibraryConfigSync,
   libraryRootContainsMedia,
@@ -1114,9 +1115,10 @@ const localLibraryOperationsPlugin = (): Plugin => ({
         return;
       }
 
-      // Lists the ROM files inside the folder configured for one emulated
-      // cabinet system. A missing configuration is a structured failure the
-      // picker renders as an Options-menu hint rather than an error.
+      // Lists the ROM files for one emulated cabinet system, merging the
+      // built-in content/roms/<system> convention folder with any extra
+      // folders registered in Options. With neither present the response is a
+      // structured failure the picker renders as an Options-menu hint.
       if (pathname === LIBRARY_ROMS_ENDPOINT) {
         if (request.method !== "GET" || !hasSameOrigin(request)) {
           sendJson(
@@ -1137,39 +1139,64 @@ const localLibraryOperationsPlugin = (): Plugin => ({
           );
           if (!system) throw new Error("Unknown emulated system");
           const config = await readAfterleafLibraryConfig(import.meta.dirname);
-          const folder = config.romPaths?.[system.id];
-          if (!folder) {
+          const configuredFolders = config.romPaths[system.id] ?? [];
+          const defaultFolder = defaultRomFolderPath(
+            import.meta.dirname,
+            system.id,
+          );
+          const hasDefaultFolder = existsSync(defaultFolder);
+          if (configuredFolders.length === 0 && !hasDefaultFolder) {
             sendJson(
               response,
               422,
               libraryOperationFailure(
                 "no_rom_folder",
-                `No ROM folder is configured for ${system.label}.`,
+                `No ROM folder is available for ${system.label}.`,
               ),
             );
             return;
           }
-          const dirents = await readdir(folder, {withFileTypes: true});
-          const romEntries = await Promise.all(
-            dirents
-              .filter(
-                (entry) =>
-                  entry.isFile() &&
-                  !entry.isSymbolicLink() &&
-                  !entry.name.startsWith(".") &&
-                  arcadeSystemSupportsFileName(system, entry.name),
-              )
-              .map(async (entry) => {
-                try {
-                  const romStat = await stat(path.resolve(folder, entry.name));
-                  return {name: entry.name, sizeBytes: romStat.size};
-                } catch {
-                  return undefined;
-                }
-              }),
-          );
-          const roms = romEntries
-            .filter((rom) => rom !== undefined)
+          // The convention folder is optional; registered folders must exist
+          // or their readdir failure surfaces as a listing error.
+          const foldersToScan = [
+            ...(hasDefaultFolder ? [defaultFolder] : []),
+            ...configuredFolders,
+          ];
+          const romByName = new Map<
+            string,
+            {name: string; sizeBytes: number}
+          >();
+          const scannedPaths: string[] = [];
+          for (const folder of foldersToScan) {
+            scannedPaths.push(folder);
+            const dirents = await readdir(folder, {withFileTypes: true});
+            await Promise.all(
+              dirents
+                .filter(
+                  (entry) =>
+                    entry.isFile() &&
+                    !entry.isSymbolicLink() &&
+                    !entry.name.startsWith(".") &&
+                    arcadeSystemSupportsFileName(system, entry.name) &&
+                    // Earlier folders win on duplicate file names.
+                    !romByName.has(entry.name),
+                )
+                .map(async (entry) => {
+                  try {
+                    const romStat = await stat(
+                      path.resolve(folder, entry.name),
+                    );
+                    romByName.set(entry.name, {
+                      name: entry.name,
+                      sizeBytes: romStat.size,
+                    });
+                  } catch {
+                    return;
+                  }
+                }),
+            );
+          }
+          const roms = [...romByName.values()]
             .sort((left, right) =>
               left.name.localeCompare(right.name, undefined, {
                 numeric: true,
@@ -1177,7 +1204,7 @@ const localLibraryOperationsPlugin = (): Plugin => ({
               }),
             )
             .slice(0, MAX_ROM_LISTING_ENTRIES);
-          sendJson(response, 200, {ok: true, path: folder, roms});
+          sendJson(response, 200, {ok: true, paths: scannedPaths, roms});
         } catch (error) {
           sendJson(
             response,
@@ -1193,10 +1220,10 @@ const localLibraryOperationsPlugin = (): Plugin => ({
         return;
       }
 
-      // Streams one ROM file from the configured system folder straight into
-      // the same-origin emulator iframe. Names are plain file names resolved
-      // against the configured folder; containment is re-checked after
-      // resolving so traversal attempts can never escape it.
+      // Streams one ROM file from a system's ROM folders straight into the
+      // same-origin emulator iframe. Names are plain file names resolved
+      // against each candidate folder in listing order; containment is
+      // re-checked after resolving so traversal attempts can never escape.
       if (pathname === LIBRARY_ROM_FILE_ENDPOINT) {
         if (request.method !== "GET" || !hasSameOrigin(request)) {
           sendJson(
@@ -1227,17 +1254,35 @@ const localLibraryOperationsPlugin = (): Plugin => ({
           if (!arcadeSystemSupportsFileName(system, requestedName))
             throw new Error("That file cannot run on this system");
           const config = await readAfterleafLibraryConfig(import.meta.dirname);
-          const folder = config.romPaths?.[system.id];
-          if (!folder)
-            throw new Error(`No ROM folder is configured for ${system.label}.`);
-          const romPath = path.resolve(folder, requestedName);
-          if (romPath !== folder && !romPath.startsWith(folder + path.sep))
-            throw new Error("That ROM is outside the configured folder");
-          const romStat = await stat(romPath);
-          if (!romStat.isFile()) throw new Error("That ROM could not be found");
+          const candidateFolders = [
+            defaultRomFolderPath(import.meta.dirname, system.id),
+            ...(config.romPaths[system.id] ?? []),
+          ];
+          let romPath: string | undefined;
+          let romSizeBytes = 0;
+          for (const folder of candidateFolders) {
+            const candidate = path.resolve(folder, requestedName);
+            if (
+              candidate !== folder &&
+              !candidate.startsWith(folder + path.sep)
+            )
+              throw new Error("That ROM is outside its configured folder");
+            try {
+              const candidateStat = await stat(candidate);
+              if (!candidateStat.isFile()) continue;
+              romPath = candidate;
+              romSizeBytes = candidateStat.size;
+              break;
+            } catch (error) {
+              // Not in this folder; try the next candidate.
+              if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
+              throw error;
+            }
+          }
+          if (!romPath) throw new Error("That ROM could not be found");
           response.statusCode = 200;
           response.setHeader("Content-Type", "application/octet-stream");
-          response.setHeader("Content-Length", String(romStat.size));
+          response.setHeader("Content-Length", String(romSizeBytes));
           response.setHeader("Cache-Control", "no-store");
           const romStream = createReadStream(romPath);
           romStream.on("error", () => {

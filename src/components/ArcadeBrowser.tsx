@@ -1,5 +1,12 @@
 import {FiHardDrive, FiPlay, FiTrash2, FiX} from "solid-icons/fi";
-import {For, Show, createResource, createSignal} from "solid-js";
+import {
+  For,
+  Show,
+  createResource,
+  createSignal,
+  onCleanup,
+  onMount,
+} from "solid-js";
 
 import {arcadeFolderRomUrl, listArcadeFolderRoms} from "~/arcade/romFolders";
 import {
@@ -11,6 +18,9 @@ import {
 } from "~/arcade/romLibrary";
 import {ARCADE_SYSTEMS, findArcadeSystem} from "~/arcade/systems";
 import type {ShopArcadePlayRequest} from "~/game/ShopArcadeCabinet";
+
+/** Matches the shop media catalog refresh rhythm. */
+const ROM_LISTING_REFRESH_INTERVAL_MS = 10_000;
 
 const formatBytes = (bytes: number) => {
   if (bytes <= 0) return "—";
@@ -57,9 +67,36 @@ export const ArcadeBrowser = (props: ArcadeBrowserProps) => {
     .then(setSavedRoms)
     .catch(() => {});
 
-  const [folder, {refetch}] = createResource(selectedSystemId, (systemId) =>
-    listArcadeFolderRoms(systemId),
+  const [folder, {refetch, mutate}] = createResource(
+    selectedSystemId,
+    (systemId) => listArcadeFolderRoms(systemId),
   );
+
+  // Quietly re-reads the listing so ROMs dropped into a folder appear without
+  // reopening the picker. Mutates the resource in place: no spinner flash and
+  // a failed refresh keeps whatever is already on screen.
+  let quietRefreshRequest = 0;
+  const quietRefresh = async () => {
+    const request = ++quietRefreshRequest;
+    const systemId = selectedSystemId();
+    try {
+      const result = await listArcadeFolderRoms(systemId);
+      if (request !== quietRefreshRequest || selectedSystemId() !== systemId)
+        return;
+      mutate(result);
+    } catch {
+      return;
+    }
+  };
+
+  onMount(() => {
+    const timer = window.setInterval(() => {
+      if (document.visibilityState !== "visible" || !document.hasFocus())
+        return;
+      void quietRefresh();
+    }, ROM_LISTING_REFRESH_INTERVAL_MS);
+    onCleanup(() => window.clearInterval(timer));
+  });
 
   const readyFolder = () => {
     const current = folder();
@@ -170,8 +207,9 @@ export const ArcadeBrowser = (props: ArcadeBrowserProps) => {
             </p>
             <h2 class="mt-1 font-serif text-xl text-[#eee8dc]">Pick a game</h2>
             <p class="mt-1 text-[10px] leading-4 text-[#8f9b96]">
-              Games stream from your own cartridge folders, one per system in
-              Options. Nothing ships inside the shop.
+              Games stream from each system's cartridge folder in content/roms,
+              plus any extra folders registered in Options. Nothing ships inside
+              the shop.
             </p>
           </div>
           <button
@@ -272,11 +310,12 @@ export const ArcadeBrowser = (props: ArcadeBrowserProps) => {
                     when={readyFolder()}
                     fallback={
                       <p class="p-6 text-center text-xs leading-5 text-[#8f9b96]">
-                        No ROM folder is set for{" "}
+                        No cartridge folders are available for{" "}
                         {findArcadeSystem(selectedSystemId())?.label ??
                           "this system"}{" "}
-                        yet. Configure one in the Options menu under ROM
-                        folders, then reopen this picker.
+                        yet. Drop games into content/roms/
+                        {selectedSystemId()} or add folders in the Options menu,
+                        then reopen this picker.
                       </p>
                     }
                   >
@@ -287,7 +326,7 @@ export const ArcadeBrowser = (props: ArcadeBrowserProps) => {
                           <p class="p-6 text-center text-xs text-[#8f9b96]">
                             {query().trim()
                               ? "No games match that search."
-                              : "This folder has no supported game files yet."}
+                              : "No supported game files found yet."}
                           </p>
                         }
                       >

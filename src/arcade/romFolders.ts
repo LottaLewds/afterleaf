@@ -11,12 +11,11 @@ export type ArcadeFolderRom = {
 };
 
 /**
- * Result of listing the folder configured for one emulated system. The
- * unconfigured state is expected and surfaces as an Options-menu hint
- * instead of an error.
+ * Result of listing a system's ROM folders. The unconfigured state is
+ * expected and surfaces as an Options-menu hint instead of an error.
  */
 export type ArcadeFolderRomsResult =
-  | {roms: readonly ArcadeFolderRom[]; path: string; state: "ready"}
+  | {roms: readonly ArcadeFolderRom[]; paths: readonly string[]; state: "ready"}
   | {state: "unconfigured"};
 
 /**
@@ -30,16 +29,19 @@ export const arcadeFolderRomUrl = (systemId: string, name: string): string => {
 
 const parseRomsPayload = (
   value: unknown,
-): {path: string; roms: ArcadeFolderRom[]} => {
-  if (!value || typeof value !== "object" || !("path" in value))
+): {paths: readonly string[]; roms: ArcadeFolderRom[]} => {
+  if (!value || typeof value !== "object" || !("paths" in value))
     throw new Error("The ROM folder response is malformed");
   const payload = value as {
     ok?: unknown;
-    path?: unknown;
+    paths?: unknown;
     roms?: unknown;
   };
-  if (!Array.isArray(payload.roms))
+  if (!Array.isArray(payload.paths) || !Array.isArray(payload.roms))
     throw new Error("The ROM folder response is malformed");
+  const paths = payload.paths.filter(
+    (path): path is string => typeof path === "string",
+  );
   const roms: ArcadeFolderRom[] = [];
   for (const entry of payload.roms) {
     if (!entry || typeof entry !== "object") continue;
@@ -50,13 +52,13 @@ const parseRomsPayload = (
       sizeBytes: typeof rom.sizeBytes === "number" ? rom.sizeBytes : 0,
     });
   }
-  return {path: String(payload.path ?? ""), roms};
+  return {paths, roms};
 };
 
 /**
- * Lists the ROM files in the folder configured for a system. Resolves to the
- * unconfigured state when no folder has been chosen yet; throws for server
- * or filesystem failures.
+ * Lists the ROM files across a system's built-in and registered folders.
+ * Resolves to the unconfigured state when no folder is available yet;
+ * throws for server or filesystem failures.
  */
 export const listArcadeFolderRoms = async (
   systemId: ArcadeSystemId,

@@ -78,13 +78,16 @@ describe("Afterleaf library config", () => {
     await writeFile(
       resolve(root, "afterleaf.library.json"),
       JSON.stringify({
-        romPaths: {nes: "roms/nes", segaMD: "external/../roms/genesis"},
+        romPaths: {
+          nes: ["roms/nes", "external/more-nes"],
+          segaMD: ["external/../roms/genesis"],
+        },
       }),
     );
 
     const expected = {
-      nes: resolve(root, "roms/nes"),
-      segaMD: resolve(root, "roms/genesis"),
+      nes: [resolve(root, "roms/nes"), resolve(root, "external/more-nes")],
+      segaMD: [resolve(root, "roms/genesis")],
     };
     const config = await readAfterleafLibraryConfig(root);
     expect(config.romPaths).toEqual(expected);
@@ -95,19 +98,24 @@ describe("Afterleaf library config", () => {
     const root = await createRoot();
     const configPath = resolve(root, "afterleaf.library.json");
 
-    await writeFile(configPath, JSON.stringify({romPaths: {dreamcast: "x"}}));
+    await writeFile(configPath, JSON.stringify({romPaths: {dreamcast: ["x"]}}));
     await expect(readAfterleafLibraryConfig(root)).rejects.toThrow(
       'unknown system "dreamcast"',
     );
 
-    await writeFile(configPath, JSON.stringify({romPaths: {nes: ""}}));
+    await writeFile(configPath, JSON.stringify({romPaths: {nes: [""]}}));
     await expect(readAfterleafLibraryConfig(root)).rejects.toThrow(
-      "romPaths.nes must be a folder path",
+      "romPaths.nes must be an array of folder paths",
+    );
+
+    await writeFile(configPath, JSON.stringify({romPaths: {nes: "roms/nes"}}));
+    await expect(readAfterleafLibraryConfig(root)).rejects.toThrow(
+      "romPaths.nes must be an array of folder paths",
     );
 
     await writeFile(configPath, JSON.stringify({romPaths: ["nes"]}));
     await expect(readAfterleafLibraryConfig(root)).rejects.toThrow(
-      "must map emulated system ids to folders",
+      "must map emulated system ids to folder lists",
     );
   });
 

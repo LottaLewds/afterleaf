@@ -153,7 +153,6 @@ import {
   READING_TABLE_SIZE,
   SHOP_BOUNDS,
   SHOP_INTERIOR_FOOTPRINTS,
-  SHOP_MODEL_TELEVISION_POSITION,
   SHOP_MODEL_TELEVISION_SCALE,
   SHOP_MODEL_TELEVISION_SIZE,
   SHOP_STAIR_LOWER_FLIGHT_CENTER_Z,
@@ -189,6 +188,7 @@ import {
   type WorldModelPropSave,
   type WorldPosterSave,
   type WorldPropSave,
+  type WorldQuaternion,
   type WorldSaveV1,
   type WorldTelevisionChannels,
   type WorldTelevisionVolumes,
@@ -311,12 +311,9 @@ const MODEL_TELEVISION_PHYSICS_ID = "crt-television";
 const MODEL_TELEVISION_SCREEN_NODE_NAME = "TVScreen";
 const MODEL_TELEVISION_DENSITY = 60;
 const FIXED_TELEVISION_SAVE_ID = "fixed";
+/** Legacy save id of the pre-seeding movable television (channels only). */
 const MOVABLE_TELEVISION_SAVE_ID = "movable";
 const THEATRE_TELEVISION_SAVE_ID = "moonlight-theatre";
-const LEGACY_MODEL_TELEVISION_ROTATION = new Quaternion().setFromAxisAngle(
-  new Vector3(0, 1, 0),
-  Math.PI,
-);
 const DISCARD_TOSS_DURATION_SECONDS = 0.52;
 const SHELVE_BOOK_DURATION_SECONDS = 0.34;
 const LOOK_SENSITIVITY = 0.0021;
@@ -378,10 +375,8 @@ const BUILTIN_CRT_TV_ASSET_ID = "builtin:crt-tv";
 const BUILTIN_READING_TABLE_ASSET_ID = "builtin:reading-table";
 const BUILTIN_READING_CHAIR_ASSET_ID = "builtin:reading-chair";
 const BUILTIN_TRASH_CAN_ASSET_ID = "builtin:trash-can";
+const BUILTIN_DESK_LAMP_ASSET_ID = "builtin:desk-lamp";
 const BUILTIN_ARCADE_CABINET_ASSET_ID = "builtin:arcade-cabinet";
-/** Stable save id for lane cabinet N so its pose persists like other props. */
-const builtInArcadeCabinetPropId = (laneIndex: number) =>
-  `built-in-arcade-cabinet-${laneIndex + 1}`;
 /** Footprint box of the height-normalized cabinet model before scaling. */
 const ARCADE_CABINET_BASE_SIZE = {
   depth: 0.7,
@@ -390,6 +385,12 @@ const ARCADE_CABINET_BASE_SIZE = {
 } as const;
 const ARCADE_CABINET_DENSITY = 45;
 const ARCADE_CABINET_HELD_LOCAL_POSITION = new Vector3(0, -0.42, -2.2);
+const IDENTITY_WORLD_QUATERNION: WorldQuaternion = Object.freeze({
+  w: 1,
+  x: 0,
+  y: 0,
+  z: 0,
+});
 const CEILING_LIGHT_COLUMNS = [-7, 0, 7] as const;
 const CEILING_LIGHT_ROWS = [-7, -1.5, 4, 9.5, 15, 20.5, 26] as const;
 const RARE_ROOM_CENTER_X = 8.25;
@@ -600,6 +601,7 @@ type BuiltinSpawnablePropAsset = {
     | typeof BUILTIN_READING_TABLE_ASSET_ID
     | typeof BUILTIN_READING_CHAIR_ASSET_ID
     | typeof BUILTIN_TRASH_CAN_ASSET_ID
+    | typeof BUILTIN_DESK_LAMP_ASSET_ID
     | typeof BUILTIN_ARCADE_CABINET_ASSET_ID;
   kind: "builtin";
   label: string;
@@ -634,6 +636,7 @@ const BUILTIN_SPAWNABLE_PROP_ASSETS: readonly BuiltinSpawnablePropAsset[] = [
     label: "reading chair",
   },
   {id: BUILTIN_TRASH_CAN_ASSET_ID, kind: "builtin", label: "trash can"},
+  {id: BUILTIN_DESK_LAMP_ASSET_ID, kind: "builtin", label: "desk lamp"},
   {
     id: BUILTIN_ARCADE_CABINET_ASSET_ID,
     kind: "builtin",
@@ -1276,6 +1279,8 @@ export class ShopScene {
     SHOP_PHYSICS_TRASH_POSITION_Z,
   );
   readonly #trashTargetMesh = new Mesh<BoxGeometry, MeshBasicMaterial>();
+  #trashTargetReady = false;
+  #trashBinPresent = false;
   readonly #trashTossTarget = new Vector3();
   readonly #trashTossRotation = new Quaternion().setFromEuler(
     new Euler(-Math.PI / 2, 0.45, Math.PI * 0.5),
@@ -2163,56 +2168,12 @@ export class ShopScene {
       parent: architecture,
       tableMaterial: woodMaterial,
     });
-    const movableTelevision = new ShopTelevision({
-      ...this.#sharedTelevisionOptions(
-        this.#pendingWorldSave?.televisionChannels?.[
-          MOVABLE_TELEVISION_SAVE_ID
-        ],
-        this.#pendingWorldSave?.televisionVolumes?.[MOVABLE_TELEVISION_SAVE_ID],
-      ),
-      model: {
-        screenAspect: 4 / 3,
-        screenNodeName: "Screen",
-        screenSafeArea: CRT_TV_SAFE_AREA,
-        scale: SHOP_MODEL_TELEVISION_SCALE,
-        url: crtTvModelUrl,
-      },
-      parent: architecture,
-      position: SHOP_MODEL_TELEVISION_POSITION,
-      rotationY: 0,
-      tableMaterial: woodMaterial,
-    });
     this.#registerTelevision(FIXED_TELEVISION_SAVE_ID, fixedTelevision);
-    this.#registerTelevision(MOVABLE_TELEVISION_SAVE_ID, movableTelevision);
-    for (const [laneIndex, placement] of ARCADE_CABINET_PLACEMENTS.entries()) {
-      const cabinet = new ShopArcadeCabinet({
-        parent: architecture,
-        position: placement.position,
-        rotationY: placement.rotationY,
-        onInteractRequest: (cabinet) => this.#enterArcadeBrowsing(cabinet),
-        onStateChange: () => this.#emitGameState(),
-      });
-      this.#registerArcadeCabinetProp(cabinet, {
-        id: builtInArcadeCabinetPropId(laneIndex),
-        label: "arcade cabinet",
-        scale: DEFAULT_MODEL_SCALE,
-        spawned: false,
-      });
-    }
-    const movableTelevisionProp = this.#registerMovableProp({
-      density: 45,
-      depth: SHOP_MODEL_TELEVISION_SIZE.depth,
-      height: SHOP_MODEL_TELEVISION_SIZE.height,
-      heldLocalPosition: new Vector3(0, -0.12, -1.45),
-      id: MODEL_TELEVISION_PHYSICS_ID,
-      label: "CRT television",
-      object: movableTelevision.object,
-      persistInWorldProps: false,
-      spawnAssetId: BUILTIN_CRT_TV_ASSET_ID,
-      targetable: false,
-      width: SHOP_MODEL_TELEVISION_SIZE.width,
-    });
-    this.#televisionProps.set(movableTelevision, movableTelevisionProp);
+    // Default movable props are not hard-wired into the shop: on fresh and
+    // legacy worlds they are injected once through the regular spawn
+    // factories and from then on live in the world save like any prop the
+    // player placed. Deleting one is permanent.
+    this.#seedDefaultProps();
     this.#createTelevisionTableShelf(architecture);
 
     this.#createAisleSignSlot(
@@ -2533,8 +2494,13 @@ export class ShopScene {
   }
 
   async #createTrashcan(parent: Group) {
+    // The discard bin is a seeded default like any other prop: injected
+    // once as a spawned, deletable prop and persisted through modelProps.
+    // Worlds that already seeded skip straight to their saved props; the
+    // invisible discard volume rides along via #reattachTrashTarget.
+    if (!this.#shouldSeedDefaults()) return;
     const trashcan = this.#trashcanGroup;
-    trashcan.name = "discard-trashcan";
+    trashcan.name = TRASH_CAN_PROP_ID;
     trashcan.position.copy(this.#trashcanPosition);
     parent.add(trashcan);
 
@@ -2548,25 +2514,23 @@ export class ShopScene {
     );
     sign.position.set(0, 1.26 - TRASH_CAN_HEIGHT / 2, 0.025);
     trashcan.add(sign);
-
-    this.#trashTargetMesh.geometry = new BoxGeometry(1.18, 1.45, 1.18);
-    this.#trashTargetMesh.material = new MeshBasicMaterial({
-      depthWrite: false,
-      opacity: 0,
-      transparent: true,
-    });
-    this.#trashTargetMesh.name = "discard-trashcan-target";
-    this.#trashTargetMesh.position.y = 0.69 - TRASH_CAN_HEIGHT / 2;
-    trashcan.add(this.#trashTargetMesh);
     this.#registerMovableProp({
       depth: TRASH_CAN_SIZE,
       height: TRASH_CAN_HEIGHT,
       heldLocalPosition: new Vector3(0, -0.65, -1.8),
       id: TRASH_CAN_PROP_ID,
       label: "trash can",
+      modelBaseSize: new Vector3(
+        TRASH_CAN_SIZE,
+        TRASH_CAN_HEIGHT,
+        TRASH_CAN_SIZE,
+      ),
+      modelScale: DEFAULT_MODEL_SCALE,
       object: trashcan,
+      persistInWorldProps: false,
       spawnAssetId: BUILTIN_TRASH_CAN_ASSET_ID,
-      staticWhenPlaced: true,
+      // Matches the spawn-menu trash can: a dynamic body that can be
+      // bumped, tipped, locked, or deleted like any other prop.
       width: TRASH_CAN_SIZE,
     });
 
@@ -2621,6 +2585,39 @@ export class ShopScene {
       rotation: this.#trashcanGroup.quaternion,
     });
     if (markDirty) this.#worldStateDirty = true;
+  }
+
+  #ensureTrashTargetMesh() {
+    if (this.#trashTargetReady) return this.#trashTargetMesh;
+    this.#trashTargetMesh.geometry = new BoxGeometry(1.18, 1.45, 1.18);
+    this.#trashTargetMesh.material = new MeshBasicMaterial({
+      depthWrite: false,
+      opacity: 0,
+      transparent: true,
+    });
+    this.#trashTargetMesh.name = "discard-trashcan-target";
+    this.#trashTargetReady = true;
+    return this.#trashTargetMesh;
+  }
+
+  /**
+   * Rides the invisible discard volume on the current discard bin so
+   * deleting or restoring the seeded trash can keeps discarding working.
+   */
+  #reattachTrashTarget() {
+    const record = this.#movableProps.get(TRASH_CAN_PROP_ID);
+    if (!record) return;
+    const mesh = this.#ensureTrashTargetMesh();
+    if (mesh.parent !== record.object) {
+      mesh.position.set(0, record.halfHeight * 0.55, 0);
+      record.object.add(mesh);
+    }
+    this.#trashBinPresent = true;
+  }
+
+  #detachTrashTarget() {
+    this.#trashBinPresent = false;
+    this.#trashTargetMesh.removeFromParent();
   }
 
   #registerMovableProp(registration: MovablePropRegistration) {
@@ -2697,35 +2694,47 @@ export class ShopScene {
       this.#pendingPropSaves.delete(record.id);
     }
     if (record.locked) this.#physicsWorld.setPropLocked(record.id, true);
-    if (
-      registration.spawnAssetId &&
-      registration.templateForSpawning &&
-      !this.#builtinPropTemplates.has(registration.spawnAssetId)
-    ) {
-      const object = cloneWithSkeleton(registration.object);
-      object.position.set(0, 0, 0);
-      object.quaternion.identity();
-      this.#builtinPropTemplates.set(registration.spawnAssetId, {
-        ...(registration.colliderParts
-          ? {colliderParts: registration.colliderParts}
-          : {}),
-        ...(registration.density === undefined
-          ? {}
-          : {density: registration.density}),
-        depth: registration.depth,
-        height: registration.height,
-        heldLocalPosition: registration.heldLocalPosition.clone(),
-        object,
-        ...(registration.rotationSnapStep === undefined
-          ? {}
-          : {rotationSnapStep: registration.rotationSnapStep}),
-        ...(registration.staticWhenPlaced === undefined
-          ? {}
-          : {staticWhenPlaced: registration.staticWhenPlaced}),
-        width: registration.width,
-      });
-    }
+    if (registration.id === TRASH_CAN_PROP_ID) this.#reattachTrashTarget();
+    if (registration.templateForSpawning)
+      this.#cacheBuiltinPropTemplate(registration);
     return record;
+  }
+
+  /**
+   * Caches a spawnable prop's template so the generic builtin factory
+   * (#createPropFromBuiltinTemplate) can recreate it later. Called from
+   * prop registrations and from the furniture template bootstrap, which
+   * runs even on worlds whose live defaults come from their saves.
+   */
+  #cacheBuiltinPropTemplate(registration: MovablePropRegistration) {
+    if (
+      !registration.spawnAssetId ||
+      !registration.templateForSpawning ||
+      this.#builtinPropTemplates.has(registration.spawnAssetId)
+    )
+      return;
+    const object = cloneWithSkeleton(registration.object);
+    object.position.set(0, 0, 0);
+    object.quaternion.identity();
+    this.#builtinPropTemplates.set(registration.spawnAssetId, {
+      ...(registration.colliderParts
+        ? {colliderParts: registration.colliderParts}
+        : {}),
+      ...(registration.density === undefined
+        ? {}
+        : {density: registration.density}),
+      depth: registration.depth,
+      height: registration.height,
+      heldLocalPosition: registration.heldLocalPosition.clone(),
+      object,
+      ...(registration.rotationSnapStep === undefined
+        ? {}
+        : {rotationSnapStep: registration.rotationSnapStep}),
+      ...(registration.staticWhenPlaced === undefined
+        ? {}
+        : {staticWhenPlaced: registration.staticWhenPlaced}),
+      width: registration.width,
+    });
   }
 
   #registerPropPlacementSupport(object: Object3D) {
@@ -3191,14 +3200,45 @@ export class ShopScene {
     this.#setSign(key, title, subtitle);
   }
 
-  #createReadingChairInstance(
-    parent: Group,
-    id: string,
+  /** Builds one procedural reading table visual (meshes only). */
+  #assembleReadingTable(
+    movableId: string,
+    name: string,
+    tableZ: number,
+    furnitureMaterials: ReadingFurnitureMaterials,
+  ): Group {
+    const table = new Group();
+    table.name = name;
+    table.position.set(0, READING_TABLE_SIZE.height / 2, tableZ);
+    for (const box of READING_FURNITURE_BOXES) {
+      if (box.movableId !== movableId) continue;
+      this.#addBox(
+        table,
+        [box.halfExtents.x * 2, box.halfExtents.y * 2, box.halfExtents.z * 2],
+        [
+          box.position.x,
+          box.position.y - READING_TABLE_SIZE.height / 2,
+          box.position.z - tableZ,
+        ],
+        furnitureMaterials[box.material],
+        true,
+      );
+    }
+    return table;
+  }
+
+  #assembleReadingChair(
     chairBoxes: readonly ReadingFurnitureBox[],
     furnitureMaterials: ReadingFurnitureMaterials,
+    name: string,
     position?: readonly [x: number, y: number, z: number],
     rotationY = 0,
-  ) {
+  ): {
+    center: Vector3;
+    group: Group;
+    seat: Mesh | undefined;
+    size: Vector3;
+  } {
     const bounds = new Box3();
     const min = new Vector3();
     const max = new Vector3();
@@ -3216,11 +3256,17 @@ export class ShopScene {
       bounds.expandByPoint(min);
       bounds.expandByPoint(max);
     }
-    if (bounds.isEmpty()) return;
+    if (bounds.isEmpty())
+      return {
+        center: new Vector3(),
+        group: new Group(),
+        seat: undefined,
+        size: new Vector3(),
+      };
     const center = bounds.getCenter(new Vector3());
     const size = bounds.getSize(new Vector3());
     const chair = new Group();
-    chair.name = id;
+    chair.name = name;
     if (position) chair.position.set(...position);
     else chair.position.copy(center);
     chair.rotation.y = rotationY;
@@ -3239,6 +3285,29 @@ export class ShopScene {
       );
       if (box.material === "upholstery") seat = mesh;
     }
+    return {center, group: chair, seat, size};
+  }
+
+  #createReadingChairInstance(
+    parent: Group,
+    id: string,
+    chairBoxes: readonly ReadingFurnitureBox[],
+    furnitureMaterials: ReadingFurnitureMaterials,
+    position?: readonly [x: number, y: number, z: number],
+    rotationY = 0,
+  ) {
+    const {
+      center,
+      group: chair,
+      seat,
+      size,
+    } = this.#assembleReadingChair(
+      chairBoxes,
+      furnitureMaterials,
+      id,
+      position,
+      rotationY,
+    );
     parent.add(chair);
     this.#registerMovableProp({
       colliderParts: chairBoxes.map((box) => ({
@@ -3256,6 +3325,7 @@ export class ShopScene {
       id,
       label: id.replaceAll("-", " "),
       object: chair,
+      persistInWorldProps: false,
       spawnAssetId: BUILTIN_READING_CHAIR_ASSET_ID,
       ...(seat ? {placementSupport: seat} : {}),
       rotationSnapStep: Math.PI / 2,
@@ -3291,67 +3361,130 @@ export class ShopScene {
       );
     }
 
-    for (const [tableIndex, tableZ] of READING_TABLE_Z_POSITIONS.entries()) {
-      const id = `reading-table-${tableIndex + 1}`;
-      const table = new Group();
-      table.name = id;
-      table.position.set(0, READING_TABLE_SIZE.height / 2, tableZ);
-      for (const box of READING_FURNITURE_BOXES) {
-        if (box.movableId !== id) continue;
-        this.#addBox(
-          table,
-          [box.halfExtents.x * 2, box.halfExtents.y * 2, box.halfExtents.z * 2],
-          [
-            box.position.x,
-            box.position.y - READING_TABLE_SIZE.height / 2,
-            box.position.z - tableZ,
-          ],
-          furnitureMaterials[box.material],
-          true,
-        );
-      }
-      parent.add(table);
-      const tableBoxes = READING_FURNITURE_BOXES.filter(
-        (box) => box.movableId === id,
+    // Template sources are built even when live instances come from the
+    // world save, so reading furniture stays player-spawnable everywhere.
+    const templateTableZ = READING_TABLE_Z_POSITIONS[0];
+    if (templateTableZ !== undefined) {
+      const templateVisual = this.#assembleReadingTable(
+        "reading-table-1",
+        "reading-table-template",
+        templateTableZ,
+        furnitureMaterials,
       );
-      this.#registerMovableProp({
+      const tableBoxes = READING_FURNITURE_BOXES.filter(
+        (box) => box.movableId === `reading-table-1`,
+      );
+      this.#cacheBuiltinPropTemplate({
         colliderParts: tableBoxes.map((box) => ({
           halfExtents: box.halfExtents,
           position: {
             x: box.position.x,
             y: box.position.y - READING_TABLE_SIZE.height / 2,
-            z: box.position.z - tableZ,
+            z: box.position.z - templateTableZ,
           },
         })),
         depth: READING_TABLE_SIZE.depth,
-        staticWhenPlaced: true,
         heldLocalPosition: new Vector3(0, -1.15, -3.65),
         height: READING_TABLE_SIZE.height,
-        id,
-        label: `reading table ${tableIndex + 1}`,
-        object: table,
+        id: BUILTIN_READING_TABLE_ASSET_ID,
+        label: "reading table",
+        object: templateVisual,
         rotationSnapStep: Math.PI / 2,
         spawnAssetId: BUILTIN_READING_TABLE_ASSET_ID,
+        staticWhenPlaced: true,
         templateForSpawning: true,
         width: 2.4,
       });
     }
-
-    const chairIds = new Set(
-      READING_FURNITURE_BOXES.flatMap((box) =>
-        box.movableId?.startsWith("reading-chair-") ? [box.movableId] : [],
-      ),
+    const templateChairBoxes = READING_FURNITURE_BOXES.filter(
+      (box) => box.movableId === "reading-chair-1",
     );
-    for (const id of chairIds) {
-      const chairBoxes = READING_FURNITURE_BOXES.filter(
-        (box) => box.movableId === id,
-      );
-      this.#createReadingChairInstance(
-        parent,
-        id,
-        chairBoxes,
+    if (templateChairBoxes.length > 0) {
+      const {
+        center,
+        group: templateChair,
+        size,
+      } = this.#assembleReadingChair(
+        templateChairBoxes,
         furnitureMaterials,
+        "reading-chair-template",
       );
+      this.#cacheBuiltinPropTemplate({
+        colliderParts: templateChairBoxes.map((box) => ({
+          halfExtents: box.halfExtents,
+          position: {
+            x: box.position.x - center.x,
+            y: box.position.y - center.y,
+            z: box.position.z - center.z,
+          },
+        })),
+        depth: size.z,
+        heldLocalPosition: new Vector3(0, -1.05, -2.2),
+        height: size.y,
+        id: BUILTIN_READING_CHAIR_ASSET_ID,
+        label: "reading chair",
+        object: templateChair,
+        rotationSnapStep: Math.PI / 2,
+        spawnAssetId: BUILTIN_READING_CHAIR_ASSET_ID,
+        staticWhenPlaced: true,
+        templateForSpawning: true,
+        width: size.x,
+      });
+    }
+
+    if (this.#shouldSeedDefaults())
+      for (const [tableIndex, tableZ] of READING_TABLE_Z_POSITIONS.entries()) {
+        const id = `reading-table-${tableIndex + 1}`;
+        const table = this.#assembleReadingTable(
+          id,
+          id,
+          tableZ,
+          furnitureMaterials,
+        );
+        parent.add(table);
+        const tableBoxes = READING_FURNITURE_BOXES.filter(
+          (box) => box.movableId === id,
+        );
+        this.#registerMovableProp({
+          colliderParts: tableBoxes.map((box) => ({
+            halfExtents: box.halfExtents,
+            position: {
+              x: box.position.x,
+              y: box.position.y - READING_TABLE_SIZE.height / 2,
+              z: box.position.z - tableZ,
+            },
+          })),
+          depth: READING_TABLE_SIZE.depth,
+          staticWhenPlaced: true,
+          heldLocalPosition: new Vector3(0, -1.15, -3.65),
+          height: READING_TABLE_SIZE.height,
+          id,
+          label: `reading table ${tableIndex + 1}`,
+          object: table,
+          persistInWorldProps: false,
+          rotationSnapStep: Math.PI / 2,
+          spawnAssetId: BUILTIN_READING_TABLE_ASSET_ID,
+          width: 2.4,
+        });
+      }
+
+    if (this.#shouldSeedDefaults()) {
+      const chairIds = new Set(
+        READING_FURNITURE_BOXES.flatMap((box) =>
+          box.movableId?.startsWith("reading-chair-") ? [box.movableId] : [],
+        ),
+      );
+      for (const id of chairIds) {
+        const chairBoxes = READING_FURNITURE_BOXES.filter(
+          (box) => box.movableId === id,
+        );
+        this.#createReadingChairInstance(
+          parent,
+          id,
+          chairBoxes,
+          furnitureMaterials,
+        );
+      }
     }
 
     void this.#createDeskLamps(parent);
@@ -3389,7 +3522,10 @@ export class ShopScene {
         object.receiveShadow = true;
       });
 
+      // The model is always loaded and always becomes the spawn template;
+      // seeding only decides whether default-positioned copies are placed.
       for (const [index, z] of READING_TABLE_Z_POSITIONS.entries()) {
+        if (index > 0 && !this.#shouldSeedDefaults()) break;
         const lamp = index === 0 ? gltf.scene : cloneWithSkeleton(gltf.scene);
         const spawnClearance =
           index === 1
@@ -3398,15 +3534,29 @@ export class ShopScene {
         lamp.position.y =
           READING_TABLE_SURFACE_Y + spawnClearance - bounds.min.y * scale;
         lamp.position.z = z - center.z * scale;
-        parent.add(lamp);
-        this.#playModelAnimations(lamp, gltf.animations);
         const lampBounds = new Box3().setFromObject(lamp);
         const lampSize = lampBounds.getSize(new Vector3());
         const lampRoot = new Group();
         lampRoot.name = `desk-lamp-${index + 1}`;
         lampRoot.position.copy(lampBounds.getCenter(new Vector3()));
-        parent.add(lampRoot);
         lampRoot.attach(lamp);
+        if (index === 0)
+          this.#cacheBuiltinPropTemplate({
+            density: 8,
+            depth: lampSize.z,
+            heldLocalPosition: new Vector3(0, -0.12, -1.6),
+            height: lampSize.y,
+            id: BUILTIN_DESK_LAMP_ASSET_ID,
+            label: "desk lamp",
+            object: lampRoot,
+            rotationSnapStep: Math.PI / 2,
+            spawnAssetId: BUILTIN_DESK_LAMP_ASSET_ID,
+            templateForSpawning: true,
+            width: lampSize.x,
+          });
+        if (!this.#shouldSeedDefaults()) continue;
+        parent.add(lampRoot);
+        this.#playModelAnimations(lamp, gltf.animations);
         this.#registerMovableProp({
           density: 8,
           depth: lampSize.z,
@@ -3414,7 +3564,12 @@ export class ShopScene {
           height: lampSize.y,
           id: `desk-lamp-${index + 1}`,
           label: `desk lamp ${index + 1}`,
+          modelBaseSize: new Vector3(lampSize.x, lampSize.y, lampSize.z),
+          modelScale: DEFAULT_MODEL_SCALE,
           object: lampRoot,
+          persistInWorldProps: false,
+          rotationSnapStep: Math.PI / 2,
+          spawnAssetId: BUILTIN_DESK_LAMP_ASSET_ID,
           width: lampSize.x,
         });
       }
@@ -5284,6 +5439,23 @@ export class ShopScene {
     this.#scene.add(object);
     return this.#registerMovableProp({
       ...(template.density === undefined ? {} : {density: template.density}),
+      // Part colliders are body-local, so they scale with the prop.
+      ...(template.colliderParts
+        ? {
+            colliderParts: template.colliderParts.map((part) => ({
+              halfExtents: {
+                x: part.halfExtents.x * scale,
+                y: part.halfExtents.y * scale,
+                z: part.halfExtents.z * scale,
+              },
+              position: {
+                x: part.position.x * scale,
+                y: part.position.y * scale,
+                z: part.position.z * scale,
+              },
+            })),
+          }
+        : {}),
       depth: template.depth * scale,
       height: template.height * scale,
       heldLocalPosition: template.heldLocalPosition.clone(),
@@ -5307,6 +5479,84 @@ export class ShopScene {
         : {staticWhenPlaced: template.staticWhenPlaced}),
       width: template.width * scale,
     });
+  }
+
+  /** True while the world still needs its default props injected once. */
+  #shouldSeedDefaults() {
+    return this.#pendingWorldSave?.defaultsSeeded !== true;
+  }
+
+  /**
+   * Injects the default movable props (lane arcade cabinet(s), the shop's
+   * CRT television) as ordinary spawned props. Fresh worlds get them at
+   * their designed spots; legacy saves predate seeded props, so they are
+   * migrated the same way. Saves marked `defaultsSeeded` are authoritative:
+   * whatever the players kept, moved, or deleted stays as-is.
+   */
+  #seedDefaultProps() {
+    if (!this.#shouldSeedDefaults()) return;
+    try {
+      const crtAsset = BUILTIN_SPAWNABLE_PROP_ASSETS.find(
+        (asset) => asset.id === BUILTIN_CRT_TV_ASSET_ID,
+      );
+      if (crtAsset) {
+        // Menu-spawned CRTs default to 1x; the old hard-wired fixture was
+        // 2x. Seed at player scale, resting on the television shelf.
+        const seededScale = DEFAULT_MODEL_SCALE;
+        const unitHalfHeight =
+          SHOP_MODEL_TELEVISION_SIZE.height / (2 * SHOP_MODEL_TELEVISION_SCALE);
+        this.#createSpawnedCrtTelevision(
+          crtAsset,
+          MODEL_TELEVISION_PHYSICS_ID,
+          seededScale,
+          {
+            position: {
+              x: -0.72,
+              y: 0.91 + unitHalfHeight * seededScale,
+              z: 13.82 + 0.183 * seededScale,
+            },
+            quaternion: IDENTITY_WORLD_QUATERNION,
+          },
+        );
+      }
+      const cabinetAsset = BUILTIN_SPAWNABLE_PROP_ASSETS.find(
+        (asset) => asset.id === BUILTIN_ARCADE_CABINET_ASSET_ID,
+      );
+      if (cabinetAsset)
+        for (const [
+          laneIndex,
+          placement,
+        ] of ARCADE_CABINET_PLACEMENTS.entries()) {
+          const quaternion = new Quaternion().setFromAxisAngle(
+            this.#upAxis,
+            placement.rotationY,
+          );
+          this.#createSpawnedArcadeCabinet(
+            cabinetAsset,
+            `arcade-cabinet-${laneIndex + 1}`,
+            DEFAULT_MODEL_SCALE,
+            {
+              position: {
+                x: placement.position[0],
+                y: placement.position[1],
+                z: placement.position[2],
+              },
+              quaternion: {
+                w: quaternion.w,
+                x: quaternion.x,
+                y: quaternion.y,
+                z: quaternion.z,
+              },
+            },
+          );
+        }
+    } catch (error) {
+      if (DEV && !this.#disposed)
+        console.warn("Afterleaf could not seed its default props.", error);
+    }
+    // Persist promptly so legacy worlds migrate to defaultsSeeded: true and
+    // later deletions of the defaults stick across reloads.
+    this.#worldStateDirty = true;
   }
 
   #createSpawnedCrtTelevision(
@@ -5814,6 +6064,8 @@ export class ShopScene {
       cabinet.dispose();
       break;
     }
+    // The discard volume lives inside the bin; losing the bin loses it.
+    if (record.id === TRASH_CAN_PROP_ID) this.#detachTrashTarget();
     this.#physicsWorld.removeProp(record.id);
     if (this.#movableProps.get(record.id) === record)
       this.#movableProps.delete(record.id);
@@ -8254,27 +8506,13 @@ export class ShopScene {
           sign.subtitle ?? "",
         );
     }
-    if (save.trashcan)
+    // Legacy trashcan positions apply only while migrating pre-seeding
+    // worlds; afterwards the bin's pose lives in modelProps like any prop.
+    if (!save.defaultsSeeded && save.trashcan)
       this.#setTrashcanPosition(save.trashcan.x, save.trashcan.z, false);
-    const movableTelevision = this.#televisionsBySaveId.get(
-      MOVABLE_TELEVISION_SAVE_ID,
-    );
-    const movableTelevisionProp = movableTelevision
-      ? this.#televisionProps.get(movableTelevision)
-      : undefined;
-    if (save.television && movableTelevision && movableTelevisionProp) {
-      this.#physicsPoseRotation.copy(save.television.quaternion);
-      if (save.televisionModelVersion !== 2)
-        this.#physicsPoseRotation.multiply(LEGACY_MODEL_TELEVISION_ROTATION);
-      movableTelevision.object.position.copy(save.television.position);
-      movableTelevision.object.quaternion.copy(this.#physicsPoseRotation);
-      movableTelevisionProp.currentPosition.copy(save.television.position);
-      movableTelevisionProp.currentRotation.copy(this.#physicsPoseRotation);
-      this.#physicsWorld.updatePropPose(MODEL_TELEVISION_PHYSICS_ID, {
-        position: save.television.position,
-        rotation: this.#physicsPoseRotation,
-      });
-    }
+    // Legacy `television` pose fields are intentionally ignored: worlds
+    // saved before default-prop seeding respawn the movable CRT television
+    // at its designed spot through #seedDefaultProps instead.
     const savedProps = save.props ?? [];
     const hasLegacyTvCaveProps = savedProps.some(
       (savedProp) =>
@@ -11347,10 +11585,9 @@ export class ShopScene {
       this.#setDigitalArtFrameTargeted();
       this.#setPropTargeted(undefined);
       this.#setTelevisionTargeted(false);
-      const trashIntersection = this.#raycaster.intersectObject(
-        this.#trashTargetMesh,
-        false,
-      )[0];
+      const trashIntersection = this.#trashBinPresent
+        ? this.#raycaster.intersectObject(this.#trashTargetMesh, false)[0]
+        : undefined;
       const trashTargeted =
         trashIntersection !== undefined &&
         trashIntersection.distance <= TRASH_INTERACTION_DISTANCE;
@@ -12163,8 +12400,12 @@ export class ShopScene {
     );
     const progress = animation.elapsedSeconds / DISCARD_TOSS_DURATION_SECONDS;
     const eased = 1 - (1 - progress) ** 3;
+    // Aim the toss at whichever object currently plays the discard bin.
+    const discardBin =
+      this.#movableProps.get(TRASH_CAN_PROP_ID)?.object ?? this.#trashcanGroup;
+    discardBin.updateWorldMatrix(true, false);
     this.#trashTossTarget.set(0, TRASH_CAN_HEIGHT * 0.35, 0);
-    this.#trashcanGroup.localToWorld(this.#trashTossTarget);
+    discardBin.localToWorld(this.#trashTossTarget);
     record.mesh.position.lerpVectors(
       animation.startPosition,
       this.#trashTossTarget,
@@ -12322,16 +12563,6 @@ export class ShopScene {
         };
       }),
     ];
-    const television = this.#televisionsBySaveId.get(
-      MOVABLE_TELEVISION_SAVE_ID,
-    );
-    television?.object.updateWorldMatrix(true, false);
-    const televisionPosition = television?.object.getWorldPosition(
-      new Vector3(),
-    );
-    const televisionQuaternion = television?.object.getWorldQuaternion(
-      new Quaternion(),
-    );
     const televisionChannels: Record<string, string> = {};
     const televisionVolumes: Record<string, number> = {};
     for (const [saveId, savedTelevision] of this.#televisionsBySaveId) {
@@ -12408,6 +12639,9 @@ export class ShopScene {
           ? {}
           : {snapshotId: catalog.snapshotId}),
       },
+      // From here on the world owns its default props: this flag stops the
+      // boot-time seed from re-creating deleted or moved defaults.
+      defaultsSeeded: true,
       ...(modelProps.length > 0 ? {modelProps} : {}),
       digitalArtFrames,
       player: {
@@ -12428,23 +12662,8 @@ export class ShopScene {
       savedAt: new Date().toISOString(),
       schemaVersion: WORLD_SAVE_SCHEMA_VERSION,
       shelfSigns,
-      ...(televisionPosition && televisionQuaternion
-        ? {
-            television: {
-              position: {
-                x: televisionPosition.x,
-                y: televisionPosition.y,
-                z: televisionPosition.z,
-              },
-              quaternion: {
-                w: televisionQuaternion.w,
-                x: televisionQuaternion.x,
-                y: televisionQuaternion.y,
-                z: televisionQuaternion.z,
-              },
-            },
-          }
-        : {}),
+      // Default movable props live in modelProps; the top-level pose field
+      // only existed for the pre-seeding movable television.
       televisionChannels,
       televisionModelVersion: 2,
       televisionVolumes,

@@ -928,17 +928,28 @@ export class ShopPhysicsWorld {
     const nextHeight = update.height ?? record.height;
     const nextWidth = update.width ?? record.width;
     if (
-      record.colliderParts &&
-      (nextThickness !== record.thickness ||
-        nextHeight !== record.height ||
-        nextWidth !== record.width)
-    )
-      return false;
-    if (
       nextThickness !== record.thickness ||
       nextHeight !== record.height ||
       nextWidth !== record.width
     ) {
+      // Part offsets/extents live in body-local space, so they scale with
+      // the body; storing the scaled parts keeps repeated updates exact.
+      const scaleX = nextWidth / record.width;
+      const scaleY = nextHeight / record.height;
+      const scaleZ = nextThickness / record.thickness;
+      if (record.colliderParts)
+        record.colliderParts = record.colliderParts.map((part) => ({
+          halfExtents: {
+            x: part.halfExtents.x * scaleX,
+            y: part.halfExtents.y * scaleY,
+            z: part.halfExtents.z * scaleZ,
+          },
+          position: {
+            x: part.position.x * scaleX,
+            y: part.position.y * scaleY,
+            z: part.position.z * scaleZ,
+          },
+        }));
       record.thickness = nextThickness;
       record.height = nextHeight;
       record.width = nextWidth;
@@ -948,21 +959,45 @@ export class ShopPhysicsWorld {
         for (const collider of record.colliders)
           world.removeCollider(collider, false);
         record.colliders.length = 0;
-        record.colliders.push(
-          world.createCollider(
-            this.#createBookCollider(
-              rapier,
-              record.thickness,
-              record.width,
-              record.height,
-              record.density,
-              record.mode === "held",
-              record.collisionlessWhileHeld,
-              record.releasedCollisionless,
+        if (record.colliderParts) {
+          for (const part of record.colliderParts) {
+            record.colliders.push(
+              world.createCollider(
+                this.#createBookCollider(
+                  rapier,
+                  part.halfExtents.z * 2,
+                  part.halfExtents.x * 2,
+                  part.halfExtents.y * 2,
+                  record.density,
+                  record.mode === "held",
+                  record.collisionlessWhileHeld,
+                  record.releasedCollisionless,
+                ).setTranslation(
+                  part.position.x,
+                  part.position.y,
+                  part.position.z,
+                ),
+                body,
+              ),
+            );
+          }
+        } else {
+          record.colliders.push(
+            world.createCollider(
+              this.#createBookCollider(
+                rapier,
+                record.thickness,
+                record.width,
+                record.height,
+                record.density,
+                record.mode === "held",
+                record.collisionlessWhileHeld,
+                record.releasedCollisionless,
+              ),
+              body,
             ),
-            body,
-          ),
-        );
+          );
+        }
       }
     }
     return true;

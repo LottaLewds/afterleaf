@@ -502,7 +502,8 @@ type ArrayLocationKind =
 /**
  * Every slot the locations control can hold: plain path collections plus one
  * virtual "rom:<system>" kind per emulated cabinet system, stored in
- * `romPaths`. One ROM folder per system.
+ * `romPaths` as auxiliary folders alongside each system's built-in
+ * `content/roms/<system id>` convention folder.
  */
 type AdditionalLocationKind = ArrayLocationKind | `rom:${ArcadeSystemId}`;
 
@@ -516,15 +517,15 @@ const isBookLocationKind = (
   kind: AdditionalLocationKind,
 ): kind is ArrayLocationKind => !kind.startsWith("rom:");
 
-/** Copies the config with one system's ROM folder set or cleared. */
-const withRomFolder = (
+/** Copies the config with a system's auxiliary ROM folders replaced. */
+const withRomFolders = (
   config: AfterleafLibraryConfig,
   systemId: ArcadeSystemId,
-  folder: string | undefined,
+  folders: readonly string[],
 ): AfterleafLibraryConfig => {
   const nextRomPaths = {...(config.romPaths ?? {})};
-  if (folder === undefined) delete nextRomPaths[systemId];
-  else nextRomPaths[systemId] = folder;
+  if (folders.length === 0) delete nextRomPaths[systemId];
+  else nextRomPaths[systemId] = folders;
   return {...config, romPaths: nextRomPaths};
 };
 
@@ -773,8 +774,7 @@ const AdditionalLocationsControl = (props: {
     if (isBookLocationKind(key)) return props.config[key] ?? [];
     const system = romSystemOfKind(key);
     if (!system) return [];
-    const folder = props.config.romPaths?.[system];
-    return folder ? [folder] : [];
+    return props.config.romPaths?.[system] ?? [];
   };
   const withBookLocation = (
     config: AfterleafLibraryConfig,
@@ -825,12 +825,19 @@ const AdditionalLocationsControl = (props: {
     } else {
       const fromSystem = romSystemOfKind(from);
       if (!fromSystem) return;
-      nextConfig = withRomFolder(props.config, fromSystem, undefined);
+      nextConfig = withRomFolders(
+        props.config,
+        fromSystem,
+        locationsFor(from).filter((entry) => entry !== path),
+      );
     }
     const toSystem = romSystemOfKind(to);
     if (toSystem) {
-      // One folder per system, so the new mapping replaces any previous one.
-      nextConfig = withRomFolder(nextConfig, toSystem, path);
+      const targetFolders = locationsFor(to);
+      nextConfig = withRomFolders(nextConfig, toSystem, [
+        ...targetFolders.filter((entry) => entry !== path),
+        path,
+      ]);
     } else if (isBookLocationKind(to)) {
       const targetLocations = locationsFor(to);
       const merged = withBookLocation(nextConfig, to, path);
@@ -845,8 +852,11 @@ const AdditionalLocationsControl = (props: {
     const key = kind();
     const system = romSystemOfKind(key);
     if (system) {
-      if (props.config.romPaths?.[system] !== path)
-        props.onChange(withRomFolder(props.config, system, path));
+      const folders = locationsFor(key);
+      if (!folders.includes(path))
+        props.onChange(
+          withRomFolders(props.config, system, [...folders, path]),
+        );
       browser.close();
       return;
     }
@@ -862,7 +872,13 @@ const AdditionalLocationsControl = (props: {
   const remove = (key: AdditionalLocationKind, path: string) => {
     const system = romSystemOfKind(key);
     if (system) {
-      props.onChange(withRomFolder(props.config, system, undefined));
+      props.onChange(
+        withRomFolders(
+          props.config,
+          system,
+          locationsFor(key).filter((entry) => entry !== path),
+        ),
+      );
       return;
     }
     if (!isBookLocationKind(key)) return;

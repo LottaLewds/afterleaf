@@ -50,11 +50,21 @@ export interface AfterleafLibraryConfig {
   posterPaths: readonly string[];
   artFramePaths: readonly string[];
   /**
-   * Maps an emulated cabinet system id to the folder holding its ROM files.
-   * One folder per system; configured through the Options menu.
+   * Maps an emulated cabinet system id to extra folders holding its ROM
+   * files, on top of the built-in `content/roms/<system id>` convention
+   * folder. Configured through the Options menu.
    */
-  romPaths: Partial<Record<ArcadeSystemId, string>>;
+  romPaths: Partial<Record<ArcadeSystemId, readonly string[]>>;
 }
+
+/**
+ * Absolute path of a system's built-in ROM folder. This convention folder is
+ * scanned whenever it exists; `romPaths` holds additional locations.
+ */
+export const defaultRomFolderPath = (
+  workingDirectory: string,
+  systemId: ArcadeSystemId,
+): string => resolve(workingDirectory, "content", "roms", systemId);
 
 export const LIBRARY_CONFIG_PROPERTIES = PATH_PROPERTIES;
 
@@ -96,24 +106,30 @@ const parseLibraryConfig = (
     else parsed[property] = paths;
   }
 
-  // ROM folders map an emulated system id to a single folder.
+  // ROM folders map an emulated system id to extra folders on top of the
+  // built-in content/roms/<system id> convention folder.
   const romPaths = config.romPaths;
   if (romPaths !== undefined) {
     if (!romPaths || typeof romPaths !== "object" || Array.isArray(romPaths))
       throw new Error(
-        `${configPath} romPaths must map emulated system ids to folders`,
+        `${configPath} romPaths must map emulated system ids to folder lists`,
       );
-    for (const [systemId, folder] of Object.entries(romPaths)) {
+    for (const [systemId, folders] of Object.entries(romPaths)) {
       const system = findArcadeSystem(systemId);
       if (!system)
         throw new Error(
           `${configPath} romPaths contains the unknown system "${systemId}"`,
         );
-      if (typeof folder !== "string" || folder.trim().length === 0)
+      if (
+        !Array.isArray(folders) ||
+        !folders.every(
+          (path) => typeof path === "string" && path.trim().length > 0,
+        )
+      )
         throw new Error(
-          `${configPath} romPaths.${systemId} must be a folder path`,
+          `${configPath} romPaths.${systemId} must be an array of folder paths`,
         );
-      parsed.romPaths[system.id] = folder.trim();
+      parsed.romPaths[system.id] = folders.map((folder) => folder.trim());
     }
   }
   return parsed;
@@ -147,10 +163,12 @@ const resolveLibraryConfig = (
     throw new Error(
       `${conflictingPath} cannot be configured as both a comic and manga path`,
     );
-  const romPaths: Partial<Record<ArcadeSystemId, string>> = {};
-  for (const [systemId, folder] of Object.entries(config.romPaths ?? {})) {
-    if (folder === undefined) continue;
-    romPaths[systemId as ArcadeSystemId] = resolve(workingDirectory, folder);
+  const romPaths: Partial<Record<ArcadeSystemId, readonly string[]>> = {};
+  for (const [systemId, folders] of Object.entries(config.romPaths ?? {})) {
+    if (folders === undefined) continue;
+    romPaths[systemId as ArcadeSystemId] = folders.map((folder) =>
+      resolve(workingDirectory, folder),
+    );
   }
   return {
     artFramePaths: config.artFramePaths.map((path) =>
