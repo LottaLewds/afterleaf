@@ -22,9 +22,30 @@ wrappers stop with an actionable error instead of guessing a port.
 
 The development-only `profile=1` argument skips the adult-age gate so CDP runs
 boot the shop unattended. The Chrome launcher also disables background timer,
-renderer, and occluded-window throttling. Keep the dedicated window visible,
-restored, and focused for representative frame timing; a minimized window can
-still stop producing frames.
+renderer, and occluded-window throttling plus Windows native occlusion
+tracking (`CalculateNativeWinOcclusion`), so the tab keeps rendering even when
+other windows fully cover it.
+
+Keep the dedicated window in its **normal** (not minimized) state while
+profiling. A buried window renders at full display cadence; a _minimized_
+window silently paces compositor frames near 75 fps regardless of the flags,
+which floors every frametime sample and hides improvements below that ceiling.
+Census counters and console output stay valid while minimized; frametime
+comparisons do not. Locking or covering the window cannot always be prevented,
+so profiling scripts also run an automatic frame pump (see below).
+
+## Unattended operation (buried window, locked session)
+
+Profiling and console scripts register a tiny `Page.startScreencast` sink for
+the duration of their run ("frame pump"). Registering as a compositor frame
+consumer forces Chromium to keep producing real GPU-composited frames even
+when no monitor displays them; captures are discarded after acknowledgment
+(320x180 jpeg, every 30th frame), so the overhead next to the scene's own
+submission cost is negligible and comparisons stay apples-to-apples.
+
+Set `AFTERLEAF_CDP_FRAME_PUMP=off` on `cdp:profile:wsl` to opt out for purist
+visible-window runs. The profiler reports `"framePumpActive"` in its JSON so
+you can tell which mode produced a sample.
 
 ## One-time Windows bridge setup
 
@@ -85,8 +106,8 @@ Set `AFTERLEAF_CDP_TARGET` if more than one relevant page target is open.
 
 ## Measure settled rendering
 
-Aim at the workload, wait for its assets to settle, keep the Chrome window
-focused, then run:
+Aim at the workload, wait for its assets to settle, keep the dedicated window
+in its normal state (it may sit behind other windows), then run:
 
 ```bash
 AFTERLEAF_CDP_WARMUP_MS=1200 \
@@ -100,8 +121,10 @@ device pixel ratio, focus, and visibility. Compare changes with the same saved
 world, camera pose, window size, device pixel ratio, and sample duration.
 
 At 240 Hz, a healthy uncapped frame interval is about `4.17 ms`. Focus
-emulation keeps the page active for automation, but it does not make a hidden
-or minimized window a valid performance baseline.
+emulation keeps the page active for automation. Compare samples taken in the
+same window state: normal-state runs pace at display cadence, while a
+minimized window paces near 75 fps and hides any improvement below that
+floor even though the frame pump keeps frames arriving.
 
 ## Collect warnings and shader/runtime errors
 
@@ -134,23 +157,29 @@ bun scripts/cdp/profile-renderer.ts
 
 Useful variables:
 
-| Variable                        | Default                         | Purpose                           |
-| ------------------------------- | ------------------------------- | --------------------------------- |
-| `AFTERLEAF_GAME_URL`            | Active discovered Vite URL      | Game URL and profiling query      |
-| `AFTERLEAF_CDP_ENDPOINT`        | `http://127.0.0.1:9222`         | Browser discovery endpoint        |
-| `AFTERLEAF_CDP_TARGET`          | Host from the resolved game URL | Target URL substring              |
-| `AFTERLEAF_CDP_NAVIGATE_URL`    | Resolved game URL               | Navigation destination            |
-| `AFTERLEAF_CDP_WARMUP_MS`       | `1200`                          | Settling time before FPS sampling |
-| `AFTERLEAF_CDP_SAMPLE_MS`       | `5000`                          | FPS sample duration               |
-| `AFTERLEAF_CDP_CONSOLE_MS`      | `5000`                          | Console collection duration       |
-| `AFTERLEAF_CDP_CONSOLE_RELOAD`  | `false`                         | Reload before console collection  |
-| `AFTERLEAF_CDP_SCREENSHOT_PATH` | `/tmp/afterleaf-cdp.png`        | Optional screenshot output        |
+| Variable                        | Default                         | Purpose                                  |
+| ------------------------------- | ------------------------------- | ---------------------------------------- |
+| `AFTERLEAF_GAME_URL`            | Active discovered Vite URL      | Game URL and profiling query             |
+| `AFTERLEAF_CDP_ENDPOINT`        | `http://127.0.0.1:9222`         | Browser discovery endpoint               |
+| `AFTERLEAF_CDP_TARGET`          | Host from the resolved game URL | Target URL substring                     |
+| `AFTERLEAF_CDP_NAVIGATE_URL`    | Resolved game URL               | Navigation destination                   |
+| `AFTERLEAF_CDP_WARMUP_MS`       | `1200`                          | Settling time before FPS sampling        |
+| `AFTERLEAF_CDP_SAMPLE_MS`       | `5000`                          | FPS sample duration                      |
+| `AFTERLEAF_CDP_CONSOLE_MS`      | `5000`                          | Console collection duration              |
+| `AFTERLEAF_CDP_CONSOLE_RELOAD`  | `false`                         | Reload before console collection         |
+| `AFTERLEAF_CDP_FRAME_PUMP`      | `on`                            | `off` disables the screencast frame pump |
+| `AFTERLEAF_CDP_SCREENSHOT_PATH` | `/tmp/afterleaf-cdp.png`        | Optional screenshot output               |
 
-Avoid screenshots during routine profiling. Renderer counters, console output,
-and bounded traces are usually sufficient; use a visual capture only when the
-appearance cannot be verified directly in the dedicated window. Capture the
+Screenshots are restricted. Automated agents must not capture screenshots
+unless the user explicitly authorizes a specific capture; visual verification
+belongs to the person at the machine, and the dedicated window is always
+available for direct inspection. When the user does authorize one, capture the
 current viewport without changing its dimensions with:
 
 ```bash
 bun run cdp:screenshot:wsl
 ```
+
+The same restriction applies to other visual side effects: prefer renderer
+counters, console output, and bounded traces, which answer most questions
+without touching presentation.

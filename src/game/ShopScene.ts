@@ -5892,6 +5892,10 @@ export class ShopScene {
         this.#savedTelevisionVolumes[id],
       ),
       model: {
+        // The CRT GLB predates the control strip; invisible knob targets
+        // would only cost draw calls, and screen clicks already drive power.
+        controls: false,
+        mergeStaticParts: true,
         screenAspect: 4 / 3,
         screenNodeName: "Screen",
         screenSafeArea: CRT_TV_SAFE_AREA,

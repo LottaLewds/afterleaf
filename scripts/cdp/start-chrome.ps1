@@ -33,6 +33,12 @@ Start-Process -FilePath $chrome -ArgumentList @(
   "--disable-background-timer-throttling"
   "--disable-renderer-backgrounding"
   "--disable-backgrounding-occluded-windows"
+  # Native occlusion tracking marks tabs hidden behind the caller's back
+  # (including when the workstation locks), which silences compositing even
+  # though the throttling flags above are set. Intensive wake-up throttling
+  # would otherwise clamp background timers to one wakeup per minute after
+  # five hidden minutes.
+  "--disable-features=CalculateNativeWinOcclusion,IntensiveWakeUpThrottling"
   "--new-window"
   $GameUrl
 )
