@@ -149,6 +149,7 @@ import {
   type SpineShelfPlacement,
 } from "~/game/shelfPlacement";
 import {
+  FACE_OUT_DISPLAY,
   READING_FURNITURE_BOXES,
   READING_TABLE_Z_POSITIONS,
   READING_TABLE_SIZE,
@@ -158,6 +159,14 @@ import {
   SHOP_MODEL_TELEVISION_SIZE,
   SHOP_STAIR_LOWER_FLIGHT_CENTER_Z,
   SHOP_STAIR_OPENING_WIDTH,
+  SPINE_SHELF_BACKING_THICKNESS,
+  SPINE_SHELF_BOARD_DEPTH,
+  SPINE_SHELF_BOARD_THICKNESS,
+  SPINE_SHELF_BOARD_Y_OFFSETS,
+  SPINE_SHELF_DIVIDER_DEPTH,
+  SPINE_SHELF_DIVIDER_HEIGHT,
+  SPINE_SHELF_DIVIDER_THICKNESS,
+  SPINE_SHELF_HEIGHT,
   type ReadingFurnitureBox,
   type ReadingFurnitureMaterial,
 } from "~/game/shopLayout";
@@ -250,7 +259,6 @@ const HELD_BOOK_STACK_GAP = 0.012;
 const HELD_BOOK_FAN_X_SPACING = 0.105;
 const HELD_BOOK_FAN_Y_SPACING = 0.008;
 const HELD_BOOK_FAN_ANGLE = 0.1;
-const SPINE_SHELF_BACKING_THICKNESS = 0.14;
 const SPECIAL_COLLECTION_BACKING_THICKNESS = 0.22;
 const BOOK_HEIGHT = 0.74;
 const BOOK_VOID_RECOVERY_Y = -BOOK_HEIGHT / 2;
@@ -2343,23 +2351,23 @@ export class ShopScene {
   ) {
     this.#addBox(
       parent,
-      [9.35, 3.72, 0.18],
-      [-2, 1.92, -10.18],
+      FACE_OUT_DISPLAY.backingSize,
+      FACE_OUT_DISPLAY.backingCenter,
       backingMaterial,
     );
-    for (const x of [-4.68, 4.68])
+    for (const x of FACE_OUT_DISPLAY.sideOffsetXs)
       this.#addBox(
         parent,
-        [0.12, 3.95, 0.66],
-        [x - 2, 1.98, -9.92],
+        FACE_OUT_DISPLAY.sideSize,
+        [x, FACE_OUT_DISPLAY.sideCenterY, FACE_OUT_DISPLAY.sideCenterZ],
         woodMaterial,
         true,
       );
-    for (const y of [0.17, 1.07, 1.97, 2.87, 3.77]) {
+    for (const y of FACE_OUT_DISPLAY.boardYs) {
       const shelf = this.#addBox(
         parent,
-        [9.48, 0.1, 0.88],
-        [-2, y, -9.9],
+        FACE_OUT_DISPLAY.boardSize,
+        [FACE_OUT_DISPLAY.boardCenterX, y, FACE_OUT_DISPLAY.boardZ],
         woodMaterial,
         true,
       );
@@ -2979,16 +2987,18 @@ export class ShopScene {
     this.#addBox(
       parent,
       alongX
-        ? [length, 4.15, backingThickness]
-        : [backingThickness, 4.15, length],
-      [x, elevation + 2.05, z],
+        ? [length, SPINE_SHELF_HEIGHT, backingThickness]
+        : [backingThickness, SPINE_SHELF_HEIGHT, length],
+      [x, elevation + SPINE_SHELF_HEIGHT / 2, z],
       backingMaterial,
     );
 
-    for (const y of [0.2, 1.12, 2.04, 2.96, 3.88]) {
+    for (const y of SPINE_SHELF_BOARD_Y_OFFSETS) {
       const shelf = this.#addBox(
         parent,
-        alongX ? [length, 0.09, 1.08] : [1.08, 0.09, length],
+        alongX
+          ? [length, SPINE_SHELF_BOARD_THICKNESS, SPINE_SHELF_BOARD_DEPTH]
+          : [SPINE_SHELF_BOARD_DEPTH, SPINE_SHELF_BOARD_THICKNESS, length],
         [x, elevation + y, z],
         woodMaterial,
         true,
@@ -3000,10 +3010,28 @@ export class ShopScene {
     for (let divider = 0; divider <= bayCount; divider += 1)
       this.#addBox(
         parent,
-        alongX ? [0.1, 4.12, 1.1] : [1.1, 4.12, 0.1],
         alongX
-          ? [x - length / 2 + divider * bayWidth, elevation + 2.05, z]
-          : [x, elevation + 2.05, z - length / 2 + divider * bayWidth],
+          ? [
+              SPINE_SHELF_DIVIDER_THICKNESS,
+              SPINE_SHELF_DIVIDER_HEIGHT,
+              SPINE_SHELF_DIVIDER_DEPTH,
+            ]
+          : [
+              SPINE_SHELF_DIVIDER_DEPTH,
+              SPINE_SHELF_DIVIDER_HEIGHT,
+              SPINE_SHELF_DIVIDER_THICKNESS,
+            ],
+        alongX
+          ? [
+              x - length / 2 + divider * bayWidth,
+              elevation + SPINE_SHELF_DIVIDER_HEIGHT / 2,
+              z,
+            ]
+          : [
+              x,
+              elevation + SPINE_SHELF_DIVIDER_HEIGHT / 2,
+              z - length / 2 + divider * bayWidth,
+            ],
         shelfEdgeMaterial,
       );
     if (alongX) {

@@ -1,4 +1,5 @@
 import {
+  createSpineShelfCollisionBoxes,
   SHOP_STAIR_DOOR_HEIGHT,
   SHOP_STAIR_LOWER_FLIGHT_CENTER_Z,
   SHOP_STAIR_OPENING_WIDTH,
@@ -450,15 +451,41 @@ export const SHOP_EXPANSION_WALL_BOXES: readonly ShopExpansionBox[] = [
   },
 ];
 
-const upperFixtureBoxes: readonly ShopExpansionBox[] = [
-  {position: [-11.45, 6.95, -5], size: [1.1, 4.1, 9]},
-  {position: [11.45, 6.95, -5], size: [1.1, 4.1, 9]},
-  ...[-SHOP_UPPER_STACK_CENTER_X, SHOP_UPPER_STACK_CENTER_X].flatMap((x) =>
-    SHOP_UPPER_STACK_ZS.map((z) => ({
-      position: [x, 6.95, z] as const,
-      size: [SHOP_UPPER_STACK_LENGTH, 4.1, 1.1] as const,
-    })),
+const expansionBoxFromCollision = (
+  box: ShopCollisionBox,
+): ShopExpansionBox => ({
+  position: [box.position.x, box.position.y, box.position.z],
+  size: [box.halfExtents.x * 2, box.halfExtents.y * 2, box.halfExtents.z * 2],
+});
+
+// Mezzanine wall shelves and book stacks share the open-shelf geometry:
+// backing + one collider per visible board instead of a solid slab.
+const mezzanineShelfBoxes: readonly ShopExpansionBox[] = [
+  ...[-11.45, 11.45].flatMap((x) =>
+    createSpineShelfCollisionBoxes({
+      bayCount: 3,
+      elevation: SHOP_UPPER_FLOOR_Y,
+      length: 9,
+      x,
+      z: -5,
+    }),
   ),
+  ...[-SHOP_UPPER_STACK_CENTER_X, SHOP_UPPER_STACK_CENTER_X].flatMap((side) =>
+    SHOP_UPPER_STACK_ZS.flatMap((z) =>
+      createSpineShelfCollisionBoxes({
+        axis: "x",
+        bayCount: 2,
+        elevation: SHOP_UPPER_FLOOR_Y,
+        length: SHOP_UPPER_STACK_LENGTH,
+        x: side,
+        z,
+      }),
+    ),
+  ),
+].map(expansionBoxFromCollision);
+
+const upperFixtureBoxes: readonly ShopExpansionBox[] = [
+  ...mezzanineShelfBoxes,
   {position: [-8.25, 5.27, 23], size: [2.7, 0.92, 1.3]},
   {position: [-3.5, 5.27, 23], size: [2.7, 0.92, 1.3]},
   ...[

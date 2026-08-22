@@ -3,6 +3,81 @@ export type ShopCollisionBox = {
   position: {x: number; y: number; z: number};
 };
 
+/**
+ * Shared open-shelving geometry. The scene visuals and the physics
+ * colliders both derive from these values so props can physically rest on
+ * every shelf board instead of an invisible solid slab.
+ */
+export const SPINE_SHELF_BACKING_THICKNESS = 0.14;
+export const SPINE_SHELF_HEIGHT = 4.15;
+export const SPINE_SHELF_BOARD_Y_OFFSETS = [0.2, 1.12, 2.04, 2.96, 3.88];
+export const SPINE_SHELF_BOARD_THICKNESS = 0.09;
+export const SPINE_SHELF_BOARD_DEPTH = 1.08;
+export const SPINE_SHELF_DIVIDER_THICKNESS = 0.1;
+export const SPINE_SHELF_DIVIDER_DEPTH = 1.1;
+export const SPINE_SHELF_DIVIDER_HEIGHT = 4.12;
+
+export type SpineShelfSpec = {
+  axis?: "x" | "z";
+  bayCount?: number;
+  elevation?: number;
+  length: number;
+  x: number;
+  z: number;
+};
+
+/** Builds backing, per-board, and divider colliders for one shelf fixture. */
+export const createSpineShelfCollisionBoxes = ({
+  axis = "z",
+  bayCount = 0,
+  elevation = 0,
+  length,
+  x,
+  z,
+}: SpineShelfSpec): readonly ShopCollisionBox[] => {
+  const alongX = axis === "x";
+  const boxes: ShopCollisionBox[] = [
+    {
+      halfExtents: {
+        x: (alongX ? length : SPINE_SHELF_BACKING_THICKNESS) / 2,
+        y: SPINE_SHELF_HEIGHT / 2,
+        z: (alongX ? SPINE_SHELF_BACKING_THICKNESS : length) / 2,
+      },
+      position: {x, y: elevation + SPINE_SHELF_HEIGHT / 2, z},
+    },
+    ...SPINE_SHELF_BOARD_Y_OFFSETS.map((offset) => ({
+      halfExtents: {
+        x: (alongX ? length : SPINE_SHELF_BOARD_DEPTH) / 2,
+        y: SPINE_SHELF_BOARD_THICKNESS / 2,
+        z: (alongX ? SPINE_SHELF_BOARD_DEPTH : length) / 2,
+      },
+      position: {x, y: elevation + offset, z},
+    })),
+  ];
+  if (bayCount <= 0) return boxes;
+  const bayWidth = length / bayCount;
+  for (let divider = 0; divider <= bayCount; divider += 1) {
+    const along = -length / 2 + divider * bayWidth;
+    boxes.push({
+      halfExtents: {
+        x:
+          (alongX ? SPINE_SHELF_DIVIDER_THICKNESS : SPINE_SHELF_DIVIDER_DEPTH) /
+          2,
+        y: SPINE_SHELF_DIVIDER_HEIGHT / 2,
+        z:
+          (alongX ? SPINE_SHELF_DIVIDER_DEPTH : SPINE_SHELF_DIVIDER_THICKNESS) /
+          2,
+      },
+      position: {
+        x: alongX ? x + along : x,
+        y: elevation + SPINE_SHELF_DIVIDER_HEIGHT / 2,
+        z: alongX ? z : z + along,
+      },
+    });
+  }
+  return boxes;
+};
+
 export type ReadingFurnitureMaterial = "leg" | "upholstery" | "wood";
 
 export type ReadingFurnitureBox = ShopCollisionBox & {
@@ -118,6 +193,20 @@ export const SHOP_BOUNDS = {
   minZ: -9.35,
 } as const;
 
+/** Face-out display wall on the north wall (mirrors #createFaceOutDisplay). */
+export const FACE_OUT_DISPLAY = Object.freeze({
+  backingCenter: [-2, 1.92, -10.18] as const,
+  backingSize: [9.35, 3.72, 0.18] as const,
+  boardCenterX: -2,
+  boardYs: [0.17, 1.07, 1.97, 2.87, 3.77],
+  boardSize: [9.48, 0.1, 0.88] as const,
+  boardZ: -9.9,
+  sideCenterY: 1.98,
+  sideCenterZ: -9.92,
+  sideOffsetXs: [-6.68, 2.68],
+  sideSize: [0.12, 3.95, 0.66] as const,
+});
+
 export const SHOP_INTERIOR_FOOTPRINTS = [
   {maxX: -3.65, maxZ: 18.5, minX: -4.75, minZ: 1.5},
   {maxX: 4.75, maxZ: 18.5, minX: 3.65, minZ: 1.5},
@@ -143,14 +232,6 @@ export const SHOP_COLLISION_BOXES: readonly ShopCollisionBox[] = [
   {
     halfExtents: {x: 13, y: 2.4, z: 0.12},
     position: {x: 0, y: 2.4, z: 28},
-  },
-  {
-    halfExtents: {x: 0.55, y: 2.05, z: 18.75},
-    position: {x: -11.45, y: 2.05, z: 8.75},
-  },
-  {
-    halfExtents: {x: 0.55, y: 2.05, z: 15.25},
-    position: {x: 11.45, y: 2.05, z: 5.75},
   },
   {
     halfExtents: {
@@ -189,33 +270,55 @@ export const SHOP_COLLISION_BOXES: readonly ShopCollisionBox[] = [
     },
   },
   {
-    halfExtents: {x: 0.55, y: 2.05, z: 8.5},
-    position: {x: -4.2, y: 2.05, z: 10},
-  },
-  {
-    halfExtents: {x: 0.55, y: 2.05, z: 8.5},
-    position: {x: 4.2, y: 2.05, z: 10},
-  },
-  {
-    halfExtents: {x: 0.55, y: 2.05, z: 6},
-    position: {x: -8, y: 2.05, z: 12},
-  },
-  {
-    halfExtents: {x: 0.55, y: 2.05, z: 6},
-    position: {x: 8, y: 2.05, z: 12},
-  },
-  {
     halfExtents: {x: 0.55, y: 2.05, z: 4.25},
     position: {x: 5.45, y: 2.05, z: -6.25},
   },
+  // Open shelving (west wall, east wall, gondolas): backing + per-board
+  // colliders so props rest on the visible boards instead of an invisible
+  // solid slab covering the whole fixture.
+  ...(
+    [
+      {bayCount: 9, length: 35.5, x: -11.45, z: 8.25},
+      {bayCount: 8, length: 30.5, x: 11.45, z: 5.75},
+      {bayCount: 7, length: 17, x: -4.2, z: 10},
+      {bayCount: 7, length: 17, x: 4.2, z: 10},
+      {bayCount: 5, length: 12, x: -8, z: 12},
+      {bayCount: 5, length: 12, x: 8, z: 12},
+    ] satisfies SpineShelfSpec[]
+  ).flatMap(createSpineShelfCollisionBoxes),
+  // Face-out display wall.
   {
-    halfExtents: {x: 1.025, y: 2.05, z: 0.12},
-    position: {x: 6.475, y: 2.05, z: -2},
+    halfExtents: {
+      x: FACE_OUT_DISPLAY.backingSize[0] / 2,
+      y: FACE_OUT_DISPLAY.backingSize[1] / 2,
+      z: FACE_OUT_DISPLAY.backingSize[2] / 2,
+    },
+    position: {
+      x: FACE_OUT_DISPLAY.backingCenter[0],
+      y: FACE_OUT_DISPLAY.backingCenter[1],
+      z: FACE_OUT_DISPLAY.backingCenter[2],
+    },
   },
-  {
-    halfExtents: {x: 0.85, y: 2.05, z: 0.12},
-    position: {x: 10.15, y: 2.05, z: -2},
-  },
+  ...FACE_OUT_DISPLAY.boardYs.map((y) => ({
+    halfExtents: {
+      x: FACE_OUT_DISPLAY.boardSize[0] / 2,
+      y: FACE_OUT_DISPLAY.boardSize[1] / 2,
+      z: FACE_OUT_DISPLAY.boardSize[2] / 2,
+    },
+    position: {x: FACE_OUT_DISPLAY.boardCenterX, y, z: FACE_OUT_DISPLAY.boardZ},
+  })),
+  ...FACE_OUT_DISPLAY.sideOffsetXs.map((x) => ({
+    halfExtents: {
+      x: FACE_OUT_DISPLAY.sideSize[0] / 2,
+      y: FACE_OUT_DISPLAY.sideSize[1] / 2,
+      z: FACE_OUT_DISPLAY.sideSize[2] / 2,
+    },
+    position: {
+      x,
+      y: FACE_OUT_DISPLAY.sideCenterY,
+      z: FACE_OUT_DISPLAY.sideCenterZ,
+    },
+  })),
   ...SHOP_TELEVISION_COLLISION_BOXES,
   ...STATIC_READING_FURNITURE_BOXES.map((box) => ({
     halfExtents: box.halfExtents,
