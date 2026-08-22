@@ -5886,6 +5886,7 @@ export class ShopScene {
     const cabinet = new ShopArcadeCabinet({
       parent: this.#scene,
       position: [0, 0, 0],
+      audioManager: this.#audioManager,
       onInteractRequest: (target) => this.#enterArcadeBrowsing(target),
       onStateChange: () => this.#emitGameState(),
     });

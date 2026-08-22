@@ -19,6 +19,10 @@ import {
   type EmulatorSession,
   type ForwardedKeyEvent,
 } from "~/arcade/emulatorHost";
+import {
+  type PositionalStreamAudioHandle,
+  type ShopAudioManager,
+} from "~/game/ShopAudioManager";
 import arcadeCabinetModelUrl from "~/assets/models/arcade_cabinet_ms_pacman.glb?url";
 import {
   findModelTelevisionScreen,
@@ -49,6 +53,8 @@ export type ShopArcadeCabinetOptions = {
   parent: Object3D;
   position: readonly [number, number, number];
   rotationY?: number;
+  /** Shared positional audio buses; game audio plays through the media bus. */
+  audioManager: ShopAudioManager;
   /** Called when the player activates the cabinet (E while targeting). */
   onInteractRequest: (cabinet: ShopArcadeCabinet) => void;
   /** Called whenever the cabinet's session state changes. */
@@ -56,6 +62,14 @@ export type ShopArcadeCabinetOptions = {
 };
 
 const ATTRACT_FPS = 12;
+
+/** Speaker tuning for the live game audio tap, mirroring the TV pattern. */
+const ARCADE_SPEAKER_AUDIO = {
+  cone: {innerAngle: 150, outerAngle: 270, outerGain: 0.22},
+  refDistance: 1.5,
+  rolloffFactor: 1,
+  volume: 0.9,
+} as const;
 
 /**
  * The physical arcade cabinet prop: loads the ms-pac-man GLB, wires its
@@ -78,9 +92,12 @@ export class ShopArcadeCabinet {
   readonly #liveTexture: CanvasTexture;
   readonly #marqueeLight: PointLight;
   #screenAspect: number;
+  readonly #audioManager: ShopAudioManager;
   readonly #onInteractRequest: (cabinet: ShopArcadeCabinet) => void;
   readonly #onStateChange: () => void;
   #liveCanvas: HTMLCanvasElement | undefined;
+  #uploadedWidth: number | undefined;
+  #uploadedHeight: number | undefined;
   #targeted = false;
   #attractTime = 0;
   #sinceAttractRedraw = 0;
@@ -89,13 +106,15 @@ export class ShopArcadeCabinet {
   // Per-cabinet emulator session. Each cabinet can run its own game at the
   // same time; only the active one receives forwarded keyboard input.
   #sessionStatus: ArcadeSessionStatus | undefined;
-  #sessionSystemId: string | undefined;
   #sessionDetail: string | undefined;
   #sessionRomName: string | undefined;
+  #sessionSystemId: string | undefined;
   #host: EmulatorSession | undefined;
+  #arcadeAudio: PositionalStreamAudioHandle | undefined;
 
   constructor(options: ShopArcadeCabinetOptions) {
     this.id = `arcade-${ShopArcadeCabinet.nextId++}`;
+    this.#audioManager = options.audioManager;
     this.#onInteractRequest = options.onInteractRequest;
     this.#onStateChange = options.onStateChange;
     this.#screenAspect = 6 / 5;
@@ -198,6 +217,8 @@ export class ShopArcadeCabinet {
   setLiveCanvas(canvas: HTMLCanvasElement | undefined) {
     this.#liveCanvas = canvas;
     if (canvas) {
+      this.#uploadedWidth = undefined;
+      this.#uploadedHeight = undefined;
       this.#liveTexture.image = canvas;
       this.#liveTexture.needsUpdate = true;
       this.#material.map = this.#liveTexture;
@@ -275,6 +296,25 @@ export class ShopArcadeCabinet {
           .catch((cause: unknown) => {
             console.error("Afterleaf arcade boot failed.", cause);
           });
+        void host.audioStreamReady
+          .then((stream) => {
+            if (this.#disposed || this.#host !== host) return;
+            if (!stream) return; // Tap failed; local speaker output remains.
+            const handle = this.#audioManager.createPositionalMediaStream(
+              stream,
+              ARCADE_SPEAKER_AUDIO,
+            );
+            if (this.#disposed || this.#host !== host) {
+              handle.dispose();
+              return;
+            }
+            this.#arcadeAudio = handle;
+            this.object.add(handle.node);
+            void this.#audioManager.resume();
+          })
+          .catch((cause: unknown) => {
+            console.warn("Afterleaf arcade audio tap failed.", cause);
+          });
       },
       onExit: () => {
         if (this.#host !== host) return;
@@ -311,6 +351,8 @@ export class ShopArcadeCabinet {
   }
 
   private destroyHost() {
+    this.#arcadeAudio?.dispose();
+    this.#arcadeAudio = undefined;
     this.#host?.destroy();
     this.#host = undefined;
   }
@@ -390,7 +432,21 @@ export class ShopArcadeCabinet {
   update(deltaSeconds: number) {
     if (this.#disposed) return;
     if (this.#liveCanvas) {
-      // Copy the emulator's frames onto the GPU every rendered frame.
+      // Re-upload the emulator's canvas every rendered frame. Uploads at
+      // arcade resolutions are cheap, and continuous sampling is what keeps
+      // the screen live no matter how the core paces itself. The core also
+      // resizes its backing store after boot (video driver init, rotation),
+      // so when the dimensions move we free the GPU allocation first -
+      // re-uploading into the stale one makes Chromium's copy overflow
+      // (glCopySubTextureCHROMIUM GL_INVALID_VALUE) and stick black frames.
+      if (
+        this.#liveCanvas.width !== this.#uploadedWidth ||
+        this.#liveCanvas.height !== this.#uploadedHeight
+      ) {
+        this.#uploadedWidth = this.#liveCanvas.width;
+        this.#uploadedHeight = this.#liveCanvas.height;
+        this.#liveTexture.dispose();
+      }
       this.#liveTexture.needsUpdate = true;
       return;
     }

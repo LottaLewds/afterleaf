@@ -20,6 +20,11 @@ export type PositionalMediaAudioHandle = {
   resume: () => Promise<void>;
 };
 
+export type PositionalStreamAudioHandle = {
+  node: PositionalAudio;
+  dispose: () => void;
+};
+
 export type PositionalSfxHandle = {
   node: PositionalAudio;
   dispose: () => void;
@@ -79,6 +84,42 @@ export class ShopAudioManager {
         this.#disposeSource(node);
       },
       resume: () => this.resume(),
+    };
+  }
+
+  /**
+   * Spatializes a live MediaStream (e.g. an emulator audio tap) from another
+   * AudioContext. The stream feeds the positional node's gain, mirroring the
+   * media-element path; loudness stays under the media bus.
+   */
+  createPositionalMediaStream(
+    stream: MediaStream,
+    options: PositionalAudioOptions,
+  ): PositionalStreamAudioHandle {
+    const node = this.#createPositionalAudio("media", options);
+    // Mirror setMediaElementSource: the stream must feed the PANNER, not
+    // node.gain - PositionalAudio's graph is source -> panner -> gain, so
+    // wiring into gain bypasses spatialization entirely (flat stereo).
+    // Stream sources also have no playback control; TransformAwarePositional-
+    // Audio relies on that flag to keep updating the panner with world
+    // transforms. The property is only typed readonly - three.js mutates it
+    // in its own setMediaElementSource implementation.
+    (node as {hasPlaybackControl: boolean}).hasPlaybackControl = false;
+    const source = this.listener.context.createMediaStreamSource(stream);
+    source.connect(node.getOutput());
+    let disposed = false;
+    return {
+      node,
+      dispose: () => {
+        if (disposed) return;
+        disposed = true;
+        try {
+          source.disconnect();
+        } catch (error) {
+          if (DEV) console.warn("Afterleaf could not disconnect audio.", error);
+        }
+        this.#disposeSource(node);
+      },
     };
   }
 

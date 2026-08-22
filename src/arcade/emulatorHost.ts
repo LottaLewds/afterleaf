@@ -1,25 +1,25 @@
 /**
  * Lifecycle manager for an embedded EmulatorJS instance.
  *
- * EmulatorJS documents that single-page apps must embed it inside an iframe;
- * running it directly tampers with the page DOM and globals. Each session
- * therefore boots a fresh same-origin iframe whose document sets up the
- * `EJS_*` options and loads the npm-vendored loader. The host page reaches
- * into the frame to grab the rendered `<canvas>` for texturing the cabinet's
- * TVScreen mesh, and forwards keyboard input as synthetic events so shop
- * controls stay fully modal while a game is running.
+ * EmulatorJS runs directly in the host document - no iframe. That is safe
+ * here because every session constructs its own `EmulatorJS` inside a
+ * detached offscreen container: EJS binds its keyboard handler to its own
+ * container element (never window/document), so parallel cabinet sessions
+ * cannot cross-talk, and teardown removes the container after stopping the
+ * core main loop, letting the wasm heap become garbage-collectable. Going
+ * in-page removes a postMessage hop from input (synthetic key events are
+ * dispatched synchronously), removes any risk of offscreen-iframe rAF
+ * throttling, and lets us tap the core's OpenAL audio graph into a
+ * MediaStream for positional playback through the shop's audio buses.
+ *
+ * One deliberate serialization remains: boot phases run one at a time across
+ * all sessions because core glue scripts define shared globals
+ * (`window.EJS_Runtime`) when they execute; two cores initializing
+ * concurrently could hand the wrong runtime to a booting session.
  */
 // Served by the emulator-data plugin (dev/preview middleware + build copy);
 // see ~/arcade/emulatorAssets for how the files are vendored.
 export const EMULATORJS_DATA_URL = "/emulatorjs/data/";
-
-const HOST_MESSAGE_FLAG = "__afterleafArcade";
-
-export type ArcadeHostMessage = {
-  [HOST_MESSAGE_FLAG]: true;
-  type: "start" | "exit" | "error" | "log";
-  detail?: string;
-};
 
 export type ForwardedKeyEvent = {
   key: string;
@@ -46,105 +46,177 @@ export const describeKeyboardEvent = (
   shiftKey: event.shiftKey,
 });
 
-export const isArcadeHostMessage = (data: unknown): data is ArcadeHostMessage =>
-  typeof data === "object" &&
-  data !== null &&
-  (data as ArcadeHostMessage)[HOST_MESSAGE_FLAG] === true &&
-  typeof (data as ArcadeHostMessage).type === "string";
+/**
+ * Plain init for the synthetic event forwarded into the emulator, including
+ * the stamped `keyCode`: engines do not derive keyCode for constructed
+ * events, and EmulatorJS matches its bindings with it. Without the stamp
+ * every input reads keyCode 0, which collides with the defaults' unbound
+ * FAST FORWARD / REWIND / SLOW MOTION entries.
+ *
+ * The event must NOT bubble: it is dispatched at the container element where
+ * EmulatorJS binds its key handler, and a same-document event that escapes
+ * the container would reach host-page window listeners, which forward it
+ * straight back - an infinite dispatch loop.
+ */
+export type ForwardedKeyInit = {
+  type: "keydown" | "keyup";
+  bubbles: false;
+  cancelable: true;
+  location: 0;
+  key: string;
+  code: string;
+  repeat: boolean;
+  altKey: boolean;
+  ctrlKey: boolean;
+  metaKey: boolean;
+  shiftKey: boolean;
+  keyCode: number;
+};
 
-/** Pure builder so the generated boot document stays unit-testable. */
-export const buildEmulatorDocumentHtml = (config: {
+/** Pure builder so the synthetic-event contract stays unit-testable. */
+export const buildForwardedKeyInit = (
+  down: boolean,
+  event: ForwardedKeyEvent,
+): ForwardedKeyInit => ({
+  type: down ? "keydown" : "keyup",
+  bubbles: false,
+  cancelable: true,
+  location: 0,
+  key: event.key,
+  code: event.code,
+  repeat: event.repeat,
+  altKey: event.altKey,
+  ctrlKey: event.ctrlKey,
+  metaKey: event.metaKey,
+  shiftKey: event.shiftKey,
+  keyCode: Number(event.keyCode) || 0,
+});
+
+/** Bottom-bar buttons surfaced on the (offscreen) emulator UI. */
+export const buildEmulatorButtonOptions = (): Record<string, boolean> => ({
+  playPause: true,
+  restart: true,
+  mute: true,
+  settings: false,
+  fullscreen: false,
+  saveState: true,
+  loadState: true,
+  screenRecord: false,
+  gamepad: false,
+  cheat: false,
+  volume: true,
+  saveSavFiles: false,
+  loadSavFiles: false,
+  quickSave: true,
+  quickLoad: true,
+  screenshot: false,
+  cacheManager: false,
+  exitEmulation: true,
+});
+
+export type ArcadeEmulatorOptions = {
   core: string;
   romUrl: string;
   gameName: string;
   gameId: number;
-}) => {
-  // JSON.stringify keeps arbitrary strings safe inside the script tag; the
-  // closing-tag split prevents </script> sequences in names from breaking out.
-  const encode = (value: string) =>
-    JSON.stringify(value).replace(/<\//gu, "<\\/");
-  return `<!doctype html>
-<html><head><meta charset="utf-8"><style>
-html,body{margin:0;padding:0;background:#000;overflow:hidden}
-#game{position:absolute;left:-99999px;top:0;width:320px;height:240px}
-</style></head><body>
-<div id="game"></div>
-<script>
-window.EJS_player = "#game";
-window.EJS_core = ${encode(config.core)};
-window.EJS_gameUrl = ${encode(config.romUrl)};
-window.EJS_gameName = ${encode(config.gameName)};
-window.EJS_gameID = ${config.gameId};
-window.EJS_startOnLoaded = true;
-window.EJS_pathtodata = ${encode(EMULATORJS_DATA_URL)};
-window.EJS_color = "#d94c3f";
-window.EJS_backgroundColor = "#000000";
-window.EJS_askBeforeExit = false;
-window.EJS_noAutoFocus = true;
-window.EJS_Buttons = {
-  playPause: true, restart: true, mute: true, settings: false,
-  fullscreen: false, saveState: true, loadState: true, screenRecord: false,
-  gamepad: false, cheat: false, volume: true, saveSavFiles: false,
-  loadSavFiles: false, quickSave: true, quickLoad: true, screenshot: false,
-  cacheManager: false, exitEmulation: true
 };
-var post = function (type, detail) {
-  parent.postMessage({${HOST_MESSAGE_FLAG}: true, type: type, detail: detail}, "*");
+
+/**
+ * Pure builder mirroring what loader.js derives from the `EJS_*` globals;
+ * constructing `EmulatorJS` directly with this config keeps parallel boots
+ * free of global-variable races. Volume is pinned to 1 so loudness is owned
+ * by the positional audio bus rather than an extra gain stage.
+ */
+export const buildEmulatorConfig = (
+  options: ArcadeEmulatorOptions,
+): Record<string, unknown> => ({
+  system: options.core,
+  gameUrl: options.romUrl,
+  gameName: options.gameName,
+  gameId: options.gameId,
+  dataPath: EMULATORJS_DATA_URL,
+  startOnLoad: true,
+  noAutoFocus: true,
+  color: "#d94c3f",
+  backgroundColor: "#000000",
+  volume: 1,
+  buttonOpts: buildEmulatorButtonOptions(),
+});
+
+/** The slice of the EmulatorJS surface Afterleaf touches. */
+type EmulatorJsInstance = {
+  canvas: HTMLCanvasElement;
+  elements: {parent: HTMLElement};
+  started: boolean;
+  paused: boolean;
+  failedToStart?: boolean;
+  volume: number;
+  muted: boolean;
+  setVolume: (volume: number) => void;
+  gameManager?: {
+    functions?: {getFrameNum?: () => number};
+  };
+  Module?: {
+    AL?: {
+      currentCtx?: {
+        audioCtx?: AudioContext;
+        sources?: {gain?: GainNode}[];
+      };
+    };
+  };
+  on: (event: string, cb: (data?: unknown) => void) => void;
+  callEvent: (event: string, data?: unknown) => void;
 };
-window.EJS_onGameStart = function () { post("start"); };
-window.EJS_onExit = function () { post("exit"); };
-window.addEventListener("error", function (event) {
-  post("error", event.message || "Unknown emulator error");
-});
-// Promise crashes bypass the "error" event entirely; report them as
-// non-fatal logs so they are visible without tearing down a live session.
-window.addEventListener("unhandledrejection", function (event) {
-  var reason = event.reason;
-  post("log", (reason && (reason.stack || reason.message)) || String(reason));
-});
-window.addEventListener("message", function (event) {
-  var data = event.data;
-  if (!data || data.${HOST_MESSAGE_FLAG} !== true || event.source !== parent) return;
-  var down = data.type === "keydown";
-  // EmulatorJS binds its key handler to its own container element and
-  // matches by keyCode, so the synthetic event must originate there and
-  // bubble; the engine derives keyCode from key.
-  var forwarded = new KeyboardEvent(down ? "keydown" : "keyup", {
-    key: String(data.key), code: String(data.code), repeat: !!data.repeat,
-    location: 0, altKey: !!data.altKey, ctrlKey: !!data.ctrlKey,
-    metaKey: !!data.metaKey, shiftKey: !!data.shiftKey,
-    bubbles: true, cancelable: true
+
+type EmulatorJsConstructor = new (
+  elementSelector: string,
+  config: Record<string, unknown>,
+) => EmulatorJsInstance;
+
+const getEmulatorJsConstructor = (): EmulatorJsConstructor | undefined =>
+  (window as unknown as {EmulatorJS?: EmulatorJsConstructor}).EmulatorJS;
+
+let runtimePromise: Promise<void> | undefined;
+
+/**
+ * Loads the vendored runtime bundle and stylesheet once per page; later
+ * sessions reuse the already-defined globals.
+ */
+const loadEmulatorRuntime = (): Promise<void> => {
+  if (runtimePromise) return runtimePromise;
+  runtimePromise = new Promise<void>((resolve, reject) => {
+    const css = document.createElement("link");
+    css.rel = "stylesheet";
+    css.href = `${EMULATORJS_DATA_URL}emulator.min.css`;
+    document.head.appendChild(css);
+
+    const script = document.createElement("script");
+    script.src = `${EMULATORJS_DATA_URL}emulator.min.js`;
+    script.addEventListener("load", () => resolve());
+    script.addEventListener("error", () => {
+      // Allow a retry on the next boot attempt instead of caching failure.
+      runtimePromise = undefined;
+      reject(new Error("The vendored EmulatorJS runtime failed to load."));
+    });
+    document.head.appendChild(script);
   });
-  // Engines do not derive keyCode for constructed events (and EmulatorJS
-  // matches bindings with it), so stamp the real value from the trusted
-  // event. Without it every input reads keyCode 0, which collides with the
-  // defaults' unbound FAST FORWARD / REWIND / SLOW MOTION entries.
-  Object.defineProperty(forwarded, "keyCode", {
-    value: Number(data.keyCode) || 0,
-  });
-  var target =
-    document.querySelector("#game canvas") ||
-    document.querySelector("#game") ||
-    document;
-  target.dispatchEvent(forwarded);
-});
-</script>
-<script src="${EMULATORJS_DATA_URL}loader.js"></script>
-</body></html>`;
+  return runtimePromise;
 };
 
 export type EmulatorSession = {
   /** Resolves once emulation is running and the render canvas exists. */
   canvasReady: Promise<HTMLCanvasElement>;
+  /**
+   * Resolves with a live tap of the core's audio output for positional
+   * playback, or undefined when the OpenAL graph never materialized (local
+   * speaker output stays untouched in that case).
+   */
+  audioStreamReady: Promise<MediaStream | undefined>;
   forwardKey: (down: boolean, event: ForwardedKeyEvent) => void;
   destroy: () => void;
 };
 
-export type EmulatorLaunchOptions = {
-  core: string;
-  romUrl: string;
-  gameName: string;
-  gameId: number;
+export type EmulatorLaunchOptions = ArcadeEmulatorOptions & {
   onStart?: () => void;
   onExit?: () => void;
   onError?: (message: string) => void;
@@ -152,51 +224,57 @@ export type EmulatorLaunchOptions = {
   bootTimeoutMs?: number;
 };
 
-const CANVAS_WAIT_TIMEOUT_MS = 20_000;
+const BOOT_TIMEOUT_MS = 150_000;
+const AUDIO_TAP_TIMEOUT_MS = 15_000;
+const AUDIO_TAP_POLL_MS = 100;
+
+// Offscreen layout only feeds EmulatorJS's resize math; the canvas backing
+// store resolution is decided by the core, never by these pixels.
+const CONTAINER_WIDTH_PX = 480;
+const CONTAINER_HEIGHT_PX = 360;
+
+let nextSlotId = 1;
+// Cores define shared globals while their glue executes; keep boot phases
+// mutually exclusive across sessions (see module docstring).
+let bootChain = Promise.resolve();
 
 /**
- * Boots an EmulatorJS session in a detached offscreen iframe. Callers own the
+ * Boots an EmulatorJS session directly in this document. Callers own the
  * returned session and must call `destroy()` when done.
  */
 export const launchEmulator = (
   options: EmulatorLaunchOptions,
 ): EmulatorSession => {
+  let destroyed = false;
+  let bootWatchdogHandle: ReturnType<typeof setTimeout> | undefined;
+  let emulator: EmulatorJsInstance | undefined;
+  let resolveCanvas!: (canvas: HTMLCanvasElement) => void;
+  let rejectCanvas!: (cause: unknown) => void;
+  let resolveAudioStream!: (stream: MediaStream | undefined) => void;
+  const abortController = new AbortController();
+
   const container = document.createElement("div");
   container.setAttribute("aria-hidden", "true");
   container.style.position = "fixed";
   container.style.left = "-99999px";
   container.style.top = "0";
-  container.style.width = "2px";
-  container.style.height = "2px";
-  container.style.opacity = "0";
+  container.style.width = `${CONTAINER_WIDTH_PX}px`;
+  container.style.height = `${CONTAINER_HEIGHT_PX}px`;
+  container.style.overflow = "hidden";
   container.style.pointerEvents = "none";
 
-  const frame = document.createElement("iframe");
-  frame.setAttribute("title", "Arcade emulator");
-  frame.style.width = "2px";
-  frame.style.height = "2px";
-  frame.style.border = "0";
-  frame.srcdoc = buildEmulatorDocumentHtml({
-    core: options.core,
-    romUrl: options.romUrl,
-    gameName: options.gameName,
-    gameId: options.gameId,
-  });
-  container.appendChild(frame);
+  const slotId = `afterleaf-arcade-${nextSlotId++}`;
+  const slot = document.createElement("div");
+  slot.id = slotId;
+  slot.style.width = "100%";
+  slot.style.height = "100%";
+  container.appendChild(slot);
   document.body.appendChild(container);
 
-  const abortController = new AbortController();
-  let destroyed = false;
-  let bootTimeoutHandle: ReturnType<typeof setTimeout> | undefined;
-  let resolveCanvas!: (canvas: HTMLCanvasElement) => void;
-  let rejectCanvas!: (cause: unknown) => void;
-
-  // The watchdog only guards the boot window; once the core is up it must be
-  // disarmed or it would tear down a healthy session mid-play.
   const disarmBootWatchdog = () => {
-    if (bootTimeoutHandle === undefined) return;
-    clearTimeout(bootTimeoutHandle);
-    bootTimeoutHandle = undefined;
+    if (bootWatchdogHandle === undefined) return;
+    clearTimeout(bootWatchdogHandle);
+    bootWatchdogHandle = undefined;
   };
 
   const destroy = () => {
@@ -204,6 +282,15 @@ export const launchEmulator = (
     destroyed = true;
     disarmBootWatchdog();
     abortController.abort();
+    // The GameManager "exit" hook saves SRAM, stops the core main loop,
+    // unmounts its filesystems, and aborts the wasm module shortly after.
+    try {
+      if (emulator?.started && !emulator.failedToStart)
+        emulator.callEvent("exit");
+    } catch (error) {
+      console.warn("Afterleaf arcade emulator teardown failed.", error);
+    }
+    emulator = undefined;
     container.remove();
   };
 
@@ -212,48 +299,19 @@ export const launchEmulator = (
     destroyed = true;
     disarmBootWatchdog();
     abortController.abort();
+    try {
+      if (emulator?.started && !emulator.failedToStart)
+        emulator.callEvent("exit");
+    } catch {
+      // Best-effort cleanup; the session is being torn down regardless.
+    }
+    emulator = undefined;
     container.remove();
-    // onError consumers turn this into UI state that can be invisible once a
-    // game is already running, so always leave a console trail too.
     console.error(`Afterleaf arcade emulator failed: ${message}`);
-    // Surface the failure both through onError and by settling canvasReady
-    // so awaiting code always wakes up.
     options.onError?.(message);
     rejectCanvas(new Error(message));
   };
 
-  window.addEventListener(
-    "message",
-    (event) => {
-      if (destroyed || event.source !== frame.contentWindow) return;
-      if (!isArcadeHostMessage(event.data)) return;
-      if (event.data.type === "start") {
-        // Boot succeeded: the watchdog must never fire mid-play.
-        disarmBootWatchdog();
-        options.onStart?.();
-      } else if (event.data.type === "exit") {
-        destroy();
-        options.onExit?.();
-      } else if (event.data.type === "error")
-        fail(`Emulator error: ${event.data.detail ?? "unknown"}`);
-      else if (event.data.type === "log")
-        console.warn(
-          `Afterleaf arcade emulator reported: ${event.data.detail ?? "an unknown rejection"}`,
-        );
-    },
-    {signal: abortController.signal},
-  );
-
-  const bootTimeoutMs = options.bootTimeoutMs ?? 150_000;
-  bootTimeoutHandle = setTimeout(() => {
-    fail("The emulator took too long to boot.");
-  }, bootTimeoutMs);
-
-  abortController.signal.addEventListener(
-    "abort",
-    () => rejectCanvas(new Error("The emulator session was destroyed.")),
-    {once: true},
-  );
   const canvasReady = new Promise<HTMLCanvasElement>((resolve, reject) => {
     resolveCanvas = resolve;
     rejectCanvas = reject;
@@ -261,40 +319,149 @@ export const launchEmulator = (
   // Callers usually attach after boot settles; keep early failures from
   // surfacing as unhandled rejections while still rejecting real awaiters.
   canvasReady.catch(() => {});
+  const audioStreamReady = new Promise<MediaStream | undefined>((resolve) => {
+    resolveAudioStream = resolve;
+  });
+  audioStreamReady.catch(() => {});
+  abortController.signal.addEventListener(
+    "abort",
+    () => {
+      rejectCanvas(new Error("The emulator session was destroyed."));
+      // Never leave stream awaiters hanging if destruction wins the race.
+      resolveAudioStream(undefined);
+    },
+    {once: true},
+  );
 
-  const pollForCanvas = async () => {
-    // The boot timeout owns overall failure; here we only wait for the
-    // render canvas to exist once the core is up.
-    const deadline = performance.now() + CANVAS_WAIT_TIMEOUT_MS;
+  // The watchdog guards the whole boot window - runtime fetch included -
+  // so it must be armed synchronously; once the core is up it is disarmed
+  // or it would tear down a healthy session mid-play.
+  bootWatchdogHandle = setTimeout(() => {
+    fail("The emulator took too long to boot.");
+  }, options.bootTimeoutMs ?? BOOT_TIMEOUT_MS);
+
+  /**
+   * Reroutes every OpenAL source gain into a MediaStreamDestination so the
+   * cabinet can play the game positionally. This is exclusive: source gains
+   * are disconnected from the default output first, otherwise each sound
+   * would play twice (flat + spatialized). EJS's own setVolume writes these
+   * exact nodes (`currentCtx.sources[*].gain`), so its mute/volume controls
+   * keep working through the tap. If OpenAL never initializes, resolving
+   * undefined leaves normal speaker output intact.
+   */
+  const tapAudio = async () => {
+    const deadline = performance.now() + AUDIO_TAP_TIMEOUT_MS;
     for (;;) {
-      if (destroyed) return;
-      const canvas =
-        frame.contentWindow?.document.querySelector<HTMLCanvasElement>(
-          "canvas",
-        );
-      if (canvas && canvas.width > 0) {
-        disarmBootWatchdog();
-        resolveCanvas(canvas);
+      if (destroyed) {
+        resolveAudioStream(undefined);
+        return;
+      }
+      const currentCtx = emulator?.Module?.AL?.currentCtx;
+      const gains = (currentCtx?.sources ?? [])
+        .map((source) => source.gain)
+        .filter((gain): gain is GainNode => Boolean(gain));
+      if (currentCtx?.audioCtx && gains.length > 0) {
+        const destination = currentCtx.audioCtx.createMediaStreamDestination();
+        for (const gain of gains) {
+          gain.disconnect();
+          gain.connect(destination);
+        }
+        // setVolume may have run before OpenAL existed; reapply so a muted
+        // or lowered session does not come through the tap at full blast.
+        const activeEmulator = emulator;
+        if (activeEmulator && !activeEmulator.muted)
+          activeEmulator.setVolume(activeEmulator.volume);
+        else if (activeEmulator) activeEmulator.setVolume(0);
+        resolveAudioStream(destination.stream);
         return;
       }
       if (performance.now() > deadline) {
-        fail("The emulator canvas never appeared.");
+        resolveAudioStream(undefined);
         return;
       }
-      await new Promise((resolve) => setTimeout(resolve, 100));
+      await new Promise((resolve) => setTimeout(resolve, AUDIO_TAP_POLL_MS));
     }
   };
-  void pollForCanvas();
 
+  const boot = async () => {
+    try {
+      await loadEmulatorRuntime();
+    } catch (cause) {
+      fail(cause instanceof Error ? cause.message : String(cause));
+      return;
+    }
+    if (destroyed) return;
+    const EmulatorJS = getEmulatorJsConstructor();
+    if (!EmulatorJS) {
+      fail("The vendored EmulatorJS runtime did not register itself.");
+      return;
+    }
+
+    let instance: EmulatorJsInstance;
+    try {
+      instance = new EmulatorJS(`#${slotId}`, buildEmulatorConfig(options));
+    } catch (cause) {
+      console.error("Afterleaf could not construct the emulator.", cause);
+      fail("The emulator could not be started.");
+      return;
+    }
+    if (destroyed) return;
+    emulator = instance;
+
+    instance.on("start", () => {
+      // Boot succeeded: the watchdog must never fire mid-play.
+      disarmBootWatchdog();
+      options.onStart?.();
+      resolveCanvas(instance.canvas);
+      void tapAudio();
+    });
+    instance.on("exit", () => {
+      // Our own destroy() triggers this event too; the destroyed flag keeps
+      // it from recursing while still letting user-initiated exits flow.
+      if (destroyed) return;
+      destroy();
+      options.onExit?.();
+    });
+
+    // startGameError() flips this flag without any callback; poll briefly so
+    // download/core failures settle fast instead of waiting out the watchdog.
+    const failurePoll = setInterval(() => {
+      if (!destroyed && instance.failedToStart)
+        fail("The emulator reported a startup failure.");
+    }, 250);
+    abortController.signal.addEventListener(
+      "abort",
+      () => clearInterval(failurePoll),
+      {once: true},
+    );
+  };
+
+  bootChain = bootChain.then(boot).catch((cause: unknown) => {
+    console.error("Afterleaf arcade boot crashed.", cause);
+    fail("The emulator boot crashed unexpectedly.");
+  });
+
+  let forwardingInput = false;
   return {
     canvasReady,
+    audioStreamReady,
     forwardKey: (down, event) => {
-      const frameWindow = frame.contentWindow;
-      if (!frameWindow || destroyed) return;
-      frameWindow.postMessage(
-        {[HOST_MESSAGE_FLAG]: true, type: down ? "keydown" : "keyup", ...event},
-        "*",
-      );
+      if (destroyed || !emulator || forwardingInput) return;
+      const {type, keyCode, ...init} = buildForwardedKeyInit(down, event);
+      // Events do not derive keyCode for constructed KeyboardEvents, so the
+      // real value is stamped onto the instance before dispatch.
+      const forwarded = new KeyboardEvent(type, init);
+      Object.defineProperty(forwarded, "keyCode", {value: keyCode});
+      // Dispatch at the container itself, non-bubbling (see ForwardedKeyInit):
+      // the key handler lives on this element and fires during the target
+      // phase. The guard is belt-and-braces - dispatchEvent runs listeners
+      // synchronously, so any re-entrant keydown would recurse right here.
+      forwardingInput = true;
+      try {
+        emulator.elements.parent.dispatchEvent(forwarded);
+      } finally {
+        forwardingInput = false;
+      }
     },
     destroy,
   };
