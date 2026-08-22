@@ -1229,7 +1229,6 @@ export class ShopScene {
   readonly #arcadeProps = new Map<ShopArcadeCabinet, MovablePropRecord>();
   #targetedArcadeCabinet: ShopArcadeCabinet | undefined;
   #activeArcadeCabinet: ShopArcadeCabinet | undefined;
-  #activeArcadeSystemId: string | undefined;
   readonly #arcadeAimTarget = new Vector3();
   readonly #mouseSensitivity: () => number;
   readonly #newPublicationIds: () => readonly string[];
@@ -1661,9 +1660,11 @@ export class ShopScene {
     );
     if (!cabinet) return;
     this.#activeArcadeCabinet = cabinet;
-    this.#activeArcadeSystemId = request.systemId;
     cabinet.play(request);
     this.#emitGameState();
+    // Re-capture the cursor on the picker's own click gesture: launching and
+    // playing keep it hidden, matching free roam.
+    if (!this.#paused()) this.#requestPointerLock();
   }
 
   /** Playing → back to the ROM picker of the active session. */
@@ -1674,20 +1675,21 @@ export class ShopScene {
   }
 
   /**
-   * Escape ladder for the UI-active session: a running game backs out to its
-   * ROM picker, an open picker closes entirely. Called by the shared modal
-   * stack, which owns Escape routing while a session is active.
+   * Escape ladder for the UI-active session: a running game steps away from
+   * its cabinet (emulation keeps running), an open picker or boot overlay
+   * exits entirely. Called by the shared modal stack, which owns Escape
+   * routing while a session is active.
    */
   backOutOfArcade() {
     if (this.#disposed) return;
     this.#exitOneArcadeLevel();
   }
 
-  /** Escape ladder: playing backs out to browsing; browsing exits entirely. */
+  /** Escape ladder body: playing steps away; picker/boot overlays exit. */
   #exitOneArcadeLevel() {
     const cabinet = this.#activeArcadeCabinet;
     if (!cabinet) return;
-    if (cabinet.sessionStatus === "playing") this.quitActiveArcadeGame();
+    if (cabinet.sessionStatus === "playing") this.stepAwayFromArcade();
     else this.exitArcadeUi();
   }
 
@@ -1715,14 +1717,37 @@ export class ShopScene {
     if (!this.#paused()) this.#requestPointerLock();
   }
 
+  /**
+   * Steps away from the active session's UI without stopping emulation: the
+   * world unfreezes, keys stop forwarding, and the cabinet keeps playing
+   * until the player targets it again (E resumes) or quits through the ROM
+   * picker. Pointer lock is held through the whole cycle; if the browser
+   * force-released it (Escape), standard click-to-lock recovers.
+   */
+  stepAwayFromArcade() {
+    if (this.#disposed || !this.#activeArcadeCabinet) return;
+    this.#activeArcadeCabinet = undefined;
+    this.#emitGameState();
+  }
+
+  /**
+   * Activates a targeted cabinet's UI: a live session reattaches where it
+   * left off, a free one opens its ROM picker, and boots in progress stay
+   * owned by the surface that started them.
+   */
   #enterArcadeBrowsing(cabinet: ShopArcadeCabinet) {
-    // This cabinet must be free; other cabinets' sessions stay untouched so
-    // several machines can run at once.
-    if (cabinet.sessionStatus) return;
+    const status = cabinet.sessionStatus;
+    console.warn("[arcade] interact:", cabinet.id, status);
+    if (status === "downloading" || status === "launching") return;
     this.#activeArcadeCabinet = cabinet;
-    this.#releasePointerLock();
     this.#aimCameraAtObject(cabinet.object);
-    cabinet.beginBrowsing();
+    if (!status) {
+      // Only the ROM picker needs a visible cursor; resuming a live session
+      // keeps the pointer exactly where walking left it.
+      this.#releasePointerLock();
+      cabinet.beginBrowsing();
+    }
+    this.#emitGameState();
   }
 
   /** Snapshot fields describing the UI-active cabinet's session, if any. */
@@ -1734,7 +1759,7 @@ export class ShopScene {
 
   /** System of the ROM most recently played on the UI-active cabinet. */
   #arcadeSystemIdForUi(): string | undefined {
-    return this.#activeArcadeSystemId;
+    return this.#activeArcadeCabinet?.sessionSystemId;
   }
 
   /** Gently turns the player's view toward a cabinet's screen on entry. */
@@ -5861,6 +5886,7 @@ export class ShopScene {
     const cabinet = new ShopArcadeCabinet({
       parent: this.#scene,
       position: [0, 0, 0],
+      audioManager: this.#audioManager,
       onInteractRequest: (target) => this.#enterArcadeBrowsing(target),
       onStateChange: () => this.#emitGameState(),
     });
@@ -6266,10 +6292,8 @@ export class ShopScene {
       if (cabinetProp !== record) continue;
       if (this.#targetedArcadeCabinet === cabinet)
         this.#setArcadeTargeted(undefined);
-      if (this.#activeArcadeCabinet === cabinet) {
+      if (this.#activeArcadeCabinet === cabinet)
         this.#activeArcadeCabinet = undefined;
-        this.#activeArcadeSystemId = undefined;
-      }
       this.#arcadeProps.delete(cabinet);
       const cabinetIndex = this.#arcadeCabinets.indexOf(cabinet);
       if (cabinetIndex >= 0) this.#arcadeCabinets.splice(cabinetIndex, 1);
@@ -7966,6 +7990,24 @@ export class ShopScene {
       this.#tvWheelScrubStepIndex = stepIndex;
       return;
     }
+    // Cabinet volume: the actively-attached session wins (reticle targeting
+    // is not how an attached session is tracked, and pointer lock may be
+    // released right after booting from the picker); otherwise a targeted,
+    // still-running cabinet responds while the player is stepped away.
+    const arcadeVolumeCabinet =
+      this.#activeArcadeCabinet?.sessionStatus === "playing"
+        ? this.#activeArcadeCabinet
+        : this.#targetedArcadeCabinet?.sessionStatus === "playing"
+          ? this.#targetedArcadeCabinet
+          : undefined;
+    if (arcadeVolumeCabinet && event.ctrlKey && event.deltaY !== 0) {
+      event.preventDefault();
+      // Same convention as the TV: wheel up raises the cabinet's volume.
+      arcadeVolumeCabinet.adjustArcadeVolume(
+        Math.sign(event.deltaY) === 1 ? -1 : 1,
+      );
+      return;
+    }
     if (
       !this.#pointerLocked ||
       !this.#keysDown.has("KeyF") ||
@@ -8048,10 +8090,21 @@ export class ShopScene {
     if (this.#paused()) return;
     this.#observeKeyboardEvent(event);
     // While a cabinet game runs, shop controls are modal: every key goes to
-    // the emulator. Escape is left unconsumed for the shared modal stack,
-    // which routes it back here as a one-level back-out.
+    // the emulator except R (step away), P (open the ROM picker), and Escape
+    // (left unconsumed for the shared modal stack; the browser also reserves
+    // it for dropping pointer lock).
     if (this.#activeArcadeCabinet?.sessionStatus === "playing") {
       if (event.code === "Escape") return;
+      if (event.code === "KeyR") {
+        event.preventDefault();
+        this.stepAwayFromArcade();
+        return;
+      }
+      if (event.code === "KeyP") {
+        event.preventDefault();
+        this.quitActiveArcadeGame();
+        return;
+      }
       event.preventDefault();
       this.#activeArcadeCabinet.forwardKey(true, describeKeyboardEvent(event));
       return;
@@ -13111,6 +13164,15 @@ export class ShopScene {
       prompt = `Q ${this.#shelfPresentation}-out · Aim at a shelf · Hold F charge throw · G drop · R inspect${this.#carriedPublicationIds.length > 1 ? " · Wheel cycle books" : ""}`;
     else if (
       this.#targetedArcadeCabinet &&
+      this.#targetedArcadeCabinet.sessionStatus === "playing"
+    ) {
+      const cabinetProp = this.#arcadeProps.get(this.#targetedArcadeCabinet);
+      const romLabel =
+        this.#targetedArcadeCabinet.sessionRomName?.replace(/\.[^.]+$/u, "") ??
+        "the game";
+      prompt = `E resume ${romLabel} · T move cabinet${cabinetProp?.locked ? " · L unlock" : " · L lock"}`;
+    } else if (
+      this.#targetedArcadeCabinet &&
       this.#targetedArcadeCabinet.sessionStatus === undefined
     ) {
       const cabinetProp = this.#arcadeProps.get(this.#targetedArcadeCabinet);
@@ -13251,23 +13313,60 @@ export class ShopScene {
         interactions.unshift({key: "E", label: "Shelve book"});
       if (this.#trashTargeted)
         interactions.unshift({key: "E", label: "Discard book"});
+    } else if (this.#arcadeStatusForUi() === "playing") {
+      // The emulator owns the keyboard; surface its control layout in the
+      // standard interactions panel. Checked before targeting rows so an
+      // attached session always swaps to these hints immediately — even
+      // while the reticle still rests on its own cabinet — making a
+      // reattach visibly take hold.
+      const system = findArcadeSystem(
+        this.#activeArcadeCabinet?.sessionSystemId ?? "",
+      );
+      interactionContext = this.#activeArcadeCabinet?.sessionRomName;
+      interactions = [
+        ...(system?.controlHints.map((hint) => ({
+          key: hint.keys,
+          label: hint.action,
+        })) ?? []),
+        {
+          key: "Ctrl + Wheel",
+          label: `Volume: ${this.#activeArcadeCabinet?.arcadeVolumePercent ?? 100}%`,
+        },
+        {key: "P", label: "Pick game"},
+        {key: "R", label: "Step away"},
+      ];
     } else if (this.#targetedArcadeCabinet) {
       const cabinet = this.#targetedArcadeCabinet;
       const cabinetProp = this.#arcadeProps.get(cabinet);
-      interactionContext = cabinet.sessionStatus
-        ? `Arcade · ${cabinet.sessionRomName ?? "cabinet"}`
-        : "Arcade cabinet";
-      interactions = cabinet.sessionStatus
-        ? [{key: "Esc", label: "Back out"}]
-        : [
-            {key: "E", label: "Play the arcade"},
-            {key: "T", label: "Move cabinet"},
-            {
-              key: "L",
-              label: cabinetProp?.locked ? "Unlock cabinet" : "Lock cabinet",
-            },
-            ...(cabinetProp?.spawned ? [{key: "Del", label: "Remove"}] : []),
-          ];
+      const propRows = [
+        {key: "T", label: "Move cabinet"},
+        {
+          key: "L",
+          label: cabinetProp?.locked ? "Unlock cabinet" : "Lock cabinet",
+        },
+        ...(cabinetProp?.spawned ? [{key: "Del", label: "Remove"}] : []),
+      ];
+      if (cabinet.sessionStatus === "playing") {
+        // A stepped-away game keeps emulating; targeting its cabinet offers
+        // to take the controls back. Volume stays adjustable here too - the
+        // positional audio keeps playing while stepped away.
+        interactionContext = `Arcade · ${cabinet.sessionRomName ?? "cabinet"}`;
+        interactions = [
+          {key: "E", label: "Resume the game"},
+          {
+            key: "Ctrl + Wheel",
+            label: `Volume: ${cabinet.arcadeVolumePercent}%`,
+          },
+          ...propRows,
+        ];
+      } else {
+        interactionContext = cabinet.sessionStatus
+          ? `Arcade · ${cabinet.sessionRomName ?? "cabinet"}`
+          : "Arcade cabinet";
+        interactions = cabinet.sessionStatus
+          ? [{key: "Esc", label: "Back out"}]
+          : [{key: "E", label: "Play the arcade"}, ...propRows];
+      }
     } else if (this.#televisionTargeted) {
       const televisionProp = this.#targetedTelevision
         ? this.#televisionProps.get(this.#targetedTelevision)
@@ -13344,19 +13443,7 @@ export class ShopScene {
       ];
     } else if (this.#targetedSignKey !== undefined)
       interactions = [{key: "E", label: "Customize sign"}];
-    else if (this.#arcadeStatusForUi() === "playing") {
-      // The emulator owns the keyboard; surface its control layout in the
-      // standard interactions panel.
-      const system = findArcadeSystem(this.#activeArcadeSystemId ?? "");
-      interactionContext = this.#activeArcadeCabinet?.sessionRomName;
-      interactions = [
-        ...(system?.controlHints.map((hint) => ({
-          key: hint.keys,
-          label: hint.action,
-        })) ?? []),
-        {key: "Esc", label: "Leave game"},
-      ];
-    } else if (hoveredRecord)
+    else if (hoveredRecord)
       interactions =
         hoveredRecord.state.status === "shelved"
           ? [

@@ -397,9 +397,15 @@ const getModelScreenAspect = (model: ShopTelevisionModel) => {
   return getModelTelevisionScreenAspect(screen) ?? TV_SCREEN_ASPECT;
 };
 
+/** Volume ceiling for the wheel control; >1 boosts past unity like the arcade cabinets. */
+const TELEVISION_VOLUME_CEILING = 1.5;
+
 const normalizeVolume = (volume: number) => {
   if (!Number.isFinite(volume)) return 1;
-  return Math.min(1, Math.max(0, Math.round(volume * 100) / 100));
+  return Math.min(
+    TELEVISION_VOLUME_CEILING,
+    Math.max(0, Math.round(volume * 100) / 100),
+  );
 };
 
 export class ShopTelevision {
