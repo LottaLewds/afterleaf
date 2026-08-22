@@ -37,6 +37,7 @@ import {
   WorldSaveServerChangedError,
 } from "~/game/worldSaveBrowserClient";
 import type {WorldSaveV1} from "~/game/worldSave";
+import {createEscapeScope} from "~/game/modalModes";
 import {loadShopMediaCatalog} from "~/game/shopMediaCatalogBrowserClient";
 import {importPoster} from "~/posters/browserClient";
 import {importTvVideo} from "~/tv/browserClient";
@@ -50,14 +51,8 @@ const keycapParts = (key: string) =>
     .flatMap((part) =>
       part.startsWith("Hold ") ? ["Hold", part.slice("Hold ".length)] : [part],
     );
-
 export type ShopViewportControls = {
   requestPointerLock: () => void;
-  /**
-   * Gives the App-level Escape handler first crack: returns true when the
-   * arcade session consumed the press (backing out of a game or picker).
-   */
-  consumeEscape?: () => boolean;
 };
 
 export type ShopViewportProps = {
@@ -119,14 +114,28 @@ export const ShopViewport = (props: ShopViewportProps) => {
   );
   const controls: ShopViewportControls = {
     requestPointerLock: () => shopScene?.requestPointerLock(),
-    consumeEscape: () => {
-      const status = gameState().arcadeStatus;
-      if (status === undefined) return false;
-      if (status === "playing") shopScene?.quitActiveArcadeGame();
-      else shopScene?.exitArcadeUi();
+  };
+
+  // Modal scopes: the shared stack gives the most recently opened surface
+  // first crack at Escape, so dialogs and arcade sessions no longer depend
+  // on listener ordering or preventDefault side channels.
+  createEscapeScope("sign-editor", signEditor, () => {
+    closeSignEditor();
+    return true;
+  });
+  createEscapeScope("media-channel-editor", mediaChannelEditor, () => {
+    closeMediaChannelEditor();
+    return true;
+  });
+  createEscapeScope(
+    "arcade-session",
+    () => gameState().arcadeStatus,
+    () => {
+      // Backs out one level of a live session (game → picker → walking).
+      shopScene?.backOutOfArcade();
       return true;
     },
-  };
+  );
 
   const openSignEditor = (request: ShopSignEditRequest) => {
     setSignTitle(request.title);
@@ -628,11 +637,6 @@ export const ShopViewport = (props: ShopViewportProps) => {
             role="dialog"
             aria-modal="true"
             aria-label={`Create ${kind() === "tv" ? "TV" : "digital art"} channel`}
-            onKeyDown={(event) => {
-              if (event.key !== "Escape") return;
-              event.preventDefault();
-              closeMediaChannelEditor();
-            }}
             onPaste={pasteIntoMediaChannel}
           >
             <form
@@ -727,11 +731,6 @@ export const ShopViewport = (props: ShopViewportProps) => {
             role="dialog"
             aria-modal="true"
             aria-label={`Customize ${request().label}`}
-            onKeyDown={(event) => {
-              if (event.key !== "Escape") return;
-              event.preventDefault();
-              closeSignEditor();
-            }}
           >
             <form
               class="w-full max-w-md border border-white/12 bg-[#101716] shadow-[0_30px_100px_#000]"

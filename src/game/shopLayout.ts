@@ -91,20 +91,9 @@ const SHOP_TELEVISION_FOOTPRINT = {
   minZ: 26.64,
 } as const;
 
-// Footprint and collision for the arcade cabinet lane at (2.7, 16.2).
-export const ARCADE_CABINET_FOOTPRINT = {
-  maxX: 3.12,
-  maxZ: 16.55,
-  minX: 2.28,
-  minZ: 15.85,
-} as const;
-
-export const ARCADE_CABINET_COLLISION_BOXES: readonly ShopCollisionBox[] = [
-  {
-    halfExtents: {x: 0.42, y: 0.86, z: 0.35},
-    position: {x: 2.7, y: 0.86, z: 16.2},
-  },
-];
+// The arcade cabinet is a movable physics prop, so it no longer bakes a
+// static footprint or collision box into the shop layout; its prop body
+// blocks the player and books wherever it is placed.
 
 export const SHOP_TELEVISION_COLLISION_BOXES: readonly ShopCollisionBox[] = [
   {
@@ -143,7 +132,6 @@ export const SHOP_INTERIOR_FOOTPRINTS = [
   {maxX: 7.5, maxZ: -1.88, minX: 5.45, minZ: -2.12},
   {maxX: 11, maxZ: -1.88, minX: 9.3, minZ: -2.12},
   SHOP_TELEVISION_FOOTPRINT,
-  ARCADE_CABINET_FOOTPRINT,
   ...STATIC_READING_FURNITURE_BOXES.map((box) => ({
     maxX: box.position.x + box.halfExtents.x,
     maxZ: box.position.z + box.halfExtents.z,

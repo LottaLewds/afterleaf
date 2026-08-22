@@ -65,6 +65,7 @@ import {
   type LocalLibrarySnapshotResult,
   type LibraryDirectoryListing,
 } from "~/content/libraryUpdate/browserClient";
+import {ARCADE_SYSTEMS, type ArcadeSystemId} from "~/arcade/systems";
 import {findBlacklistedTagMatches} from "~/content/libraryUpdate/tagPurge";
 import {
   loadBootFetchPreference,
@@ -97,6 +98,7 @@ import {
   saveControlPreferences,
   type ReadingDirection,
 } from "~/game/controlPreferences";
+import {createEscapeScope, modalModes} from "~/game/modalModes";
 import {loadReaderBookmarks, saveReaderBookmark} from "~/reader/bookmarks";
 import type {LibraryProviderDescriptor} from "~/content/providers/types";
 import type {AfterleafLibraryConfig} from "~/content/libraryConfig";
@@ -485,13 +487,37 @@ const TagBlacklistControl = (props: {
   );
 };
 
-type AdditionalLocationKind =
+type ArrayLocationKind =
   | "mangaPaths"
   | "comicPaths"
   | "mediaPaths"
   | "posterPaths"
   | "tvChannelPaths"
   | "artFramePaths";
+
+/**
+ * Every slot the locations control can hold: plain path collections plus one
+ * virtual "rom:<system>" kind per emulated cabinet system, stored in
+ * `romPaths`. One ROM folder per system.
+ */
+type AdditionalLocationKind = ArrayLocationKind | `rom:${ArcadeSystemId}`;
+
+const romSystemOfKind = (
+  kind: AdditionalLocationKind,
+): ArcadeSystemId | undefined =>
+  kind.startsWith("rom:") ? (kind.slice(4) as ArcadeSystemId) : undefined;
+
+/** Copies the config with one system's ROM folder set or cleared. */
+const withRomFolder = (
+  config: AfterleafLibraryConfig,
+  systemId: ArcadeSystemId,
+  folder: string | undefined,
+): AfterleafLibraryConfig => {
+  const nextRomPaths = {...(config.romPaths ?? {})};
+  if (folder === undefined) delete nextRomPaths[systemId];
+  else nextRomPaths[systemId] = folder;
+  return {...config, romPaths: nextRomPaths};
+};
 
 const bookLocationKeys = ["comicPaths", "mangaPaths", "mediaPaths"] as const;
 const visualMediaLocationKeys = [
@@ -508,86 +534,19 @@ const locationListsMatch = (
 const configLocationsChanged = (
   previous: AfterleafLibraryConfig,
   next: AfterleafLibraryConfig,
-  keys: readonly AdditionalLocationKind[],
+  keys: readonly ArrayLocationKind[],
 ) => keys.some((key) => !locationListsMatch(previous[key], next[key]));
 
-const AdditionalLocationsControl = (props: {
-  config: AfterleafLibraryConfig;
-  onChange: (config: AfterleafLibraryConfig) => void;
-  onReenroll: (path: string) => Promise<void>;
-  reenrollableBookPaths: ReadonlySet<string>;
-}) => {
-  const [kind, setKind] = createSignal<AdditionalLocationKind>("comicPaths");
+/** Shared state machine for the server-backed directory browser dialog. */
+const createFolderBrowser = () => {
   const [listing, setListing] = createSignal<LibraryDirectoryListing>();
   const [browserOpen, setBrowserOpen] = createSignal(false);
   const [browserError, setBrowserError] = createSignal("");
   const [browserPending, setBrowserPending] = createSignal(false);
   const [confirmedPathInput, setConfirmedPathInput] = createSignal("");
   const [pathInput, setPathInput] = createSignal("");
-  const [reenrollingPath, setReenrollingPath] = createSignal("");
   let browseRequest = 0;
   let browseTimer: ReturnType<typeof setTimeout> | undefined;
-  const labels: Record<AdditionalLocationKind, string> = {
-    artFramePaths: "Art frames",
-    comicPaths: "Comics",
-    mangaPaths: "Manga",
-    mediaPaths: "Books (legacy)",
-    posterPaths: "Posters",
-    tvChannelPaths: "TV",
-  };
-  const locationKeys = Object.keys(labels) as AdditionalLocationKind[];
-  const selectableLocationKeys = locationKeys.filter(
-    (key) => key !== "mediaPaths",
-  );
-  const locationsFor = (key: AdditionalLocationKind) => props.config[key] ?? [];
-  const withBookLocation = (
-    config: AfterleafLibraryConfig,
-    key: AdditionalLocationKind,
-    path: string,
-  ) => {
-    if (!bookLocationKeys.includes(key as (typeof bookLocationKeys)[number]))
-      return config;
-    const nextConfig = {...config};
-    for (const bookKey of bookLocationKeys)
-      if (bookKey !== key)
-        nextConfig[bookKey] = (config[bookKey] ?? []).filter(
-          (entry) => entry !== path,
-        );
-    return nextConfig;
-  };
-  const matchingEntries = createMemo(() => {
-    const current = listing();
-    if (!current) return [];
-    const input = pathInput().trim();
-    if (input === current.path || /[\\/]$/u.test(input)) return current.entries;
-    const separatorIndex = Math.max(
-      input.lastIndexOf("/"),
-      input.lastIndexOf("\\"),
-    );
-    const fragment = input.slice(separatorIndex + 1).toLocaleLowerCase();
-    if (!fragment) return current.entries;
-    const rank = (entry: (typeof current.entries)[number]) => {
-      const name = entry.name.toLocaleLowerCase();
-      if (name.startsWith(fragment)) return 0;
-      if (name.includes(fragment)) return 1;
-      return 2;
-    };
-    return current.entries.toSorted((left, right) => rank(left) - rank(right));
-  });
-  const moveLocation = (
-    from: AdditionalLocationKind,
-    path: string,
-    to: AdditionalLocationKind,
-  ) => {
-    if (from === to) return;
-    const nextConfig = withBookLocation(props.config, to, path);
-    nextConfig[from] = locationsFor(from).filter((entry) => entry !== path);
-    const targetLocations = locationsFor(to);
-    nextConfig[to] = targetLocations.includes(path)
-      ? targetLocations
-      : [...targetLocations, path];
-    props.onChange(nextConfig);
-  };
   const openBrowser = async (
     directory?: string,
     options: {
@@ -647,25 +606,258 @@ const AdditionalLocationsControl = (props: {
   };
   const canChooseCurrentFolder = () =>
     !browserPending() && pathInput().trim() === confirmedPathInput();
+  const close = () => setBrowserOpen(false);
   onCleanup(() => {
     if (browseTimer) clearTimeout(browseTimer);
     browseRequest += 1;
   });
+  return {
+    browserError,
+    browserOpen,
+    browserPending,
+    canChooseCurrentFolder,
+    close,
+    listing,
+    navigateToPath,
+    openBrowser,
+    pathInput,
+    schedulePathNavigation,
+    setBrowserError,
+    setPathInput,
+  };
+};
+
+type FolderBrowser = ReturnType<typeof createFolderBrowser>;
+
+/**
+ * The directory browser panel shared by every location-style control. The
+ * caller decides what "choosing" means via `onChoose` and can slot extra
+ * controls (such as a media-type picker) next to the confirm button.
+ */
+const FolderBrowserDialog = (props: {
+  browser: FolderBrowser;
+  onChoose: (path: string) => void;
+  /** Overrides the raw directory entries, e.g. with a ranked view. */
+  entries?: () => LibraryDirectoryEntry[];
+  trailingControls?: JSX.Element;
+}) => (
+  <Show when={props.browser.browserOpen() && props.browser.listing()}>
+    {(current) => (
+      <div class="mt-4 border border-white/10 bg-[#0c1312] p-3">
+        <div class="flex flex-wrap items-center gap-2">
+          <button
+            class="h-8 px-2 text-[10px] text-[#d9b9a9] disabled:opacity-30"
+            disabled={!current().parent}
+            onClick={() => void props.browser.openBrowser(current().parent)}
+            type="button"
+          >
+            ← Up
+          </button>
+          <Show when={current().drives.length > 1}>
+            <select
+              aria-label="Drive"
+              class="h-8 bg-[#1b2422] px-2 text-[10px] text-[#c5cec9] [color-scheme:dark]"
+              value={
+                current().drives.find((drive) =>
+                  current().path.startsWith(drive.path),
+                )?.path
+              }
+              onChange={(event) =>
+                void props.browser.openBrowser(event.currentTarget.value)
+              }
+            >
+              <For each={current().drives}>
+                {(drive) => (
+                  <option
+                    class="bg-[#1b2422] text-[#f0ecdf]"
+                    value={drive.path}
+                  >
+                    {drive.name}
+                  </option>
+                )}
+              </For>
+            </select>
+          </Show>
+          <form
+            class="h-8 min-w-48 flex-1"
+            onSubmit={(event) => {
+              event.preventDefault();
+              props.browser.navigateToPath();
+            }}
+          >
+            <input
+              aria-label="Folder path"
+              autocomplete="off"
+              class="h-8 w-full border border-white/8 bg-[#151e1c] px-3 text-[10px] text-[#c5cec9] outline-none focus:border-[#d94c3f]/70"
+              spellcheck={false}
+              value={props.browser.pathInput()}
+              onInput={(event) => {
+                props.browser.setPathInput(event.currentTarget.value);
+                props.browser.schedulePathNavigation();
+              }}
+            />
+          </form>
+          <Show when={props.trailingControls}>{props.trailingControls}</Show>
+          <button
+            class="h-8 bg-[#d94c3f] px-3 text-[9px] font-semibold text-white uppercase disabled:cursor-not-allowed disabled:opacity-35"
+            disabled={!props.browser.canChooseCurrentFolder()}
+            onClick={() => props.onChoose(current().path)}
+            type="button"
+          >
+            Choose this folder
+          </button>
+        </div>
+        <div class="mt-3 max-h-56 overflow-y-auto border-t border-white/8 pt-2">
+          <For each={props.entries ? props.entries() : current().entries}>
+            {(entry) => (
+              <button
+                class="flex w-full items-center gap-2 px-2 py-2 text-left text-[10px] text-[#aeb8b3] hover:bg-white/5 hover:text-white"
+                onClick={() => void props.browser.openBrowser(entry.path)}
+                type="button"
+              >
+                <FiFolder class="shrink-0" size={12} />
+                <span class="truncate">{entry.name}</span>
+              </button>
+            )}
+          </For>
+          <Show when={props.browser.browserPending()}>
+            <p class="px-2 py-2 text-[9px] text-[#65716c]">Opening folder…</p>
+          </Show>
+        </div>
+      </div>
+    )}
+  </Show>
+);
+
+const AdditionalLocationsControl = (props: {
+  config: AfterleafLibraryConfig;
+  onChange: (config: AfterleafLibraryConfig) => void;
+  onReenroll: (path: string) => Promise<void>;
+  reenrollableBookPaths: ReadonlySet<string>;
+}) => {
+  const [kind, setKind] = createSignal<AdditionalLocationKind>("comicPaths");
+  const [reenrollingPath, setReenrollingPath] = createSignal("");
+  const browser = createFolderBrowser();
+  const arrayLabels: Record<ArrayLocationKind, string> = {
+    artFramePaths: "Art frames",
+    comicPaths: "Comics",
+    mangaPaths: "Manga",
+    mediaPaths: "Books (legacy)",
+    posterPaths: "Posters",
+    tvChannelPaths: "TV",
+  };
+  const labelFor = (key: AdditionalLocationKind): string => {
+    const system = romSystemOfKind(key);
+    if (!system) return arrayLabels[key];
+    return findArcadeSystem(system)?.label ?? system;
+  };
+  const locationKeys: readonly AdditionalLocationKind[] = [
+    ...(Object.keys(arrayLabels) as ArrayLocationKind[]),
+    ...ARCADE_SYSTEMS.map(
+      (system): AdditionalLocationKind => `rom:${system.id}`,
+    ),
+  ];
+  const selectableLocationKeys = locationKeys.filter(
+    (key) => key !== "mediaPaths",
+  );
+  const locationsFor = (key: AdditionalLocationKind): readonly string[] => {
+    const system = romSystemOfKind(key);
+    if (!system) return props.config[key] ?? [];
+    const folder = props.config.romPaths?.[system];
+    return folder ? [folder] : [];
+  };
+  const withBookLocation = (
+    config: AfterleafLibraryConfig,
+    key: ArrayLocationKind,
+    path: string,
+  ) => {
+    if (!bookLocationKeys.includes(key as (typeof bookLocationKeys)[number]))
+      return config;
+    const nextConfig = {...config};
+    for (const bookKey of bookLocationKeys)
+      if (bookKey !== key)
+        nextConfig[bookKey] = (config[bookKey] ?? []).filter(
+          (entry) => entry !== path,
+        );
+    return nextConfig;
+  };
+  const matchingEntries = createMemo(() => {
+    const current = browser.listing();
+    if (!current) return [];
+    const input = browser.pathInput().trim();
+    if (input === current.path || /[\\/]$/u.test(input)) return current.entries;
+    const separatorIndex = Math.max(
+      input.lastIndexOf("/"),
+      input.lastIndexOf("\\"),
+    );
+    const fragment = input.slice(separatorIndex + 1).toLocaleLowerCase();
+    if (!fragment) return current.entries;
+    const rank = (entry: (typeof current.entries)[number]) => {
+      const name = entry.name.toLocaleLowerCase();
+      if (name.startsWith(fragment)) return 0;
+      if (name.includes(fragment)) return 1;
+      return 2;
+    };
+    return current.entries.toSorted((left, right) => rank(left) - rank(right));
+  });
+  const moveLocation = (
+    from: AdditionalLocationKind,
+    path: string,
+    to: AdditionalLocationKind,
+  ) => {
+    if (from === to) return;
+    const fromSystem = romSystemOfKind(from);
+    const toSystem = romSystemOfKind(to);
+    // Detach the path from its current slot first.
+    let nextConfig = fromSystem
+      ? withRomFolder(props.config, fromSystem, undefined)
+      : (() => {
+          const detached = {...props.config};
+          detached[from] = locationsFor(from).filter((entry) => entry !== path);
+          return detached;
+        })();
+    if (toSystem) {
+      // One folder per system, so the new mapping replaces any previous one.
+      nextConfig = withRomFolder(nextConfig, toSystem, path);
+    } else {
+      const targetLocations = locationsFor(to);
+      nextConfig = {
+        ...withBookLocation(nextConfig, to, path),
+        [to]: targetLocations.includes(path)
+          ? targetLocations
+          : [...targetLocations, path],
+      };
+    }
+    props.onChange(nextConfig);
+  };
   const choose = (path: string) => {
     const key = kind();
+    const system = romSystemOfKind(key);
+    if (system) {
+      if (props.config.romPaths?.[system] !== path)
+        props.onChange(withRomFolder(props.config, system, path));
+      browser.close();
+      return;
+    }
     const locations = locationsFor(key);
     if (!locations.includes(path))
       props.onChange({
         ...withBookLocation(props.config, key, path),
         [key]: [...locations, path],
       });
-    setBrowserOpen(false);
+    browser.close();
   };
-  const remove = (key: AdditionalLocationKind, path: string) =>
+  const remove = (key: AdditionalLocationKind, path: string) => {
+    const system = romSystemOfKind(key);
+    if (system) {
+      props.onChange(withRomFolder(props.config, system, undefined));
+      return;
+    }
     props.onChange({
       ...props.config,
       [key]: locationsFor(key).filter((entry) => entry !== path),
     });
+  };
   const reenroll = async (path: string) => {
     if (
       !window.confirm(
@@ -673,12 +865,12 @@ const AdditionalLocationsControl = (props: {
       )
     )
       return;
-    setBrowserError("");
+    browser.setBrowserError("");
     setReenrollingPath(path);
     try {
       await props.onReenroll(path);
     } catch (error) {
-      setBrowserError(
+      browser.setBrowserError(
         error instanceof Error
           ? error.message
           : "Could not re-enroll that library root",
@@ -698,14 +890,14 @@ const AdditionalLocationsControl = (props: {
             Additional content locations
           </p>
           <p class="mt-1 text-[9px] leading-4 text-[#65716c]">
-            Book locations apply on the next Scan new. TV, poster, and art frame
-            locations refresh automatically.
+            Book locations apply on the next Scan new. TV, poster, art frame,
+            and ROM folder locations apply immediately.
           </p>
         </div>
         <button
           class="bg-[#ece6d8] px-3 py-2 text-[9px] font-semibold text-[#1b2321] uppercase"
           type="button"
-          onClick={() => void openBrowser()}
+          onClick={() => void browser.openBrowser()}
         >
           Browse folders
         </button>
@@ -740,7 +932,7 @@ const AdditionalLocationsControl = (props: {
                           selected={locationKind === key}
                           value={locationKind}
                         >
-                          {labels[locationKind]}
+                          {labelFor(locationKind)}
                         </option>
                       )}
                     </For>
@@ -789,115 +981,35 @@ const AdditionalLocationsControl = (props: {
           )}
         </For>
       </div>
-      <Show when={browserError()}>
-        <p class="mt-3 text-[10px] text-[#df776e]">{browserError()}</p>
+      <Show when={browser.browserError()}>
+        <p class="mt-3 text-[10px] text-[#df776e]">{browser.browserError()}</p>
       </Show>
-      <Show when={browserOpen() && listing()}>
-        {(current) => (
-          <div class="mt-4 border border-white/10 bg-[#0c1312] p-3">
-            <div class="flex flex-wrap items-center gap-2">
-              <button
-                class="h-8 px-2 text-[10px] text-[#d9b9a9] disabled:opacity-30"
-                disabled={!current().parent}
-                onClick={() => void openBrowser(current().parent)}
-                type="button"
-              >
-                ← Up
-              </button>
-              <Show when={current().drives.length > 1}>
-                <select
-                  aria-label="Drive"
-                  class="h-8 bg-[#1b2422] px-2 text-[10px] text-[#c5cec9] [color-scheme:dark]"
-                  value={
-                    current().drives.find((drive) =>
-                      current().path.startsWith(drive.path),
-                    )?.path
-                  }
-                  onChange={(event) =>
-                    void openBrowser(event.currentTarget.value)
-                  }
+      <FolderBrowserDialog
+        browser={browser}
+        entries={matchingEntries}
+        onChoose={choose}
+        trailingControls={
+          <select
+            aria-label="Media type"
+            class="h-8 border border-[#d94c3f]/35 bg-[#d94c3f]/10 px-3 text-[9px] font-semibold text-[#e4a098] uppercase [color-scheme:dark] outline-none"
+            onChange={(event) =>
+              setKind(event.currentTarget.value as AdditionalLocationKind)
+            }
+          >
+            <For each={selectableLocationKeys}>
+              {(key) => (
+                <option
+                  class="bg-[#1b2422] text-[#f0ecdf]"
+                  selected={key === kind()}
+                  value={key}
                 >
-                  <For each={current().drives}>
-                    {(drive) => (
-                      <option
-                        class="bg-[#1b2422] text-[#f0ecdf]"
-                        value={drive.path}
-                      >
-                        {drive.name}
-                      </option>
-                    )}
-                  </For>
-                </select>
-              </Show>
-              <form
-                class="h-8 min-w-48 flex-1"
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  navigateToPath();
-                }}
-              >
-                <input
-                  aria-label="Folder path"
-                  autocomplete="off"
-                  class="h-8 w-full border border-white/8 bg-[#151e1c] px-3 text-[10px] text-[#c5cec9] outline-none focus:border-[#d94c3f]/70"
-                  spellcheck={false}
-                  value={pathInput()}
-                  onInput={(event) => {
-                    setPathInput(event.currentTarget.value);
-                    schedulePathNavigation();
-                  }}
-                />
-              </form>
-              <select
-                aria-label="Media type"
-                class="h-8 border border-[#d94c3f]/35 bg-[#d94c3f]/10 px-3 text-[9px] font-semibold text-[#e4a098] uppercase [color-scheme:dark] outline-none"
-                onChange={(event) =>
-                  setKind(event.currentTarget.value as AdditionalLocationKind)
-                }
-              >
-                <For each={selectableLocationKeys}>
-                  {(key) => (
-                    <option
-                      class="bg-[#1b2422] text-[#f0ecdf]"
-                      selected={key === kind()}
-                      value={key}
-                    >
-                      {labels[key]}
-                    </option>
-                  )}
-                </For>
-              </select>
-              <button
-                class="h-8 bg-[#d94c3f] px-3 text-[9px] font-semibold text-white uppercase disabled:cursor-not-allowed disabled:opacity-35"
-                disabled={!canChooseCurrentFolder()}
-                onClick={() => choose(current().path)}
-                type="button"
-              >
-                Choose this folder
-              </button>
-            </div>
-            <div class="mt-3 max-h-56 overflow-y-auto border-t border-white/8 pt-2">
-              <For each={matchingEntries()}>
-                {(entry) => (
-                  <button
-                    class="flex w-full items-center gap-2 px-2 py-2 text-left text-[10px] text-[#aeb8b3] hover:bg-white/5 hover:text-white"
-                    onClick={() => void openBrowser(entry.path)}
-                    type="button"
-                  >
-                    <FiFolder class="shrink-0" size={12} />
-                    <span class="truncate">{entry.name}</span>
-                  </button>
-                )}
-              </For>
-              <Show when={browserPending()}>
-                <p class="px-2 py-2 text-[9px] text-[#65716c]">
-                  Opening folder…
-                </p>
-              </Show>
-            </div>
-          </div>
-        )}
-      </Show>
+                  {labelFor(key)}
+                </option>
+              )}
+            </For>
+          </select>
+        }
+      />
     </div>
   );
 };
@@ -1754,6 +1866,7 @@ export const App = () => {
       comicPaths: [],
       mangaPaths: [],
       posterPaths: [],
+      romPaths: {},
       tvChannelPaths: [],
     });
   onMount(() => {
@@ -1773,8 +1886,17 @@ export const App = () => {
       config,
       visualMediaLocationKeys,
     );
+    const romFoldersChanged =
+      JSON.stringify(previousConfig.romPaths ?? {}) !==
+      JSON.stringify(config.romPaths ?? {});
     setLibraryConfig(config);
     await saveLibraryConfig(config);
+    if (romFoldersChanged) {
+      setLibraryUpdateNotice(
+        "ROM folders saved. Reopen the arcade picker to see its games.",
+      );
+      return;
+    }
     if (bookLocationsChanged && visualMediaLocationsChanged) {
       setLibraryUpdateNotice(
         "Locations saved. Visual media will refresh automatically; run Scan new to update books.",
@@ -2445,35 +2567,36 @@ export const App = () => {
     window.addEventListener(
       "keydown",
       (event) => {
-        if (event.key === "Escape") {
-          if (event.defaultPrevented || event.repeat) return;
-          event.preventDefault();
-          // The arcade cabinet consumes Escape to back out of its own UI
-          // (leaving a game, then closing its picker) before shop menus open.
-          if (shopViewportControls?.consumeEscape?.()) return;
-          if (purgeBlacklistedOpen()) {
-            if (!libraryUpdating()) setPurgeBlacklistedOpen(false);
-            return;
-          }
-          if (libraryRepairOpen()) {
-            setLibraryRepairOpen(false);
-            return;
-          }
-          if (libraryUpdateOpen()) {
-            if (!libraryUpdating()) closeLibraryUpdate();
-            return;
-          }
-          if (mobileDetailOpen()) {
-            setMobileDetailOpen(false);
-            return;
-          }
-          if (menuOpen()) closeMenu(false);
-          else openMenu();
-        }
+        if (event.key !== "Escape") return;
+        if (event.defaultPrevented || event.repeat) return;
+        event.preventDefault();
+        // The topmost modal scope (arcade session, dialogs, editors…) gets
+        // first crack; an unconsumed press toggles the pause menu.
+        if (modalModes.consumeEscape()) return;
+        if (menuOpen()) closeMenu(false);
+        else openMenu();
       },
       {signal: abortController.signal},
     );
     onCleanup(() => abortController.abort());
+  });
+  // Modal scopes mirror their dialog signals; the stack decides which one
+  // owns Escape instead of a fixed priority chain in the key handler.
+  createEscapeScope("purge-blacklisted", purgeBlacklistedOpen, () => {
+    if (!libraryUpdating()) setPurgeBlacklistedOpen(false);
+    return true;
+  });
+  createEscapeScope("library-repair", libraryRepairOpen, () => {
+    setLibraryRepairOpen(false);
+    return true;
+  });
+  createEscapeScope("library-update", libraryUpdateOpen, () => {
+    if (!libraryUpdating()) closeLibraryUpdate();
+    return true;
+  });
+  createEscapeScope("mobile-detail", mobileDetailOpen, () => {
+    setMobileDetailOpen(false);
+    return true;
   });
   onCleanup(() => {
     if (libraryUpdateTimer !== undefined)

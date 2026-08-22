@@ -12,7 +12,7 @@ import {
 describe("rom library", () => {
   afterEach(() => setRomRecordStoreForTesting(undefined));
 
-  const saveSample = async (id = "libretro-content:nes:Demo.nes") =>
+  const saveSample = async (id = "folder:nes:Demo.nes") =>
     saveRomBlob({
       id,
       systemId: "nes",
@@ -50,7 +50,7 @@ describe("rom library", () => {
     setRomRecordStoreForTesting(createMemoryRomRecordStore());
     await saveSample();
     await saveRomBlob({
-      id: "libretro-content:nes:Demo.nes",
+      id: "folder:nes:Demo.nes",
       systemId: "nes",
       name: "Demo.nes",
       sizeBytes: 9,

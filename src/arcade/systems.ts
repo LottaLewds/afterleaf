@@ -1,10 +1,10 @@
 /**
  * Registry of emulated systems available on the shop's arcade cabinet.
  *
- * `core` is the EmulatorJS `EJS_core` value, `extensions` are the ROM file
- * extensions (lowercase, without dots) accepted for the system, and
- * `contentPath` is the folder of freely redistributable homebrew content in
- * the libretro content downloader repository that backs catalog browsing.
+ * `core` is the EmulatorJS `EJS_core` value and `extensions` are the ROM file
+ * extensions (lowercase, without dots) accepted for the system. Games come
+ * from a local folder the user configures for each system in the Options
+ * menu; see `~/arcade/romFolders`.
  */
 export type ArcadeSystemId =
   | "nes"
@@ -31,8 +31,6 @@ export type ArcadeSystem = {
   shortLabel: string;
   core: string;
   extensions: readonly string[];
-  /** Folder inside the libretro content repository, when one exists. */
-  contentPath?: string;
   controlHints: readonly ArcadeControlHint[];
 };
 
@@ -50,7 +48,6 @@ export const ARCADE_SYSTEMS: readonly ArcadeSystem[] = [
     shortLabel: "NES",
     core: "nes",
     extensions: ["nes", "fds", "unf", "unif"],
-    contentPath: "Nintendo - Nintendo Entertainment System",
     controlHints: CONSOLE_HINTS,
   },
   {
@@ -59,7 +56,6 @@ export const ARCADE_SYSTEMS: readonly ArcadeSystem[] = [
     shortLabel: "SNES",
     core: "snes",
     extensions: ["smc", "sfc", "swc", "fig"],
-    contentPath: "Nintendo - Super Nintendo Entertainment System",
     controlHints: CONSOLE_HINTS,
   },
   {
@@ -68,7 +64,6 @@ export const ARCADE_SYSTEMS: readonly ArcadeSystem[] = [
     shortLabel: "Arcade",
     core: "mame2003",
     extensions: ["zip"],
-    contentPath: "Arcade",
     controlHints: [
       {keys: "Arrows", action: "Joystick"},
       {keys: "Z / X / C", action: "Action buttons"},
@@ -82,7 +77,6 @@ export const ARCADE_SYSTEMS: readonly ArcadeSystem[] = [
     shortLabel: "Game Boy",
     core: "gb",
     extensions: ["gb", "gbc", "dmg"],
-    contentPath: "Nintendo - GameBoy",
     controlHints: CONSOLE_HINTS,
   },
   {
@@ -91,7 +85,6 @@ export const ARCADE_SYSTEMS: readonly ArcadeSystem[] = [
     shortLabel: "GBA",
     core: "gba",
     extensions: ["gba", "agb"],
-    contentPath: "Nintendo - GameBoy Advance",
     controlHints: CONSOLE_HINTS,
   },
   {
@@ -100,7 +93,6 @@ export const ARCADE_SYSTEMS: readonly ArcadeSystem[] = [
     shortLabel: "N64",
     core: "n64",
     extensions: ["n64", "z64", "v64", "ndd"],
-    contentPath: "Nintendo - Nintendo 64",
     controlHints: [
       ...CONSOLE_HINTS,
       {keys: "A / S / Q / W", action: "C buttons"},
@@ -112,7 +104,6 @@ export const ARCADE_SYSTEMS: readonly ArcadeSystem[] = [
     shortLabel: "Virtual Boy",
     core: "vb",
     extensions: ["vb", "vboy"],
-    contentPath: "Nintendo - Virtual Boy",
     controlHints: CONSOLE_HINTS,
   },
   {
@@ -121,7 +112,6 @@ export const ARCADE_SYSTEMS: readonly ArcadeSystem[] = [
     shortLabel: "Master System",
     core: "segaMS",
     extensions: ["sms"],
-    contentPath: "Sega - Master System - Mark III",
     controlHints: CONSOLE_HINTS,
   },
   {
@@ -130,7 +120,6 @@ export const ARCADE_SYSTEMS: readonly ArcadeSystem[] = [
     shortLabel: "Mega Drive",
     core: "segaMD",
     extensions: ["md", "gen", "smd", "bin", "68k"],
-    contentPath: "Sega - Mega Drive - Genesis",
     controlHints: CONSOLE_HINTS,
   },
   {
@@ -139,7 +128,6 @@ export const ARCADE_SYSTEMS: readonly ArcadeSystem[] = [
     shortLabel: "Game Gear",
     core: "segaGG",
     extensions: ["gg"],
-    contentPath: "Sega - Game Gear",
     controlHints: CONSOLE_HINTS,
   },
   {
@@ -148,7 +136,6 @@ export const ARCADE_SYSTEMS: readonly ArcadeSystem[] = [
     shortLabel: "PC Engine",
     core: "pce",
     extensions: ["pce", "sgx", "cue", "ccd"],
-    contentPath: "NEC - PC Engine - TurboGrafx 16",
     controlHints: CONSOLE_HINTS,
   },
   {
@@ -157,7 +144,6 @@ export const ARCADE_SYSTEMS: readonly ArcadeSystem[] = [
     shortLabel: "Atari 2600",
     core: "atari2600",
     extensions: ["a26"],
-    contentPath: "Atari - 2600",
     controlHints: [
       {keys: "Arrows", action: "Joystick"},
       {keys: "Z / X", action: "Button"},

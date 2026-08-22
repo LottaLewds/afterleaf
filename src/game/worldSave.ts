@@ -85,6 +85,8 @@ export type WorldDigitalArtFrameSave = {
 
 export type WorldPropSave = {
   id: string;
+  /** Pinned prop: fixed body immune to bumps but still colliding. */
+  locked?: boolean;
   pose: WorldPose;
 };
 
@@ -120,6 +122,12 @@ export type WorldSaveV1 = {
   player: WorldPose;
   posters?: readonly WorldPosterSave[];
   props?: readonly WorldPropSave[];
+  /**
+   * Scene-level default props (lane cabinets, reading furniture, the
+   * movable CRT television, desk lamps) the players discarded; they are
+   * defaults, not permanent fixtures, and stay gone across reloads.
+   */
+  removedDefaultPropIds?: readonly string[];
   savedAt: string;
   schemaVersion: typeof WORLD_SAVE_SCHEMA_VERSION;
   shelfSigns?: readonly WorldShelfSign[];
@@ -409,6 +417,13 @@ const parseDigitalArtFrames = (
   });
 };
 
+const parseLockedFlag = (value: unknown, field: string) => {
+  if (value === undefined) return undefined;
+  if (typeof value !== "boolean")
+    throw new Error(`${field} must be a boolean when present`);
+  return value;
+};
+
 const parseProps = (value: unknown): readonly WorldPropSave[] => {
   if (!Array.isArray(value) || value.length > MAX_PROP_COUNT)
     throw new Error("props must be a bounded array");
@@ -418,7 +433,12 @@ const parseProps = (value: unknown): readonly WorldPropSave[] => {
     const id = requiredString(prop.id, `props[${index}].id`);
     if (ids.has(id)) throw new Error("World save contains duplicate prop IDs");
     ids.add(id);
-    return {id, pose: parsePose(prop.pose, `props[${index}].pose`)};
+    const locked = parseLockedFlag(prop.locked, `props[${index}].locked`);
+    return {
+      id,
+      ...(locked === undefined ? {} : {locked}),
+      pose: parsePose(prop.pose, `props[${index}].pose`),
+    };
   });
 };
 
@@ -445,14 +465,27 @@ const parseModelProps = (value: unknown): readonly WorldModelPropSave[] => {
             prop.animationClip,
             `modelProps[${index}].animationClip`,
           );
+    const locked = parseLockedFlag(prop.locked, `modelProps[${index}].locked`);
     return {
       ...(animationClip === undefined ? {} : {animationClip}),
       assetId: requiredString(prop.assetId, `modelProps[${index}].assetId`),
       id,
+      ...(locked === undefined ? {} : {locked}),
       pose: parsePose(prop.pose, `modelProps[${index}].pose`),
       scale,
     };
   });
+};
+
+const parseRemovedDefaultPropIds = (value: unknown): readonly string[] => {
+  if (!Array.isArray(value) || value.length > MAX_MODEL_PROP_COUNT)
+    throw new Error("removedDefaultPropIds must be a bounded array");
+  const ids = value.map((id, index) =>
+    requiredString(id, `removedDefaultPropIds[${index}]`),
+  );
+  if (new Set(ids).size !== ids.length)
+    throw new Error("removedDefaultPropIds must not contain duplicates");
+  return ids;
 };
 
 const parseShelfSigns = (value: unknown): readonly WorldShelfSign[] => {
@@ -554,6 +587,10 @@ export const parseWorldSave = (value: unknown): WorldSaveV1 => {
     value.modelProps === undefined
       ? undefined
       : parseModelProps(value.modelProps);
+  const removedDefaultPropIds =
+    value.removedDefaultPropIds === undefined
+      ? undefined
+      : parseRemovedDefaultPropIds(value.removedDefaultPropIds);
   const television =
     value.television === undefined
       ? undefined
@@ -609,6 +646,9 @@ export const parseWorldSave = (value: unknown): WorldSaveV1 => {
     player: parsePose(value.player, "player"),
     ...(posters === undefined ? {} : {posters}),
     ...(props === undefined ? {} : {props}),
+    ...(removedDefaultPropIds === undefined
+      ? {}
+      : {removedDefaultPropIds}),
     savedAt: value.savedAt,
     schemaVersion: WORLD_SAVE_SCHEMA_VERSION,
     ...(shelfSigns === undefined ? {} : {shelfSigns}),

@@ -131,8 +131,9 @@ export class ShopArcadeCabinet {
     });
 
     // Soft red wash above the cabinet so it reads as "on" across the room.
+    // Center-relative: the marquee sits near the top of the cabinet.
     this.#marqueeLight = new PointLight("#ff5a48", 0.85, 4.2, 2);
-    this.#marqueeLight.position.set(0, ARCADE_CABINET_HEIGHT * 0.92, 0.25);
+    this.#marqueeLight.position.set(0, ARCADE_CABINET_HEIGHT * 0.42, 0.25);
     this.object.add(this.#marqueeLight);
 
     options.parent.add(this.object);
@@ -157,10 +158,10 @@ export class ShopArcadeCabinet {
     scene.updateMatrixWorld(true);
     const scaledBounds = new Box3().setFromObject(scene);
     const scaledCenter = scaledBounds.getCenter(new Vector3());
-    // Origin sits on the floor, centered in the footprint.
-    scene.position.sub(
-      new Vector3(scaledCenter.x, scaledBounds.min.y, scaledCenter.z),
-    );
+    // Origin sits at the model's center, matching every other movable prop:
+    // physics box colliders are centered on the body origin, so a feet-level
+    // origin would leave the cabinet hovering half a height above the floor.
+    scene.position.sub(scaledCenter);
     this.object.add(scene);
 
     const screen = findModelTelevisionScreen(

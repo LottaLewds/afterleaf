@@ -83,7 +83,7 @@ const saveFixture = (): WorldSaveV1 => ({
   ],
   props: [
     {id: "reading-table-1", pose: pose(6)},
-    {id: "desk-lamp-1", pose: pose(7)},
+    {id: "desk-lamp-1", locked: true, pose: pose(7)},
   ],
   savedAt: "2026-07-29T12:34:56.000Z",
   schemaVersion: WORLD_SAVE_SCHEMA_VERSION,
@@ -328,6 +328,9 @@ describe("world save validation", () => {
     expect(() =>
       parseWorldSave({...saveFixture(), props: [prop, prop]}),
     ).toThrow("duplicate prop IDs");
+    expect(() =>
+      parseWorldSave({...saveFixture(), props: [{...prop, locked: "yes"}]}),
+    ).toThrow("locked must be a boolean when present");
   });
 
   test("rejects malformed or duplicate model props", () => {
@@ -345,6 +348,26 @@ describe("world save validation", () => {
         modelProps: [{...prop, animationClip: 12}],
       }),
     ).toThrow("animationClip must be a non-empty bounded string");
+    expect(() =>
+      parseWorldSave({
+        ...saveFixture(),
+        modelProps: [{...prop, locked: 1}],
+      }),
+    ).toThrow("locked must be a boolean when present");
+  });
+
+  test("preserves prop lock flags through a validation round trip", () => {
+    const save = saveFixture();
+    const parsed = parseWorldSave(save);
+    expect(
+      parsed.props?.find((entry) => entry.id === "desk-lamp-1")?.locked,
+    ).toBe(true);
+    expect(
+      parsed.props?.find((entry) => entry.id === "reading-table-1"),
+    ).toEqual(expect.not.objectContaining({locked: expect.anything()}));
+    const parsedModelProp = parsed.modelProps?.[0];
+    if (!parsedModelProp) throw new Error("Expected model prop fixture");
+    expect(parsedModelProp.locked).toBeUndefined();
   });
 });
 

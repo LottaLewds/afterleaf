@@ -4,7 +4,7 @@ import solid from "vite-plugin-solid";
 import {spawn} from "node:child_process";
 import {randomUUID} from "node:crypto";
 import {createReadStream, existsSync, readFileSync, statSync} from "node:fs";
-import {mkdir, readdir, rename, rm, writeFile} from "node:fs/promises";
+import {mkdir, readdir, rename, rm, stat, writeFile} from "node:fs/promises";
 import type {IncomingMessage, ServerResponse} from "node:http";
 import path from "node:path";
 
@@ -15,6 +15,8 @@ import {
   LIBRARY_FETCH_MORE_ENDPOINT,
   LIBRARY_PASTE_RESOLVE_ENDPOINT,
   LIBRARY_PROVIDERS_ENDPOINT,
+  LIBRARY_ROMS_ENDPOINT,
+  LIBRARY_ROM_FILE_ENDPOINT,
   LIBRARY_SCAN_ENDPOINT,
   LIBRARY_ROOT_ENROLL_ENDPOINT,
   LIBRARY_SOURCE_STATUS_ENDPOINT,
@@ -34,6 +36,10 @@ import {
   type LibraryOperationStatusHttpSuccess,
   type LibraryPasteImportMatch,
 } from "./src/content/libraryUpdate/httpProtocol";
+import {
+  arcadeSystemSupportsFileName,
+  findArcadeSystem,
+} from "./src/arcade/systems";
 import {
   parseActiveLibraryAssetRequest,
   resolveActiveLibraryAssetPath,
@@ -121,6 +127,8 @@ import {
 } from "./src/game/worldSaveServer";
 
 const MAX_TV_MEDIA_RANGE_BYTES = 8 * 1024 * 1024;
+/** Upper bound on entries returned by the ROM folder listing endpoint. */
+const MAX_ROM_LISTING_ENTRIES = 2_000;
 const libraryDirectory = path.resolve(
   import.meta.dirname,
   "content-packs/library",
@@ -937,6 +945,8 @@ const localLibraryOperationsPlugin = (): Plugin => ({
         pathname !== LIBRARY_ROOT_ENROLL_ENDPOINT &&
         pathname !== LIBRARY_CONFIG_ENDPOINT &&
         pathname !== LIBRARY_BROWSE_ENDPOINT &&
+        pathname !== LIBRARY_ROMS_ENDPOINT &&
+        pathname !== LIBRARY_ROM_FILE_ENDPOINT &&
         pathname !== LIBRARY_STATUS_ENDPOINT
       )
         return next();
@@ -1098,6 +1108,151 @@ const localLibraryOperationsPlugin = (): Plugin => ({
               error instanceof Error
                 ? error.message
                 : "Could not read that folder",
+            ),
+          );
+        }
+        return;
+      }
+
+      // Lists the ROM files inside the folder configured for one emulated
+      // cabinet system. A missing configuration is a structured failure the
+      // picker renders as an Options-menu hint rather than an error.
+      if (pathname === LIBRARY_ROMS_ENDPOINT) {
+        if (request.method !== "GET" || !hasSameOrigin(request)) {
+          sendJson(
+            response,
+            request.method === "GET" ? 403 : 405,
+            libraryOperationFailure(
+              request.method === "GET"
+                ? "forbidden_origin"
+                : "method_not_allowed",
+              "ROM folder listing requires a same-origin GET request",
+            ),
+          );
+          return;
+        }
+        try {
+          const system = findArcadeSystem(
+            requestUrl.searchParams.get("system") ?? "",
+          );
+          if (!system) throw new Error("Unknown emulated system");
+          const config = await readAfterleafLibraryConfig(import.meta.dirname);
+          const folder = config.romPaths?.[system.id];
+          if (!folder) {
+            sendJson(
+              response,
+              422,
+              libraryOperationFailure(
+                "no_rom_folder",
+                `No ROM folder is configured for ${system.label}.`,
+              ),
+            );
+            return;
+          }
+          const dirents = await readdir(folder, {withFileTypes: true});
+          const romEntries = await Promise.all(
+            dirents
+              .filter(
+                (entry) =>
+                  entry.isFile() &&
+                  !entry.isSymbolicLink() &&
+                  !entry.name.startsWith(".") &&
+                  arcadeSystemSupportsFileName(system, entry.name),
+              )
+              .map(async (entry) => {
+                try {
+                  const romStat = await stat(path.resolve(folder, entry.name));
+                  return {name: entry.name, sizeBytes: romStat.size};
+                } catch {
+                  return undefined;
+                }
+              }),
+          );
+          const roms = romEntries
+            .filter((rom) => rom !== undefined)
+            .sort((left, right) =>
+              left.name.localeCompare(right.name, undefined, {
+                numeric: true,
+                sensitivity: "base",
+              }),
+            )
+            .slice(0, MAX_ROM_LISTING_ENTRIES);
+          sendJson(response, 200, {ok: true, path: folder, roms});
+        } catch (error) {
+          sendJson(
+            response,
+            422,
+            libraryOperationFailure(
+              "rom_list_failed",
+              error instanceof Error
+                ? error.message
+                : "Could not read that ROM folder",
+            ),
+          );
+        }
+        return;
+      }
+
+      // Streams one ROM file from the configured system folder straight into
+      // the same-origin emulator iframe. Names are plain file names resolved
+      // against the configured folder; containment is re-checked after
+      // resolving so traversal attempts can never escape it.
+      if (pathname === LIBRARY_ROM_FILE_ENDPOINT) {
+        if (request.method !== "GET" || !hasSameOrigin(request)) {
+          sendJson(
+            response,
+            request.method === "GET" ? 403 : 405,
+            libraryOperationFailure(
+              request.method === "GET"
+                ? "forbidden_origin"
+                : "method_not_allowed",
+              "ROM files are served to same-origin GET requests only",
+            ),
+          );
+          return;
+        }
+        try {
+          const system = findArcadeSystem(
+            requestUrl.searchParams.get("system") ?? "",
+          );
+          const requestedName = requestUrl.searchParams.get("name") ?? "";
+          if (
+            !system ||
+            requestedName.length === 0 ||
+            requestedName.includes("/") ||
+            requestedName.includes("\\") ||
+            requestedName.includes("\0")
+          )
+            throw new Error("That ROM could not be identified");
+          if (!arcadeSystemSupportsFileName(system, requestedName))
+            throw new Error("That file cannot run on this system");
+          const config = await readAfterleafLibraryConfig(import.meta.dirname);
+          const folder = config.romPaths?.[system.id];
+          if (!folder)
+            throw new Error(`No ROM folder is configured for ${system.label}.`);
+          const romPath = path.resolve(folder, requestedName);
+          if (romPath !== folder && !romPath.startsWith(folder + path.sep))
+            throw new Error("That ROM is outside the configured folder");
+          const romStat = await stat(romPath);
+          if (!romStat.isFile()) throw new Error("That ROM could not be found");
+          response.statusCode = 200;
+          response.setHeader("Content-Type", "application/octet-stream");
+          response.setHeader("Content-Length", String(romStat.size));
+          response.setHeader("Cache-Control", "no-store");
+          const romStream = createReadStream(romPath);
+          romStream.on("error", () => {
+            response.destroy();
+          });
+          romStream.pipe(response);
+        } catch (error) {
+          sendJson(
+            response,
+            422,
+            libraryOperationFailure(
+              "rom_file_failed",
+              error instanceof Error
+                ? error.message
+                : "Could not read that ROM",
             ),
           );
         }

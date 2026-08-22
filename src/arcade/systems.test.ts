@@ -19,12 +19,6 @@ describe("ARCADE_SYSTEMS", () => {
       expect(system.core.length).toBeGreaterThan(0);
     }
   });
-
-  test("every catalog-backed system maps to a libretro content folder", () => {
-    for (const system of ARCADE_SYSTEMS)
-      if (system.id === "nes" || system.id === "snes" || system.id === "arcade")
-        expect(system.contentPath).toBeDefined();
-  });
 });
 
 describe("findArcadeSystem", () => {

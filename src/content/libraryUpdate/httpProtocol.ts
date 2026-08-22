@@ -11,6 +11,8 @@ export const LIBRARY_SOURCE_STATUS_ENDPOINT = "/api/library/source-status";
 export const LIBRARY_CONFIG_ENDPOINT = "/api/library/config";
 export const LIBRARY_ROOT_ENROLL_ENDPOINT = "/api/library/root-enroll";
 export const LIBRARY_BROWSE_ENDPOINT = "/api/library/browse";
+export const LIBRARY_ROMS_ENDPOINT = "/api/library/roms";
+export const LIBRARY_ROM_FILE_ENDPOINT = "/api/library/roms/file";
 export const MAX_LIBRARY_OPERATION_BODY_BYTES = 64 * 1_024;
 export const MAX_LIBRARY_OPERATION_RESPONSE_BYTES = 1024 * 1_024;
 export const DEFAULT_LIBRARY_FETCH_LIMIT = 20;
@@ -137,8 +139,16 @@ export type LibraryOperationHttpResponse =
   | LibraryOperationStatusHttpSuccess
   | LibraryPasteResolveHttpSuccess
   | LibraryProvidersHttpSuccess
+  | LibraryRomsHttpSuccess
   | LibrarySourceStatusHttpSuccess
   | LibrarySnapshotHttpSuccess;
+
+/** Success payload of the per-system ROM folder listing endpoint. */
+export type LibraryRomsHttpSuccess = {
+  ok: true;
+  path: string;
+  roms: readonly {name: string; sizeBytes: number}[];
+};
 
 export type LibraryProvidersHttpSuccess = {
   ok: true;

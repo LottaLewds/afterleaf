@@ -12,6 +12,10 @@ import {
 } from "node:fs/promises";
 import {dirname, extname, resolve} from "node:path";
 
+// Relative import: this module is also bundled into the Vite config
+// middleware, whose loader cannot resolve the "~" alias at runtime.
+import {findArcadeSystem, type ArcadeSystemId} from "../arcade/systems";
+
 export const LIBRARY_CONFIG_FILE_NAME = "afterleaf.library.json";
 export const LIBRARY_ROOT_MARKER_FILE_NAME = ".afterleaf-library-root.json";
 export const LIBRARY_ROOT_REGISTRY_FILE_NAME = "library-roots.json";
@@ -45,6 +49,11 @@ export interface AfterleafLibraryConfig {
   tvChannelPaths: readonly string[];
   posterPaths: readonly string[];
   artFramePaths: readonly string[];
+  /**
+   * Maps an emulated cabinet system id to the folder holding its ROM files.
+   * One folder per system; configured through the Options menu.
+   */
+  romPaths: Partial<Record<ArcadeSystemId, string>>;
 }
 
 export const LIBRARY_CONFIG_PROPERTIES = PATH_PROPERTIES;
@@ -54,6 +63,7 @@ const emptyLibraryConfig = (): AfterleafLibraryConfig => ({
   comicPaths: [],
   mangaPaths: [],
   posterPaths: [],
+  romPaths: {},
   tvChannelPaths: [],
 });
 
@@ -64,7 +74,7 @@ const parseLibraryConfig = (
   if (!value || typeof value !== "object" || Array.isArray(value))
     throw new Error(`${configPath} must contain a JSON object`);
   const config = value as Record<string, unknown>;
-  const knownProperties = new Set<string>(PATH_PROPERTIES);
+  const knownProperties = new Set<string>([...PATH_PROPERTIES, "romPaths"]);
   const unknownKeys = Object.keys(config).filter(
     (key) => !knownProperties.has(key),
   );
@@ -84,6 +94,26 @@ const parseLibraryConfig = (
       throw new Error(`${configPath} ${property} must be an array of paths`);
     if (property === "mediaPaths") parsed.mediaPaths = paths;
     else parsed[property] = paths;
+  }
+
+  // ROM folders map an emulated system id to a single folder.
+  const romPaths = config.romPaths;
+  if (romPaths !== undefined) {
+    if (!romPaths || typeof romPaths !== "object" || Array.isArray(romPaths))
+      throw new Error(
+        `${configPath} romPaths must map emulated system ids to folders`,
+      );
+    for (const [systemId, folder] of Object.entries(romPaths)) {
+      if (!findArcadeSystem(systemId))
+        throw new Error(
+          `${configPath} romPaths contains the unknown system "${systemId}"`,
+        );
+      if (typeof folder !== "string" || folder.trim().length === 0)
+        throw new Error(
+          `${configPath} romPaths.${systemId} must be a folder path`,
+        );
+      parsed.romPaths[systemId] = folder.trim();
+    }
   }
   return parsed;
 };
@@ -116,6 +146,9 @@ const resolveLibraryConfig = (
     throw new Error(
       `${conflictingPath} cannot be configured as both a comic and manga path`,
     );
+  const romPaths: Partial<Record<ArcadeSystemId, string>> = {};
+  for (const [systemId, folder] of Object.entries(config.romPaths ?? {}))
+    romPaths[systemId] = resolve(workingDirectory, folder);
   return {
     artFramePaths: config.artFramePaths.map((path) =>
       resolve(workingDirectory, path),
@@ -132,6 +165,7 @@ const resolveLibraryConfig = (
     posterPaths: config.posterPaths.map((path) =>
       resolve(workingDirectory, path),
     ),
+    romPaths,
     tvChannelPaths: config.tvChannelPaths.map((path) =>
       resolve(workingDirectory, path),
     ),

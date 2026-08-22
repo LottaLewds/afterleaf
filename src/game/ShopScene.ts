@@ -275,11 +275,14 @@ const SIGN_INTERACTION_DISTANCE = 3.4;
 const TELEVISION_INTERACTION_DISTANCE = 3.6;
 const ARCADE_INTERACTION_DISTANCE = 3.4;
 // Each entry places one cabinet (model screen faces +Z; rotationY flips it
-// toward the shop interior). Add entries to open more arcade lanes.
+// toward the shop interior). Add entries to open more arcade lanes. The
+// origin is the model center, so the lane spawns half a height above floor.
 const ARCADE_CABINET_PLACEMENTS: readonly {
   position: readonly [number, number, number];
   rotationY: number;
-}[] = [{position: [2.7, 0, 16.2], rotationY: Math.PI}];
+}[] = [
+  {position: [2.7, ARCADE_CABINET_HEIGHT / 2, 16.2], rotationY: Math.PI},
+];
 const MOVABLE_PROP_INTERACTION_DISTANCE = 4;
 const POSTER_INTERACTION_DISTANCE = 4;
 const POSTER_PLACEMENT_DISTANCE = POSTER_INTERACTION_DISTANCE * 2;
@@ -374,6 +377,18 @@ const BUILTIN_CRT_TV_ASSET_ID = "builtin:crt-tv";
 const BUILTIN_READING_TABLE_ASSET_ID = "builtin:reading-table";
 const BUILTIN_READING_CHAIR_ASSET_ID = "builtin:reading-chair";
 const BUILTIN_TRASH_CAN_ASSET_ID = "builtin:trash-can";
+const BUILTIN_ARCADE_CABINET_ASSET_ID = "builtin:arcade-cabinet";
+/** Stable save id for lane cabinet N so its pose persists like other props. */
+const builtInArcadeCabinetPropId = (laneIndex: number) =>
+  `built-in-arcade-cabinet-${laneIndex + 1}`;
+/** Footprint box of the height-normalized cabinet model before scaling. */
+const ARCADE_CABINET_BASE_SIZE = {
+  depth: 0.7,
+  height: ARCADE_CABINET_HEIGHT,
+  width: 0.84,
+} as const;
+const ARCADE_CABINET_DENSITY = 45;
+const ARCADE_CABINET_HELD_LOCAL_POSITION = new Vector3(0, -0.42, -2.2);
 const CEILING_LIGHT_COLUMNS = [-7, 0, 7] as const;
 const CEILING_LIGHT_ROWS = [-7, -1.5, 4, 9.5, 15, 20.5, 26] as const;
 const RARE_ROOM_CENTER_X = 8.25;
@@ -515,6 +530,8 @@ type PropMaterialSwap = {
 type MovablePropRecord = {
   currentPosition: Vector3;
   currentRotation: Quaternion;
+  /** Pinned in place: fixed body, immune to bumps, still collides. */
+  locked: boolean;
   placementStartPosition?: Vector3;
   placementStartRotation?: Quaternion;
   placementStartScale?: number;
@@ -554,6 +571,7 @@ type MovablePropRegistration = {
   height: number;
   id: string;
   label: string;
+  locked?: boolean;
   modelAnimationIndex?: number;
   modelAnimations?: readonly AnimationClip[];
   modelAsset?: ModelAsset;
@@ -577,7 +595,8 @@ type BuiltinSpawnablePropAsset = {
     | typeof BUILTIN_CRT_TV_ASSET_ID
     | typeof BUILTIN_READING_TABLE_ASSET_ID
     | typeof BUILTIN_READING_CHAIR_ASSET_ID
-    | typeof BUILTIN_TRASH_CAN_ASSET_ID;
+    | typeof BUILTIN_TRASH_CAN_ASSET_ID
+    | typeof BUILTIN_ARCADE_CABINET_ASSET_ID;
   kind: "builtin";
   label: string;
 };
@@ -611,6 +630,11 @@ const BUILTIN_SPAWNABLE_PROP_ASSETS: readonly BuiltinSpawnablePropAsset[] = [
     label: "reading chair",
   },
   {id: BUILTIN_TRASH_CAN_ASSET_ID, kind: "builtin", label: "trash can"},
+  {
+    id: BUILTIN_ARCADE_CABINET_ASSET_ID,
+    kind: "builtin",
+    label: "arcade cabinet",
+  },
 ];
 
 type ModelTemplate = {
@@ -1128,6 +1152,7 @@ export class ShopScene {
   // Every placed cabinet runs its own session; the "active" one is the
   // cabinet whose UI (picker or game) the player is currently driving.
   readonly #arcadeCabinets: ShopArcadeCabinet[] = [];
+  readonly #arcadeProps = new Map<ShopArcadeCabinet, MovablePropRecord>();
   #targetedArcadeCabinet: ShopArcadeCabinet | undefined;
   #activeArcadeCabinet: ShopArcadeCabinet | undefined;
   #activeArcadeSystemId: string | undefined;
@@ -1569,6 +1594,16 @@ export class ShopScene {
     this.#emitGameState();
   }
 
+  /**
+   * Escape ladder for the UI-active session: a running game backs out to its
+   * ROM picker, an open picker closes entirely. Called by the shared modal
+   * stack, which owns Escape routing while a session is active.
+   */
+  backOutOfArcade() {
+    if (this.#disposed) return;
+    this.#exitOneArcadeLevel();
+  }
+
   /** Escape ladder: playing backs out to browsing; browsing exits entirely. */
   #exitOneArcadeLevel() {
     const cabinet = this.#activeArcadeCabinet;
@@ -1627,7 +1662,8 @@ export class ShopScene {
   /** Gently turns the player's view toward a cabinet's screen on entry. */
   #aimCameraAtObject(object: Object3D) {
     object.getWorldPosition(this.#arcadeAimTarget);
-    this.#arcadeAimTarget.y += ARCADE_CABINET_HEIGHT * 0.62;
+    // Center-origin model; the screen sits a little above the middle.
+    this.#arcadeAimTarget.y += ARCADE_CABINET_HEIGHT * 0.14;
     const deltaX = this.#arcadeAimTarget.x - this.#camera.position.x;
     const deltaY = this.#arcadeAimTarget.y - this.#camera.position.y;
     const deltaZ = this.#arcadeAimTarget.z - this.#camera.position.z;
@@ -1736,6 +1772,7 @@ export class ShopScene {
     this.#televisionsBySaveId.clear();
     for (const cabinet of this.#arcadeCabinets) cabinet.dispose();
     this.#arcadeCabinets.length = 0;
+    this.#arcadeProps.clear();
     this.#targetedArcadeCabinet = undefined;
     this.#activeArcadeCabinet = undefined;
     this.#carriedProp = undefined;
@@ -2140,16 +2177,21 @@ export class ShopScene {
     });
     this.#registerTelevision(FIXED_TELEVISION_SAVE_ID, fixedTelevision);
     this.#registerTelevision(MOVABLE_TELEVISION_SAVE_ID, movableTelevision);
-    for (const placement of ARCADE_CABINET_PLACEMENTS)
-      this.#arcadeCabinets.push(
-        new ShopArcadeCabinet({
-          parent: architecture,
-          position: placement.position,
-          rotationY: placement.rotationY,
-          onInteractRequest: (cabinet) => this.#enterArcadeBrowsing(cabinet),
-          onStateChange: () => this.#emitGameState(),
-        }),
-      );
+    for (const [laneIndex, placement] of ARCADE_CABINET_PLACEMENTS.entries()) {
+      const cabinet = new ShopArcadeCabinet({
+        parent: architecture,
+        position: placement.position,
+        rotationY: placement.rotationY,
+        onInteractRequest: (cabinet) => this.#enterArcadeBrowsing(cabinet),
+        onStateChange: () => this.#emitGameState(),
+      });
+      this.#registerArcadeCabinetProp(cabinet, {
+        id: builtInArcadeCabinetPropId(laneIndex),
+        label: "arcade cabinet",
+        scale: DEFAULT_MODEL_SCALE,
+        spawned: false,
+      });
+    }
     const movableTelevisionProp = this.#registerMovableProp({
       density: 45,
       depth: SHOP_MODEL_TELEVISION_SIZE.depth,
@@ -2581,6 +2623,7 @@ export class ShopScene {
       heldLocalPosition: registration.heldLocalPosition,
       id: registration.id,
       label: registration.label,
+      locked: registration.locked ?? false,
       ...(registration.modelAnimationIndex === undefined
         ? {}
         : {modelAnimationIndex: registration.modelAnimationIndex}),
@@ -2637,6 +2680,7 @@ export class ShopScene {
       this.#applySavedPropPose(record, savedProp);
       this.#pendingPropSaves.delete(record.id);
     }
+    if (record.locked) this.#physicsWorld.setPropLocked(record.id, true);
     if (
       registration.spawnAssetId &&
       registration.templateForSpawning &&
@@ -2685,6 +2729,7 @@ export class ShopScene {
       position: savedProp.pose.position,
       rotation: savedProp.pose.quaternion,
     });
+    if (savedProp.locked !== undefined) record.locked = savedProp.locked;
   }
 
   #ghostObject(object: Object3D) {
@@ -4370,6 +4415,8 @@ export class ShopScene {
         label: `TV cave ${wall} CRT ${row + 1}-${column + 1}`,
         object: television.object,
         spawnAssetId: BUILTIN_CRT_TV_ASSET_ID,
+        // The dedicated arcade raycast owns targeting so E stays "play";
+        // pickup goes through T instead of the generic prop path.
         targetable: false,
         width: SHOP_MODEL_TELEVISION_SIZE.width,
       });
@@ -5300,6 +5347,80 @@ export class ShopScene {
     return prop;
   }
 
+  /**
+   * Wraps a cabinet's scene object as a movable prop: released cabinets
+   * simulate like the CRT televisions (gravity, tippable, bumpable) unless
+   * the player pins them with the lock toggle. The cabinet stays fully
+   * interactive while placed.
+   */
+  #registerArcadeCabinetProp(
+    cabinet: ShopArcadeCabinet,
+    registration: {
+      id: string;
+      label: string;
+      scale: number;
+      spawned: boolean;
+      persistInWorldProps?: boolean;
+    },
+  ) {
+    this.#arcadeCabinets.push(cabinet);
+    const size = ARCADE_CABINET_BASE_SIZE;
+    const scale = registration.scale;
+    const prop = this.#registerMovableProp({
+      density: ARCADE_CABINET_DENSITY,
+      depth: size.depth * scale,
+      height: size.height * scale,
+      heldLocalPosition: ARCADE_CABINET_HELD_LOCAL_POSITION.clone(),
+      id: registration.id,
+      label: registration.label,
+      modelBaseSize: new Vector3(size.width, size.height, size.depth),
+      modelScale: scale,
+      object: cabinet.object,
+      ...(registration.persistInWorldProps === undefined
+        ? {}
+        : {persistInWorldProps: registration.persistInWorldProps}),
+      // Cabinets simulate like the CRT televisions once released: gravity
+      // applies and the player can bump them unless they are locked.
+      targetable: false,
+      width: size.width * scale,
+    });
+    this.#arcadeProps.set(cabinet, prop);
+    return prop;
+  }
+
+  #createSpawnedArcadeCabinet(
+    asset: BuiltinSpawnablePropAsset,
+    id: string,
+    scale: number,
+    pose?: WorldModelPropSave["pose"],
+  ) {
+    const cabinet = new ShopArcadeCabinet({
+      parent: this.#scene,
+      position: [0, 0, 0],
+      onInteractRequest: (target) => this.#enterArcadeBrowsing(target),
+      onStateChange: () => this.#emitGameState(),
+    });
+    cabinet.object.name = id;
+    if (pose) {
+      cabinet.object.position.copy(pose.position);
+      cabinet.object.quaternion.copy(pose.quaternion);
+    } else {
+      this.#camera.getWorldDirection(this.#viewDirection);
+      cabinet.object.position
+        .copy(this.#camera.position)
+        .addScaledVector(this.#viewDirection, 2);
+    }
+    cabinet.object.scale.setScalar(scale);
+    // Spawned cabinets persist through modelProps (asset id + scale + pose).
+    return this.#registerArcadeCabinetProp(cabinet, {
+      id,
+      label: asset.label,
+      persistInWorldProps: false,
+      scale,
+      spawned: true,
+    });
+  }
+
   #createModelTelevisionProp(
     asset: ModelAsset,
     template: ModelTemplate,
@@ -5422,6 +5543,8 @@ export class ShopScene {
     }
     if (asset.id === BUILTIN_CRT_TV_ASSET_ID)
       return this.#createSpawnedCrtTelevision(asset, id, scale, pose);
+    if (asset.id === BUILTIN_ARCADE_CABINET_ASSET_ID)
+      return this.#createSpawnedArcadeCabinet(asset, id, scale, pose);
     if (asset.id === BUILTIN_TRASH_CAN_ASSET_ID) {
       const modelAsset: ModelAsset = {
         id: asset.id,
@@ -5468,8 +5591,12 @@ export class ShopScene {
             savedProp.animationClip,
           );
           if (this.#disposed) return;
-          if (this.#movableProps.get(savedProp.id) !== record)
+          if (this.#movableProps.get(savedProp.id) !== record) {
             this.#removeSpawnedProp(record);
+          } else if (savedProp.locked && !record.locked) {
+            record.locked = true;
+            this.#physicsWorld.setPropLocked(record.id, true);
+          }
         } catch (error) {
           if (this.#disposed) return;
           unresolved.push(savedProp);
@@ -5651,6 +5778,21 @@ export class ShopScene {
           this.#televisionsBySaveId.delete(saveId);
       }
       television.dispose();
+      break;
+    }
+    for (const [cabinet, cabinetProp] of this.#arcadeProps) {
+      if (cabinetProp !== record) continue;
+      if (this.#targetedArcadeCabinet === cabinet)
+        this.#setArcadeTargeted(undefined);
+      if (this.#activeArcadeCabinet === cabinet) {
+        this.#activeArcadeCabinet = undefined;
+        this.#activeArcadeSystemId = undefined;
+      }
+      this.#arcadeProps.delete(cabinet);
+      const cabinetIndex = this.#arcadeCabinets.indexOf(cabinet);
+      if (cabinetIndex >= 0) this.#arcadeCabinets.splice(cabinetIndex, 1);
+      // Disposing kills any emulator session attached to this cabinet.
+      cabinet.dispose();
       break;
     }
     this.#physicsWorld.removeProp(record.id);
@@ -7430,13 +7572,11 @@ export class ShopScene {
     if (this.#paused()) return;
     this.#observeKeyboardEvent(event);
     // While a cabinet game runs, shop controls are modal: every key goes to
-    // the emulator except Escape, which backs out one level.
+    // the emulator. Escape is left unconsumed for the shared modal stack,
+    // which routes it back here as a one-level back-out.
     if (this.#activeArcadeCabinet?.sessionStatus === "playing") {
+      if (event.code === "Escape") return;
       event.preventDefault();
-      if (event.code === "Escape") {
-        this.#exitOneArcadeLevel();
-        return;
-      }
       this.#activeArcadeCabinet.forwardKey(true, describeKeyboardEvent(event));
       return;
     }
@@ -7638,6 +7778,27 @@ export class ShopScene {
       this.#emitGameState();
       return;
     }
+    // Pin or release whatever movable prop is under the reticle: a locked
+    // prop keeps a fixed body that still blocks the player, books, and
+    // other props, but nothing can bump it around.
+    if (event.code === "KeyL") {
+      event.preventDefault();
+      const lockableProp =
+        this.#targetedProp ??
+        (this.#targetedTelevision
+          ? this.#televisionProps.get(this.#targetedTelevision)
+          : undefined) ??
+        (this.#targetedArcadeCabinet
+          ? this.#arcadeProps.get(this.#targetedArcadeCabinet)
+          : undefined);
+      if (!lockableProp || this.#carriedProp === lockableProp) return;
+      const locked = !lockableProp.locked;
+      lockableProp.locked = locked;
+      this.#physicsWorld.setPropLocked(lockableProp.id, locked);
+      this.#worldStateDirty = true;
+      this.#emitGameState();
+      return;
+    }
     if (event.code === "Delete" || event.code === "Backspace") {
       const targetedTelevisionProp = this.#targetedTelevision
         ? this.#televisionProps.get(this.#targetedTelevision)
@@ -7645,6 +7806,14 @@ export class ShopScene {
       if (targetedTelevisionProp?.spawned) {
         event.preventDefault();
         this.#removeSpawnedProp(targetedTelevisionProp);
+        return;
+      }
+      const targetedArcadeProp = this.#targetedArcadeCabinet
+        ? this.#arcadeProps.get(this.#targetedArcadeCabinet)
+        : undefined;
+      if (targetedArcadeProp?.spawned) {
+        event.preventDefault();
+        this.#removeSpawnedProp(targetedArcadeProp);
         return;
       }
       if (this.#targetedProp?.spawned) {
@@ -7694,6 +7863,12 @@ export class ShopScene {
       if (this.#carriedProp) {
         event.preventDefault();
         this.#cancelCarriedProp();
+        return;
+      }
+      if (this.#targetedArcadeCabinet) {
+        event.preventDefault();
+        const cabinetProp = this.#arcadeProps.get(this.#targetedArcadeCabinet);
+        if (cabinetProp) this.#pickUpProp(cabinetProp);
         return;
       }
       if (this.#televisionTargeted) {
@@ -11125,6 +11300,7 @@ export class ShopScene {
       this.#setPropTargeted(undefined);
       this.#setTrashTargeted(false);
       this.#setTelevisionTargeted(false);
+      this.#setArcadeTargeted(undefined);
       this.#updateShelfTargetVisuals();
       this.#updateSignTargetVisuals();
       this.#updatePosterPlacementTarget();
@@ -11140,6 +11316,7 @@ export class ShopScene {
       this.#setPropTargeted(undefined);
       this.#setTrashTargeted(false);
       this.#setTelevisionTargeted(false);
+      this.#setArcadeTargeted(undefined);
       this.#updateShelfTargetVisuals();
       this.#updateSignTargetVisuals();
       return;
@@ -11232,10 +11409,25 @@ export class ShopScene {
       | undefined;
     for (const candidate of this.#arcadeCabinets) {
       candidate.object.getWorldPosition(this.#televisionTargetPosition);
-      const cabinetDistance = this.#camera.position.distanceTo(
-        this.#televisionTargetPosition,
-      );
-      if (cabinetDistance > ARCADE_INTERACTION_DISTANCE + 1.2) continue;
+      // Scale the cull radius with the cabinet so resized units stay
+      // targetable even when their center sits far above or beside the eye.
+      const cabinetProp = this.#arcadeProps.get(candidate);
+      const cabinetRadius = cabinetProp
+        ? Math.max(
+            cabinetProp.halfWidth,
+            cabinetProp.halfHeight,
+            cabinetProp.halfDepth,
+          )
+        : 0;
+      const cabinetCullDistance =
+        ARCADE_INTERACTION_DISTANCE + 1.2 + cabinetRadius * 2;
+      if (
+        this.#camera.position.distanceToSquared(
+          this.#televisionTargetPosition,
+        ) >
+        cabinetCullDistance * cabinetCullDistance
+      )
+        continue;
       const candidateIntersection = this.#raycaster.intersectObjects(
         candidate.interactionTargets,
         false,
@@ -12139,6 +12331,7 @@ export class ShopScene {
           const quaternion = record.object.getWorldQuaternion(new Quaternion());
           return {
             id: record.id,
+            ...(record.locked ? {locked: true} : {}),
             pose: {
               position: {x: position.x, y: position.y, z: position.z},
               quaternion: {
@@ -12170,6 +12363,7 @@ export class ShopScene {
             ...(animationClip === undefined ? {} : {animationClip}),
             assetId,
             id: record.id,
+            ...(record.locked ? {locked: true} : {}),
             pose: {
               position: {x: position.x, y: position.y, z: position.z},
               quaternion: {
@@ -12467,9 +12661,10 @@ export class ShopScene {
       prompt = `E shelve ${this.#shelfTargetSelection?.presentation ?? this.#shelfPresentation}-out · Q switch shelf presentation · Hold F charge throw · G drop · R inspect${this.#carriedPublicationIds.length > 1 ? " · Wheel cycle books" : ""}`;
     else if (carriedRecord)
       prompt = `Q ${this.#shelfPresentation}-out · Aim at a shelf · Hold F charge throw · G drop · R inspect${this.#carriedPublicationIds.length > 1 ? " · Wheel cycle books" : ""}`;
-    else if (this.#targetedArcadeCabinet?.sessionStatus === undefined)
-      prompt = "E play the arcade";
-    else if (this.#televisionTargeted) {
+    else if (this.#targetedArcadeCabinet?.sessionStatus === undefined) {
+      const cabinetProp = this.#arcadeProps.get(this.#targetedArcadeCabinet);
+      prompt = `E play the arcade · T move cabinet${cabinetProp?.locked ? " · L unlock" : " · L lock"}`;
+    } else if (this.#televisionTargeted) {
       const televisionPrompt = this.#targetedTelevision?.prompt;
       const televisionProp = this.#targetedTelevision
         ? this.#televisionProps.get(this.#targetedTelevision)
@@ -12478,12 +12673,17 @@ export class ShopScene {
         ? "Paste video URL · N new channel"
         : undefined;
       const removePrompt = televisionProp?.spawned ? "Del remove" : undefined;
-      prompt = [televisionPrompt, pastePrompt, removePrompt]
+      const lockPrompt = televisionProp
+        ? televisionProp.locked
+          ? "L unlock"
+          : "L lock"
+        : undefined;
+      prompt = [televisionPrompt, pastePrompt, lockPrompt, removePrompt]
         .filter(Boolean)
         .join(" · ");
     } else if (this.#targetedProp) {
       const animationLabel = this.#modelAnimationLabel(this.#targetedProp);
-      prompt = `T project ${this.#targetedProp.label} for placement${animationLabel ? ` · Q/E animation (${animationLabel})` : ""}${this.#targetedProp.spawned ? " · Del remove" : ""}`;
+      prompt = `T project ${this.#targetedProp.label} for placement${animationLabel ? ` · Q/E animation (${animationLabel})` : ""}${this.#targetedProp.locked ? " · L unlock" : " · L lock"}${this.#targetedProp.spawned ? " · Del remove" : ""}`;
     } else if (this.#targetedSignKey !== undefined)
       prompt = `E customize ${this.#signSlots.get(this.#targetedSignKey)?.label ?? "shop sign"}`;
     else if (this.#targetedDigitalArtFrameId) {
@@ -12602,12 +12802,21 @@ export class ShopScene {
         interactions.unshift({key: "E", label: "Discard book"});
     } else if (this.#targetedArcadeCabinet) {
       const cabinet = this.#targetedArcadeCabinet;
+      const cabinetProp = this.#arcadeProps.get(cabinet);
       interactionContext = cabinet.sessionStatus
         ? `Arcade · ${cabinet.sessionRomName ?? "cabinet"}`
         : "Arcade cabinet";
       interactions = cabinet.sessionStatus
         ? [{key: "Esc", label: "Back out"}]
-        : [{key: "E", label: "Play the arcade"}];
+        : [
+            {key: "E", label: "Play the arcade"},
+            {key: "T", label: "Move cabinet"},
+            {
+              key: "L",
+              label: cabinetProp?.locked ? "Unlock cabinet" : "Lock cabinet",
+            },
+            ...(cabinetProp?.spawned ? [{key: "Del", label: "Remove"}] : []),
+          ];
     } else if (this.#televisionTargeted) {
       const televisionProp = this.#targetedTelevision
         ? this.#televisionProps.get(this.#targetedTelevision)
@@ -12624,6 +12833,10 @@ export class ShopScene {
             : "Turn on",
         },
         {key: "T", label: "Move TV"},
+        {
+          key: "L",
+          label: televisionProp?.locked ? "Unlock TV" : "Lock TV",
+        },
         {key: "Q", label: "Previous channel"},
         {key: "F", label: "Skip"},
         {key: "N", label: "New channel"},
@@ -12647,6 +12860,10 @@ export class ShopScene {
         : this.#targetedProp.label;
       interactions = [
         {key: "T", label: "Move prop"},
+        {
+          key: "L",
+          label: this.#targetedProp.locked ? "Unlock prop" : "Lock prop",
+        },
         ...(animationLabel
           ? [{key: "Q / E", label: "Previous / next animation"}]
           : []),
