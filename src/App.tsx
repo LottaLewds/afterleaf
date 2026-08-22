@@ -105,6 +105,7 @@ import {
   type ReadingDirection,
 } from "~/game/controlPreferences";
 import {createEscapeScope, modalModes} from "~/game/modalModes";
+import {UiModeProvider, createModeListener, useUiMode} from "~/game/uiMode";
 import {loadReaderBookmarks, saveReaderBookmark} from "~/reader/bookmarks";
 import type {LibraryProviderDescriptor} from "~/content/providers/types";
 import type {AfterleafLibraryConfig} from "~/content/libraryConfig";
@@ -1883,6 +1884,42 @@ const DetailPanel = (props: {
   </aside>
 );
 
+/**
+ * Always-on Escape router plus a mode-scoped menu fallback. The router offers
+ * every press to the shared modal stack from whichever mode is active; the
+ * fallback that toggles the pause menu binds only while a fallback-armed mode
+ * is active, so exclusive surfaces such as an emulator session can never leak
+ * a stray press into the menu.
+ */
+const GlobalEscapeShortcuts = (props: {onFallback: () => void}) => {
+  const {escapeFallbackArmed} = useUiMode();
+  const routerAbortController = new AbortController();
+  window.addEventListener(
+    "keydown",
+    (event) => {
+      if (event.key !== "Escape") return;
+      if (event.defaultPrevented || event.repeat) return;
+      if (!modalModes.consumeEscape()) return;
+      event.preventDefault();
+    },
+    {signal: routerAbortController.signal},
+  );
+  onCleanup(() => routerAbortController.abort());
+  createModeListener(escapeFallbackArmed, (signal) => {
+    window.addEventListener(
+      "keydown",
+      (event) => {
+        if (event.key !== "Escape") return;
+        if (event.defaultPrevented || event.repeat) return;
+        event.preventDefault();
+        props.onFallback();
+      },
+      {signal},
+    );
+  });
+  return null;
+};
+
 export const App = () => {
   const bootFetchWasEnabled = loadBootFetchPreference()?.enabled === true;
   const initialControlPreferences = loadControlPreferences();
@@ -2595,22 +2632,6 @@ export const App = () => {
 
   onMount(() => {
     maybeFetchOnBoot();
-    const abortController = new AbortController();
-    window.addEventListener(
-      "keydown",
-      (event) => {
-        if (event.key !== "Escape") return;
-        if (event.defaultPrevented || event.repeat) return;
-        event.preventDefault();
-        // The topmost modal scope (arcade session, dialogs, editors…) gets
-        // first crack; an unconsumed press toggles the pause menu.
-        if (modalModes.consumeEscape()) return;
-        if (menuOpen()) closeMenu(false);
-        else openMenu();
-      },
-      {signal: abortController.signal},
-    );
-    onCleanup(() => abortController.abort());
   });
   // Modal scopes mirror their dialog signals; the stack decides which one
   // owns Escape instead of a fixed priority chain in the key handler.
@@ -2636,650 +2657,668 @@ export const App = () => {
   });
 
   return (
-    <main class="h-[100dvh] overflow-hidden bg-[#071010] text-[#d9d6cc]">
-      <Show when={ageConfirmed()} fallback={<AdultGate onEnter={confirmAge} />}>
-        <div class="fixed inset-0">
-          <Suspense
-            fallback={
-              <div class="grid size-full place-items-center bg-[#071010]">
-                <p class="text-[9px] font-semibold tracking-[0.2em] text-[#7e918b] uppercase">
-                  Opening the shop floor…
-                </p>
-              </div>
-            }
-          >
-            <Show when={resolvedRuntimeLibrary()}>
-              {(runtime) => (
-                <Show when={!blacklistedPublications.loading}>
-                  <ShopViewport
-                    catalogAtlases={() => runtime().atlases}
-                    catalogAvailable={() =>
-                      isRuntimeLibraryAvailable(runtime())
-                    }
-                    catalogIdentity={() => runtime().identity}
-                    mouseSensitivity={mouseSensitivity}
-                    newPublicationIds={newPublicationIds}
-                    onControlsChange={(controls) => {
-                      shopViewportControls = controls;
-                    }}
-                    pageIndexForPublication={(publicationId) =>
-                      bookmarks()[publicationId] ?? 0
-                    }
-                    publications={library}
-                    selectedPublicationId={() => selectedItem()?.id}
-                    tvScreenLighting={tvScreenLighting}
-                    unstuckRequest={unstuckRequest}
-                    paused={menuOpen}
-                    onOpenMenu={openMenu}
-                    onPasteText={importPastedPublication}
-                    onDiscardPublication={discardPublication}
-                    onPageIndexChange={(publicationId, pageIndex) =>
-                      setBookmarks((current) =>
-                        saveReaderBookmark(current, publicationId, pageIndex),
-                      )
-                    }
-                    onSelectPublication={(publicationId) => {
-                      setSelectedId(publicationId);
-                    }}
-                  />
-                </Show>
+    <UiModeProvider paused={menuOpen}>
+      <GlobalEscapeShortcuts
+        onFallback={() => {
+          if (menuOpen()) closeMenu(false);
+          else openMenu();
+        }}
+      />
+      <main class="h-[100dvh] overflow-hidden bg-[#071010] text-[#d9d6cc]">
+        <Show
+          when={ageConfirmed()}
+          fallback={<AdultGate onEnter={confirmAge} />}
+        >
+          <div class="fixed inset-0">
+            <Suspense
+              fallback={
+                <div class="grid size-full place-items-center bg-[#071010]">
+                  <p class="text-[9px] font-semibold tracking-[0.2em] text-[#7e918b] uppercase">
+                    Opening the shop floor…
+                  </p>
+                </div>
+              }
+            >
+              <Show when={resolvedRuntimeLibrary()}>
+                {(runtime) => (
+                  <Show when={!blacklistedPublications.loading}>
+                    <ShopViewport
+                      catalogAtlases={() => runtime().atlases}
+                      catalogAvailable={() =>
+                        isRuntimeLibraryAvailable(runtime())
+                      }
+                      catalogIdentity={() => runtime().identity}
+                      mouseSensitivity={mouseSensitivity}
+                      newPublicationIds={newPublicationIds}
+                      onControlsChange={(controls) => {
+                        shopViewportControls = controls;
+                      }}
+                      pageIndexForPublication={(publicationId) =>
+                        bookmarks()[publicationId] ?? 0
+                      }
+                      publications={library}
+                      selectedPublicationId={() => selectedItem()?.id}
+                      tvScreenLighting={tvScreenLighting}
+                      unstuckRequest={unstuckRequest}
+                      paused={menuOpen}
+                      onOpenMenu={openMenu}
+                      onPasteText={importPastedPublication}
+                      onDiscardPublication={discardPublication}
+                      onPageIndexChange={(publicationId, pageIndex) =>
+                        setBookmarks((current) =>
+                          saveReaderBookmark(current, publicationId, pageIndex),
+                        )
+                      }
+                      onSelectPublication={(publicationId) => {
+                        setSelectedId(publicationId);
+                      }}
+                    />
+                  </Show>
+                )}
+              </Show>
+            </Suspense>
+
+            <LibraryActivityToast
+              busy={libraryUpdating()}
+              completedSteps={libraryUpdateCompletedSteps()}
+              elapsedSeconds={libraryUpdateElapsedSeconds()}
+              failed={libraryUpdateFailed()}
+              notice={libraryUpdateNotice()}
+              status={libraryActivityStatus()}
+              totalSteps={libraryUpdateTotalSteps()}
+              onDismiss={() => {
+                setLibraryUpdateFailed(false);
+                setLibraryUpdateNotice(undefined);
+              }}
+            />
+
+            <Show when={unavailableBookPathCount()}>
+              {(count) => (
+                <aside
+                  class="fixed top-4 left-1/2 z-40 flex w-[min(42rem,calc(100vw-2rem))] -translate-x-1/2 items-start gap-3 border border-[#d94c3f]/60 bg-[#250d0b]/95 px-4 py-3 text-[#ff796c] shadow-[0_16px_50px_#000b] backdrop-blur-md"
+                  aria-live="assertive"
+                >
+                  <FiAlertTriangle class="mt-0.5 shrink-0" size={16} />
+                  <p class="text-[11px] leading-5">
+                    {count()} configured book{" "}
+                    {count() === 1 ? "path is" : "paths are"} unavailable.
+                    Library updates are locked so the current books cannot be
+                    removed. Remount the expected storage and restore its
+                    Afterleaf library root marker to continue. Enrolled book
+                    roots may be empty; missing or mismatched markers are
+                    treated as unavailable storage.
+                  </p>
+                </aside>
               )}
             </Show>
-          </Suspense>
 
-          <LibraryActivityToast
-            busy={libraryUpdating()}
-            completedSteps={libraryUpdateCompletedSteps()}
-            elapsedSeconds={libraryUpdateElapsedSeconds()}
-            failed={libraryUpdateFailed()}
-            notice={libraryUpdateNotice()}
-            status={libraryActivityStatus()}
-            totalSteps={libraryUpdateTotalSteps()}
-            onDismiss={() => {
-              setLibraryUpdateFailed(false);
-              setLibraryUpdateNotice(undefined);
-            }}
-          />
-
-          <Show when={unavailableBookPathCount()}>
-            {(count) => (
-              <aside
-                class="fixed top-4 left-1/2 z-40 flex w-[min(42rem,calc(100vw-2rem))] -translate-x-1/2 items-start gap-3 border border-[#d94c3f]/60 bg-[#250d0b]/95 px-4 py-3 text-[#ff796c] shadow-[0_16px_50px_#000b] backdrop-blur-md"
-                aria-live="assertive"
+            <Show when={menuOpen()}>
+              <div
+                class="fixed inset-0 z-30 overflow-hidden bg-[#080d0c]/80 p-0 backdrop-blur-sm sm:p-4 lg:p-7"
+                role="dialog"
+                aria-modal="true"
+                aria-label="Afterleaf pause menu"
               >
-                <FiAlertTriangle class="mt-0.5 shrink-0" size={16} />
-                <p class="text-[11px] leading-5">
-                  {count()} configured book{" "}
-                  {count() === 1 ? "path is" : "paths are"} unavailable. Library
-                  updates are locked so the current books cannot be removed.
-                  Remount the expected storage and restore its Afterleaf library
-                  root marker to continue. Enrolled book roots may be empty;
-                  missing or mismatched markers are treated as unavailable
-                  storage.
-                </p>
-              </aside>
-            )}
-          </Show>
-
-          <Show when={menuOpen()}>
-            <div
-              class="fixed inset-0 z-30 overflow-hidden bg-[#080d0c]/80 p-0 backdrop-blur-sm sm:p-4 lg:p-7"
-              role="dialog"
-              aria-modal="true"
-              aria-label="Afterleaf pause menu"
-            >
-              <div class="mx-auto flex size-full max-w-[1800px] flex-col overflow-hidden border-white/10 bg-[#101716]/98 shadow-[0_30px_120px_#000] sm:border">
-                <header class="flex h-[72px] shrink-0 items-center border-b border-white/8 bg-[#121918]/95 px-4 sm:px-5 lg:px-6">
-                  <div class="flex min-w-0 items-center gap-4">
-                    <div class="brand-mark grid size-9 shrink-0 place-items-center bg-[#d94c3f] font-serif text-lg text-white">
-                      葉
-                    </div>
-                    <div class="min-w-0">
-                      <h1 class="truncate font-serif text-xl tracking-[-0.03em] text-[#f0ebdf]">
-                        Afterleaf
-                      </h1>
-                      <p class="hidden text-[9px] font-semibold tracking-[0.22em] text-[#6f7a76] uppercase sm:block">
-                        Closing shift · local library
-                      </p>
-                    </div>
-                  </div>
-                  <div class="ml-auto flex items-center gap-2 sm:gap-3">
-                    <div class="mr-2 hidden items-center gap-2 text-[10px] text-[#6f7b76] md:flex">
-                      <span class="size-1.5 rounded-full bg-[#75aa91] shadow-[0_0_8px_#75aa91]"></span>{" "}
-                      Local library
-                    </div>
-                    <button
-                      class="flex h-9 items-center gap-2 border border-white/10 px-3 text-[11px] text-[#aab2ae] transition hover:border-white/20 hover:bg-white/5 hover:text-white disabled:cursor-wait disabled:opacity-50"
-                      disabled={
-                        runtimeLibrary.loading ||
-                        libraryUpdating() ||
-                        unavailableBookPathCount() > 0
-                      }
-                      onClick={() => void scanLibrary("quick")}
-                      title={
-                        unavailableBookPathCount() > 0
-                          ? "Remount the configured book paths before updating the library"
-                          : "Find new or normally changed local books and reuse unchanged generated assets"
-                      }
-                    >
-                      <FiRefreshCw
-                        classList={{
-                          "animate-spin":
-                            runtimeLibrary.loading || libraryUpdating(),
-                        }}
-                        size={14}
-                      />
-                      <span class="hidden sm:inline">{scanButtonLabel()}</span>
-                    </button>
-                    <button
-                      aria-label="Deep scan and repair library"
-                      class="grid size-9 place-items-center border border-white/10 text-[#8d9893] transition hover:border-white/20 hover:bg-white/5 hover:text-white disabled:cursor-wait disabled:opacity-50"
-                      disabled={
-                        runtimeLibrary.loading ||
-                        libraryUpdating() ||
-                        unavailableBookPathCount() > 0
-                      }
-                      onClick={() => setLibraryRepairOpen(true)}
-                      title={
-                        unavailableBookPathCount() > 0
-                          ? "Remount the configured book paths before repairing the library"
-                          : "Choose local and optional provider repair actions"
-                      }
-                    >
-                      <FiTool size={14} />
-                    </button>
-                    <button
-                      class="flex h-9 items-center gap-2 bg-[#ece6d8] px-3.5 text-[11px] font-bold text-[#1b2321] transition hover:bg-white disabled:cursor-wait"
-                      disabled={
-                        runtimeLibrary.loading ||
-                        libraryUpdating() ||
-                        unavailableBookPathCount() > 0
-                      }
-                      onClick={() => {
-                        setFetchOnBoot(
-                          loadBootFetchPreference()?.enabled === true,
-                        );
-                        setLibraryUpdateOpen(true);
-                      }}
-                    >
-                      <FiDownload size={14} />
-                      <span class="hidden sm:inline">{fetchButtonLabel()}</span>
-                    </button>
-                    <button
-                      class="grid size-9 place-items-center text-[#8d9893] transition hover:bg-white/5 hover:text-white"
-                      aria-label="Close menu and return to shop"
-                      title="Return to shop (Escape)"
-                      on:pointerdown={(event) => {
-                        if (event.button === 0) closeMenu();
-                      }}
-                      onClick={() => closeMenu()}
-                    >
-                      <FiX size={17} />
-                    </button>
-                  </div>
-                </header>
-
-                <nav class="flex shrink-0 border-b border-white/8 bg-[#121918] p-2 xl:hidden">
-                  <button
-                    class="flex h-10 flex-1 items-center justify-center gap-2 text-[10px] font-semibold tracking-[0.08em] uppercase transition"
-                    classList={{
-                      "bg-[#1c2523] text-[#ece8dd]": menuTab() === "library",
-                      "text-[#78837e] hover:bg-white/[0.025] hover:text-white":
-                        menuTab() !== "library",
-                    }}
-                    aria-pressed={menuTab() === "library"}
-                    onClick={() => setMenuTab("library")}
-                    type="button"
-                  >
-                    <FiGrid size={13} /> Library
-                  </button>
-                  <button
-                    class="flex h-10 flex-1 items-center justify-center gap-2 text-[10px] font-semibold tracking-[0.08em] uppercase transition"
-                    classList={{
-                      "bg-[#1c2523] text-[#ece8dd]": menuTab() === "options",
-                      "text-[#78837e] hover:bg-white/[0.025] hover:text-white":
-                        menuTab() !== "options",
-                    }}
-                    aria-pressed={menuTab() === "options"}
-                    onClick={() => setMenuTab("options")}
-                    type="button"
-                  >
-                    <FiSettings size={13} /> Options
-                  </button>
-                </nav>
-
-                <div class="grid min-h-0 flex-1 grid-cols-1 overflow-hidden xl:grid-cols-[220px_minmax(0,1fr)_330px]">
-                  <nav class="hidden border-r border-white/8 bg-[#121918] px-5 py-7 xl:flex xl:flex-col">
-                    <p class="px-2 text-[9px] font-bold tracking-[0.2em] text-[#59645f] uppercase">
-                      Menu
-                    </p>
-                    <div class="mt-4 space-y-1">
-                      <button
-                        class="flex w-full items-center gap-3 px-3 py-2.5 text-xs transition"
-                        classList={{
-                          "bg-[#1c2523] font-semibold text-[#ece8dd]":
-                            menuTab() === "library",
-                          "text-[#7d8883] hover:bg-white/[0.025] hover:text-[#cbd0cc]":
-                            menuTab() !== "library",
-                        }}
-                        aria-pressed={menuTab() === "library"}
-                        onClick={() => setMenuTab("library")}
-                        type="button"
-                      >
-                        <FiGrid size={14} class="text-[#e25a4d]" /> Library{" "}
-                        <span class="ml-auto text-[10px] text-[#7c8681]">
-                          {String(library().length).padStart(2, "0")}
-                        </span>
-                      </button>
-                      <button
-                        class="flex w-full items-center gap-3 px-3 py-2.5 text-xs transition"
-                        classList={{
-                          "bg-[#1c2523] font-semibold text-[#ece8dd]":
-                            menuTab() === "options",
-                          "text-[#7d8883] hover:bg-white/[0.025] hover:text-[#cbd0cc]":
-                            menuTab() !== "options",
-                        }}
-                        aria-pressed={menuTab() === "options"}
-                        onClick={() => setMenuTab("options")}
-                        type="button"
-                      >
-                        <FiSettings size={14} class="text-[#e25a4d]" /> Options
-                      </button>
-                    </div>
-
-                    <p class="mt-9 px-2 text-[9px] font-bold tracking-[0.2em] text-[#59645f] uppercase">
-                      Browse
-                    </p>
-                    <div class="mt-4 space-y-1">
-                      <button class="flex w-full items-center gap-3 px-3 py-2.5 text-xs text-[#7d8883] transition hover:bg-white/[0.025] hover:text-[#cbd0cc]">
-                        <FiClock size={14} /> Recently added
-                      </button>
-                      <button class="flex w-full items-center gap-3 px-3 py-2.5 text-xs text-[#7d8883] transition hover:bg-white/[0.025] hover:text-[#cbd0cc]">
-                        <FiBookOpen size={14} /> Continue reading
-                      </button>
-                    </div>
-
-                    <p class="mt-9 px-2 text-[9px] font-bold tracking-[0.2em] text-[#59645f] uppercase">
-                      Collections
-                    </p>
-                    <div class="mt-4 space-y-1">
-                      <For
-                        each={[
-                          {label: "Night shelves", color: "#d14d42"},
-                          {label: "Office stories", color: "#cf8951"},
-                          {label: "Supernatural", color: "#775e93"},
-                          {label: "Unsorted", color: "#64736d"},
-                        ]}
-                      >
-                        {(collection) => (
-                          <button class="flex w-full items-center gap-3 px-3 py-2 text-left text-[11px] text-[#7e8984] hover:text-[#cbd0cc]">
-                            <span
-                              class="size-1.5 rounded-full"
-                              style={{background: collection.color}}
-                            ></span>
-                            {collection.label}
-                          </button>
-                        )}
-                      </For>
-                    </div>
-
-                    <div class="mt-auto border-t border-white/8 pt-5">
-                      <div class="flex items-center gap-3 px-2">
-                        <span class="grid size-8 place-items-center rounded-full bg-[#24312e] text-[#789488]">
-                          <FiShield size={13} />
-                        </span>
-                        <div>
-                          <p class="text-[10px] font-semibold text-[#9ca6a1]">
-                            Local catalog
-                          </p>
-                          <p class="mt-0.5 text-[9px] text-[#56615c]">
-                            Stored on this device
-                          </p>
-                        </div>
+                <div class="mx-auto flex size-full max-w-[1800px] flex-col overflow-hidden border-white/10 bg-[#101716]/98 shadow-[0_30px_120px_#000] sm:border">
+                  <header class="flex h-[72px] shrink-0 items-center border-b border-white/8 bg-[#121918]/95 px-4 sm:px-5 lg:px-6">
+                    <div class="flex min-w-0 items-center gap-4">
+                      <div class="brand-mark grid size-9 shrink-0 place-items-center bg-[#d94c3f] font-serif text-lg text-white">
+                        葉
+                      </div>
+                      <div class="min-w-0">
+                        <h1 class="truncate font-serif text-xl tracking-[-0.03em] text-[#f0ebdf]">
+                          Afterleaf
+                        </h1>
+                        <p class="hidden text-[9px] font-semibold tracking-[0.22em] text-[#6f7a76] uppercase sm:block">
+                          Closing shift · local library
+                        </p>
                       </div>
                     </div>
+                    <div class="ml-auto flex items-center gap-2 sm:gap-3">
+                      <div class="mr-2 hidden items-center gap-2 text-[10px] text-[#6f7b76] md:flex">
+                        <span class="size-1.5 rounded-full bg-[#75aa91] shadow-[0_0_8px_#75aa91]"></span>{" "}
+                        Local library
+                      </div>
+                      <button
+                        class="flex h-9 items-center gap-2 border border-white/10 px-3 text-[11px] text-[#aab2ae] transition hover:border-white/20 hover:bg-white/5 hover:text-white disabled:cursor-wait disabled:opacity-50"
+                        disabled={
+                          runtimeLibrary.loading ||
+                          libraryUpdating() ||
+                          unavailableBookPathCount() > 0
+                        }
+                        onClick={() => void scanLibrary("quick")}
+                        title={
+                          unavailableBookPathCount() > 0
+                            ? "Remount the configured book paths before updating the library"
+                            : "Find new or normally changed local books and reuse unchanged generated assets"
+                        }
+                      >
+                        <FiRefreshCw
+                          classList={{
+                            "animate-spin":
+                              runtimeLibrary.loading || libraryUpdating(),
+                          }}
+                          size={14}
+                        />
+                        <span class="hidden sm:inline">
+                          {scanButtonLabel()}
+                        </span>
+                      </button>
+                      <button
+                        aria-label="Deep scan and repair library"
+                        class="grid size-9 place-items-center border border-white/10 text-[#8d9893] transition hover:border-white/20 hover:bg-white/5 hover:text-white disabled:cursor-wait disabled:opacity-50"
+                        disabled={
+                          runtimeLibrary.loading ||
+                          libraryUpdating() ||
+                          unavailableBookPathCount() > 0
+                        }
+                        onClick={() => setLibraryRepairOpen(true)}
+                        title={
+                          unavailableBookPathCount() > 0
+                            ? "Remount the configured book paths before repairing the library"
+                            : "Choose local and optional provider repair actions"
+                        }
+                      >
+                        <FiTool size={14} />
+                      </button>
+                      <button
+                        class="flex h-9 items-center gap-2 bg-[#ece6d8] px-3.5 text-[11px] font-bold text-[#1b2321] transition hover:bg-white disabled:cursor-wait"
+                        disabled={
+                          runtimeLibrary.loading ||
+                          libraryUpdating() ||
+                          unavailableBookPathCount() > 0
+                        }
+                        onClick={() => {
+                          setFetchOnBoot(
+                            loadBootFetchPreference()?.enabled === true,
+                          );
+                          setLibraryUpdateOpen(true);
+                        }}
+                      >
+                        <FiDownload size={14} />
+                        <span class="hidden sm:inline">
+                          {fetchButtonLabel()}
+                        </span>
+                      </button>
+                      <button
+                        class="grid size-9 place-items-center text-[#8d9893] transition hover:bg-white/5 hover:text-white"
+                        aria-label="Close menu and return to shop"
+                        title="Return to shop (Escape)"
+                        on:pointerdown={(event) => {
+                          if (event.button === 0) closeMenu();
+                        }}
+                        onClick={() => closeMenu()}
+                      >
+                        <FiX size={17} />
+                      </button>
+                    </div>
+                  </header>
+
+                  <nav class="flex shrink-0 border-b border-white/8 bg-[#121918] p-2 xl:hidden">
+                    <button
+                      class="flex h-10 flex-1 items-center justify-center gap-2 text-[10px] font-semibold tracking-[0.08em] uppercase transition"
+                      classList={{
+                        "bg-[#1c2523] text-[#ece8dd]": menuTab() === "library",
+                        "text-[#78837e] hover:bg-white/[0.025] hover:text-white":
+                          menuTab() !== "library",
+                      }}
+                      aria-pressed={menuTab() === "library"}
+                      onClick={() => setMenuTab("library")}
+                      type="button"
+                    >
+                      <FiGrid size={13} /> Library
+                    </button>
+                    <button
+                      class="flex h-10 flex-1 items-center justify-center gap-2 text-[10px] font-semibold tracking-[0.08em] uppercase transition"
+                      classList={{
+                        "bg-[#1c2523] text-[#ece8dd]": menuTab() === "options",
+                        "text-[#78837e] hover:bg-white/[0.025] hover:text-white":
+                          menuTab() !== "options",
+                      }}
+                      aria-pressed={menuTab() === "options"}
+                      onClick={() => setMenuTab("options")}
+                      type="button"
+                    >
+                      <FiSettings size={13} /> Options
+                    </button>
                   </nav>
 
-                  <section
-                    class="min-w-0 overflow-y-auto px-4 pt-7 pb-12 sm:px-7 lg:px-10 lg:pt-9"
-                    classList={{hidden: menuTab() !== "library"}}
-                  >
-                    <div class="flex flex-col justify-between gap-6 lg:flex-row lg:items-end">
-                      <div>
-                        <p class="text-[10px] font-semibold tracking-[0.2em] text-[#d55247] uppercase">
-                          First floor · current stock
-                        </p>
-                        <h2 class="mt-2 font-serif text-3xl tracking-[-0.04em] text-[#f0ecdf] sm:text-4xl">
-                          The night shelf
-                        </h2>
-                        <p class="mt-2 text-xs text-[#6e7974]">
-                          {library().length} publications catalogued ·{" "}
-                          {library().length > 0
-                            ? "all covers verified"
-                            : "ready for import"}
-                        </p>
-                      </div>
-                      <div class="flex items-center gap-3 border border-white/8 bg-[#151e1c] px-4 py-3">
-                        <span class="relative flex size-7 items-center justify-center">
-                          <span class="absolute size-6 rounded-full border border-[#70a28b]/20"></span>
-                          <span class="size-2 rounded-full bg-[#70a28b] shadow-[0_0_10px_#70a28b]"></span>
-                        </span>
-                        <div>
-                          <p class="text-[10px] font-semibold text-[#b8c1bc]">
-                            Library is current
-                          </p>
-                          <p class="mt-0.5 text-[9px] text-[#5f6b66]">
-                            Last checked {lastChecked()}
-                          </p>
-                          <Show when={libraryUpdating()}>
-                            <p class="mt-1 text-[9px] text-[#d66a60]">
-                              {libraryActivityStatus()} ·{" "}
-                              {libraryUpdateElapsedSeconds()}s
-                            </p>
-                          </Show>
-                          <Show when={libraryUpdateNotice()}>
-                            {(notice) => (
-                              <p class="mt-1 text-[9px] text-[#7fa995]">
-                                {notice()}
-                              </p>
-                            )}
-                          </Show>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div class="mt-8 flex flex-col gap-3 border-y border-white/8 py-4 md:flex-row md:items-center">
-                      <label class="flex h-10 flex-1 items-center gap-3 bg-[#19211f] px-3.5 text-[#7b8581] ring-[#d95145] focus-within:ring-1">
-                        <FiSearch size={15} />
-                        <input
-                          class="min-w-0 flex-1 bg-transparent text-xs text-[#e2ded4] outline-none placeholder:text-[#65706c]"
-                          value={query()}
-                          onInput={(event) =>
-                            setQuery(event.currentTarget.value)
-                          }
-                          placeholder="Search title, collection, or tag…"
-                        />
-                        <Show when={query()}>
-                          <button
-                            class="hover:text-white"
-                            aria-label="Clear search"
-                            onClick={() => setQuery("")}
-                          >
-                            <FiX size={13} />
-                          </button>
-                        </Show>
-                      </label>
-                      <div class="flex h-10 items-center gap-1 overflow-x-auto bg-[#19211f] p-1">
-                        <FiSliders
-                          class="mx-2 shrink-0 text-[#68736e]"
-                          size={13}
-                        />
-                        <For
-                          each={
-                            Object.entries(languageLabels) as [
-                              LanguageFilter,
-                              string,
-                            ][]
-                          }
+                  <div class="grid min-h-0 flex-1 grid-cols-1 overflow-hidden xl:grid-cols-[220px_minmax(0,1fr)_330px]">
+                    <nav class="hidden border-r border-white/8 bg-[#121918] px-5 py-7 xl:flex xl:flex-col">
+                      <p class="px-2 text-[9px] font-bold tracking-[0.2em] text-[#59645f] uppercase">
+                        Menu
+                      </p>
+                      <div class="mt-4 space-y-1">
+                        <button
+                          class="flex w-full items-center gap-3 px-3 py-2.5 text-xs transition"
+                          classList={{
+                            "bg-[#1c2523] font-semibold text-[#ece8dd]":
+                              menuTab() === "library",
+                            "text-[#7d8883] hover:bg-white/[0.025] hover:text-[#cbd0cc]":
+                              menuTab() !== "library",
+                          }}
+                          aria-pressed={menuTab() === "library"}
+                          onClick={() => setMenuTab("library")}
+                          type="button"
                         >
-                          {(entry) => (
-                            <button
-                              class="h-8 shrink-0 px-3 text-[10px] font-semibold transition"
-                              classList={{
-                                "bg-[#ede7d9] text-[#18201f]":
-                                  language() === entry[0],
-                                "text-[#77827d] hover:text-white":
-                                  language() !== entry[0],
-                              }}
-                              onClick={() => setLanguage(entry[0])}
-                            >
-                              {entry[1]}
+                          <FiGrid size={14} class="text-[#e25a4d]" /> Library{" "}
+                          <span class="ml-auto text-[10px] text-[#7c8681]">
+                            {String(library().length).padStart(2, "0")}
+                          </span>
+                        </button>
+                        <button
+                          class="flex w-full items-center gap-3 px-3 py-2.5 text-xs transition"
+                          classList={{
+                            "bg-[#1c2523] font-semibold text-[#ece8dd]":
+                              menuTab() === "options",
+                            "text-[#7d8883] hover:bg-white/[0.025] hover:text-[#cbd0cc]":
+                              menuTab() !== "options",
+                          }}
+                          aria-pressed={menuTab() === "options"}
+                          onClick={() => setMenuTab("options")}
+                          type="button"
+                        >
+                          <FiSettings size={14} class="text-[#e25a4d]" />{" "}
+                          Options
+                        </button>
+                      </div>
+
+                      <p class="mt-9 px-2 text-[9px] font-bold tracking-[0.2em] text-[#59645f] uppercase">
+                        Browse
+                      </p>
+                      <div class="mt-4 space-y-1">
+                        <button class="flex w-full items-center gap-3 px-3 py-2.5 text-xs text-[#7d8883] transition hover:bg-white/[0.025] hover:text-[#cbd0cc]">
+                          <FiClock size={14} /> Recently added
+                        </button>
+                        <button class="flex w-full items-center gap-3 px-3 py-2.5 text-xs text-[#7d8883] transition hover:bg-white/[0.025] hover:text-[#cbd0cc]">
+                          <FiBookOpen size={14} /> Continue reading
+                        </button>
+                      </div>
+
+                      <p class="mt-9 px-2 text-[9px] font-bold tracking-[0.2em] text-[#59645f] uppercase">
+                        Collections
+                      </p>
+                      <div class="mt-4 space-y-1">
+                        <For
+                          each={[
+                            {label: "Night shelves", color: "#d14d42"},
+                            {label: "Office stories", color: "#cf8951"},
+                            {label: "Supernatural", color: "#775e93"},
+                            {label: "Unsorted", color: "#64736d"},
+                          ]}
+                        >
+                          {(collection) => (
+                            <button class="flex w-full items-center gap-3 px-3 py-2 text-left text-[11px] text-[#7e8984] hover:text-[#cbd0cc]">
+                              <span
+                                class="size-1.5 rounded-full"
+                                style={{background: collection.color}}
+                              ></span>
+                              {collection.label}
                             </button>
                           )}
                         </For>
                       </div>
-                    </div>
 
-                    <div class="no-scrollbar mt-4 flex gap-2 overflow-x-auto pb-1">
-                      <button
-                        class="shrink-0 border px-3 py-1.5 text-[9px] font-semibold tracking-wide uppercase transition"
-                        classList={{
-                          "border-[#d64e42] bg-[#d64e42]/10 text-[#e46a60]":
-                            tag() === null,
-                          "border-white/8 text-[#69746f] hover:border-white/15":
-                            tag() !== null,
-                        }}
-                        onClick={() => setTag(null)}
-                      >
-                        All tags
-                      </button>
-                      <For each={visibleTags()}>
-                        {(catalogTag) => (
-                          <button
-                            class="shrink-0 border px-3 py-1.5 text-[9px] font-semibold tracking-wide uppercase transition"
-                            classList={{
-                              "border-[#d64e42] bg-[#d64e42]/10 text-[#e46a60]":
-                                tag() === catalogTag,
-                              "border-white/8 text-[#69746f] hover:border-white/15 hover:text-[#aeb5b1]":
-                                tag() !== catalogTag,
-                            }}
-                            onClick={() => setTag(catalogTag)}
-                          >
-                            {catalogTag}
-                          </button>
-                        )}
-                      </For>
-                    </div>
-
-                    <div class="mt-5 flex items-center justify-between border-b border-white/8 pb-4">
-                      <p class="text-[9px] leading-4 text-[#5f6a66]">
-                        Inspect the catalog here, then press Escape to return to
-                        the shop floor.
-                      </p>
-                      <span class="hidden items-center gap-2 border border-white/10 px-3 py-2 text-[9px] font-semibold tracking-[0.12em] text-[#7d8883] uppercase sm:flex">
-                        <FiMenu size={12} /> Escape menu
-                      </span>
-                    </div>
-
-                    <div class="mt-8">
-                      <div class="mb-5 flex items-center justify-between">
-                        <p class="text-[10px] font-semibold tracking-[0.17em] text-[#747f7a] uppercase">
-                          Face-out rack{" "}
-                          <span class="ml-2 text-[#4f5955]">
-                            {filteredCatalog()
-                              .length.toString()
-                              .padStart(2, "0")}
+                      <div class="mt-auto border-t border-white/8 pt-5">
+                        <div class="flex items-center gap-3 px-2">
+                          <span class="grid size-8 place-items-center rounded-full bg-[#24312e] text-[#789488]">
+                            <FiShield size={13} />
                           </span>
-                        </p>
-                        <p class="text-[9px] text-[#515c57]">
-                          Newest added first
-                        </p>
-                      </div>
-                      <Show
-                        when={filteredCatalog().length > 0}
-                        fallback={
-                          <div class="grid min-h-72 place-items-center border border-dashed border-white/10 text-center">
-                            <div>
-                              <FiSearch
-                                class="mx-auto text-[#53605a]"
-                                size={20}
-                              />
-                              <p class="mt-4 text-sm text-[#9ba49f]">
-                                Nothing on this shelf
-                              </p>
-                              <button
-                                class="mt-3 text-[10px] font-semibold text-[#d65a4f]"
-                                onClick={() => {
-                                  setQuery("");
-                                  setTag(null);
-                                  setLanguage("all");
-                                }}
-                              >
-                                Clear filters
-                              </button>
-                            </div>
+                          <div>
+                            <p class="text-[10px] font-semibold text-[#9ca6a1]">
+                              Local catalog
+                            </p>
+                            <p class="mt-0.5 text-[9px] text-[#56615c]">
+                              Stored on this device
+                            </p>
                           </div>
-                        }
-                      >
-                        <div class="shelf-grid grid grid-cols-2 gap-x-4 gap-y-12 sm:grid-cols-3 md:grid-cols-4 2xl:grid-cols-5">
-                          <For each={filteredCatalog()}>
-                            {(item) => (
-                              <LibraryCard
-                                item={item}
-                                active={selectedItem()?.id === item.id}
-                                onSelect={() => {
-                                  setSelectedId(item.id);
-                                  setMobileDetailOpen(true);
+                        </div>
+                      </div>
+                    </nav>
+
+                    <section
+                      class="min-w-0 overflow-y-auto px-4 pt-7 pb-12 sm:px-7 lg:px-10 lg:pt-9"
+                      classList={{hidden: menuTab() !== "library"}}
+                    >
+                      <div class="flex flex-col justify-between gap-6 lg:flex-row lg:items-end">
+                        <div>
+                          <p class="text-[10px] font-semibold tracking-[0.2em] text-[#d55247] uppercase">
+                            First floor · current stock
+                          </p>
+                          <h2 class="mt-2 font-serif text-3xl tracking-[-0.04em] text-[#f0ecdf] sm:text-4xl">
+                            The night shelf
+                          </h2>
+                          <p class="mt-2 text-xs text-[#6e7974]">
+                            {library().length} publications catalogued ·{" "}
+                            {library().length > 0
+                              ? "all covers verified"
+                              : "ready for import"}
+                          </p>
+                        </div>
+                        <div class="flex items-center gap-3 border border-white/8 bg-[#151e1c] px-4 py-3">
+                          <span class="relative flex size-7 items-center justify-center">
+                            <span class="absolute size-6 rounded-full border border-[#70a28b]/20"></span>
+                            <span class="size-2 rounded-full bg-[#70a28b] shadow-[0_0_10px_#70a28b]"></span>
+                          </span>
+                          <div>
+                            <p class="text-[10px] font-semibold text-[#b8c1bc]">
+                              Library is current
+                            </p>
+                            <p class="mt-0.5 text-[9px] text-[#5f6b66]">
+                              Last checked {lastChecked()}
+                            </p>
+                            <Show when={libraryUpdating()}>
+                              <p class="mt-1 text-[9px] text-[#d66a60]">
+                                {libraryActivityStatus()} ·{" "}
+                                {libraryUpdateElapsedSeconds()}s
+                              </p>
+                            </Show>
+                            <Show when={libraryUpdateNotice()}>
+                              {(notice) => (
+                                <p class="mt-1 text-[9px] text-[#7fa995]">
+                                  {notice()}
+                                </p>
+                              )}
+                            </Show>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div class="mt-8 flex flex-col gap-3 border-y border-white/8 py-4 md:flex-row md:items-center">
+                        <label class="flex h-10 flex-1 items-center gap-3 bg-[#19211f] px-3.5 text-[#7b8581] ring-[#d95145] focus-within:ring-1">
+                          <FiSearch size={15} />
+                          <input
+                            class="min-w-0 flex-1 bg-transparent text-xs text-[#e2ded4] outline-none placeholder:text-[#65706c]"
+                            value={query()}
+                            onInput={(event) =>
+                              setQuery(event.currentTarget.value)
+                            }
+                            placeholder="Search title, collection, or tag…"
+                          />
+                          <Show when={query()}>
+                            <button
+                              class="hover:text-white"
+                              aria-label="Clear search"
+                              onClick={() => setQuery("")}
+                            >
+                              <FiX size={13} />
+                            </button>
+                          </Show>
+                        </label>
+                        <div class="flex h-10 items-center gap-1 overflow-x-auto bg-[#19211f] p-1">
+                          <FiSliders
+                            class="mx-2 shrink-0 text-[#68736e]"
+                            size={13}
+                          />
+                          <For
+                            each={
+                              Object.entries(languageLabels) as [
+                                LanguageFilter,
+                                string,
+                              ][]
+                            }
+                          >
+                            {(entry) => (
+                              <button
+                                class="h-8 shrink-0 px-3 text-[10px] font-semibold transition"
+                                classList={{
+                                  "bg-[#ede7d9] text-[#18201f]":
+                                    language() === entry[0],
+                                  "text-[#77827d] hover:text-white":
+                                    language() !== entry[0],
                                 }}
-                              />
+                                onClick={() => setLanguage(entry[0])}
+                              >
+                                {entry[1]}
+                              </button>
                             )}
                           </For>
                         </div>
-                      </Show>
-                    </div>
-                  </section>
-
-                  <Show
-                    when={menuTab() === "library" ? selectedItem() : undefined}
-                    fallback={
-                      <Show when={menuTab() === "library"}>
-                        <aside class="hidden border-l border-white/8 bg-[#151c1b] xl:block" />
-                      </Show>
-                    }
-                  >
-                    {(item) => (
-                      <div class="hidden xl:block">
-                        <DetailPanel
-                          item={item()}
-                          onClose={() => setSelectedId("")}
-                          onInspect={() => closeMenu()}
-                        />
                       </div>
-                    )}
-                  </Show>
 
-                  <Show when={menuTab() === "options"}>
-                    <OptionsPanel
-                      availableTags={availableTags()}
-                      libraryConfig={libraryConfig()}
-                      onLibraryConfigChange={(config) =>
-                        void updateLibraryConfig(config)
-                      }
-                      onReenrollLibraryRoot={reenrollBookRoot}
-                      reenrollableBookPaths={reenrollableBookPaths()}
-                      blacklistedTags={blacklistedTags()}
-                      defaultReadingDirection={defaultReadingDirection()}
-                      mouseSensitivity={mouseSensitivity()}
-                      onBlacklistedTagsChange={updateBlacklistedTags}
-                      onDefaultReadingDirectionChange={
-                        updateDefaultReadingDirection
-                      }
-                      onMouseSensitivityChange={updateMouseSensitivity}
-                      onPurgeBlacklistedWorks={() =>
-                        setPurgeBlacklistedOpen(true)
-                      }
-                      onUnstuck={() => {
-                        setUnstuckRequest((request) => request + 1);
-                        closeMenu();
-                      }}
-                      onRespectBookReadingDirectionChange={
-                        updateRespectBookReadingDirection
-                      }
-                      onTvScreenLightingChange={updateTvScreenLighting}
-                      purgeDisabled={
-                        libraryUpdating() ||
-                        unavailableBookPathCount() > 0 ||
-                        blacklistedTagWorkCandidates().length === 0
-                      }
-                      purgeWorkCount={blacklistedTagWorkCandidates().length}
-                      respectBookReadingDirection={respectBookReadingDirection()}
-                      tvScreenLighting={tvScreenLighting()}
-                    />
-                  </Show>
-                </div>
-              </div>
-            </div>
-          </Show>
+                      <div class="no-scrollbar mt-4 flex gap-2 overflow-x-auto pb-1">
+                        <button
+                          class="shrink-0 border px-3 py-1.5 text-[9px] font-semibold tracking-wide uppercase transition"
+                          classList={{
+                            "border-[#d64e42] bg-[#d64e42]/10 text-[#e46a60]":
+                              tag() === null,
+                            "border-white/8 text-[#69746f] hover:border-white/15":
+                              tag() !== null,
+                          }}
+                          onClick={() => setTag(null)}
+                        >
+                          All tags
+                        </button>
+                        <For each={visibleTags()}>
+                          {(catalogTag) => (
+                            <button
+                              class="shrink-0 border px-3 py-1.5 text-[9px] font-semibold tracking-wide uppercase transition"
+                              classList={{
+                                "border-[#d64e42] bg-[#d64e42]/10 text-[#e46a60]":
+                                  tag() === catalogTag,
+                                "border-white/8 text-[#69746f] hover:border-white/15 hover:text-[#aeb5b1]":
+                                  tag() !== catalogTag,
+                              }}
+                              onClick={() => setTag(catalogTag)}
+                            >
+                              {catalogTag}
+                            </button>
+                          )}
+                        </For>
+                      </div>
 
-          <Show when={mobileDetailOpen()}>
-            <Show when={selectedItem()}>
-              {(item) => (
-                <div
-                  class="fixed inset-0 z-40 bg-black/70 xl:hidden"
-                  onClick={() => setMobileDetailOpen(false)}
-                >
-                  <div
-                    class="absolute inset-y-0 right-0 w-full max-w-sm"
-                    onClick={(event) => event.stopPropagation()}
-                  >
-                    <DetailPanel
-                      item={item()}
-                      onClose={() => setMobileDetailOpen(false)}
-                      onInspect={() => {
-                        setMobileDetailOpen(false);
-                        closeMenu();
-                      }}
-                    />
+                      <div class="mt-5 flex items-center justify-between border-b border-white/8 pb-4">
+                        <p class="text-[9px] leading-4 text-[#5f6a66]">
+                          Inspect the catalog here, then press Escape to return
+                          to the shop floor.
+                        </p>
+                        <span class="hidden items-center gap-2 border border-white/10 px-3 py-2 text-[9px] font-semibold tracking-[0.12em] text-[#7d8883] uppercase sm:flex">
+                          <FiMenu size={12} /> Escape menu
+                        </span>
+                      </div>
+
+                      <div class="mt-8">
+                        <div class="mb-5 flex items-center justify-between">
+                          <p class="text-[10px] font-semibold tracking-[0.17em] text-[#747f7a] uppercase">
+                            Face-out rack{" "}
+                            <span class="ml-2 text-[#4f5955]">
+                              {filteredCatalog()
+                                .length.toString()
+                                .padStart(2, "0")}
+                            </span>
+                          </p>
+                          <p class="text-[9px] text-[#515c57]">
+                            Newest added first
+                          </p>
+                        </div>
+                        <Show
+                          when={filteredCatalog().length > 0}
+                          fallback={
+                            <div class="grid min-h-72 place-items-center border border-dashed border-white/10 text-center">
+                              <div>
+                                <FiSearch
+                                  class="mx-auto text-[#53605a]"
+                                  size={20}
+                                />
+                                <p class="mt-4 text-sm text-[#9ba49f]">
+                                  Nothing on this shelf
+                                </p>
+                                <button
+                                  class="mt-3 text-[10px] font-semibold text-[#d65a4f]"
+                                  onClick={() => {
+                                    setQuery("");
+                                    setTag(null);
+                                    setLanguage("all");
+                                  }}
+                                >
+                                  Clear filters
+                                </button>
+                              </div>
+                            </div>
+                          }
+                        >
+                          <div class="shelf-grid grid grid-cols-2 gap-x-4 gap-y-12 sm:grid-cols-3 md:grid-cols-4 2xl:grid-cols-5">
+                            <For each={filteredCatalog()}>
+                              {(item) => (
+                                <LibraryCard
+                                  item={item}
+                                  active={selectedItem()?.id === item.id}
+                                  onSelect={() => {
+                                    setSelectedId(item.id);
+                                    setMobileDetailOpen(true);
+                                  }}
+                                />
+                              )}
+                            </For>
+                          </div>
+                        </Show>
+                      </div>
+                    </section>
+
+                    <Show
+                      when={
+                        menuTab() === "library" ? selectedItem() : undefined
+                      }
+                      fallback={
+                        <Show when={menuTab() === "library"}>
+                          <aside class="hidden border-l border-white/8 bg-[#151c1b] xl:block" />
+                        </Show>
+                      }
+                    >
+                      {(item) => (
+                        <div class="hidden xl:block">
+                          <DetailPanel
+                            item={item()}
+                            onClose={() => setSelectedId("")}
+                            onInspect={() => closeMenu()}
+                          />
+                        </div>
+                      )}
+                    </Show>
+
+                    <Show when={menuTab() === "options"}>
+                      <OptionsPanel
+                        availableTags={availableTags()}
+                        libraryConfig={libraryConfig()}
+                        onLibraryConfigChange={(config) =>
+                          void updateLibraryConfig(config)
+                        }
+                        onReenrollLibraryRoot={reenrollBookRoot}
+                        reenrollableBookPaths={reenrollableBookPaths()}
+                        blacklistedTags={blacklistedTags()}
+                        defaultReadingDirection={defaultReadingDirection()}
+                        mouseSensitivity={mouseSensitivity()}
+                        onBlacklistedTagsChange={updateBlacklistedTags}
+                        onDefaultReadingDirectionChange={
+                          updateDefaultReadingDirection
+                        }
+                        onMouseSensitivityChange={updateMouseSensitivity}
+                        onPurgeBlacklistedWorks={() =>
+                          setPurgeBlacklistedOpen(true)
+                        }
+                        onUnstuck={() => {
+                          setUnstuckRequest((request) => request + 1);
+                          closeMenu();
+                        }}
+                        onRespectBookReadingDirectionChange={
+                          updateRespectBookReadingDirection
+                        }
+                        onTvScreenLightingChange={updateTvScreenLighting}
+                        purgeDisabled={
+                          libraryUpdating() ||
+                          unavailableBookPathCount() > 0 ||
+                          blacklistedTagWorkCandidates().length === 0
+                        }
+                        purgeWorkCount={blacklistedTagWorkCandidates().length}
+                        respectBookReadingDirection={respectBookReadingDirection()}
+                        tvScreenLighting={tvScreenLighting()}
+                      />
+                    </Show>
                   </div>
                 </div>
-              )}
+              </div>
             </Show>
-          </Show>
 
-          <Show when={purgeBlacklistedOpen()}>
-            <PurgeBlacklistedWorksDialog
-              blacklistedTags={blacklistedTags()}
-              busy={libraryUpdating()}
-              workCount={blacklistedTagWorkCandidates().length}
-              onCancel={() => setPurgeBlacklistedOpen(false)}
-              onConfirm={() => void purgeBlacklistedWorks()}
-            />
-          </Show>
+            <Show when={mobileDetailOpen()}>
+              <Show when={selectedItem()}>
+                {(item) => (
+                  <div
+                    class="fixed inset-0 z-40 bg-black/70 xl:hidden"
+                    onClick={() => setMobileDetailOpen(false)}
+                  >
+                    <div
+                      class="absolute inset-y-0 right-0 w-full max-w-sm"
+                      onClick={(event) => event.stopPropagation()}
+                    >
+                      <DetailPanel
+                        item={item()}
+                        onClose={() => setMobileDetailOpen(false)}
+                        onInspect={() => {
+                          setMobileDetailOpen(false);
+                          closeMenu();
+                        }}
+                      />
+                    </div>
+                  </div>
+                )}
+              </Show>
+            </Show>
 
-          <Show when={libraryRepairOpen()}>
-            <LibraryRepairDialog
-              onCancel={() => setLibraryRepairOpen(false)}
-              onConfirm={(options) => {
-                setLibraryRepairOpen(false);
-                void scanLibrary("repair", options);
-              }}
-            />
-          </Show>
+            <Show when={purgeBlacklistedOpen()}>
+              <PurgeBlacklistedWorksDialog
+                blacklistedTags={blacklistedTags()}
+                busy={libraryUpdating()}
+                workCount={blacklistedTagWorkCandidates().length}
+                onCancel={() => setPurgeBlacklistedOpen(false)}
+                onConfirm={() => void purgeBlacklistedWorks()}
+              />
+            </Show>
 
-          <Show when={libraryUpdateOpen()}>
-            <LibraryUpdateDialog
-              busy={libraryUpdating()}
-              fetchOnBoot={fetchOnBoot()}
-              fetchLimit={libraryFetchLimit()}
-              maxSearchPages={librarySearchPageLimit()}
-              providerId={selectedProviderId()}
-              providers={availableLibraryProviders()}
-              providerError={libraryProviderError()}
-              onCancel={closeLibraryUpdate}
-              onConfirm={(
-                rememberBootFetch,
-                providerId,
-                query,
-                fetchLimit,
-                maxSearchPages,
-              ) =>
-                void fetchMoreLibrary({
-                  limit: fetchLimit,
-                  maxSearchPages,
+            <Show when={libraryRepairOpen()}>
+              <LibraryRepairDialog
+                onCancel={() => setLibraryRepairOpen(false)}
+                onConfirm={(options) => {
+                  setLibraryRepairOpen(false);
+                  void scanLibrary("repair", options);
+                }}
+              />
+            </Show>
+
+            <Show when={libraryUpdateOpen()}>
+              <LibraryUpdateDialog
+                busy={libraryUpdating()}
+                fetchOnBoot={fetchOnBoot()}
+                fetchLimit={libraryFetchLimit()}
+                maxSearchPages={librarySearchPageLimit()}
+                providerId={selectedProviderId()}
+                providers={availableLibraryProviders()}
+                providerError={libraryProviderError()}
+                onCancel={closeLibraryUpdate}
+                onConfirm={(
                   rememberBootFetch,
                   providerId,
                   query,
-                })
-              }
-              onFetchOnBootChange={setFetchOnBoot}
-              onProviderChange={(providerId) => {
-                setSelectedProviderId(providerId);
-                saveLibraryProviderPreference(providerId);
-              }}
-            />
-          </Show>
-        </div>
-      </Show>
-    </main>
+                  fetchLimit,
+                  maxSearchPages,
+                ) =>
+                  void fetchMoreLibrary({
+                    limit: fetchLimit,
+                    maxSearchPages,
+                    rememberBootFetch,
+                    providerId,
+                    query,
+                  })
+                }
+                onFetchOnBootChange={setFetchOnBoot}
+                onProviderChange={(providerId) => {
+                  setSelectedProviderId(providerId);
+                  saveLibraryProviderPreference(providerId);
+                }}
+              />
+            </Show>
+          </div>
+        </Show>
+      </main>
+    </UiModeProvider>
   );
 };

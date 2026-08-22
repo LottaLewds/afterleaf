@@ -11,7 +11,6 @@ import {
   For,
   Show,
   createEffect,
-  createMemo,
   createRenderEffect,
   createSignal,
   on,
@@ -38,6 +37,7 @@ import {
 } from "~/game/worldSaveBrowserClient";
 import type {WorldSaveV1} from "~/game/worldSave";
 import {createEscapeScope} from "~/game/modalModes";
+import {INTERACTION_ROW_MODES, useUiMode} from "~/game/uiMode";
 import {loadShopMediaCatalog} from "~/game/shopMediaCatalogBrowserClient";
 import {importPoster} from "~/posters/browserClient";
 import {importTvVideo} from "~/tv/browserClient";
@@ -104,17 +104,26 @@ export const ShopViewport = (props: ShopViewportProps) => {
   let signTitleInput: HTMLInputElement | undefined;
   let shopScene: ShopScene | undefined;
   const worldSaveAbortController = new AbortController();
-  const shouldBePointerLocked = createMemo(
-    () =>
-      props.paused?.() !== true &&
-      signEditor() === undefined &&
-      mediaChannelEditor() === undefined &&
-      gameState().inspectionMode !== "spread" &&
-      gameState().arcadeStatus === undefined,
-  );
+  const uiMode = useUiMode();
+  // Pointer-lock intent is a property of the exclusive mode: only free roam
+  // wants the cursor captured; every other surface keeps it released.
+  const shouldBePointerLocked = () => uiMode.mode() === "walk";
   const controls: ShopViewportControls = {
     requestPointerLock: () => shopScene?.requestPointerLock(),
   };
+
+  // Publish this component's slice to the shared UiMode root so global
+  // shortcuts, overlays, and future consumers key off one source of truth.
+  createEffect(() => {
+    uiMode.reportViewport({
+      arcadeStatus: gameState().arcadeStatus,
+      dialogOpen:
+        signEditor() !== undefined || mediaChannelEditor() !== undefined,
+      error: error() !== undefined,
+      inspectionSpread: gameState().inspectionMode === "spread",
+      ready: ready(),
+    });
+  });
 
   // Modal scopes: the shared stack gives the most recently opened surface
   // first crack at Escape, so dialogs and arcade sessions no longer depend
@@ -316,6 +325,7 @@ export const ShopViewport = (props: ShopViewportProps) => {
             error() !== undefined ||
             signEditor() !== undefined ||
             mediaChannelEditor() !== undefined,
+          mode: uiMode.mode,
           onReady: () => setReady(true),
         });
         if (!shouldBePointerLocked()) shopScene.releasePointerLock();
@@ -363,6 +373,14 @@ export const ShopViewport = (props: ShopViewportProps) => {
       ?.title;
   };
   const carriedBookCount = () => gameState().carriedBookCount ?? 1;
+
+  // Interaction affordances belong to input-owned surfaces only: free-roam
+  // targeting rows and live emulator control hints. The scene's emitter drops
+  // them for other modes too, keyed off the same shared policy set.
+  const interactionRows = () =>
+    INTERACTION_ROW_MODES.has(uiMode.mode())
+      ? gameState().interactions
+      : undefined;
 
   return (
     <section
@@ -467,7 +485,7 @@ export const ShopViewport = (props: ShopViewportProps) => {
             </Show>
           </div>
         </Show>
-        <Show when={gameState().inspectionMode !== "spread"}>
+        <Show when={uiMode.mode() === "walk"}>
           <div
             class="pointer-events-none absolute top-1/2 left-1/2 size-4 -translate-x-1/2 -translate-y-1/2"
             aria-hidden="true"
@@ -479,7 +497,7 @@ export const ShopViewport = (props: ShopViewportProps) => {
           </div>
         </Show>
 
-        <Show when={gameState().interactions}>
+        <Show when={interactionRows()}>
           {(interactions) => (
             <div class="pointer-events-none absolute bottom-5 left-4 z-10 w-max max-w-[min(18rem,calc(100vw-2rem))] border-l-2 border-[#d94c3f] bg-[#08100f]/88 px-3 py-2 text-sm text-[#e5e0d5] shadow-lg backdrop-blur-sm sm:bottom-6 sm:left-5">
               <p class="mb-1 text-[8px] font-bold tracking-[0.18em] text-[#8da098] uppercase">
