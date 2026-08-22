@@ -41,10 +41,8 @@ import {
   Vector3,
   WebGLRenderer,
   type AnimationClip,
-  type BufferAttribute,
   type BufferGeometry,
   type ColorSpace,
-  type InterleavedBufferAttribute,
   type Material,
 } from "three";
 import {GLTFLoader} from "three/examples/jsm/loaders/GLTFLoader.js";
@@ -2253,56 +2251,113 @@ export class ShopScene {
     this.#batchStaticInteriorMeshes(architecture);
   }
 
+  // Two exclusion tiers:
+  //   HARD - runtime-mutated materials (screens, displays) or interactive
+  //          systems; never swept into batches.
+  //   SOFT - movable-later fixtures (shelving); their contents ARE batched,
+  //          but scoped inside the fixture so it stays one movable unit.
+  static readonly #interiorBatchHard =
+    /television|screen|arcade|art-?frame|face-?out|display|snap|helper/iu;
+  static readonly #interiorBatchSoft = /shelf|gondola|fixture|cave/iu;
+
+  /**
+   * Parameter fingerprint so identical inline materials (builders create
+   * `new MeshBasicMaterial({color})` per call) share one batch even though
+   * they are separate instances.
+   */
+  static #interiorMaterialSignature(material: Material): string {
+    if (
+      !(material instanceof MeshStandardMaterial) &&
+      !(material instanceof MeshBasicMaterial)
+    )
+      return `${material.type}|${material.uuid}`;
+    const parts = [
+      material.type,
+      `#${material.color.getHexString()}`,
+      material.map ? material.map.uuid : "-",
+      material.side,
+      material.transparent ? material.opacity : 1,
+    ];
+    if (material instanceof MeshStandardMaterial)
+      parts.push(
+        String(material.roughness),
+        String(material.metalness),
+        `#${material.emissive.getHexString()}`,
+        String(material.emissiveIntensity),
+      );
+    return parts.join("|");
+  }
+
   #batchStaticInteriorMeshes(parent: Group) {
-    const batchesByMaterial = new Map<
-      Material,
-      Map<string, Mesh<BufferGeometry, Material>[]>
+    parent.updateMatrixWorld(true);
+    const parentInverse = new Matrix4().copy(parent.matrixWorld).invert();
+
+    /** Buckets keyed by container node: global for unscoped content. */
+    const bucketsByContainer = new Map<
+      Object3D,
+      Map<string, {material: Material; meshes: Mesh[]}>
     >();
-    for (const object of [...parent.children]) {
-      if (!(object instanceof Mesh) || object instanceof BatchedMesh) continue;
-      if (
-        !object.visible ||
-        Array.isArray(object.material) ||
-        object.material.transparent ||
-        object.children.length > 0
-      )
-        continue;
-      const position = object.geometry.getAttribute("position");
-      if (!position) continue;
-      // Annotated explicitly: the geometry's attribute map widens to `any`
-      // through Mesh's default generics, which would leave entries unknown.
-      const attributes: Record<
-        string,
-        BufferAttribute | InterleavedBufferAttribute
-      > = object.geometry.attributes;
-      const attributeSignature = Object.entries(attributes)
-        .map(
-          ([name, attribute]) =>
-            `${name}:${attribute.array.constructor.name}:${attribute.itemSize}:${attribute.normalized}`,
-        )
-        .sort()
-        .join("|");
-      const index = object.geometry.getIndex();
-      const signature = [
-        object.castShadow,
-        object.receiveShadow,
-        object.renderOrder,
-        index?.array.constructor.name ?? "unindexed",
-        attributeSignature,
-      ].join(":");
-      let batches = batchesByMaterial.get(object.material);
-      if (!batches) {
-        batches = new Map();
-        batchesByMaterial.set(object.material, batches);
+    const bucketFor = (container: Object3D) => {
+      let buckets = bucketsByContainer.get(container);
+      if (!buckets) {
+        buckets = new Map();
+        bucketsByContainer.set(container, buckets);
       }
-      const meshes = batches.get(signature);
-      if (meshes) meshes.push(object);
-      else batches.set(signature, [object]);
-    }
+      return buckets;
+    };
+
+    const visit = (object: Object3D, scopeContainer: Object3D | null): void => {
+      if (!object.visible) return;
+      // Topmost soft match owns the scope; everything under it batches
+      // into the container just above that match so the fixture stays
+      // movable as a unit.
+      const scope =
+        scopeContainer ??
+        (ShopScene.#interiorBatchSoft.test(object.name) ? object : null);
+      const container = scope === null ? parent : (scope.parent ?? parent);
+      const effectiveContainer =
+        scope === null ? parent : container === parent ? parent : container;
+
+      if (
+        object instanceof Mesh &&
+        !(object instanceof BatchedMesh) &&
+        !ShopScene.#interiorBatchHard.test(object.name)
+      ) {
+        const material = object.material;
+        if (
+          !Array.isArray(material) &&
+          !material.transparent &&
+          object.geometry.getAttribute("position")
+        ) {
+          // Flags deliberately excluded: per-row renderOrder/shadow flags
+          // would otherwise split identical fixtures into singleton buckets.
+          // Opaque draws are depth-sorted by the GPU regardless.
+          const signature = [
+            ShopScene.#interiorMaterialSignature(material),
+            object.geometry.getIndex() ? "indexed" : "unindexed",
+          ].join(":");
+          const buckets = bucketFor(effectiveContainer);
+          let bucket = buckets.get(signature);
+          if (!bucket) {
+            bucket = {material, meshes: []};
+            buckets.set(signature, bucket);
+          }
+          bucket.meshes.push(object);
+        }
+      }
+
+      for (const child of object.children)
+        visit(child, scope ?? (effectiveContainer === parent ? null : scope));
+    };
+    for (const child of [...parent.children]) visit(child, null);
 
     let batchIndex = 0;
-    for (const [material, batches] of batchesByMaterial)
-      for (const meshes of batches.values()) {
+    for (const [container, buckets] of bucketsByContainer) {
+      const containerInverse =
+        container === parent
+          ? parentInverse
+          : new Matrix4().copy(container.matrixWorld).invert();
+      for (const {material, meshes} of buckets.values()) {
         if (meshes.length < 2) continue;
         const vertexCount = meshes.reduce(
           (total, mesh) =>
@@ -2313,29 +2368,51 @@ export class ShopScene {
           (total, mesh) => total + (mesh.geometry.getIndex()?.count ?? 0),
           0,
         );
-        const batch = new BatchedMesh(
-          meshes.length,
-          vertexCount,
-          indexCount,
-          material,
-        );
+        let batch;
+        try {
+          batch = new BatchedMesh(
+            meshes.length,
+            vertexCount,
+            indexCount,
+            material,
+          );
+        } catch (error) {
+          if (DEV)
+            console.error(
+              "[afterleaf] BatchedMesh creation failed:",
+              error,
+              "meshes:",
+              meshes.length,
+              "verts:",
+              vertexCount,
+            );
+          continue;
+        }
         batch.name = `static-interior-batch-${batchIndex}`;
         batchIndex += 1;
-        batch.castShadow = meshes[0]?.castShadow ?? false;
-        batch.receiveShadow = meshes[0]?.receiveShadow ?? false;
-        batch.renderOrder = meshes[0]?.renderOrder ?? 0;
+        batch.castShadow = meshes.some((mesh) => mesh.castShadow);
+        batch.receiveShadow = meshes.some((mesh) => mesh.receiveShadow);
         batch.sortObjects = false;
         for (const mesh of meshes) {
-          mesh.updateMatrix();
+          mesh.updateWorldMatrix(true, false);
+          const relative = new Matrix4().multiplyMatrices(
+            containerInverse,
+            mesh.matrixWorld,
+          );
           const geometryId = batch.addGeometry(mesh.geometry);
           const instanceId = batch.addInstance(geometryId);
-          batch.setMatrixAt(instanceId, mesh.matrix);
+          batch.setMatrixAt(instanceId, relative);
           mesh.visible = false;
         }
         batch.computeBoundingBox();
         batch.computeBoundingSphere();
-        parent.add(batch);
+        container.add(batch);
       }
+    }
+    if (DEV)
+      console.log(
+        `[afterleaf] interior batching: ${batchIndex} batches from ${bucketsByContainer.size} container(s)`,
+      );
   }
 
   #createFloorMaterial() {
@@ -2452,6 +2529,10 @@ export class ShopScene {
       });
       const target = new Mesh(targetGeometry, targetMaterial);
       target.name = `mixed-shelf-target-${shelfId}`;
+      // Invisible raycast proxy: rendering hundreds of fully transparent
+      // quads costs a draw call each while contributing nothing on screen.
+      // Raycaster does not test .visible, so targeting keeps working.
+      target.visible = false;
       target.position.copy(frontCenter);
       target.userData.shelfId = shelfId;
       parent.add(target);
@@ -2486,6 +2567,8 @@ export class ShopScene {
     target.position.copy(frontCenter);
     target.rotation.y = Math.PI;
     target.userData.shelfId = TELEVISION_TABLE_SHELF_ID;
+    // Invisible raycast proxy - see mixed-shelf-target note above.
+    target.visible = false;
     parent.add(target);
     this.#shelfTargetMeshes.push(target);
   }
@@ -2510,6 +2593,8 @@ export class ShopScene {
         }),
       );
       target.name = `shelf-sign-target-${column}`;
+      // Invisible raycast proxy (opacity <= 0.1); keep it out of render.
+      target.visible = false;
       const id = String(column);
       const key = shopSignKey("shelf", id);
       target.userData.signKey = key;
@@ -3178,6 +3263,8 @@ export class ShopScene {
             material,
           );
           target.name = `spine-shelf-target-${shelfId}`;
+          // Invisible raycast proxy - see mixed-shelf-target note above.
+          target.visible = false;
           target.position.copy(frontCenter);
           target.rotation.y = targetRotationY;
           target.userData.shelfId = shelfId;
@@ -3214,6 +3301,8 @@ export class ShopScene {
       }),
     );
     target.name = `spine-shelf-sign-target-${column}`;
+    // Invisible raycast proxy (opacity <= 0.1); keep it out of render.
+    target.visible = false;
     const id = String(column);
     const key = shopSignKey("shelf", id);
     target.userData.signKey = key;
@@ -3258,6 +3347,8 @@ export class ShopScene {
       }),
     );
     target.name = `aisle-sign-target-${id}`;
+    // Invisible raycast proxy (opacity <= 0.1); keep it out of render.
+    target.visible = false;
     target.userData.signKey = key;
     group.add(target);
     parent.add(group);
@@ -4461,6 +4552,8 @@ export class ShopScene {
       }),
     );
     target.name = `${id}-sign-target`;
+    // Invisible raycast proxy (opacity <= 0.1); keep it out of render.
+    target.visible = false;
     target.userData.signKey = key;
     group.add(target);
     parent.add(group);

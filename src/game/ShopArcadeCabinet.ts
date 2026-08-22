@@ -287,14 +287,15 @@ export class ShopArcadeCabinet {
       this.#liveTexture.image = canvas;
       this.#liveTexture.needsUpdate = true;
       this.#material.map = this.#liveTexture;
-      if (DEV && !this.#hud) {
-        this.#hud = this.#createDevHud();
+      if (!this.#hud) {
+        this.#hud = this.#createFpsHud();
         this.#hudElapsed = 0;
         this.#hudHostFrames = 0;
+        this.#hudWorstFrameMs = 0;
         this.#hudLastCoreFrames = undefined;
       }
     } else {
-      this.#removeDevHud();
+      this.#removeFpsHud();
       this.#disposeOsd();
       this.#material.map = this.#attractTexture;
     }
@@ -691,22 +692,22 @@ export class ShopArcadeCabinet {
       (this.#targeted ? 0.16 : 0);
   }
 
-  // -- Dev FPS readout -------------------------------------------------------
+  // -- FPS readout (permanent, bottom-right) ---------------------------------
 
-  #createDevHud(): HTMLDivElement {
+  #createFpsHud(): HTMLDivElement {
     const hud = document.createElement("div");
-    // Parallel sessions stack by stable id suffix so their readouts never
-    // overlap on screen.
+    // Parallel sessions stack upward from the corner by stable id suffix so
+    // their readouts never overlap.
     const index = Number.parseInt(this.id.slice("arcade-".length), 10);
     hud.style.position = "fixed";
-    hud.style.left = "12px";
-    hud.style.top = `${12 + (Number.isNaN(index) ? 0 : index - 1) * 24}px`;
+    hud.style.right = "4px";
+    hud.style.bottom = `${4 + (Number.isNaN(index) ? 0 : index - 1) * 18}px`;
     hud.style.zIndex = "60";
-    hud.style.padding = "3px 9px";
-    hud.style.borderRadius = "6px";
-    hud.style.background = "rgba(7,16,15,0.85)";
+    hud.style.padding = "2px 6px";
+    hud.style.borderRadius = "4px";
+    hud.style.background = "rgba(7,16,15,0.78)";
     hud.style.color = "#a8e6b0";
-    hud.style.font = "11px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace";
+    hud.style.font = "10px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace";
     hud.style.pointerEvents = "none";
     hud.style.whiteSpace = "pre";
     hud.textContent = "HOST … · CORE …";
@@ -714,7 +715,7 @@ export class ShopArcadeCabinet {
     return hud;
   }
 
-  #removeDevHud() {
+  #removeFpsHud() {
     this.#hud?.remove();
     this.#hud = undefined;
     this.#hudLastCoreFrames = undefined;
@@ -760,9 +761,7 @@ export class ShopArcadeCabinet {
     this.destroyHost();
     this.setLiveCanvas(undefined);
     this.object.removeFromParent();
-    // setLiveCanvas(undefined) already dropped the HUD and OSD when DEV;
-    // guard for the production build where the HUD was never created.
-    this.#removeDevHud();
+    this.#removeFpsHud();
     this.#disposeOsd();
     this.#attractTexture.dispose();
     this.#liveTexture.dispose();

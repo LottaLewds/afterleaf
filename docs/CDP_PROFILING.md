@@ -20,8 +20,8 @@ automatically, then add `?profile=1`. If no active server can be discovered, the
 wrappers stop with an actionable error instead of guessing a port.
 `AFTERLEAF_GAME_URL` always takes precedence.
 
-The development-only `profile=1` argument disables the normal pointer-unlock
-pause/menu behavior. The Chrome launcher also disables background timer,
+The development-only `profile=1` argument skips the adult-age gate so CDP runs
+boot the shop unattended. The Chrome launcher also disables background timer,
 renderer, and occluded-window throttling. Keep the dedicated window visible,
 restored, and focused for representative frame timing; a minimized window can
 still stop producing frames.
