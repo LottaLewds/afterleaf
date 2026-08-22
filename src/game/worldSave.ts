@@ -1,6 +1,14 @@
 import type {ShelfPresentation} from "./shelfPlacement";
 
 export const WORLD_SAVE_SCHEMA_VERSION = 1 as const;
+/** First seeding pass: CRTs, arcade cabinets, reading furniture, trash bin. */
+export const INITIAL_WORLD_SEEDING_VERSION = 1 as const;
+/**
+ * Highest default-prop seeding pass this build understands. Bump whenever a
+ * new boot-time seeding pass is introduced; worlds record the latest pass
+ * they have absorbed and run only newer passes on load.
+ */
+export const WORLD_SEEDING_VERSION = 2 as const;
 export const MAX_CARRIED_BOOKS = 5;
 
 const MAX_BOOK_COUNT = 10_000;
@@ -122,16 +130,16 @@ export type WorldSaveV1 = {
   player: WorldPose;
   posters?: readonly WorldPosterSave[];
   props?: readonly WorldPropSave[];
-  /**
-   * Written once the shop has seeded its default props (lane arcade
-   * cabinet, movable CRT television) into the world as ordinary spawned
-   * props. Absent on fresh and legacy worlds, which are seeded on boot;
-   * once present, the saved modelProps list is authoritative and deleted
-   * defaults stay gone.
-   */
-  defaultsSeeded?: true;
   savedAt: string;
   schemaVersion: typeof WORLD_SAVE_SCHEMA_VERSION;
+  /**
+   * Highest default-prop seeding pass this world has absorbed. Absent on
+   * fresh worlds, which run every pass on boot; once present, the saved
+   * modelProps list is authoritative for seeded defaults and deleted ones
+   * stay gone. Legacy `defaultsSeeded: true` saves normalize to
+   * INITIAL_WORLD_SEEDING_VERSION.
+   */
+  seedingVersion?: number;
   shelfSigns?: readonly WorldShelfSign[];
   television?: WorldPose;
   televisionChannels?: WorldTelevisionChannels;
@@ -539,9 +547,45 @@ const parseAisleSigns = (value: unknown): readonly WorldAisleSign[] => {
   });
 };
 
+/**
+ * Every field this parser understands, including legacy inputs it
+ * normalizes away. Anything else means the writer speaks a newer save
+ * format than this reader.
+ */
+const KNOWN_WORLD_SAVE_FIELDS: ReadonlySet<string> = new Set([
+  "aisleSigns",
+  "books",
+  "catalog",
+  "defaultsSeeded",
+  "digitalArtFrames",
+  "modelProps",
+  "pendingArrivalIds",
+  "player",
+  "posters",
+  "props",
+  "savedAt",
+  "schemaVersion",
+  "seedingVersion",
+  "shelfSigns",
+  "television",
+  "televisionChannels",
+  "televisionModelVersion",
+  "televisionVolumes",
+  "trashcan",
+]);
+
 /** Parses untrusted JSON data into normalized transforms and a strict V1 save. */
 export const parseWorldSave = (value: unknown): WorldSaveV1 => {
   if (!isRecord(value)) throw new Error("World save must be an object");
+  // A reader that silently dropped fields it did not know (for example a
+  // stale dev server) would corrupt saves instead of failing loudly.
+  const unknownFields = Object.keys(value)
+    .filter((key) => !KNOWN_WORLD_SAVE_FIELDS.has(key))
+    .sort();
+  if (unknownFields.length > 0)
+    throw new Error(
+      `Unknown world save field(s): ${unknownFields.join(", ")}. This reader predates the writer's save format; update or restart the server.`,
+    );
   if (value.schemaVersion !== WORLD_SAVE_SCHEMA_VERSION)
     throw new Error("Unsupported world save schema version");
   if (!Array.isArray(value.books) || value.books.length > MAX_BOOK_COUNT)
@@ -580,7 +624,23 @@ export const parseWorldSave = (value: unknown): WorldSaveV1 => {
       : parseModelProps(value.modelProps);
   if (value.defaultsSeeded !== undefined && value.defaultsSeeded !== true)
     throw new Error("defaultsSeeded must be true when present");
-  const defaultsSeeded = value.defaultsSeeded as true | undefined;
+  // Legacy saves recorded only the first seeding pass, as a boolean flag;
+  // current saves record the pass number explicitly.
+  const rawSeedingVersion = value.seedingVersion;
+  let seedingVersion: number | undefined;
+  if (rawSeedingVersion === undefined) {
+    if (value.defaultsSeeded === true)
+      seedingVersion = INITIAL_WORLD_SEEDING_VERSION;
+  } else if (
+    typeof rawSeedingVersion !== "number" ||
+    !Number.isInteger(rawSeedingVersion) ||
+    rawSeedingVersion < INITIAL_WORLD_SEEDING_VERSION ||
+    rawSeedingVersion > WORLD_SEEDING_VERSION
+  ) {
+    throw new Error(
+      `seedingVersion must be an integer between ${INITIAL_WORLD_SEEDING_VERSION} and ${WORLD_SEEDING_VERSION}`,
+    );
+  } else seedingVersion = rawSeedingVersion;
   const television =
     value.television === undefined
       ? undefined
@@ -630,7 +690,7 @@ export const parseWorldSave = (value: unknown): WorldSaveV1 => {
     ...(aisleSigns === undefined ? {} : {aisleSigns}),
     books,
     ...(catalog === undefined ? {} : {catalog}),
-    ...(defaultsSeeded === undefined ? {} : {defaultsSeeded}),
+    ...(seedingVersion === undefined ? {} : {seedingVersion}),
     ...(digitalArtFrames === undefined ? {} : {digitalArtFrames}),
     ...(modelProps === undefined ? {} : {modelProps}),
     ...(pendingArrivalIds.length === 0 ? {} : {pendingArrivalIds}),
@@ -647,6 +707,11 @@ export const parseWorldSave = (value: unknown): WorldSaveV1 => {
     ...(trashcan === undefined ? {} : {trashcan}),
   };
 };
+
+/** Effective highest completed seeding pass of a save; 0 before any pass. */
+export const worldSaveSeedingVersion = (
+  save: Pick<WorldSaveV1, "seedingVersion"> | undefined,
+): number => save?.seedingVersion ?? 0;
 
 /** Exact identity matching prevents stale placements from loading silently. */
 export const worldSaveMatchesCatalog = (

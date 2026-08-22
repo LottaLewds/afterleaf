@@ -4,18 +4,20 @@
  * EmulatorJS documents that single-page apps must embed it inside an iframe;
  * running it directly tampers with the page DOM and globals. Each session
  * therefore boots a fresh same-origin iframe whose document sets up the
- * `EJS_*` options and loads the official CDN loader. The host page reaches
+ * `EJS_*` options and loads the npm-vendored loader. The host page reaches
  * into the frame to grab the rendered `<canvas>` for texturing the cabinet's
  * TVScreen mesh, and forwards keyboard input as synthetic events so shop
  * controls stay fully modal while a game is running.
  */
-export const EMULATORJS_DATA_URL = "https://cdn.emulatorjs.org/stable/data/";
+// Served by the emulator-data plugin (dev/preview middleware + build copy);
+// see ~/arcade/emulatorAssets for how the files are vendored.
+export const EMULATORJS_DATA_URL = "/emulatorjs/data/";
 
 const HOST_MESSAGE_FLAG = "__afterleafArcade";
 
 export type ArcadeHostMessage = {
   [HOST_MESSAGE_FLAG]: true;
-  type: "start" | "exit" | "error";
+  type: "start" | "exit" | "error" | "log";
   detail?: string;
 };
 
@@ -93,6 +95,12 @@ window.EJS_onGameStart = function () { post("start"); };
 window.EJS_onExit = function () { post("exit"); };
 window.addEventListener("error", function (event) {
   post("error", event.message || "Unknown emulator error");
+});
+// Promise crashes bypass the "error" event entirely; report them as
+// non-fatal logs so they are visible without tearing down a live session.
+window.addEventListener("unhandledrejection", function (event) {
+  var reason = event.reason;
+  post("log", (reason && (reason.stack || reason.message)) || String(reason));
 });
 window.addEventListener("message", function (event) {
   var data = event.data;
@@ -183,10 +191,18 @@ export const launchEmulator = (
   let resolveCanvas!: (canvas: HTMLCanvasElement) => void;
   let rejectCanvas!: (cause: unknown) => void;
 
+  // The watchdog only guards the boot window; once the core is up it must be
+  // disarmed or it would tear down a healthy session mid-play.
+  const disarmBootWatchdog = () => {
+    if (bootTimeoutHandle === undefined) return;
+    clearTimeout(bootTimeoutHandle);
+    bootTimeoutHandle = undefined;
+  };
+
   const destroy = () => {
     if (destroyed) return;
     destroyed = true;
-    if (bootTimeoutHandle !== undefined) clearTimeout(bootTimeoutHandle);
+    disarmBootWatchdog();
     abortController.abort();
     container.remove();
   };
@@ -194,9 +210,12 @@ export const launchEmulator = (
   const fail = (message: string) => {
     if (destroyed) return;
     destroyed = true;
-    if (bootTimeoutHandle !== undefined) clearTimeout(bootTimeoutHandle);
+    disarmBootWatchdog();
     abortController.abort();
     container.remove();
+    // onError consumers turn this into UI state that can be invisible once a
+    // game is already running, so always leave a console trail too.
+    console.error(`Afterleaf arcade emulator failed: ${message}`);
     // Surface the failure both through onError and by settling canvasReady
     // so awaiting code always wakes up.
     options.onError?.(message);
@@ -208,12 +227,19 @@ export const launchEmulator = (
     (event) => {
       if (destroyed || event.source !== frame.contentWindow) return;
       if (!isArcadeHostMessage(event.data)) return;
-      if (event.data.type === "start") options.onStart?.();
-      else if (event.data.type === "exit") {
+      if (event.data.type === "start") {
+        // Boot succeeded: the watchdog must never fire mid-play.
+        disarmBootWatchdog();
+        options.onStart?.();
+      } else if (event.data.type === "exit") {
         destroy();
         options.onExit?.();
       } else if (event.data.type === "error")
         fail(`Emulator error: ${event.data.detail ?? "unknown"}`);
+      else if (event.data.type === "log")
+        console.warn(
+          `Afterleaf arcade emulator reported: ${event.data.detail ?? "an unknown rejection"}`,
+        );
     },
     {signal: abortController.signal},
   );
@@ -247,6 +273,7 @@ export const launchEmulator = (
           "canvas",
         );
       if (canvas && canvas.width > 0) {
+        disarmBootWatchdog();
         resolveCanvas(canvas);
         return;
       }

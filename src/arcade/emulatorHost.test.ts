@@ -14,12 +14,15 @@ describe("buildEmulatorDocumentHtml", () => {
     gameId: 12345,
   });
 
-  test("wires the EJS options for the CDN loader", () => {
+  test("wires the EJS options for the vendored loader", () => {
     expect(html).toContain('window.EJS_player = "#game"');
     expect(html).toContain('window.EJS_core = "nes"');
     expect(html).toContain('"blob:http://localhost/abc"');
     expect(html).toContain("window.EJS_gameID = 12345");
-    expect(html).toContain("https://cdn.emulatorjs.org/stable/data/loader.js");
+    expect(html).toContain('window.EJS_pathtodata = "/emulatorjs/data/"');
+    expect(html).toContain('"/emulatorjs/data/loader.js"');
+    // The runtime must come from the same origin, never the CDN.
+    expect(html).not.toContain("cdn.emulatorjs.org");
   });
 
   test("escapes hostile game names", () => {
@@ -41,11 +44,22 @@ describe("buildEmulatorDocumentHtml", () => {
     // container-scoped key handler.
     expect(html).toContain("#game canvas");
   });
+
+  test("reports unhandled promise rejections as non-fatal logs", () => {
+    expect(html).toContain('addEventListener("unhandledrejection"');
+    expect(html).toContain('post("log"');
+    // Rejections must not reuse the fatal error channel.
+    const rejection = html.slice(html.indexOf("unhandledrejection"));
+    expect(rejection).not.toContain('post("error"');
+  });
 });
 
 describe("isArcadeHostMessage", () => {
   test("accepts only flagged messages with a known shape", () => {
     expect(isArcadeHostMessage({__afterleafArcade: true, type: "start"})).toBe(
+      true,
+    );
+    expect(isArcadeHostMessage({__afterleafArcade: true, type: "log"})).toBe(
       true,
     );
     expect(

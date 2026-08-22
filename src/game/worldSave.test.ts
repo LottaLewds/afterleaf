@@ -1,10 +1,13 @@
 import {describe, expect, test} from "bun:test";
 
 import {
+  INITIAL_WORLD_SEEDING_VERSION,
   WORLD_SAVE_SCHEMA_VERSION,
+  WORLD_SEEDING_VERSION,
   parseWorldSave,
   worldSaveCanReconcileCatalog,
   worldSaveMatchesCatalog,
+  worldSaveSeedingVersion,
   type WorldSaveV1,
 } from "~/game/worldSave";
 
@@ -377,16 +380,49 @@ describe("world save validation", () => {
     expect(parsedModelProp.locked).toBeUndefined();
   });
 
-  test("defaultsSeeded must be true when present and survives a round trip", () => {
-    expect(parseWorldSave(saveFixture()).defaultsSeeded).toBeUndefined();
-    const seeded = parseWorldSave({...saveFixture(), defaultsSeeded: true});
-    expect(seeded.defaultsSeeded).toBe(true);
+  test("rejects fields the reader does not understand", () => {
+    expect(() =>
+      parseWorldSave({
+        ...saveFixture(),
+        seedingVersion: WORLD_SEEDING_VERSION,
+        someFutureField: 1,
+      }),
+    ).toThrow(
+      "Unknown world save field(s): someFutureField. This reader predates the writer's save format",
+    );
+    // The legacy flag is known input even though it normalizes away.
+    expect(() =>
+      parseWorldSave({...saveFixture(), defaultsSeeded: true}),
+    ).not.toThrow();
+  });
+
+  test("seeding versions normalize legacy flags and survive a round trip", () => {
+    expect(parseWorldSave(saveFixture()).seedingVersion).toBeUndefined();
+    expect(worldSaveSeedingVersion(parseWorldSave(saveFixture()))).toBe(0);
+    const legacy = parseWorldSave({...saveFixture(), defaultsSeeded: true});
+    expect(legacy.seedingVersion).toBe(INITIAL_WORLD_SEEDING_VERSION);
+    expect(worldSaveSeedingVersion(legacy)).toBe(INITIAL_WORLD_SEEDING_VERSION);
+    const current = parseWorldSave({
+      ...saveFixture(),
+      defaultsSeeded: true,
+      seedingVersion: WORLD_SEEDING_VERSION,
+    });
+    expect(current.seedingVersion).toBe(WORLD_SEEDING_VERSION);
     expect(() =>
       parseWorldSave({...saveFixture(), defaultsSeeded: false}),
     ).toThrow("defaultsSeeded must be true when present");
     expect(() =>
       parseWorldSave({...saveFixture(), defaultsSeeded: "yes"}),
     ).toThrow("defaultsSeeded must be true when present");
+    expect(() =>
+      parseWorldSave({
+        ...saveFixture(),
+        seedingVersion: WORLD_SEEDING_VERSION + 1,
+      }),
+    ).toThrow("seedingVersion must be an integer between 1 and 2");
+    expect(() =>
+      parseWorldSave({...saveFixture(), seedingVersion: 1.5}),
+    ).toThrow("seedingVersion must be an integer between 1 and 2");
   });
 });
 

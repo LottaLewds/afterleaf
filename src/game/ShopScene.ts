@@ -22,6 +22,7 @@ import {
   MeshBasicMaterial,
   MeshStandardMaterial,
   NoColorSpace,
+  Object3D,
   Path,
   PCFSoftShadowMap,
   PerspectiveCamera,
@@ -45,7 +46,6 @@ import {
   type ColorSpace,
   type InterleavedBufferAttribute,
   type Material,
-  type Object3D,
 } from "three";
 import {GLTFLoader} from "three/examples/jsm/loaders/GLTFLoader.js";
 import {RectAreaLightUniformsLib} from "three/examples/jsm/lights/RectAreaLightUniformsLib.js";
@@ -73,6 +73,7 @@ import type {
 import {bookDropPosition} from "~/game/bookDropPlacement";
 import {physicalBookDepth, physicalBookWidth} from "~/game/bookDimensions";
 import {remapBookGeometryToAtlas} from "~/game/bookAtlasGeometry";
+import {INTERACTION_ROW_MODES, type UiMode} from "~/game/uiMode";
 import {
   ARCADE_CABINET_HEIGHT,
   ShopArcadeCabinet,
@@ -189,10 +190,13 @@ import {
 import type {ShopMediaCatalog} from "~/game/shopMediaCatalog";
 import type {ModelAsset} from "~/models/protocol";
 import {
+  INITIAL_WORLD_SEEDING_VERSION,
   MAX_CARRIED_BOOKS,
   WORLD_SAVE_SCHEMA_VERSION,
+  WORLD_SEEDING_VERSION,
   worldSaveCanReconcileCatalog,
   worldSaveMatchesCatalog,
+  worldSaveSeedingVersion,
   type WorldBookSave,
   type WorldDigitalArtFrameSave,
   type WorldModelPropSave,
@@ -384,6 +388,7 @@ const BUILTIN_READING_CHAIR_ASSET_ID = "builtin:reading-chair";
 const BUILTIN_TRASH_CAN_ASSET_ID = "builtin:trash-can";
 const BUILTIN_DESK_LAMP_ASSET_ID = "builtin:desk-lamp";
 const BUILTIN_ARCADE_CABINET_ASSET_ID = "builtin:arcade-cabinet";
+const BUILTIN_CEILING_LIGHT_ASSET_ID = "builtin:ceiling-light";
 /** Footprint box of the height-normalized cabinet model before scaling. */
 const ARCADE_CABINET_BASE_SIZE = {
   depth: 0.7,
@@ -402,6 +407,30 @@ const CEILING_LIGHT_COLUMNS = [-7, 0, 7] as const;
 const CEILING_LIGHT_ROWS = [-7, -1.5, 4, 9.5, 15, 20.5, 26] as const;
 const RARE_ROOM_CENTER_X = 8.25;
 const RARE_ROOM_CENTER_Z = -6.25;
+/**
+ * Where ceiling-light props hang: the prop origin sits at the housing
+ * center, matching the pre-seeding hard-wired fixture height.
+ */
+const CEILING_LIGHT_ORIGIN_Y = 4.47;
+/** Downward offset from the prop origin to the spotlight emitter. */
+const CEILING_LIGHT_BULB_DROP = 0.22;
+
+type CeilingLightPlacement = {rotationY: number; x: number; z: number};
+
+const CEILING_LIGHT_PLACEMENTS: readonly CeilingLightPlacement[] = [
+  ...CEILING_LIGHT_COLUMNS.flatMap((x) =>
+    CEILING_LIGHT_ROWS.filter((z) => !(x > 0 && z === -7)).map((z) => ({
+      rotationY: 0,
+      x,
+      z,
+    })),
+  ),
+  {
+    rotationY: Math.PI / 2,
+    x: RARE_ROOM_CENTER_X,
+    z: RARE_ROOM_CENTER_Z,
+  },
+];
 const RARE_ROOM_DOOR_CENTER_X = 8.4;
 const RARE_ROOM_DOOR_Z = -1.92;
 const UPPER_WINDOW_CENTERS = [-8.25, 0, 8.25] as const;
@@ -607,7 +636,8 @@ type BuiltinSpawnablePropAsset = {
     | typeof BUILTIN_READING_CHAIR_ASSET_ID
     | typeof BUILTIN_TRASH_CAN_ASSET_ID
     | typeof BUILTIN_DESK_LAMP_ASSET_ID
-    | typeof BUILTIN_ARCADE_CABINET_ASSET_ID;
+    | typeof BUILTIN_ARCADE_CABINET_ASSET_ID
+    | typeof BUILTIN_CEILING_LIGHT_ASSET_ID;
   kind: "builtin";
   label: string;
 };
@@ -647,7 +677,25 @@ const BUILTIN_SPAWNABLE_PROP_ASSETS: readonly BuiltinSpawnablePropAsset[] = [
     kind: "builtin",
     label: "arcade cabinet",
   },
+  {
+    id: BUILTIN_CEILING_LIGHT_ASSET_ID,
+    kind: "builtin",
+    label: "ceiling light",
+  },
 ];
+
+/**
+ * Builtin props that spawn through cached templates instead of dedicated
+ * factories. Their templates can load asynchronously (the desk lamp GLB),
+ * so saved restores defer quietly until #cacheBuiltinPropTemplate lands
+ * them and kicks a retry.
+ */
+const TEMPLATE_SPAWNED_BUILTIN_ASSET_IDS: ReadonlySet<string> = new Set([
+  BUILTIN_READING_TABLE_ASSET_ID,
+  BUILTIN_READING_CHAIR_ASSET_ID,
+  BUILTIN_DESK_LAMP_ASSET_ID,
+  BUILTIN_CEILING_LIGHT_ASSET_ID,
+]);
 
 type ModelTemplate = {
   animations: readonly AnimationClip[];
@@ -885,7 +933,6 @@ export type ShopSceneOptions = {
   onDiscardPublication?: (publicationId: string) => Promise<boolean>;
   onMediaChannelCreateRequest?: (kind: "art-frame" | "tv") => void;
   onGameStateChange?: (snapshot: ShopGameSnapshot) => void;
-  onPauseRequest?: () => void;
   onPageIndexChange?: (publicationId: string, pageIndex: number) => void;
   onSignEditRequest?: (request: ShopSignEditRequest) => void;
   onTextPaste?: (text: string) => boolean | Promise<boolean>;
@@ -894,6 +941,8 @@ export type ShopSceneOptions = {
   onSelectPublication: (publicationId: string) => void;
   onReady?: () => void;
   paused?: () => boolean;
+  /** Current exclusive input owner; rows are dropped for other modes. */
+  mode?: () => UiMode;
 };
 
 type ShopPerformanceDebugHandle = {
@@ -1195,7 +1244,6 @@ export class ShopScene {
   readonly #onGameStateChange:
     | ((snapshot: ShopGameSnapshot) => void)
     | undefined;
-  readonly #onPauseRequest: (() => void) | undefined;
   readonly #onPageIndexChange:
     | ((publicationId: string, pageIndex: number) => void)
     | undefined;
@@ -1208,6 +1256,7 @@ export class ShopScene {
     | undefined;
   readonly #observedArrivalIds = new Set<string>();
   readonly #paused: () => boolean;
+  readonly #mode: (() => UiMode) | undefined;
   readonly #physicsPoseEuler = new Euler();
   readonly #physicsPosePosition = new Vector3();
   readonly #physicsPoseRotation = new Quaternion();
@@ -1377,6 +1426,10 @@ export class ShopScene {
   #modelPlacement: ModelPlacementSession | undefined;
   #modelPlacementRevision = 0;
   #modelRestoreActive = false;
+  /** A builtin template landed while a restore pass was running. */
+  #modelRestoreRetry = false;
+  /** Missing prop assets already reported so each warns only once. */
+  readonly #missingPropAssetIds = new Set<string>();
   #onReady: (() => void) | undefined;
   #inputSuspended = false;
   #pointerLocked = false;
@@ -1442,7 +1495,6 @@ export class ShopScene {
   #shelfHoverTargetMeshes: Mesh[] = [];
   #shelfBrowsePublicationId: string | undefined;
   #shelfBrowseReadyAt = 0;
-  #suppressNextPointerUnlockPause = false;
   #targetedSignKey: string | undefined;
   #targetedPosterId: string | undefined;
   #targetedDigitalArtFrameId: string | undefined;
@@ -1498,12 +1550,12 @@ export class ShopScene {
         }));
     this.#mouseSensitivity = options.mouseSensitivity ?? (() => 1);
     this.#tvScreenLighting = options.tvScreenLighting ?? (() => false);
+    this.#mode = options.mode;
     this.#selectedPublicationId = options.selectedPublicationId;
     this.#onSelectPublication = options.onSelectPublication;
     this.#onDiscardPublication = options.onDiscardPublication;
     this.#onMediaChannelCreateRequest = options.onMediaChannelCreateRequest;
     this.#onGameStateChange = options.onGameStateChange;
-    this.#onPauseRequest = options.onPauseRequest;
     this.#onPageIndexChange = options.onPageIndexChange;
     this.#onSignEditRequest = options.onSignEditRequest;
     this.#onWorldSave = options.onWorldSave;
@@ -1570,7 +1622,9 @@ export class ShopScene {
   }
 
   requestPointerLock() {
-    if (this.#disposed) return;
+    // Modes stay exclusive: an arcade session owns the cursor until its
+    // ladder exits, so external re-lock requests are ignored meanwhile.
+    if (this.#disposed || this.#arcadeStatusForUi()) return;
     this.#inputSuspended = false;
     if (this.#inspectionMode === "spread") return;
     this.#requestPointerLock();
@@ -1580,8 +1634,6 @@ export class ShopScene {
     if (this.#disposed) return;
     if (this.#inputSuspended) return;
     this.#inputSuspended = true;
-    if (document.pointerLockElement === this.#canvas)
-      this.#suppressNextPointerUnlockPause = true;
     this.#suspendInput();
   }
 
@@ -1668,7 +1720,6 @@ export class ShopScene {
     // several machines can run at once.
     if (cabinet.sessionStatus) return;
     this.#activeArcadeCabinet = cabinet;
-    this.#suppressNextPointerUnlockPause = true;
     this.#releasePointerLock();
     this.#aimCameraAtObject(cabinet.object);
     cabinet.beginBrowsing();
@@ -1950,38 +2001,9 @@ export class ShopScene {
     this.#scene.add(this.#camera);
 
     this.#scene.add(new AmbientLight("#918b7d", 0.66));
-    const addDownwardCeilingLight = (
-      color: string,
-      intensity: number,
-      distance: number,
-      x: number,
-      z: number,
-    ) => {
-      const ceilingLight = new SpotLight(
-        color,
-        intensity,
-        distance,
-        Math.PI / 2,
-        0.75,
-        1.75,
-      );
-      ceilingLight.position.set(x, 4.25, z);
-      ceilingLight.target.position.set(x, 0, z);
-      this.#scene.add(ceilingLight, ceilingLight.target);
-    };
-
-    for (const x of CEILING_LIGHT_COLUMNS)
-      for (const z of CEILING_LIGHT_ROWS) {
-        if (x > 0 && z === -7) continue;
-        addDownwardCeilingLight("#f3e3cb", 5.6, 9, x, z);
-      }
-    addDownwardCeilingLight(
-      "#f1dfbd",
-      7.2,
-      8,
-      RARE_ROOM_CENTER_X,
-      RARE_ROOM_CENTER_Z,
-    );
+    // Downward ceiling spotlights are no longer hard-wired here: every
+    // light in the shop hangs on a seeded, movable ceiling-light prop
+    // (see #seedDefaultProps and #createSpawnedCeilingLight).
   }
 
   #createShopInterior() {
@@ -2163,7 +2185,9 @@ export class ShopScene {
       shelfEdgeMaterial,
       readingFurnitureMaterials,
     );
-    this.#createCeilingLights(architecture);
+    // Ceiling-light fixtures live on the spawnable props now; the template
+    // is registered here so menu spawning works on every world.
+    this.#createCeilingLightTemplate();
     this.#createNightWindows(architecture);
     const fixedTelevision = new ShopTelevision({
       ...this.#sharedTelevisionOptions(
@@ -2503,7 +2527,7 @@ export class ShopScene {
     // once as a spawned, deletable prop and persisted through modelProps.
     // Worlds that already seeded skip straight to their saved props; the
     // invisible discard volume rides along via #reattachTrashTarget.
-    if (!this.#shouldSeedDefaults()) return;
+    if (!this.#needsSeedPass(INITIAL_WORLD_SEEDING_VERSION)) return;
     const trashcan = this.#trashcanGroup;
     trashcan.name = TRASH_CAN_PROP_ID;
     trashcan.position.copy(this.#trashcanPosition);
@@ -2739,6 +2763,11 @@ export class ShopScene {
         : {staticWhenPlaced: registration.staticWhenPlaced}),
       width: registration.width,
     });
+    // Async builtin templates (the desk lamp GLB, for example) can land
+    // after a restore pass already gave up on their saved props. Retry
+    // those restores once the template exists.
+    if (this.#modelRestoreActive) this.#modelRestoreRetry = true;
+    else void this.#restoreSavedModelProps();
   }
 
   #registerPropPlacementSupport(object: Object3D) {
@@ -3456,7 +3485,7 @@ export class ShopScene {
       });
     }
 
-    if (this.#shouldSeedDefaults())
+    if (this.#needsSeedPass(INITIAL_WORLD_SEEDING_VERSION))
       for (const [tableIndex, tableZ] of READING_TABLE_Z_POSITIONS.entries()) {
         const id = `reading-table-${tableIndex + 1}`;
         const table = this.#assembleReadingTable(
@@ -3492,7 +3521,7 @@ export class ShopScene {
         });
       }
 
-    if (this.#shouldSeedDefaults()) {
+    if (this.#needsSeedPass(INITIAL_WORLD_SEEDING_VERSION)) {
       const chairIds = new Set(
         READING_FURNITURE_BOXES.flatMap((box) =>
           box.movableId?.startsWith("reading-chair-") ? [box.movableId] : [],
@@ -3549,7 +3578,8 @@ export class ShopScene {
       // The model is always loaded and always becomes the spawn template;
       // seeding only decides whether default-positioned copies are placed.
       for (const [index, z] of READING_TABLE_Z_POSITIONS.entries()) {
-        if (index > 0 && !this.#shouldSeedDefaults()) break;
+        if (index > 0 && !this.#needsSeedPass(INITIAL_WORLD_SEEDING_VERSION))
+          break;
         const lamp = index === 0 ? gltf.scene : cloneWithSkeleton(gltf.scene);
         const spawnClearance =
           index === 1
@@ -3578,7 +3608,7 @@ export class ShopScene {
             templateForSpawning: true,
             width: lampSize.x,
           });
-        if (!this.#shouldSeedDefaults()) continue;
+        if (!this.#needsSeedPass(INITIAL_WORLD_SEEDING_VERSION)) continue;
         parent.add(lampRoot);
         this.#playModelAnimations(lamp, gltf.animations);
         this.#registerMovableProp({
@@ -3771,43 +3801,104 @@ export class ShopScene {
     }
   }
 
-  #createCeilingLights(parent: Group) {
-    const fixtureMaterial = new MeshStandardMaterial({
-      color: "#dce9e2",
-      emissive: "#dff9ed",
-      emissiveIntensity: 3.8,
-      roughness: 0.28,
-    });
-    const housingMaterial = new MeshStandardMaterial({
-      color: "#525c58",
-      metalness: 0.6,
-      roughness: 0.42,
-    });
-    for (const x of CEILING_LIGHT_COLUMNS)
-      for (const z of CEILING_LIGHT_ROWS) {
-        if (x > 0 && z === -7) continue;
-        this.#addBox(parent, [2.15, 0.05, 0.25], [x, 4.47, z], housingMaterial);
-        this.#addBox(
-          parent,
-          [1.92, 0.025, 0.12],
-          [x, 4.43, z],
-          fixtureMaterial,
-        );
-      }
-    const rareRoomHousing = this.#addBox(
-      parent,
-      [2.15, 0.05, 0.25],
-      [RARE_ROOM_CENTER_X, 4.47, RARE_ROOM_CENTER_Z],
-      housingMaterial,
+  /**
+   * Builds the shared ceiling-light spawn template: just the fixture
+   * meshes, registered once so the prop is spawnable on every world.
+   */
+  #createCeilingLightTemplate() {
+    const housing = new Mesh(
+      new BoxGeometry(2.15, 0.05, 0.25),
+      new MeshStandardMaterial({
+        color: "#525c58",
+        metalness: 0.6,
+        roughness: 0.42,
+      }),
     );
-    rareRoomHousing.rotation.y = Math.PI / 2;
-    const rareRoomFixture = this.#addBox(
-      parent,
-      [1.92, 0.025, 0.12],
-      [RARE_ROOM_CENTER_X, 4.43, RARE_ROOM_CENTER_Z],
-      fixtureMaterial,
+    const panel = new Mesh(
+      new BoxGeometry(1.92, 0.025, 0.12),
+      new MeshStandardMaterial({
+        color: "#dce9e2",
+        emissive: "#dff9ed",
+        emissiveIntensity: 3.8,
+        roughness: 0.28,
+      }),
     );
-    rareRoomFixture.rotation.y = Math.PI / 2;
+    panel.position.y = -0.04;
+    const group = new Group();
+    group.add(housing, panel);
+    this.#cacheBuiltinPropTemplate({
+      depth: 0.25,
+      height: 0.075,
+      heldLocalPosition: new Vector3(0, -0.35, -2.4),
+      id: BUILTIN_CEILING_LIGHT_ASSET_ID,
+      label: "ceiling light",
+      object: group,
+      rotationSnapStep: Math.PI / 2,
+      spawnAssetId: BUILTIN_CEILING_LIGHT_ASSET_ID,
+      templateForSpawning: true,
+      width: 2.15,
+    });
+  }
+
+  /**
+   * Builds one ceiling light's illumination rig: a downward spotlight plus
+   * its floor target. Both parent to the prop object so they travel with
+   * it whenever the light is moved.
+   */
+  #createCeilingLightRig() {
+    const light = new SpotLight("#f3e3cb", 5.6, 9, Math.PI / 2, 0.75, 1.75);
+    light.position.set(0, -CEILING_LIGHT_BULB_DROP, 0);
+    const target = new Object3D();
+    target.position.set(0, -CEILING_LIGHT_ORIGIN_Y, 0);
+    light.target = target;
+    return [light, target] as const;
+  }
+
+  #createSpawnedCeilingLight(
+    asset: BuiltinSpawnablePropAsset,
+    id: string,
+    scale: number,
+    pose?: WorldModelPropSave["pose"],
+    locked = true,
+  ) {
+    const template = this.#builtinPropTemplates.get(asset.id);
+    if (!template)
+      throw new Error(`${asset.label} is not ready to be spawned.`);
+    const object = cloneWithSkeleton(template.object);
+    object.name = `${asset.id}-${id}`;
+    object.scale.setScalar(scale);
+    if (pose) {
+      object.position.copy(pose.position);
+      object.quaternion.copy(pose.quaternion);
+    } else {
+      this.#camera.getWorldDirection(this.#viewDirection);
+      object.position
+        .copy(this.#camera.position)
+        .addScaledVector(this.#viewDirection, 2);
+    }
+    object.add(...this.#createCeilingLightRig());
+    this.#scene.add(object);
+    return this.#registerMovableProp({
+      depth: template.depth * scale,
+      height: template.height * scale,
+      heldLocalPosition: template.heldLocalPosition.clone(),
+      id,
+      label: asset.label,
+      modelBaseSize: new Vector3(
+        template.width,
+        template.height,
+        template.depth,
+      ),
+      modelScale: scale,
+      object,
+      ...(template.rotationSnapStep === undefined
+        ? {}
+        : {rotationSnapStep: template.rotationSnapStep}),
+      spawnAssetId: asset.id,
+      spawned: true,
+      width: template.width * scale,
+      ...(locked ? {locked: true} : {}),
+    });
   }
 
   #createNightWindows(parent: Group) {
@@ -4581,7 +4672,7 @@ export class ShopScene {
     // shelf banks, then persisted through modelProps like any other prop.
     // Worlds that already seeded restore them from their saves instead of
     // re-spawning deleted or moved units.
-    if (this.#shouldSeedDefaults()) {
+    if (this.#needsSeedPass(INITIAL_WORLD_SEEDING_VERSION)) {
       const crtAsset = BUILTIN_SPAWNABLE_PROP_ASSETS.find(
         (asset) => asset.id === BUILTIN_CRT_TV_ASSET_ID,
       );
@@ -5487,20 +5578,35 @@ export class ShopScene {
     });
   }
 
-  /** True while the world still needs its default props injected once. */
-  #shouldSeedDefaults() {
-    return this.#pendingWorldSave?.defaultsSeeded !== true;
+  /**
+   * True while the world has not yet absorbed the given default-prop
+   * seeding pass. Passes are cumulative: a fresh world runs every pass,
+   * while saves only run passes introduced after their recorded version.
+   */
+  #needsSeedPass(version: number) {
+    return worldSaveSeedingVersion(this.#pendingWorldSave) < version;
   }
 
   /**
-   * Injects the default movable props (lane arcade cabinet(s), the shop's
-   * CRT television) as ordinary spawned props. Fresh worlds get them at
-   * their designed spots; legacy saves predate seeded props, so they are
-   * migrated the same way. Saves marked `defaultsSeeded` are authoritative:
-   * whatever the players kept, moved, or deleted stays as-is.
+   * Brings the world up to the current seeding version by running every
+   * missing pass. Fresh worlds get each pass at its designed spots; older
+   * saves migrate pass by pass. Worlds that already absorbed a pass are
+   * authoritative: whatever the players kept, moved, or deleted stays
+   * as-is.
    */
   #seedDefaultProps() {
-    if (!this.#shouldSeedDefaults()) return;
+    if (this.#needsSeedPass(INITIAL_WORLD_SEEDING_VERSION))
+      this.#seedInitialDefaults();
+    if (this.#needsSeedPass(WORLD_SEEDING_VERSION)) this.#seedCeilingLights();
+    else this.#restoreSavedCeilingLights();
+  }
+
+  /**
+   * Seeding pass 1: injects the shop's original movable defaults (lane
+   * arcade cabinet(s), the shop's CRT television) as ordinary spawned
+   * props. Legacy saves predate seeded props, so they migrate here too.
+   */
+  #seedInitialDefaults() {
     try {
       const crtAsset = BUILTIN_SPAWNABLE_PROP_ASSETS.find(
         (asset) => asset.id === BUILTIN_CRT_TV_ASSET_ID,
@@ -5560,9 +5666,89 @@ export class ShopScene {
       if (DEV && !this.#disposed)
         console.warn("Afterleaf could not seed its default props.", error);
     }
-    // Persist promptly so legacy worlds migrate to defaultsSeeded: true and
-    // later deletions of the defaults stick across reloads.
+    // Persist promptly so legacy worlds migrate past pass 1 and later
+    // deletions of the defaults stick across reloads.
     this.#worldStateDirty = true;
+  }
+
+  /**
+   * Seeding pass 2: the hard-wired ceiling light grid becomes ordinary
+   * spawned props, deletable and movable like any other prop.
+   */
+  #seedCeilingLights() {
+    const asset = BUILTIN_SPAWNABLE_PROP_ASSETS.find(
+      (candidate) => candidate.id === BUILTIN_CEILING_LIGHT_ASSET_ID,
+    );
+    if (!asset) return;
+    try {
+      for (const [index, placement] of CEILING_LIGHT_PLACEMENTS.entries()) {
+        const quaternion = new Quaternion().setFromAxisAngle(
+          this.#upAxis,
+          placement.rotationY,
+        );
+        this.#createSpawnedCeilingLight(
+          asset,
+          `ceiling-light-${index + 1}`,
+          DEFAULT_MODEL_SCALE,
+          {
+            position: {
+              x: placement.x,
+              y: CEILING_LIGHT_ORIGIN_Y,
+              z: placement.z,
+            },
+            quaternion: {
+              w: quaternion.w,
+              x: quaternion.x,
+              y: quaternion.y,
+              z: quaternion.z,
+            },
+          },
+        );
+      }
+    } catch (error) {
+      if (DEV && !this.#disposed)
+        console.warn("Afterleaf could not seed the ceiling lights.", error);
+    }
+    // Persist promptly so worlds migrate past pass 2 and light deletions
+    // stay gone across reloads.
+    this.#worldStateDirty = true;
+  }
+
+  /**
+   * Spawns saved ceiling-light props immediately on boot so the shop is
+   * lit without waiting for the catalog-gated model-prop restore. Later,
+   * #takeCompatibleWorldSave adopts these registrations in place of their
+   * save entries; until then they simply render from the last save.
+   */
+  #restoreSavedCeilingLights() {
+    const save = this.#pendingWorldSave;
+    if (!save) return;
+    const asset = BUILTIN_SPAWNABLE_PROP_ASSETS.find(
+      (candidate) => candidate.id === BUILTIN_CEILING_LIGHT_ASSET_ID,
+    );
+    if (!asset) return;
+    for (const savedProp of save.modelProps ?? []) {
+      if (
+        savedProp.assetId !== BUILTIN_CEILING_LIGHT_ASSET_ID ||
+        this.#movableProps.has(savedProp.id)
+      )
+        continue;
+      try {
+        this.#createSpawnedCeilingLight(
+          asset,
+          savedProp.id,
+          savedProp.scale,
+          savedProp.pose,
+          savedProp.locked === true,
+        );
+      } catch (error) {
+        if (DEV && !this.#disposed)
+          console.warn(
+            `Afterleaf could not restore ceiling light ${savedProp.id}.`,
+            error,
+          );
+      }
+    }
   }
 
   #createSpawnedCrtTelevision(
@@ -5819,6 +6005,8 @@ export class ShopScene {
       return this.#createSpawnedCrtTelevision(asset, id, scale, pose);
     if (asset.id === BUILTIN_ARCADE_CABINET_ASSET_ID)
       return this.#createSpawnedArcadeCabinet(asset, id, scale, pose);
+    if (asset.id === BUILTIN_CEILING_LIGHT_ASSET_ID)
+      return this.#createSpawnedCeilingLight(asset, id, scale, pose);
     if (asset.id === BUILTIN_TRASH_CAN_ASSET_ID) {
       const modelAsset: ModelAsset = {
         id: asset.id,
@@ -5853,6 +6041,23 @@ export class ShopScene {
         if (this.#movableProps.has(savedProp.id)) continue;
         const asset = assetsById.get(savedProp.assetId);
         if (!asset) {
+          // The content pack renamed or dropped this asset; the saved prop
+          // cannot come back, but it must not block anything else either.
+          if (DEV && !this.#missingPropAssetIds.has(savedProp.assetId)) {
+            this.#missingPropAssetIds.add(savedProp.assetId);
+            console.warn(
+              `Afterleaf cannot restore prop ${savedProp.id}: its asset "${savedProp.assetId}" is no longer in the spawnable catalog.`,
+            );
+          }
+          unresolved.push(savedProp);
+          continue;
+        }
+        // A template-spawned builtin may still be loading its template;
+        // defer quietly, #cacheBuiltinPropTemplate retries once it lands.
+        if (
+          TEMPLATE_SPAWNED_BUILTIN_ASSET_IDS.has(savedProp.assetId) &&
+          !this.#builtinPropTemplates.has(savedProp.assetId)
+        ) {
           unresolved.push(savedProp);
           continue;
         }
@@ -5886,7 +6091,10 @@ export class ShopScene {
       this.#emitGameState();
     } finally {
       this.#modelRestoreActive = false;
-      if (!this.#disposed && restoreAgain) void this.#restoreSavedModelProps();
+      const retryRequested = this.#modelRestoreRetry;
+      this.#modelRestoreRetry = false;
+      if (!this.#disposed && (retryRequested || restoreAgain))
+        void this.#restoreSavedModelProps();
     }
   }
 
@@ -7530,6 +7738,8 @@ export class ShopScene {
 
   readonly #handleCanvasPointerDown = (event: PointerEvent) => {
     if (event.button !== 0 || this.#paused()) return;
+    // An arcade session owns the pointer; clicking must not re-lock it.
+    if (this.#arcadeStatusForUi()) return;
     if (this.#inspectionMode === "spread") {
       if (this.#inspectionOpenAngleTarget > 0) {
         this.#openInspectionBook();
@@ -7813,11 +8023,6 @@ export class ShopScene {
     this.#resetPointerMovement();
     this.#ignoreNextLockedPointerMove =
       this.#pointerLocked && !wasPointerLocked;
-    const suppressPause =
-      wasPointerLocked &&
-      !this.#pointerLocked &&
-      this.#suppressNextPointerUnlockPause;
-    if (suppressPause) this.#suppressNextPointerUnlockPause = false;
     if (!this.#pointerLocked) {
       this.#keysDown.clear();
       this.#cancelThrowCharge();
@@ -7825,20 +8030,15 @@ export class ShopScene {
     }
     this.#canvas.style.cursor = this.#pointerLocked ? "none" : "pointer";
     this.#emitGameState();
-    if (
-      wasPointerLocked &&
-      !this.#pointerLocked &&
-      !suppressPause &&
-      document.hasFocus() &&
-      this.#inspectionMode === "none" &&
-      !this.#paused() &&
-      !this.#disposed
-    )
-      this.#onPauseRequest?.();
+    // Pointer lock state is orthogonal to menus: unlocks never open the
+    // pause menu. Escape routing owns that (modal stack, then the armed
+    // fallback), so programmatic releases and browser lock teardowns around
+    // mode changes cannot summon it.
     if (
       resumePointerLock &&
       !this.#paused() &&
       this.#inspectionMode !== "spread" &&
+      !this.#arcadeStatusForUi() &&
       !this.#disposed
     )
       this.#requestPointerLock();
@@ -7957,7 +8157,6 @@ export class ShopScene {
         kind === "tv" ? this.#targetedTelevision : undefined;
       this.#channelEditorDigitalArtFrameId =
         kind === "art-frame" ? this.#targetedDigitalArtFrameId : undefined;
-      this.#suppressNextPointerUnlockPause = true;
       this.#releasePointerLock();
       this.#onMediaChannelCreateRequest(kind);
       return;
@@ -8511,9 +8710,13 @@ export class ShopScene {
           sign.subtitle ?? "",
         );
     }
-    // Legacy trashcan positions apply only while migrating pre-seeding
-    // worlds; afterwards the bin's pose lives in modelProps like any prop.
-    if (!save.defaultsSeeded && save.trashcan)
+    // Legacy trashcan positions apply only while migrating worlds that
+    // never ran a seeding pass; afterwards the bin's pose lives in
+    // modelProps like any prop.
+    if (
+      worldSaveSeedingVersion(save) < INITIAL_WORLD_SEEDING_VERSION &&
+      save.trashcan
+    )
       this.#setTrashcanPosition(save.trashcan.x, save.trashcan.z, false);
     // Legacy `television` pose fields are intentionally ignored: worlds
     // saved before default-prop seeding respawn the movable CRT television
@@ -8540,8 +8743,8 @@ export class ShopScene {
     this.#pendingPosterSaves = save.posters ?? [];
     this.#pendingDigitalArtFrameSaves = save.digitalArtFrames ?? [];
     // Saved model props whose ids already exist (registered during boot)
-    // adopt their saved pose here; only genuinely missing ids remain for
-    // #restoreSavedModelProps to spawn.
+    // adopt their saved pose, scale, and lock here; only genuinely missing
+    // ids remain for #restoreSavedModelProps to spawn.
     const adoptedModelPropSaves: WorldModelPropSave[] = [];
     for (const savedProp of save.modelProps ?? []) {
       const record = this.#movableProps.get(savedProp.id);
@@ -8550,6 +8753,11 @@ export class ShopScene {
         continue;
       }
       this.#applySavedPropPose(record, savedProp);
+      // Boot-registered defaults spawn at seed scale; without this, a
+      // player-scaled default would silently revert and the next save
+      // would overwrite the stored scale with the reverted value.
+      if (savedProp.scale !== record.modelScale)
+        this.#setModelPropScale(record, savedProp.scale);
       if (savedProp.locked && !record.locked) {
         record.locked = true;
         this.#physicsWorld.setPropLocked(record.id, true);
@@ -11467,7 +11675,6 @@ export class ShopScene {
     if (!key || !this.#onSignEditRequest) return;
     const signSlot = this.#signSlots.get(key);
     if (!signSlot) return;
-    this.#suppressNextPointerUnlockPause = true;
     this.#releasePointerLock();
     this.#onSignEditRequest({
       id: signSlot.id,
@@ -12640,9 +12847,10 @@ export class ShopScene {
           ? {}
           : {snapshotId: catalog.snapshotId}),
       },
-      // From here on the world owns its default props: this flag stops the
-      // boot-time seed from re-creating deleted or moved defaults.
-      defaultsSeeded: true,
+      // From here on the world owns its default props: this version stops
+      // the boot-time seed passes from re-creating deleted or moved
+      // defaults.
+      seedingVersion: WORLD_SEEDING_VERSION,
       ...(modelProps.length > 0 ? {modelProps} : {}),
       digitalArtFrames,
       player: {
@@ -13170,6 +13378,15 @@ export class ShopScene {
         {key: "V", label: "Digital art frames"},
         {key: "Space", label: "Jump"},
       ];
+
+    // Interaction affordances exist only while an owning surface holds
+    // input; every other mode drops rows and context before they reach any
+    // consumer, keeping snapshots consistent with the viewport's gate.
+    const activeMode = this.#mode?.();
+    if (activeMode !== undefined && !INTERACTION_ROW_MODES.has(activeMode)) {
+      interactionContext = undefined;
+      interactions = [];
+    }
 
     const displayedInteractions = interactions.map((interaction) => ({
       ...interaction,
