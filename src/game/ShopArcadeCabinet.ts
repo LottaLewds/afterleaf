@@ -12,6 +12,7 @@ import {
   Vector3,
   type Object3D,
 } from "three";
+import {DEV} from "solid-js";
 
 import {arcadeGameId, findArcadeSystem} from "~/arcade/systems";
 import {
@@ -63,6 +64,9 @@ export type ShopArcadeCabinetOptions = {
 
 const ATTRACT_FPS = 12;
 
+/** How often the dev FPS readout recomputes its rates. */
+const HUD_SAMPLE_INTERVAL_S = 0.5;
+
 /** Speaker tuning for the live game audio tap, mirroring the TV pattern. */
 const ARCADE_SPEAKER_AUDIO = {
   cone: {innerAngle: 150, outerAngle: 270, outerGain: 0.22},
@@ -96,6 +100,7 @@ export class ShopArcadeCabinet {
   readonly #onInteractRequest: (cabinet: ShopArcadeCabinet) => void;
   readonly #onStateChange: () => void;
   #liveCanvas: HTMLCanvasElement | undefined;
+  #uploadedFrame: number | undefined;
   #uploadedWidth: number | undefined;
   #uploadedHeight: number | undefined;
   #targeted = false;
@@ -111,6 +116,13 @@ export class ShopArcadeCabinet {
   #sessionSystemId: string | undefined;
   #host: EmulatorSession | undefined;
   #arcadeAudio: PositionalStreamAudioHandle | undefined;
+
+  // Dev-only FPS readout (created when DEV); samples the emulated frame
+  // counter against wall time so core pacing is visible during play.
+  #hud: HTMLDivElement | undefined;
+  #hudElapsed = 0;
+  #hudHostFrames = 0;
+  #hudLastCoreFrames: number | undefined;
 
   constructor(options: ShopArcadeCabinetOptions) {
     this.id = `arcade-${ShopArcadeCabinet.nextId++}`;
@@ -217,12 +229,20 @@ export class ShopArcadeCabinet {
   setLiveCanvas(canvas: HTMLCanvasElement | undefined) {
     this.#liveCanvas = canvas;
     if (canvas) {
+      this.#uploadedFrame = undefined;
       this.#uploadedWidth = undefined;
       this.#uploadedHeight = undefined;
       this.#liveTexture.image = canvas;
       this.#liveTexture.needsUpdate = true;
       this.#material.map = this.#liveTexture;
+      if (DEV && !this.#hud) {
+        this.#hud = this.#createDevHud();
+        this.#hudElapsed = 0;
+        this.#hudHostFrames = 0;
+        this.#hudLastCoreFrames = undefined;
+      }
     } else {
+      this.#removeDevHud();
       this.#material.map = this.#attractTexture;
     }
     this.#material.needsUpdate = true;
@@ -432,22 +452,32 @@ export class ShopArcadeCabinet {
   update(deltaSeconds: number) {
     if (this.#disposed) return;
     if (this.#liveCanvas) {
-      // Re-upload the emulator's canvas every rendered frame. Uploads at
-      // arcade resolutions are cheap, and continuous sampling is what keeps
-      // the screen live no matter how the core paces itself. The core also
-      // resizes its backing store after boot (video driver init, rotation),
-      // so when the dimensions move we free the GPU allocation first -
-      // re-uploading into the stale one makes Chromium's copy overflow
-      // (glCopySubTextureCHROMIUM GL_INVALID_VALUE) and stick black frames.
-      if (
-        this.#liveCanvas.width !== this.#uploadedWidth ||
-        this.#liveCanvas.height !== this.#uploadedHeight
-      ) {
-        this.#uploadedWidth = this.#liveCanvas.width;
-        this.#uploadedHeight = this.#liveCanvas.height;
+      // The emulator canvas lives in its own WebGL context, so every
+      // needsUpdate costs a GPU-GPU copy (Chromium's cross-context copy).
+      // Copy only when the core actually produced a new emulated frame -
+      // re-copying identical content at high refresh rates just burns
+      // bandwidth. Fail open when the counter is unavailable (always copy).
+      //
+      // A resized backing store always forces a copy, and the GPU allocation
+      // is freed first: copying into the stale allocation makes Chromium's
+      // copy overflow (glCopySubTextureCHROMIUM GL_INVALID_VALUE) and stick
+      // black frames.
+      const canvas = this.#liveCanvas;
+      const frames = this.#host?.frameCount();
+      const resized =
+        canvas.width !== this.#uploadedWidth ||
+        canvas.height !== this.#uploadedHeight;
+      if (resized) {
+        this.#uploadedWidth = canvas.width;
+        this.#uploadedHeight = canvas.height;
         this.#liveTexture.dispose();
+        this.#uploadedFrame = frames;
+        this.#liveTexture.needsUpdate = true;
+      } else if (frames === undefined || frames !== this.#uploadedFrame) {
+        this.#uploadedFrame = frames;
+        this.#liveTexture.needsUpdate = true;
       }
-      this.#liveTexture.needsUpdate = true;
+      this.#sampleFps(deltaSeconds);
       return;
     }
     this.#attractTime += deltaSeconds;
@@ -463,12 +493,71 @@ export class ShopArcadeCabinet {
       (this.#targeted ? 0.16 : 0);
   }
 
+  // -- Dev FPS readout -------------------------------------------------------
+
+  #createDevHud(): HTMLDivElement {
+    const hud = document.createElement("div");
+    // Parallel sessions stack by stable id suffix so their readouts never
+    // overlap on screen.
+    const index = Number.parseInt(this.id.slice("arcade-".length), 10);
+    hud.style.position = "fixed";
+    hud.style.left = "12px";
+    hud.style.top = `${12 + (Number.isNaN(index) ? 0 : index - 1) * 24}px`;
+    hud.style.zIndex = "60";
+    hud.style.padding = "3px 9px";
+    hud.style.borderRadius = "6px";
+    hud.style.background = "rgba(7,16,15,0.85)";
+    hud.style.color = "#a8e6b0";
+    hud.style.font = "11px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace";
+    hud.style.pointerEvents = "none";
+    hud.style.whiteSpace = "pre";
+    hud.textContent = "HOST … · CORE …";
+    document.body.appendChild(hud);
+    return hud;
+  }
+
+  #removeDevHud() {
+    this.#hud?.remove();
+    this.#hud = undefined;
+    this.#hudLastCoreFrames = undefined;
+  }
+
+  /**
+   * Windowed rate sampler. HOST is the render loop's cadence (update calls
+   * per second); CORE is emulated frames per wall second straight from the
+   * core's frame counter, which is the real "is it full speed" number.
+   */
+  #sampleFps(deltaSeconds: number) {
+    const hud = this.#hud;
+    if (!hud) return;
+    this.#hudHostFrames += 1;
+    this.#hudElapsed += deltaSeconds;
+    if (this.#hudElapsed < HUD_SAMPLE_INTERVAL_S) return;
+
+    const coreFrames = this.#host?.frameCount();
+    let text = `HOST ${(this.#hudHostFrames / this.#hudElapsed).toFixed(1)} fps`;
+    if (coreFrames === undefined) {
+      text += " · CORE n/a";
+    } else {
+      if (this.#hudLastCoreFrames !== undefined)
+        text += ` · CORE ${((coreFrames - this.#hudLastCoreFrames) / this.#hudElapsed).toFixed(1)} fps`;
+      this.#hudLastCoreFrames = coreFrames;
+    }
+    text += ` · ${this.#liveCanvas?.width ?? 0}×${this.#liveCanvas?.height ?? 0}`;
+    hud.textContent = text;
+    this.#hudHostFrames = 0;
+    this.#hudElapsed = 0;
+  }
+
   dispose() {
     if (this.#disposed) return;
     this.#disposed = true;
     this.destroyHost();
     this.setLiveCanvas(undefined);
     this.object.removeFromParent();
+    // setLiveCanvas(undefined) already dropped the HUD when DEV; guard for
+    // the production build where it was never created.
+    this.#removeDevHud();
     this.#attractTexture.dispose();
     this.#liveTexture.dispose();
     this.#material.dispose();

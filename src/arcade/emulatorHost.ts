@@ -213,6 +213,11 @@ export type EmulatorSession = {
    */
   audioStreamReady: Promise<MediaStream | undefined>;
   forwardKey: (down: boolean, event: ForwardedKeyEvent) => void;
+  /**
+   * Emulated frame counter for dev diagnostics only; undefined until the
+   * core exposes it. Deltas over wall time give the core's real step rate.
+   */
+  frameCount: () => number | undefined;
   destroy: () => void;
 };
 
@@ -228,10 +233,12 @@ const BOOT_TIMEOUT_MS = 150_000;
 const AUDIO_TAP_TIMEOUT_MS = 15_000;
 const AUDIO_TAP_POLL_MS = 100;
 
-// Offscreen layout only feeds EmulatorJS's resize math; the canvas backing
-// store resolution is decided by the core, never by these pixels.
-const CONTAINER_WIDTH_PX = 480;
-const CONTAINER_HEIGHT_PX = 360;
+// Offscreen layout only feeds EmulatorJS's resize math: the canvas backing
+// store follows this box times devicePixelRatio (e.g. 320x240 becomes
+// 480x360 at dpr 1.5), and every texture copy the host does scales with it.
+// The cabinet screen mesh never gets close enough to need more than that.
+const CONTAINER_WIDTH_PX = 320;
+const CONTAINER_HEIGHT_PX = 240;
 
 let nextSlotId = 1;
 // Cores define shared globals while their glue executes; keep boot phases
@@ -461,6 +468,15 @@ export const launchEmulator = (
         emulator.elements.parent.dispatchEvent(forwarded);
       } finally {
         forwardingInput = false;
+      }
+    },
+    frameCount: () => {
+      const getFrameNum = emulator?.gameManager?.functions?.getFrameNum;
+      if (!getFrameNum) return undefined;
+      try {
+        return getFrameNum();
+      } catch {
+        return undefined;
       }
     },
     destroy,

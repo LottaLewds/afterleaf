@@ -387,9 +387,9 @@ export const ArcadeBrowser = (props: ArcadeBrowserProps) => {
                 )}
               </Show>
               <p class="text-[9px] leading-4 tracking-[0.06em] text-[#657a72] uppercase">
-                Esc backs out of the arcade · Games run through EmulatorJS in a
-                sandboxed frame · Sideloading your own ROMs is fine where you
-                own them
+                Esc backs out of the arcade · Games run through EmulatorJS right
+                on this page · Sideloading your own ROMs is fine where you own
+                them
               </p>
             </footer>
           </section>
