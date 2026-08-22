@@ -1224,16 +1224,21 @@ const localLibraryOperationsPlugin = (): Plugin => ({
       // same-origin emulator iframe. Names are plain file names resolved
       // against each candidate folder in listing order; containment is
       // re-checked after resolving so traversal attempts can never escape.
+      // HEAD must succeed alongside GET because EmulatorJS probes every
+      // game URL that way before deciding whether to download it.
       if (pathname === LIBRARY_ROM_FILE_ENDPOINT) {
-        if (request.method !== "GET" || !hasSameOrigin(request)) {
+        if (
+          (request.method !== "GET" && request.method !== "HEAD") ||
+          !hasSameOrigin(request)
+        ) {
           sendJson(
             response,
-            request.method === "GET" ? 403 : 405,
+            request.method === "GET" || request.method === "HEAD" ? 403 : 405,
             libraryOperationFailure(
-              request.method === "GET"
+              request.method === "GET" || request.method === "HEAD"
                 ? "forbidden_origin"
                 : "method_not_allowed",
-              "ROM files are served to same-origin GET requests only",
+              "ROM files are served to same-origin GET and HEAD requests only",
             ),
           );
           return;
@@ -1284,6 +1289,13 @@ const localLibraryOperationsPlugin = (): Plugin => ({
           response.setHeader("Content-Type", "application/octet-stream");
           response.setHeader("Content-Length", String(romSizeBytes));
           response.setHeader("Cache-Control", "no-store");
+          // The HEAD probe answers with metadata only; EmulatorJS reads the
+          // declared content-length for its cache check and re-requests with
+          // GET when it actually needs the bytes.
+          if (request.method === "HEAD") {
+            response.end();
+            return;
+          }
           const romStream = createReadStream(romPath);
           romStream.on("error", () => {
             response.destroy();

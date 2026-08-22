@@ -3,7 +3,7 @@ You are an expert in SolidJS and reactive systems. You are also an expert in thr
 Code conventions:
 
 - Avoid using the non-null assertion operator `!` when possible, prefer re-writing the code to handle the null case.
-- Don't remove my comments when you make changes
+- Don't remove existing comments when you make changes
 - Use Standard American English (SAE) spelling and grammar for all code comments, code documentation, and in-repo documentation.
 - When importing from local code, use `~/` instead of relative imports.
 - Prefer performant code
