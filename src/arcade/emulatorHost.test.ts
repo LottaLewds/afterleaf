@@ -44,11 +44,22 @@ describe("buildEmulatorDocumentHtml", () => {
     // container-scoped key handler.
     expect(html).toContain("#game canvas");
   });
+
+  test("reports unhandled promise rejections as non-fatal logs", () => {
+    expect(html).toContain('addEventListener("unhandledrejection"');
+    expect(html).toContain('post("log"');
+    // Rejections must not reuse the fatal error channel.
+    const rejection = html.slice(html.indexOf("unhandledrejection"));
+    expect(rejection).not.toContain('post("error"');
+  });
 });
 
 describe("isArcadeHostMessage", () => {
   test("accepts only flagged messages with a known shape", () => {
     expect(isArcadeHostMessage({__afterleafArcade: true, type: "start"})).toBe(
+      true,
+    );
+    expect(isArcadeHostMessage({__afterleafArcade: true, type: "log"})).toBe(
       true,
     );
     expect(
