@@ -1430,6 +1430,8 @@ export class ShopScene {
   #modelRestoreActive = false;
   /** A builtin template landed while a restore pass was running. */
   #modelRestoreRetry = false;
+  /** Missing prop assets already reported so each warns only once. */
+  readonly #missingPropAssetIds = new Set<string>();
   #onReady: (() => void) | undefined;
   #inputSuspended = false;
   #pointerLocked = false;
@@ -6046,6 +6048,14 @@ export class ShopScene {
         if (this.#movableProps.has(savedProp.id)) continue;
         const asset = assetsById.get(savedProp.assetId);
         if (!asset) {
+          // The content pack renamed or dropped this asset; the saved prop
+          // cannot come back, but it must not block anything else either.
+          if (DEV && !this.#missingPropAssetIds.has(savedProp.assetId)) {
+            this.#missingPropAssetIds.add(savedProp.assetId);
+            console.warn(
+              `Afterleaf cannot restore prop ${savedProp.id}: its asset "${savedProp.assetId}" is no longer in the spawnable catalog.`,
+            );
+          }
           unresolved.push(savedProp);
           continue;
         }
@@ -8753,8 +8763,8 @@ export class ShopScene {
     this.#pendingPosterSaves = save.posters ?? [];
     this.#pendingDigitalArtFrameSaves = save.digitalArtFrames ?? [];
     // Saved model props whose ids already exist (registered during boot)
-    // adopt their saved pose here; only genuinely missing ids remain for
-    // #restoreSavedModelProps to spawn.
+    // adopt their saved pose, scale, and lock here; only genuinely missing
+    // ids remain for #restoreSavedModelProps to spawn.
     const adoptedModelPropSaves: WorldModelPropSave[] = [];
     for (const savedProp of save.modelProps ?? []) {
       const record = this.#movableProps.get(savedProp.id);
@@ -8763,6 +8773,11 @@ export class ShopScene {
         continue;
       }
       this.#applySavedPropPose(record, savedProp);
+      // Boot-registered defaults spawn at seed scale; without this, a
+      // player-scaled default would silently revert and the next save
+      // would overwrite the stored scale with the reverted value.
+      if (savedProp.scale !== record.modelScale)
+        this.#setModelPropScale(record, savedProp.scale);
       if (savedProp.locked && !record.locked) {
         record.locked = true;
         this.#physicsWorld.setPropLocked(record.id, true);

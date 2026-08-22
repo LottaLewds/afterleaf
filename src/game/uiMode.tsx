@@ -6,6 +6,7 @@ import {
   on,
   onCleanup,
   useContext,
+  DEV,
   type Accessor,
   type ParentComponent,
 } from "solid-js";
@@ -115,6 +116,12 @@ export const UiModeProvider: ParentComponent<{
     escapeFallbackArmed: () => ESCAPE_FALLBACK_MODES.has(mode()),
     reportViewport: setViewport,
   };
+  if (DEV)
+    createEffect(
+      on(mode, (next, previous) => {
+        console.info("[esc] mode:", previous ?? "(initial)", "->", next);
+      }),
+    );
   return (
     <UiModeContext.Provider value={value}>
       {props.children}
@@ -146,8 +153,13 @@ export const createModeListener = (
         // The initial false run no-ops, mirroring createEscapeScope.
         if (!isActive) return;
         const abortController = new AbortController();
+        if (DEV) console.info("[esc] mode listener bound @", performance.now());
         bind(abortController.signal);
-        onCleanup(() => abortController.abort());
+        onCleanup(() => {
+          if (DEV)
+            console.info("[esc] mode listener aborted @", performance.now());
+          abortController.abort();
+        });
       },
     ),
   );

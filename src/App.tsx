@@ -38,6 +38,7 @@ import {
   createSignal,
   on,
   untrack,
+  DEV,
   type JSX,
 } from "solid-js";
 
@@ -1885,6 +1886,14 @@ const DetailPanel = (props: {
 );
 
 /**
+ * Window of time after a stack-consumed Escape during which the menu
+ * fallback stays deaf, so backing out of an exclusive surface (picker,
+ * emulator, dialog) cannot roll straight into opening the pause menu from
+ * the same physical gesture.
+ */
+const ESCAPE_GESTURE_COOLDOWN_MS = 250;
+
+/**
  * Always-on Escape router plus a mode-scoped menu fallback. The router offers
  * every press to the shared modal stack from whichever mode is active; the
  * fallback that toggles the pause menu binds only while a fallback-armed mode
@@ -1894,12 +1903,22 @@ const DetailPanel = (props: {
 const GlobalEscapeShortcuts = (props: {onFallback: () => void}) => {
   const {escapeFallbackArmed} = useUiMode();
   const routerAbortController = new AbortController();
+  // Written by whichever press the stack consumed most recently.
+  let lastStackConsumeAt = Number.NEGATIVE_INFINITY;
   window.addEventListener(
     "keydown",
     (event) => {
       if (event.key !== "Escape") return;
       if (event.defaultPrevented || event.repeat) return;
       if (!modalModes.consumeEscape()) return;
+      lastStackConsumeAt = performance.now();
+      if (DEV)
+        console.info(
+          "[esc] stack consumed @",
+          Math.round(event.timeStamp),
+          "scopes:",
+          modalModes.depth,
+        );
       event.preventDefault();
     },
     {signal: routerAbortController.signal},
@@ -1911,6 +1930,22 @@ const GlobalEscapeShortcuts = (props: {onFallback: () => void}) => {
       (event) => {
         if (event.key !== "Escape") return;
         if (event.defaultPrevented || event.repeat) return;
+        const sinceConsume = performance.now() - lastStackConsumeAt;
+        if (sinceConsume < ESCAPE_GESTURE_COOLDOWN_MS) {
+          if (DEV)
+            console.info(
+              "[esc] fallback suppressed by cooldown",
+              Math.round(sinceConsume),
+            );
+          return;
+        }
+        if (DEV)
+          console.info(
+            "[esc] fallback -> menu toggle @",
+            Math.round(event.timeStamp),
+            "prevented:",
+            event.defaultPrevented,
+          );
         event.preventDefault();
         props.onFallback();
       },
@@ -1993,6 +2028,7 @@ export const App = () => {
   let shopViewportControls: ShopViewportControls | undefined;
   const openMenu = () => {
     if (menuOpen()) return;
+    if (DEV) console.trace("[esc] openMenu called");
     setMenuOpen(true);
   };
   const closeMenu = (requestPointerLock = true) => {

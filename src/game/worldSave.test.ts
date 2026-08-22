@@ -380,6 +380,22 @@ describe("world save validation", () => {
     expect(parsedModelProp.locked).toBeUndefined();
   });
 
+  test("rejects fields the reader does not understand", () => {
+    expect(() =>
+      parseWorldSave({
+        ...saveFixture(),
+        seedingVersion: WORLD_SEEDING_VERSION,
+        someFutureField: 1,
+      }),
+    ).toThrow(
+      "Unknown world save field(s): someFutureField. This reader predates the writer's save format",
+    );
+    // The legacy flag is known input even though it normalizes away.
+    expect(() =>
+      parseWorldSave({...saveFixture(), defaultsSeeded: true}),
+    ).not.toThrow();
+  });
+
   test("seeding versions normalize legacy flags and survive a round trip", () => {
     expect(parseWorldSave(saveFixture()).seedingVersion).toBeUndefined();
     expect(worldSaveSeedingVersion(parseWorldSave(saveFixture()))).toBe(0);

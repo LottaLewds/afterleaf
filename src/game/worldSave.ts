@@ -547,9 +547,45 @@ const parseAisleSigns = (value: unknown): readonly WorldAisleSign[] => {
   });
 };
 
+/**
+ * Every field this parser understands, including legacy inputs it
+ * normalizes away. Anything else means the writer speaks a newer save
+ * format than this reader.
+ */
+const KNOWN_WORLD_SAVE_FIELDS: ReadonlySet<string> = new Set([
+  "aisleSigns",
+  "books",
+  "catalog",
+  "defaultsSeeded",
+  "digitalArtFrames",
+  "modelProps",
+  "pendingArrivalIds",
+  "player",
+  "posters",
+  "props",
+  "savedAt",
+  "schemaVersion",
+  "seedingVersion",
+  "shelfSigns",
+  "television",
+  "televisionChannels",
+  "televisionModelVersion",
+  "televisionVolumes",
+  "trashcan",
+]);
+
 /** Parses untrusted JSON data into normalized transforms and a strict V1 save. */
 export const parseWorldSave = (value: unknown): WorldSaveV1 => {
   if (!isRecord(value)) throw new Error("World save must be an object");
+  // A reader that silently dropped fields it did not know (for example a
+  // stale dev server) would corrupt saves instead of failing loudly.
+  const unknownFields = Object.keys(value)
+    .filter((key) => !KNOWN_WORLD_SAVE_FIELDS.has(key))
+    .sort();
+  if (unknownFields.length > 0)
+    throw new Error(
+      `Unknown world save field(s): ${unknownFields.join(", ")}. This reader predates the writer's save format; update or restart the server.`,
+    );
   if (value.schemaVersion !== WORLD_SAVE_SCHEMA_VERSION)
     throw new Error("Unsupported world save schema version");
   if (!Array.isArray(value.books) || value.books.length > MAX_BOOK_COUNT)
