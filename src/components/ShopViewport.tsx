@@ -105,9 +105,11 @@ export const ShopViewport = (props: ShopViewportProps) => {
   let shopScene: ShopScene | undefined;
   const worldSaveAbortController = new AbortController();
   const uiMode = useUiMode();
-  // Pointer-lock intent is a property of the exclusive mode: only free roam
-  // wants the cursor captured; every other surface keeps it released.
-  const shouldBePointerLocked = () => uiMode.mode() === "walk";
+  // Pointer-lock intent is a property of the exclusive mode: free roam and a
+  // live emulator session capture the cursor; surfaces that need it visible
+  // (ROM picker, dialogs, menus, inspection) keep it released.
+  const shouldBePointerLocked = () =>
+    uiMode.mode() === "walk" || uiMode.mode() === "arcade-live";
   const controls: ShopViewportControls = {
     requestPointerLock: () => shopScene?.requestPointerLock(),
   };
@@ -485,7 +487,9 @@ export const ShopViewport = (props: ShopViewportProps) => {
             </Show>
           </div>
         </Show>
-        <Show when={uiMode.mode() === "walk"}>
+        {/* The reticle only makes sense while the cursor is truly captured;
+            walking unlocked still shows the system pointer. */}
+        <Show when={uiMode.mode() === "walk" && gameState().pointerLocked}>
           <div
             class="pointer-events-none absolute top-1/2 left-1/2 size-4 -translate-x-1/2 -translate-y-1/2"
             aria-hidden="true"

@@ -1662,6 +1662,9 @@ export class ShopScene {
     this.#activeArcadeCabinet = cabinet;
     cabinet.play(request);
     this.#emitGameState();
+    // Re-capture the cursor on the picker's own click gesture: launching and
+    // playing keep it hidden, matching free roam.
+    if (!this.#paused()) this.#requestPointerLock();
   }
 
   /** Playing → back to the ROM picker of the active session. */
@@ -1717,14 +1720,14 @@ export class ShopScene {
   /**
    * Steps away from the active session's UI without stopping emulation: the
    * world unfreezes, keys stop forwarding, and the cabinet keeps playing
-   * until the player targets it again (E resumes) or quits through Leave.
+   * until the player targets it again (E resumes) or quits through the ROM
+   * picker. Pointer lock is held through the whole cycle; if the browser
+   * force-released it (Escape), standard click-to-lock recovers.
    */
   stepAwayFromArcade() {
     if (this.#disposed || !this.#activeArcadeCabinet) return;
     this.#activeArcadeCabinet = undefined;
     this.#emitGameState();
-    // Hand control back immediately, mirroring exitArcadeUi.
-    if (!this.#paused()) this.#requestPointerLock();
   }
 
   /**
@@ -1734,11 +1737,16 @@ export class ShopScene {
    */
   #enterArcadeBrowsing(cabinet: ShopArcadeCabinet) {
     const status = cabinet.sessionStatus;
+    console.warn("[arcade] interact:", cabinet.id, status);
     if (status === "downloading" || status === "launching") return;
     this.#activeArcadeCabinet = cabinet;
-    this.#releasePointerLock();
     this.#aimCameraAtObject(cabinet.object);
-    if (!status) cabinet.beginBrowsing();
+    if (!status) {
+      // Only the ROM picker needs a visible cursor; resuming a live session
+      // keeps the pointer exactly where walking left it.
+      this.#releasePointerLock();
+      cabinet.beginBrowsing();
+    }
     this.#emitGameState();
   }
 
@@ -13286,6 +13294,24 @@ export class ShopScene {
         interactions.unshift({key: "E", label: "Shelve book"});
       if (this.#trashTargeted)
         interactions.unshift({key: "E", label: "Discard book"});
+    } else if (this.#arcadeStatusForUi() === "playing") {
+      // The emulator owns the keyboard; surface its control layout in the
+      // standard interactions panel. Checked before targeting rows so an
+      // attached session always swaps to these hints immediately — even
+      // while the reticle still rests on its own cabinet — making a
+      // reattach visibly take hold.
+      const system = findArcadeSystem(
+        this.#activeArcadeCabinet?.sessionSystemId ?? "",
+      );
+      interactionContext = this.#activeArcadeCabinet?.sessionRomName;
+      interactions = [
+        ...(system?.controlHints.map((hint) => ({
+          key: hint.keys,
+          label: hint.action,
+        })) ?? []),
+        {key: "P", label: "Pick game"},
+        {key: "R", label: "Step away"},
+      ];
     } else if (this.#targetedArcadeCabinet) {
       const cabinet = this.#targetedArcadeCabinet;
       const cabinetProp = this.#arcadeProps.get(cabinet);
@@ -13386,22 +13412,7 @@ export class ShopScene {
       ];
     } else if (this.#targetedSignKey !== undefined)
       interactions = [{key: "E", label: "Customize sign"}];
-    else if (this.#arcadeStatusForUi() === "playing") {
-      // The emulator owns the keyboard; surface its control layout in the
-      // standard interactions panel.
-      const system = findArcadeSystem(
-        this.#activeArcadeCabinet?.sessionSystemId ?? "",
-      );
-      interactionContext = this.#activeArcadeCabinet?.sessionRomName;
-      interactions = [
-        ...(system?.controlHints.map((hint) => ({
-          key: hint.keys,
-          label: hint.action,
-        })) ?? []),
-        {key: "P", label: "Pick game"},
-        {key: "R", label: "Step away"},
-      ];
-    } else if (hoveredRecord)
+    else if (hoveredRecord)
       interactions =
         hoveredRecord.state.status === "shelved"
           ? [
