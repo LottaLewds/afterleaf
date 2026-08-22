@@ -89,6 +89,7 @@ export class ShopArcadeCabinet {
   // Per-cabinet emulator session. Each cabinet can run its own game at the
   // same time; only the active one receives forwarded keyboard input.
   #sessionStatus: ArcadeSessionStatus | undefined;
+  #sessionSystemId: string | undefined;
   #sessionDetail: string | undefined;
   #sessionRomName: string | undefined;
   #host: EmulatorSession | undefined;
@@ -228,6 +229,10 @@ export class ShopArcadeCabinet {
     return this.#sessionRomName;
   }
 
+  get sessionSystemId() {
+    return this.#sessionSystemId;
+  }
+
   #setSession(
     status: ArcadeSessionStatus | undefined,
     detail?: string,
@@ -252,6 +257,7 @@ export class ShopArcadeCabinet {
       this.#setSession("browsing", `Unknown system ${request.systemId}.`);
       return;
     }
+    this.#sessionSystemId = system.id;
     if (this.#host) this.destroyHost();
     this.#setSession("launching", "Booting the cabinet…", request.name);
     const host = launchEmulator({
@@ -296,6 +302,7 @@ export class ShopArcadeCabinet {
     if (!this.#sessionStatus) return;
     this.destroyHost();
     this.setLiveCanvas(undefined);
+    this.#sessionSystemId = undefined;
     this.#setSession(undefined, undefined);
   }
 
