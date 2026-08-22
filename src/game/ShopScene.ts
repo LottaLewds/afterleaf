@@ -49,6 +49,7 @@ import {GLTFLoader} from "three/examples/jsm/loaders/GLTFLoader.js";
 import {RectAreaLightUniformsLib} from "three/examples/jsm/lights/RectAreaLightUniformsLib.js";
 import {clone as cloneWithSkeleton} from "three/examples/jsm/utils/SkeletonUtils.js";
 import {DEV} from "solid-js";
+import {FpsHud} from "~/game/FpsHud";
 
 import type {ArtFrameFit} from "~/artFrames/aspect";
 import {artFrameChannelId} from "~/artFrames/protocol";
@@ -1133,6 +1134,7 @@ export class ShopScene {
   readonly #abortController = new AbortController();
   readonly #catalogAtlases: () => CatalogAtlases;
   readonly #audioManager = new ShopAudioManager();
+  readonly #fpsHud = new FpsHud();
   readonly #bookAtlasBatches: BookAtlasBatch[] = [];
   readonly #bookAtlasTextures: BookAtlasTextures[] = [];
   readonly #booksById = new Map<string, BookRecord>();
@@ -1593,6 +1595,11 @@ export class ShopScene {
     );
     this.#abortController.signal.addEventListener(
       "abort",
+      () => this.#fpsHud.dispose(),
+      {once: true},
+    );
+    this.#abortController.signal.addEventListener(
+      "abort",
       unsubscribeFromWidePages,
       {once: true},
     );
@@ -1945,6 +1952,7 @@ export class ShopScene {
       television.update(deltaSeconds);
     }
     for (const cabinet of this.#arcadeCabinets) cabinet.update(deltaSeconds);
+    this.#fpsHud.update(deltaSeconds, this.#activeArcadeCabinet?.perfSample);
     if (paused) {
       if (!this.#inputSuspended) {
         this.#inputSuspended = true;
