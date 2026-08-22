@@ -67,13 +67,54 @@ const ATTRACT_FPS = 12;
 /** How often the dev FPS readout recomputes its rates. */
 const HUD_SAMPLE_INTERVAL_S = 0.5;
 
-/** Speaker tuning for the live game audio tap, mirroring the TV pattern. */
+/** How long the on-screen volume indicator stays visible. */
+const OSD_DURATION_MS = 1_400;
+
+/** Speaker tuning for the live game audio tap; falloff matches the TVs. */
 const ARCADE_SPEAKER_AUDIO = {
   cone: {innerAngle: 150, outerAngle: 270, outerGain: 0.22},
-  refDistance: 1.5,
-  rolloffFactor: 1,
-  volume: 0.9,
+  refDistance: 1.7,
+  rolloffFactor: 0.85,
 } as const;
+
+/**
+ * Base speaker gain before the user's volume preference. Tuned against the
+ * television loudness (TELEVISION_MAX_VOLUME 0.72): the tapped stream runs
+ * quieter than a media element's direct signal, so this sits above unity to
+ * make a cabinet at 100% read comparable to a TV at 100% at the same spot.
+ */
+const ARCADE_MAX_VOLUME = 2;
+const ARCADE_VOLUME_STEP = 0.05;
+const ARCADE_VOLUME_MIN = 0;
+/** Above 1 boosts past unity, matching the requested up-to-150% range. */
+const ARCADE_VOLUME_MAX = 1.5;
+const ARCADE_VOLUME_STORAGE_KEY = "afterleaf.arcade.volume";
+
+const clampArcadeVolume = (volume: number): number =>
+  Number.isFinite(volume)
+    ? Math.min(
+        ARCADE_VOLUME_MAX,
+        Math.max(ARCADE_VOLUME_MIN, Math.round(volume * 100) / 100),
+      )
+    : 1;
+
+const loadStoredArcadeVolume = (): number => {
+  try {
+    const raw = localStorage.getItem(ARCADE_VOLUME_STORAGE_KEY);
+    return raw === null ? 1 : clampArcadeVolume(Number.parseFloat(raw));
+  } catch (error) {
+    if (DEV) console.warn("Afterleaf could not read arcade volume.", error);
+    return 1;
+  }
+};
+
+const storeArcadeVolume = (volume: number) => {
+  try {
+    localStorage.setItem(ARCADE_VOLUME_STORAGE_KEY, String(volume));
+  } catch (error) {
+    if (DEV) console.warn("Afterleaf could not store arcade volume.", error);
+  }
+};
 
 /**
  * The physical arcade cabinet prop: loads the ms-pac-man GLB, wires its
@@ -116,6 +157,16 @@ export class ShopArcadeCabinet {
   #sessionSystemId: string | undefined;
   #host: EmulatorSession | undefined;
   #arcadeAudio: PositionalStreamAudioHandle | undefined;
+  /** User volume preference (0-1.5), persisted across sessions. */
+  #arcadeUserVolume = loadStoredArcadeVolume();
+  // Screen-level volume indicator: while visible the material swaps to a
+  // composite canvas (live frame + OSD text) so motion stays readable.
+  #osdCanvas: HTMLCanvasElement | undefined;
+  #osdContext: CanvasRenderingContext2D | undefined;
+  #osdTexture: CanvasTexture | undefined;
+  #osdUntil = 0;
+  #osdLabel = "";
+  #osdColor = "#c9f0d3";
 
   // Dev-only FPS readout (created when DEV); samples the emulated frame
   // counter against wall time so core pacing is visible during play.
@@ -244,6 +295,7 @@ export class ShopArcadeCabinet {
       }
     } else {
       this.#removeDevHud();
+      this.#disposeOsd();
       this.#material.map = this.#attractTexture;
     }
     this.#material.needsUpdate = true;
@@ -350,10 +402,10 @@ export class ShopArcadeCabinet {
   #attachArcadeAudio(host: EmulatorSession, stream: MediaStream) {
     // Replace any existing handle so the old stream's wiring is released.
     this.#arcadeAudio?.dispose();
-    const handle = this.#audioManager.createPositionalMediaStream(
-      stream,
-      ARCADE_SPEAKER_AUDIO,
-    );
+    const handle = this.#audioManager.createPositionalMediaStream(stream, {
+      ...ARCADE_SPEAKER_AUDIO,
+      volume: ARCADE_MAX_VOLUME * this.#arcadeUserVolume,
+    });
     if (this.#disposed || this.#host !== host) {
       handle.dispose();
       return;
@@ -361,6 +413,130 @@ export class ShopArcadeCabinet {
     this.#arcadeAudio = handle;
     this.object.add(handle.node);
     void this.#audioManager.resume();
+  }
+
+  /** Ctrl+wheel volume; persists across sessions and applies live. */
+  adjustArcadeVolume(direction: -1 | 1) {
+    const next = clampArcadeVolume(
+      this.#arcadeUserVolume + direction * ARCADE_VOLUME_STEP,
+    );
+    if (next === this.#arcadeUserVolume) return;
+    this.#arcadeUserVolume = next;
+    storeArcadeVolume(next);
+    // Live sessions re-level immediately; the next attach picks it up otherwise.
+    this.#arcadeAudio?.node.setVolume(ARCADE_MAX_VOLUME * next);
+    // Mirror the TV: emit so the Interact panel percent updates reactively,
+    // and flash the indicator on the cabinet's own screen.
+    this.#onStateChange();
+    const volumePercent = Math.round(next * 100);
+    this.#showScreenIndicator(
+      volumePercent === 0 ? "MUTED 0%" : `VOL ${volumePercent}%`,
+      volumePercent === 0 ? "#eadbc0" : "#c9f0d3",
+    );
+  }
+
+  get arcadeVolumePercent() {
+    return Math.round(this.#arcadeUserVolume * 100);
+  }
+
+  // -- Screen-level volume indicator -----------------------------------------
+
+  /**
+   * Builds (or rebuilds, on resolution change) the composite surface and
+   * stamps the current live frame plus the OSD pill onto it.
+   */
+  #ensureOsdSurface(label: string, color: string): boolean {
+    const canvas = this.#liveCanvas;
+    if (!canvas || canvas.width === 0 || canvas.height === 0) return false;
+    if (
+      !this.#osdCanvas ||
+      this.#osdCanvas.width !== canvas.width ||
+      this.#osdCanvas.height !== canvas.height
+    ) {
+      this.#disposeOsd();
+      this.#osdCanvas = document.createElement("canvas");
+      this.#osdCanvas.width = canvas.width;
+      this.#osdCanvas.height = canvas.height;
+      this.#osdContext = this.#osdCanvas.getContext("2d") ?? undefined;
+      this.#osdTexture = new CanvasTexture(this.#osdCanvas);
+      this.#osdTexture.colorSpace = SRGBColorSpace;
+      this.#osdTexture.generateMipmaps = false;
+      this.#osdTexture.minFilter = LinearFilter;
+      this.#osdTexture.magFilter = NearestFilter;
+    }
+    // Remember the label: the per-frame composite in #updateOsd repaints it.
+    this.#osdLabel = label;
+    this.#osdColor = color;
+    return this.#compositeOsdFrame();
+  }
+
+  /** Live frame + OSD pill, from scratch. Pill geometry mirrors the TVs. */
+  #compositeOsdFrame(): boolean {
+    const canvas = this.#liveCanvas;
+    const osdCanvas = this.#osdCanvas;
+    const context = this.#osdContext;
+    if (!canvas || !osdCanvas || !context) return false;
+    context.clearRect(0, 0, osdCanvas.width, osdCanvas.height);
+    context.drawImage(canvas, 0, 0);
+    const fontSize = Math.round(osdCanvas.height * 0.18);
+    const paddingX = fontSize * 0.52;
+    const boxHeight = fontSize * 1.42;
+    context.font = `700 ${fontSize}px monospace`;
+    const boxWidth = context.measureText(this.#osdLabel).width + paddingX * 2;
+    const left = (osdCanvas.width - boxWidth) / 2;
+    const top = (osdCanvas.height - boxHeight) / 2;
+    const radius = fontSize * 0.24;
+    context.beginPath();
+    context.roundRect(left, top, boxWidth, boxHeight, radius);
+    context.fillStyle = "rgba(7,16,15,0.78)";
+    context.fill();
+    context.fillStyle = this.#osdColor;
+    context.textAlign = "center";
+    context.textBaseline = "middle";
+    context.fillText(this.#osdLabel, osdCanvas.width / 2, top + boxHeight / 2);
+    return true;
+  }
+
+  #showScreenIndicator(label: string, color: string) {
+    if (!this.#ensureOsdSurface(label, color) || !this.#osdTexture) return;
+    this.#osdUntil = performance.now() + OSD_DURATION_MS;
+    if (this.#material.map !== this.#osdTexture) {
+      this.#material.map = this.#osdTexture;
+      this.#material.needsUpdate = true;
+    }
+    this.#osdTexture.needsUpdate = true;
+  }
+
+  /**
+   * Keeps the OSD composited while visible (fresh live frame under the pill
+   * each rendered frame); reverts to the direct texture once it expires.
+   * Returns true when the OSD consumed this frame.
+   */
+  #updateOsd(): boolean {
+    if (performance.now() >= this.#osdUntil) {
+      if (this.#material.map !== this.#liveTexture) {
+        this.#material.map = this.#liveTexture;
+        this.#material.needsUpdate = true;
+        // Force one fresh gated upload so a stale composite never lingers.
+        this.#uploadedFrame = undefined;
+      }
+      return false;
+    }
+    const osdTexture = this.#osdTexture;
+    if (!osdTexture) return false;
+    if (!this.#compositeOsdFrame()) return false;
+    osdTexture.needsUpdate = true;
+    return true;
+  }
+
+  #disposeOsd() {
+    this.#osdUntil = 0;
+    this.#osdCanvas = undefined;
+    this.#osdContext = undefined;
+    if (this.#osdTexture) {
+      this.#osdTexture.dispose();
+      this.#osdTexture = undefined;
+    }
   }
 
   /** Playing → back to the ROM picker. */
@@ -467,6 +643,13 @@ export class ShopArcadeCabinet {
   update(deltaSeconds: number) {
     if (this.#disposed) return;
     if (this.#liveCanvas) {
+      // While the volume indicator is visible the material shows the
+      // composite surface instead; refresh it every rendered frame so the
+      // game keeps moving under the pill.
+      if (this.#updateOsd()) {
+        this.#sampleFps(deltaSeconds);
+        return;
+      }
       // The emulator canvas lives in its own WebGL context, so every
       // needsUpdate costs a GPU-GPU copy (Chromium's cross-context copy).
       // Copy only when the core actually produced a new emulated frame -
@@ -577,9 +760,10 @@ export class ShopArcadeCabinet {
     this.destroyHost();
     this.setLiveCanvas(undefined);
     this.object.removeFromParent();
-    // setLiveCanvas(undefined) already dropped the HUD when DEV; guard for
-    // the production build where it was never created.
+    // setLiveCanvas(undefined) already dropped the HUD and OSD when DEV;
+    // guard for the production build where the HUD was never created.
     this.#removeDevHud();
+    this.#disposeOsd();
     this.#attractTexture.dispose();
     this.#liveTexture.dispose();
     this.#material.dispose();

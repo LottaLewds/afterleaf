@@ -530,12 +530,14 @@ export const launchEmulator = (
    */
   const fitContainerToVideo = async () => {
     const getDimensions = () => {
-      const getVideoDimensions = emulator?.gameManager?.getVideoDimensions;
-      if (!getVideoDimensions) return undefined;
+      const manager = emulator?.gameManager;
+      if (!manager?.getVideoDimensions || !manager.functions) return undefined;
       try {
-        const width = getVideoDimensions("width");
-        const height = getVideoDimensions("height");
-        const aspect = getVideoDimensions("aspect");
+        // Invoked as a method: extracting it detached `this`, and EJS's
+        // implementation reads `this.functions` - unbound calls exploded.
+        const width = manager.getVideoDimensions("width");
+        const height = manager.getVideoDimensions("height");
+        const aspect = manager.getVideoDimensions("aspect");
         if (!width || !height || !aspect) return undefined;
         return {width, height, aspect};
       } catch {

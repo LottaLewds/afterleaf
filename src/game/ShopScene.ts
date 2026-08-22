@@ -7990,6 +7990,24 @@ export class ShopScene {
       this.#tvWheelScrubStepIndex = stepIndex;
       return;
     }
+    // Cabinet volume: the actively-attached session wins (reticle targeting
+    // is not how an attached session is tracked, and pointer lock may be
+    // released right after booting from the picker); otherwise a targeted,
+    // still-running cabinet responds while the player is stepped away.
+    const arcadeVolumeCabinet =
+      this.#activeArcadeCabinet?.sessionStatus === "playing"
+        ? this.#activeArcadeCabinet
+        : this.#targetedArcadeCabinet?.sessionStatus === "playing"
+          ? this.#targetedArcadeCabinet
+          : undefined;
+    if (arcadeVolumeCabinet && event.ctrlKey && event.deltaY !== 0) {
+      event.preventDefault();
+      // Same convention as the TV: wheel up raises the cabinet's volume.
+      arcadeVolumeCabinet.adjustArcadeVolume(
+        Math.sign(event.deltaY) === 1 ? -1 : 1,
+      );
+      return;
+    }
     if (
       !this.#pointerLocked ||
       !this.#keysDown.has("KeyF") ||
@@ -13310,6 +13328,10 @@ export class ShopScene {
           key: hint.keys,
           label: hint.action,
         })) ?? []),
+        {
+          key: "Ctrl + Wheel",
+          label: `Volume: ${this.#activeArcadeCabinet?.arcadeVolumePercent ?? 100}%`,
+        },
         {key: "P", label: "Pick game"},
         {key: "R", label: "Step away"},
       ];
@@ -13326,9 +13348,17 @@ export class ShopScene {
       ];
       if (cabinet.sessionStatus === "playing") {
         // A stepped-away game keeps emulating; targeting its cabinet offers
-        // to take the controls back.
+        // to take the controls back. Volume stays adjustable here too - the
+        // positional audio keeps playing while stepped away.
         interactionContext = `Arcade · ${cabinet.sessionRomName ?? "cabinet"}`;
-        interactions = [{key: "E", label: "Resume the game"}, ...propRows];
+        interactions = [
+          {key: "E", label: "Resume the game"},
+          {
+            key: "Ctrl + Wheel",
+            label: `Volume: ${cabinet.arcadeVolumePercent}%`,
+          },
+          ...propRows,
+        ];
       } else {
         interactionContext = cabinet.sessionStatus
           ? `Arcade · ${cabinet.sessionRomName ?? "cabinet"}`
