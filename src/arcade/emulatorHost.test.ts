@@ -14,12 +14,15 @@ describe("buildEmulatorDocumentHtml", () => {
     gameId: 12345,
   });
 
-  test("wires the EJS options for the CDN loader", () => {
+  test("wires the EJS options for the vendored loader", () => {
     expect(html).toContain('window.EJS_player = "#game"');
     expect(html).toContain('window.EJS_core = "nes"');
     expect(html).toContain('"blob:http://localhost/abc"');
     expect(html).toContain("window.EJS_gameID = 12345");
-    expect(html).toContain("https://cdn.emulatorjs.org/stable/data/loader.js");
+    expect(html).toContain('window.EJS_pathtodata = "/emulatorjs/data/"');
+    expect(html).toContain('"/emulatorjs/data/loader.js"');
+    // The runtime must come from the same origin, never the CDN.
+    expect(html).not.toContain("cdn.emulatorjs.org");
   });
 
   test("escapes hostile game names", () => {

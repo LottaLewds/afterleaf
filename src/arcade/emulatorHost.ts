@@ -4,12 +4,14 @@
  * EmulatorJS documents that single-page apps must embed it inside an iframe;
  * running it directly tampers with the page DOM and globals. Each session
  * therefore boots a fresh same-origin iframe whose document sets up the
- * `EJS_*` options and loads the official CDN loader. The host page reaches
+ * `EJS_*` options and loads the npm-vendored loader. The host page reaches
  * into the frame to grab the rendered `<canvas>` for texturing the cabinet's
  * TVScreen mesh, and forwards keyboard input as synthetic events so shop
  * controls stay fully modal while a game is running.
  */
-export const EMULATORJS_DATA_URL = "https://cdn.emulatorjs.org/stable/data/";
+// Served by the emulator-data plugin (dev/preview middleware + build copy);
+// see ~/arcade/emulatorAssets for how the files are vendored.
+export const EMULATORJS_DATA_URL = "/emulatorjs/data/";
 
 const HOST_MESSAGE_FLAG = "__afterleafArcade";
 
