@@ -1570,7 +1570,9 @@ export class ShopScene {
   }
 
   requestPointerLock() {
-    if (this.#disposed) return;
+    // Modes stay exclusive: an arcade session owns the cursor until its
+    // ladder exits, so external re-lock requests are ignored meanwhile.
+    if (this.#disposed || this.#arcadeStatusForUi()) return;
     this.#inputSuspended = false;
     if (this.#inspectionMode === "spread") return;
     this.#requestPointerLock();
@@ -7530,6 +7532,8 @@ export class ShopScene {
 
   readonly #handleCanvasPointerDown = (event: PointerEvent) => {
     if (event.button !== 0 || this.#paused()) return;
+    // An arcade session owns the pointer; clicking must not re-lock it.
+    if (this.#arcadeStatusForUi()) return;
     if (this.#inspectionMode === "spread") {
       if (this.#inspectionOpenAngleTarget > 0) {
         this.#openInspectionBook();
@@ -7829,6 +7833,7 @@ export class ShopScene {
       wasPointerLocked &&
       !this.#pointerLocked &&
       !suppressPause &&
+      !this.#arcadeStatusForUi() &&
       document.hasFocus() &&
       this.#inspectionMode === "none" &&
       !this.#paused() &&
@@ -7839,6 +7844,7 @@ export class ShopScene {
       resumePointerLock &&
       !this.#paused() &&
       this.#inspectionMode !== "spread" &&
+      !this.#arcadeStatusForUi() &&
       !this.#disposed
     )
       this.#requestPointerLock();
