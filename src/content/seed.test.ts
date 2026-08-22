@@ -16,9 +16,14 @@ import {BOOK_ASPECT_RATIO_INFERENCE_VERSION} from "~/content/bookAspectRatio";
 import {LocalCatalogSource} from "~/content/localCatalogSource";
 import {promoteLibraryAssetSet} from "~/content/libraryUpdate/libraryAssetPool";
 import {planShelfAtlasRanges, seedContentPack} from "~/content/seed";
-import type {LocalPublicationDocument} from "~/content/schema";
+import type {
+  LocalPublicationDocument,
+  SeedContentPackOptions,
+} from "~/content/schema";
 
 const temporaryDirectories: string[] = [];
+
+type ReusableSeedOptions = Omit<SeedContentPackOptions, "outputDirectory">;
 
 interface PublicationFixtureOptions {
   format?: "png" | "webp";
@@ -515,13 +520,13 @@ describe("seedContentPack", () => {
         provenance: true,
       },
     );
-    const options = {
+    const options: ReusableSeedOptions = {
       dryRun: false,
       excludedTags: [],
       force: false,
       languages: ["english"],
       limit: 1,
-      match: "all" as const,
+      match: "all",
       packId: "aspect-version-test",
       seed: "aspect-version-test",
       tags: [],
@@ -592,13 +597,13 @@ describe("seedContentPack", () => {
         provenance: true,
       }),
     ]);
-    const options = {
+    const options: ReusableSeedOptions = {
       dryRun: false,
       excludedTags: [],
       force: false,
       languages: ["english"],
       limit: 10,
-      match: "all" as const,
+      match: "all",
       packId: "pool-test",
       seed: "pool-test",
       tags: [],
@@ -698,14 +703,14 @@ describe("seedContentPack", () => {
       "english",
       "#703050",
     );
-    const options = {
+    const options: SeedContentPackOptions = {
       assetPathPrefix: "assets/revision-1",
       dryRun: false,
       excludedTags: [],
       force: false,
       languages: ["english"],
       limit: 10,
-      match: "all" as const,
+      match: "all",
       outputDirectory: resolve(libraryDirectory, "revisions/revision-1"),
       packId: "local-reuse",
       persistentAssetDirectory: libraryDirectory,
@@ -802,14 +807,14 @@ describe("seedContentPack", () => {
       "english",
       "#703050",
     );
-    const baseOptions = {
+    const baseOptions: SeedContentPackOptions = {
       assetPathPrefix: "assets/revision-1",
       dryRun: false,
       excludedTags: [],
       force: false,
       languages: ["english"],
       limit: 10,
-      match: "all" as const,
+      match: "all",
       outputDirectory: firstDirectory,
       packId: "corrupt-local",
       persistentAssetDirectory: libraryDirectory,

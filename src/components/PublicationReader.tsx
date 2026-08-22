@@ -36,6 +36,7 @@ import {
   getReaderSpread,
   getReaderWindow,
   orderSpreadPages,
+  type ReaderLayout,
   type ReaderNavigation,
 } from "~/reader/pagination";
 
@@ -143,7 +144,7 @@ export const PublicationReader = (props: PublicationReaderProps) => {
   const [usesSpread, setUsesSpread] = createSignal(false);
   const pages = () => props.publication().pages;
   const title = () => props.publication().title;
-  const layout = () => (usesSpread() ? "spread" : "single") as const;
+  const layout = (): ReaderLayout => (usesSpread() ? "spread" : "single");
   const pageCount = () => pages().length;
   const expectedAspectRatio = () =>
     physicalBookWidth(props.publication().aspectRatio, 1);

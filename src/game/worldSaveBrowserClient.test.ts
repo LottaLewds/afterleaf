@@ -12,6 +12,7 @@ import {
   WORLD_SAVE_ENDPOINT,
   WORLD_SAVE_SERVER_INSTANCE_HEADER,
 } from "~/game/worldSaveHttp";
+import {stubFetch} from "~/test/fetchStub";
 
 const serverInstanceId = "server-instance-42";
 const worldSaveRevision = '"world-revision-42"';
@@ -35,7 +36,7 @@ const saveFixture = (): WorldSaveV1 => ({
 describe("browser world save client", () => {
   test("loads and validates the server save", async () => {
     const save = saveFixture();
-    const fetcher: WorldSaveFetch = async (input, init) => {
+    const fetcher: WorldSaveFetch = stubFetch(async (input, init) => {
       expect(input).toBe(WORLD_SAVE_ENDPOINT);
       expect(init).toMatchObject({
         cache: "no-store",
@@ -44,7 +45,7 @@ describe("browser world save client", () => {
       return serverResponse(JSON.stringify(save), {
         headers: {"Content-Type": "application/json"},
       });
-    };
+    });
     await expect(
       loadServerWorldSave(new AbortController().signal, fetcher),
     ).resolves.toEqual({
@@ -55,8 +56,9 @@ describe("browser world save client", () => {
   });
 
   test("treats a missing server file as no shared save", async () => {
-    const fetcher: WorldSaveFetch = async () =>
-      serverResponse(null, {status: 404});
+    const fetcher: WorldSaveFetch = stubFetch(async () =>
+      serverResponse(null, {status: 404}),
+    );
     await expect(
       loadServerWorldSave(new AbortController().signal, fetcher),
     ).resolves.toEqual({revision: worldSaveRevision, serverInstanceId});
@@ -64,7 +66,7 @@ describe("browser world save client", () => {
 
   test("loads a legacy server save without granting write authority", async () => {
     const save = saveFixture();
-    const fetcher: WorldSaveFetch = async () => Response.json(save);
+    const fetcher: WorldSaveFetch = stubFetch(async () => Response.json(save));
 
     await expect(
       loadServerWorldSave(new AbortController().signal, fetcher),
@@ -73,7 +75,7 @@ describe("browser world save client", () => {
 
   test("uploads a validated save", async () => {
     const save = saveFixture();
-    const fetcher: WorldSaveFetch = async (input, init) => {
+    const fetcher: WorldSaveFetch = stubFetch(async (input, init) => {
       expect(input).toBe(WORLD_SAVE_ENDPOINT);
       expect(init).toMatchObject({
         cache: "no-store",
@@ -90,17 +92,19 @@ describe("browser world save client", () => {
         headers: {ETag: '"world-revision-43"'},
         status: 204,
       });
-    };
+    });
     await expect(
       saveServerWorldSave(save, serverInstanceId, worldSaveRevision, fetcher),
     ).resolves.toBe('"world-revision-43"');
   });
 
   test("rejects a save after the server instance changes", async () => {
-    const fetcher: WorldSaveFetch = async () =>
-      new Response("World save belongs to an earlier server instance", {
-        status: 409,
-      });
+    const fetcher: WorldSaveFetch = stubFetch(
+      async () =>
+        new Response("World save belongs to an earlier server instance", {
+          status: 409,
+        }),
+    );
 
     await expect(
       saveServerWorldSave(
@@ -113,10 +117,12 @@ describe("browser world save client", () => {
   });
 
   test("rejects a save when another tab changed the world revision", async () => {
-    const fetcher: WorldSaveFetch = async () =>
-      new Response("World save changed after this tab loaded it", {
-        status: 412,
-      });
+    const fetcher: WorldSaveFetch = stubFetch(
+      async () =>
+        new Response("World save changed after this tab loaded it", {
+          status: 412,
+        }),
+    );
 
     await expect(
       saveServerWorldSave(

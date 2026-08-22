@@ -199,6 +199,8 @@ type BookPhysicsRecord = {
   density: number;
   staticWhenPlaced: boolean;
   height: number;
+  /** Player-pinned prop: body stays fixed wherever it is until unlocked. */
+  locked: boolean;
   linearScratch: MutableVector3;
   mode: BookPhysicsState;
   previousPose: MutablePose;
@@ -220,6 +222,13 @@ const isFiniteVector = (value: PhysicsVector3) =>
   Number.isFinite(value.x) &&
   Number.isFinite(value.y) &&
   Number.isFinite(value.z);
+
+/**
+ * True when the record's body should behave as a world collider rather than
+ * a simulated one: placed furniture and player-locked props.
+ */
+const isFixedRecord = (record: BookPhysicsRecord) =>
+  record.staticWhenPlaced || record.locked;
 
 const isValidQuaternion = (value: PhysicsQuaternion) =>
   isFiniteVector(value) &&
@@ -536,8 +545,8 @@ export class ShopPhysicsWorld {
   ) {
     const held = record.mode === "held";
     const shelved = record.mode === "shelved";
-    const preservePlacedCollider = record.staticWhenPlaced && held;
-    const fixed = record.staticWhenPlaced;
+    const preservePlacedCollider = isFixedRecord(record) && held;
+    const fixed = isFixedRecord(record);
     const descriptor: RigidBodyDesc = fixed
       ? rapier.RigidBodyDesc.fixed()
       : rapier.RigidBodyDesc.dynamic()
@@ -751,6 +760,7 @@ export class ShopPhysicsWorld {
       density: definition.density ?? DEFAULT_BOOK_DENSITY,
       staticWhenPlaced,
       height: definition.height ?? SHOP_PHYSICS_BOOK_HEIGHT,
+      locked: false,
       linearScratch: {x: 0, y: 0, z: 0},
       mode: definition.initialState ?? "dynamic",
       pose,
@@ -824,6 +834,48 @@ export class ShopPhysicsWorld {
     return this.removeBook(physicsPropId(id));
   }
 
+  /**
+   * Pins or releases a prop. A pinned prop's body becomes a world-style
+   * fixed collider at its current pose: the player cannot bump it, but it
+   * still blocks movement, books, and other props.
+   */
+  setPropLocked(id: string, locked: boolean) {
+    return this.#setBookLocked(physicsPropId(id), locked);
+  }
+
+  #setBookLocked(publicationId: string, locked: boolean) {
+    if (this.#disposed) return false;
+    const record = this.#books.get(publicationId);
+    if (!record) return false;
+    if (record.locked === locked) return true;
+    record.locked = locked;
+    const body = record.body;
+    const rapier = this.#rapier;
+    // Held props settle their body type on drop; nothing to switch yet.
+    if (!body || !rapier || record.mode === "held") return true;
+    const fixed = isFixedRecord(record);
+    body.setBodyType(
+      fixed ? rapier.RigidBodyType.Fixed : rapier.RigidBodyType.Dynamic,
+      !fixed,
+    );
+    body.enableCcd(!fixed);
+    body.setGravityScale(fixed ? 0 : 1, true);
+    if (fixed) {
+      body.setLinvel(ZERO_VECTOR, true);
+      body.setAngvel(ZERO_VECTOR, true);
+      body.resetForces(true);
+      body.resetTorques(true);
+      const position = body.translation();
+      const rotation = body.rotation();
+      copyVector(record.pose.position, position);
+      copyNormalizedQuaternion(record.pose.rotation, rotation);
+      copyPose(record.previousPose, record.pose);
+    } else {
+      body.wakeUp();
+    }
+    return true;
+  }
+
   setHeldPropTarget(id: string, pose: BookPhysicsPose) {
     return this.setHeldTarget(physicsPropId(id), pose);
   }
@@ -876,17 +928,28 @@ export class ShopPhysicsWorld {
     const nextHeight = update.height ?? record.height;
     const nextWidth = update.width ?? record.width;
     if (
-      record.colliderParts &&
-      (nextThickness !== record.thickness ||
-        nextHeight !== record.height ||
-        nextWidth !== record.width)
-    )
-      return false;
-    if (
       nextThickness !== record.thickness ||
       nextHeight !== record.height ||
       nextWidth !== record.width
     ) {
+      // Part offsets/extents live in body-local space, so they scale with
+      // the body; storing the scaled parts keeps repeated updates exact.
+      const scaleX = nextWidth / record.width;
+      const scaleY = nextHeight / record.height;
+      const scaleZ = nextThickness / record.thickness;
+      if (record.colliderParts)
+        record.colliderParts = record.colliderParts.map((part) => ({
+          halfExtents: {
+            x: part.halfExtents.x * scaleX,
+            y: part.halfExtents.y * scaleY,
+            z: part.halfExtents.z * scaleZ,
+          },
+          position: {
+            x: part.position.x * scaleX,
+            y: part.position.y * scaleY,
+            z: part.position.z * scaleZ,
+          },
+        }));
       record.thickness = nextThickness;
       record.height = nextHeight;
       record.width = nextWidth;
@@ -896,21 +959,45 @@ export class ShopPhysicsWorld {
         for (const collider of record.colliders)
           world.removeCollider(collider, false);
         record.colliders.length = 0;
-        record.colliders.push(
-          world.createCollider(
-            this.#createBookCollider(
-              rapier,
-              record.thickness,
-              record.width,
-              record.height,
-              record.density,
-              record.mode === "held",
-              record.collisionlessWhileHeld,
-              record.releasedCollisionless,
+        if (record.colliderParts) {
+          for (const part of record.colliderParts) {
+            record.colliders.push(
+              world.createCollider(
+                this.#createBookCollider(
+                  rapier,
+                  part.halfExtents.z * 2,
+                  part.halfExtents.x * 2,
+                  part.halfExtents.y * 2,
+                  record.density,
+                  record.mode === "held",
+                  record.collisionlessWhileHeld,
+                  record.releasedCollisionless,
+                ).setTranslation(
+                  part.position.x,
+                  part.position.y,
+                  part.position.z,
+                ),
+                body,
+              ),
+            );
+          }
+        } else {
+          record.colliders.push(
+            world.createCollider(
+              this.#createBookCollider(
+                rapier,
+                record.thickness,
+                record.width,
+                record.height,
+                record.density,
+                record.mode === "held",
+                record.collisionlessWhileHeld,
+                record.releasedCollisionless,
+              ),
+              body,
             ),
-            body,
-          ),
-        );
+          );
+        }
       }
     }
     return true;
@@ -941,7 +1028,7 @@ export class ShopPhysicsWorld {
     const rapier = this.#rapier;
     if (!rapier) return false;
 
-    if (record.staticWhenPlaced) {
+    if (isFixedRecord(record)) {
       body.setEnabled(true);
       body.setBodyType(rapier.RigidBodyType.Fixed, true);
       body.enableCcd(false);
@@ -984,7 +1071,7 @@ export class ShopPhysicsWorld {
     const record = this.#books.get(publicationId);
     if (!record || record.mode !== "held") return false;
     copyPose(record.target, pose);
-    if (!record.staticWhenPlaced) record.body?.wakeUp();
+    if (!isFixedRecord(record)) record.body?.wakeUp();
     return true;
   }
 
@@ -1004,7 +1091,7 @@ export class ShopPhysicsWorld {
     if (this.#disposed || !isValidPose(pose)) return false;
     const record = this.#books.get(publicationId);
     if (!record || record.mode !== "held") return false;
-    if (record.staticWhenPlaced) {
+    if (isFixedRecord(record)) {
       copyPose(record.target, pose);
       return true;
     }
@@ -1040,7 +1127,10 @@ export class ShopPhysicsWorld {
     if (!body) return true;
     const rapier = this.#rapier;
     if (!rapier) return false;
-    const fixed = record.staticWhenPlaced && !drop.angularVelocity;
+    // A locked prop re-pins wherever it is released (throws included);
+    // placed furniture only freezes for gentle placements.
+    const fixed =
+      record.locked || (record.staticWhenPlaced && !drop.angularVelocity);
     this.#setBookColliderHeld(record, false);
     body.setBodyType(
       fixed ? rapier.RigidBodyType.Fixed : rapier.RigidBodyType.Dynamic,
@@ -1146,7 +1236,7 @@ export class ShopPhysicsWorld {
     if (this.#disposed) return false;
     const record = this.#books.get(publicationId);
     if (!record?.body) return false;
-    if (record.mode === "held" && record.staticWhenPlaced) {
+    if (record.mode === "held" && isFixedRecord(record)) {
       copyPose(output, record.target);
       return true;
     }
@@ -1215,7 +1305,7 @@ export class ShopPhysicsWorld {
     const deltaSeconds = this.#fixedStepSeconds;
     for (const record of this.#books.values()) {
       const body = record.body;
-      if (record.mode !== "held" || record.staticWhenPlaced || !body) continue;
+      if (record.mode !== "held" || isFixedRecord(record) || !body) continue;
 
       const position = body.translation();
       const linearVelocity = body.linvel();
@@ -1299,7 +1389,7 @@ export class ShopPhysicsWorld {
     for (const record of this.#books.values()) {
       const body = record.body;
       if (!body || record.mode !== "dynamic") continue;
-      if (record.staticWhenPlaced) {
+      if (isFixedRecord(record)) {
         if (body.isDynamic() && body.isSleeping()) {
           const rapier = this.#rapier;
           if (!rapier) continue;

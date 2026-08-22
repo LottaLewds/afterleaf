@@ -99,7 +99,7 @@ interface RuntimePublication {
   issue?: {month?: number; number?: number; year?: number};
   kind?: string;
   title: string;
-  language: string;
+  language: CatalogLanguage;
   pageCount?: number;
   tags: string[];
   originalTags?: string[];
@@ -114,6 +114,7 @@ interface RuntimePublication {
   shelfAtlasIndex?: number;
   assets: {
     back?: string;
+    backDetail?: string;
     front: string;
     frontDetail?: string;
     pages: string[];
@@ -153,12 +154,14 @@ const runtimeReadingDirections = {
   CatalogItem["direction"]
 >;
 
-const runtimeReadingDirection = (publication: RuntimePublication) => {
+const runtimeReadingDirection = (
+  publication: RuntimePublication,
+): Pick<CatalogItem, "direction" | "readingDirectionUnspecified"> => {
   const direction = publication.physical.readingDirection;
   if (direction) return {direction: runtimeReadingDirections[direction]};
   return {
-    direction: "LTR" as const,
-    readingDirectionUnspecified: true as const,
+    direction: "LTR",
+    readingDirectionUnspecified: true,
   };
 };
 
@@ -305,17 +308,25 @@ const isRuntimeShelfAtlas = (value: unknown): value is RuntimeShelfAtlas => {
   );
 };
 
-const isCatalogIdentity = (value: {
-  contentHash?: unknown;
-  id?: unknown;
-}): value is {contentHash: string; id: string} =>
+const isCatalogIdentity = <T extends {contentHash?: unknown; id?: unknown}>(
+  value: T,
+): value is T & {contentHash: string; id: string} =>
   typeof value.id === "string" &&
   value.id.length > 0 &&
   typeof value.contentHash === "string" &&
   value.contentHash.length > 0;
 
+/**
+ * Minimal network surface the catalog loaders need. Accepting a structural
+ * subset of `fetch` keeps dependency injection simple for callers and tests.
+ */
+type CatalogFetcher = (
+  input: string,
+  init?: {cache?: RequestCache},
+) => Promise<Response>;
+
 export const loadRuntimeLibraryWithFetcher = async (
-  fetcher: typeof fetch,
+  fetcher: CatalogFetcher,
 ): Promise<RuntimeLibrary> => {
   try {
     const response = await fetcher(
@@ -364,81 +375,80 @@ export const loadRuntimeLibraryWithFetcher = async (
     return {
       atlases,
       identity,
-      publications: publications.map((publication) => ({
-        id: publication.id,
-        title: publication.title,
-        titleJp: publication.title,
-        collection: publication.groupId ?? publication.kind ?? "Unsorted",
-        issue: issueNumber(publication),
-        language: publication.language,
-        tags: publication.tags,
-        originalTags: publication.originalTags ?? publication.tags,
-        alternates: (publication.alternates ?? []).map((alternate) => ({
-          id: alternate.id,
-          originalTags: alternate.originalTags,
-          page0: packAssetUrl(alternate.page0, identity),
-          title: alternate.title,
-        })),
-        cover: packAssetUrl(publication.assets.front, identity),
-        ...(publication.assets.frontDetail === undefined
-          ? {}
-          : {
-              detailCover: packAssetUrl(
-                publication.assets.frontDetail,
-                identity,
-              ),
-            }),
-        ...((publication.assets.backDetail ?? publication.assets.back) ===
-        undefined
-          ? {}
-          : {
-              back: packAssetUrl(
-                publication.assets.backDetail ?? publication.assets.back,
-                identity,
-              ),
-            }),
-        ...(publication.assets.spine === undefined
-          ? {}
-          : {spine: packAssetUrl(publication.assets.spine, identity)}),
-        pages: Array.from(
-          {length: publication.pageCount ?? publication.assets.pages.length},
-          (_, pageIndex) => {
-            const page = publication.assets.pages[pageIndex];
-            return page
-              ? packAssetUrl(page, identity)
-              : sparsePageUrl(publication.id, pageIndex, identity);
-          },
-        ),
-        added: addedLabel(publication),
-        trim: publication.physical.trim ?? "B5",
-        thicknessMm: publication.physical.thicknessMm ?? 10,
-        ...(publication.physical.aspectRatio === undefined
-          ? {}
-          : {aspectRatio: publication.physical.aspectRatio}),
-        ...runtimeReadingDirection(publication),
-        ...(publication.shelfAtlasIndex === undefined
-          ? {}
-          : {
-              shelfAtlas: (() => {
-                const atlasIndex = atlases.front.findIndex(
-                  (atlas) =>
-                    publication.shelfAtlasIndex !== undefined &&
-                    publication.shelfAtlasIndex >=
-                      atlas.firstPublicationIndex &&
-                    publication.shelfAtlasIndex <
-                      atlas.firstPublicationIndex + atlas.publicationCount,
-                );
-                const atlas = atlases.front[atlasIndex];
-                return {
-                  cellIndex: atlas
-                    ? publication.shelfAtlasIndex - atlas.firstPublicationIndex
-                    : -1,
-                  index: atlasIndex,
-                };
-              })(),
-            }),
-        accent: accentForId(publication.id),
-      })),
+      publications: publications.map((publication) => {
+        const backAsset =
+          publication.assets.backDetail ?? publication.assets.back;
+        return {
+          id: publication.id,
+          title: publication.title,
+          titleJp: publication.title,
+          collection: publication.groupId ?? publication.kind ?? "Unsorted",
+          issue: issueNumber(publication),
+          language: publication.language,
+          tags: publication.tags,
+          originalTags: publication.originalTags ?? publication.tags,
+          alternates: (publication.alternates ?? []).map((alternate) => ({
+            id: alternate.id,
+            originalTags: alternate.originalTags,
+            page0: packAssetUrl(alternate.page0, identity),
+            title: alternate.title,
+          })),
+          cover: packAssetUrl(publication.assets.front, identity),
+          ...(publication.assets.frontDetail === undefined
+            ? {}
+            : {
+                detailCover: packAssetUrl(
+                  publication.assets.frontDetail,
+                  identity,
+                ),
+              }),
+          ...(backAsset === undefined
+            ? {}
+            : {back: packAssetUrl(backAsset, identity)}),
+          ...(publication.assets.spine === undefined
+            ? {}
+            : {spine: packAssetUrl(publication.assets.spine, identity)}),
+          pages: Array.from(
+            {length: publication.pageCount ?? publication.assets.pages.length},
+            (_, pageIndex) => {
+              const page = publication.assets.pages[pageIndex];
+              return page
+                ? packAssetUrl(page, identity)
+                : sparsePageUrl(publication.id, pageIndex, identity);
+            },
+          ),
+          added: addedLabel(publication),
+          trim: publication.physical.trim ?? "B5",
+          thicknessMm: publication.physical.thicknessMm ?? 10,
+          ...(publication.physical.aspectRatio === undefined
+            ? {}
+            : {aspectRatio: publication.physical.aspectRatio}),
+          ...runtimeReadingDirection(publication),
+          ...(publication.shelfAtlasIndex === undefined
+            ? {}
+            : {
+                shelfAtlas: (() => {
+                  const atlasIndex = atlases.front.findIndex(
+                    (atlas) =>
+                      publication.shelfAtlasIndex !== undefined &&
+                      publication.shelfAtlasIndex >=
+                        atlas.firstPublicationIndex &&
+                      publication.shelfAtlasIndex <
+                        atlas.firstPublicationIndex + atlas.publicationCount,
+                  );
+                  const atlas = atlases.front[atlasIndex];
+                  return {
+                    cellIndex: atlas
+                      ? publication.shelfAtlasIndex -
+                        atlas.firstPublicationIndex
+                      : -1,
+                    index: atlasIndex,
+                  };
+                })(),
+              }),
+          accent: accentForId(publication.id),
+        };
+      }),
     };
   } catch {
     return emptyLibrary;
@@ -447,5 +457,5 @@ export const loadRuntimeLibraryWithFetcher = async (
 
 export const loadRuntimeLibrary = () => loadRuntimeLibraryWithFetcher(fetch);
 
-export const loadRuntimeCatalog = async (fetcher: typeof fetch = fetch) =>
+export const loadRuntimeCatalog = async (fetcher: CatalogFetcher = fetch) =>
   (await loadRuntimeLibraryWithFetcher(fetcher)).publications;

@@ -16,7 +16,8 @@ const catalogResponse = (publications: unknown[]) =>
 
 describe("loadRuntimeCatalog", () => {
   test("maps a generated content pack into the application catalog", async () => {
-    const fetcher: typeof fetch = async (input) => {
+    // Structural CatalogFetcher mocks avoid coupling to the global fetch type.
+    const fetcher = async (input: string) => {
       expect(
         String(input).startsWith(
           `${ACTIVE_LIBRARY_CATALOG_ENDPOINT}?afterleaf=`,
@@ -98,9 +99,8 @@ describe("loadRuntimeCatalog", () => {
   });
 
   test("uses an empty library when a pack is absent or unsafe", async () => {
-    const missingFetcher: typeof fetch = async () =>
-      new Response("missing", {status: 404});
-    const unsafeFetcher: typeof fetch = async () =>
+    const missingFetcher = async () => new Response("missing", {status: 404});
+    const unsafeFetcher = async () =>
       catalogResponse([
         {
           id: "unsafe",

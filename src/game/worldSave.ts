@@ -11,7 +11,7 @@ const MAX_AISLE_SIGN_COUNT = 32;
 const MAX_POSTER_COUNT = 512;
 const MAX_DIGITAL_ART_FRAME_COUNT = 128;
 const MAX_PROP_COUNT = 64;
-const MAX_MODEL_PROP_COUNT = 256;
+const MAX_MODEL_PROP_COUNT = 512;
 const MAX_TELEVISION_COUNT = 128;
 const MAX_WORLD_COORDINATE = 100_000;
 const MIN_QUATERNION_LENGTH_SQUARED = 1e-12;
@@ -85,6 +85,8 @@ export type WorldDigitalArtFrameSave = {
 
 export type WorldPropSave = {
   id: string;
+  /** Pinned prop: fixed body immune to bumps but still colliding. */
+  locked?: boolean;
   pose: WorldPose;
 };
 
@@ -120,6 +122,14 @@ export type WorldSaveV1 = {
   player: WorldPose;
   posters?: readonly WorldPosterSave[];
   props?: readonly WorldPropSave[];
+  /**
+   * Written once the shop has seeded its default props (lane arcade
+   * cabinet, movable CRT television) into the world as ordinary spawned
+   * props. Absent on fresh and legacy worlds, which are seeded on boot;
+   * once present, the saved modelProps list is authoritative and deleted
+   * defaults stay gone.
+   */
+  defaultsSeeded?: true;
   savedAt: string;
   schemaVersion: typeof WORLD_SAVE_SCHEMA_VERSION;
   shelfSigns?: readonly WorldShelfSign[];
@@ -409,6 +419,13 @@ const parseDigitalArtFrames = (
   });
 };
 
+const parseLockedFlag = (value: unknown, field: string) => {
+  if (value === undefined) return undefined;
+  if (typeof value !== "boolean")
+    throw new Error(`${field} must be a boolean when present`);
+  return value;
+};
+
 const parseProps = (value: unknown): readonly WorldPropSave[] => {
   if (!Array.isArray(value) || value.length > MAX_PROP_COUNT)
     throw new Error("props must be a bounded array");
@@ -418,7 +435,12 @@ const parseProps = (value: unknown): readonly WorldPropSave[] => {
     const id = requiredString(prop.id, `props[${index}].id`);
     if (ids.has(id)) throw new Error("World save contains duplicate prop IDs");
     ids.add(id);
-    return {id, pose: parsePose(prop.pose, `props[${index}].pose`)};
+    const locked = parseLockedFlag(prop.locked, `props[${index}].locked`);
+    return {
+      id,
+      ...(locked === undefined ? {} : {locked}),
+      pose: parsePose(prop.pose, `props[${index}].pose`),
+    };
   });
 };
 
@@ -445,10 +467,12 @@ const parseModelProps = (value: unknown): readonly WorldModelPropSave[] => {
             prop.animationClip,
             `modelProps[${index}].animationClip`,
           );
+    const locked = parseLockedFlag(prop.locked, `modelProps[${index}].locked`);
     return {
       ...(animationClip === undefined ? {} : {animationClip}),
       assetId: requiredString(prop.assetId, `modelProps[${index}].assetId`),
       id,
+      ...(locked === undefined ? {} : {locked}),
       pose: parsePose(prop.pose, `modelProps[${index}].pose`),
       scale,
     };
@@ -554,6 +578,9 @@ export const parseWorldSave = (value: unknown): WorldSaveV1 => {
     value.modelProps === undefined
       ? undefined
       : parseModelProps(value.modelProps);
+  if (value.defaultsSeeded !== undefined && value.defaultsSeeded !== true)
+    throw new Error("defaultsSeeded must be true when present");
+  const defaultsSeeded = value.defaultsSeeded as true | undefined;
   const television =
     value.television === undefined
       ? undefined
@@ -603,6 +630,7 @@ export const parseWorldSave = (value: unknown): WorldSaveV1 => {
     ...(aisleSigns === undefined ? {} : {aisleSigns}),
     books,
     ...(catalog === undefined ? {} : {catalog}),
+    ...(defaultsSeeded === undefined ? {} : {defaultsSeeded}),
     ...(digitalArtFrames === undefined ? {} : {digitalArtFrames}),
     ...(modelProps === undefined ? {} : {modelProps}),
     ...(pendingArrivalIds.length === 0 ? {} : {pendingArrivalIds}),

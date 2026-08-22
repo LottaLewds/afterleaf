@@ -199,7 +199,10 @@ export const importLocalMedia = async (
     resolve(workingDirectory, path),
   );
   const defaultMediaPathSet = new Set(defaultMediaPaths);
-  const defaultArchiveDirectory = defaultMediaPaths[0];
+  const defaultArchiveDirectory = resolve(
+    workingDirectory,
+    DEFAULT_MEDIA_PATHS[0],
+  );
   const configuredMediaPaths = uniqueMediaPaths([
     ...defaultMediaPaths.map((path) => ({
       optional: true,

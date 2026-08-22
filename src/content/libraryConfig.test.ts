@@ -43,6 +43,7 @@ describe("Afterleaf library config", () => {
       comicPaths: [],
       mangaPaths: [],
       posterPaths: [],
+      romPaths: {},
       tvChannelPaths: [],
     });
   });
@@ -65,10 +66,57 @@ describe("Afterleaf library config", () => {
       comicPaths: [resolve(root, "external/comics")],
       mangaPaths: [resolve(root, "external/manga")],
       posterPaths: [resolve(root, "external/posters")],
+      romPaths: {},
       tvChannelPaths: [resolve(root, "external/tv")],
     };
     expect(await readAfterleafLibraryConfig(root)).toEqual(expected);
     expect(readAfterleafLibraryConfigSync(root)).toEqual(expected);
+  });
+
+  test("resolves configured ROM folders per emulated system", async () => {
+    const root = await createRoot();
+    await writeFile(
+      resolve(root, "afterleaf.library.json"),
+      JSON.stringify({
+        romPaths: {
+          nes: ["roms/nes", "external/more-nes"],
+          segaMD: ["external/../roms/genesis"],
+        },
+      }),
+    );
+
+    const expected = {
+      nes: [resolve(root, "roms/nes"), resolve(root, "external/more-nes")],
+      segaMD: [resolve(root, "roms/genesis")],
+    };
+    const config = await readAfterleafLibraryConfig(root);
+    expect(config.romPaths).toEqual(expected);
+    expect(readAfterleafLibraryConfigSync(root).romPaths).toEqual(expected);
+  });
+
+  test("rejects malformed ROM folder configuration", async () => {
+    const root = await createRoot();
+    const configPath = resolve(root, "afterleaf.library.json");
+
+    await writeFile(configPath, JSON.stringify({romPaths: {dreamcast: ["x"]}}));
+    await expect(readAfterleafLibraryConfig(root)).rejects.toThrow(
+      'unknown system "dreamcast"',
+    );
+
+    await writeFile(configPath, JSON.stringify({romPaths: {nes: [""]}}));
+    await expect(readAfterleafLibraryConfig(root)).rejects.toThrow(
+      "romPaths.nes must be an array of folder paths",
+    );
+
+    await writeFile(configPath, JSON.stringify({romPaths: {nes: "roms/nes"}}));
+    await expect(readAfterleafLibraryConfig(root)).rejects.toThrow(
+      "romPaths.nes must be an array of folder paths",
+    );
+
+    await writeFile(configPath, JSON.stringify({romPaths: ["nes"]}));
+    await expect(readAfterleafLibraryConfig(root)).rejects.toThrow(
+      "must map emulated system ids to folder lists",
+    );
   });
 
   test("rejects unknown properties and non-array path values", async () => {

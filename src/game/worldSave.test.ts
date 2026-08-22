@@ -13,6 +13,13 @@ const pose = (x = 0) => ({
   quaternion: {w: 2, x: 0, y: 0, z: 0},
 });
 
+/** Copies a save without its catalog key so it reads as "no catalog saved". */
+const omitCatalog = (save: WorldSaveV1): WorldSaveV1 => {
+  const clone = {...save};
+  delete clone.catalog;
+  return clone;
+};
+
 const saveFixture = (): WorldSaveV1 => ({
   aisleSigns: [{id: "gondola-1", subtitle: "AISLE 01", title: "Adult Comics"}],
   books: [
@@ -83,7 +90,7 @@ const saveFixture = (): WorldSaveV1 => ({
   ],
   props: [
     {id: "reading-table-1", pose: pose(6)},
-    {id: "desk-lamp-1", pose: pose(7)},
+    {id: "desk-lamp-1", locked: true, pose: pose(7)},
   ],
   savedAt: "2026-07-29T12:34:56.000Z",
   schemaVersion: WORLD_SAVE_SCHEMA_VERSION,
@@ -328,6 +335,9 @@ describe("world save validation", () => {
     expect(() =>
       parseWorldSave({...saveFixture(), props: [prop, prop]}),
     ).toThrow("duplicate prop IDs");
+    expect(() =>
+      parseWorldSave({...saveFixture(), props: [{...prop, locked: "yes"}]}),
+    ).toThrow("locked must be a boolean when present");
   });
 
   test("rejects malformed or duplicate model props", () => {
@@ -345,6 +355,38 @@ describe("world save validation", () => {
         modelProps: [{...prop, animationClip: 12}],
       }),
     ).toThrow("animationClip must be a non-empty bounded string");
+    expect(() =>
+      parseWorldSave({
+        ...saveFixture(),
+        modelProps: [{...prop, locked: 1}],
+      }),
+    ).toThrow("locked must be a boolean when present");
+  });
+
+  test("preserves prop lock flags through a validation round trip", () => {
+    const save = saveFixture();
+    const parsed = parseWorldSave(save);
+    expect(
+      parsed.props?.find((entry) => entry.id === "desk-lamp-1")?.locked,
+    ).toBe(true);
+    expect(
+      parsed.props?.find((entry) => entry.id === "reading-table-1"),
+    ).toEqual(expect.not.objectContaining({locked: expect.anything()}));
+    const parsedModelProp = parsed.modelProps?.[0];
+    if (!parsedModelProp) throw new Error("Expected model prop fixture");
+    expect(parsedModelProp.locked).toBeUndefined();
+  });
+
+  test("defaultsSeeded must be true when present and survives a round trip", () => {
+    expect(parseWorldSave(saveFixture()).defaultsSeeded).toBeUndefined();
+    const seeded = parseWorldSave({...saveFixture(), defaultsSeeded: true});
+    expect(seeded.defaultsSeeded).toBe(true);
+    expect(() =>
+      parseWorldSave({...saveFixture(), defaultsSeeded: false}),
+    ).toThrow("defaultsSeeded must be true when present");
+    expect(() =>
+      parseWorldSave({...saveFixture(), defaultsSeeded: "yes"}),
+    ).toThrow("defaultsSeeded must be true when present");
   });
 });
 
@@ -360,9 +402,7 @@ test("catalog compatibility requires exact pack, hash, and snapshot identity", (
   expect(
     worldSaveMatchesCatalog(save, {...catalog, snapshotId: "new-snapshot"}),
   ).toBe(false);
-  expect(worldSaveMatchesCatalog({...save, catalog: undefined}, catalog)).toBe(
-    false,
-  );
+  expect(worldSaveMatchesCatalog(omitCatalog(save), catalog)).toBe(false);
 });
 
 test("catalog reconciliation allows a new snapshot of the same logical library", () => {
@@ -380,9 +420,7 @@ test("catalog reconciliation allows a new snapshot of the same logical library",
   expect(
     worldSaveCanReconcileCatalog(save, {...catalog, packId: "other-library"}),
   ).toBe(false);
-  expect(
-    worldSaveCanReconcileCatalog({...save, catalog: undefined}, catalog),
-  ).toBe(false);
+  expect(worldSaveCanReconcileCatalog(omitCatalog(save), catalog)).toBe(false);
 });
 
 test("world save validation rejects malformed or duplicate pending arrivals", () => {

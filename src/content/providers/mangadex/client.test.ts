@@ -1,5 +1,6 @@
 import {expect, test} from "bun:test";
 import {MangaDexClient} from "~/content/providers/mangadex/client";
+import {stubFetch} from "~/test/fetchStub";
 
 const response = (value: unknown) =>
   new Response(JSON.stringify(value), {
@@ -36,7 +37,7 @@ test("MangaDex client resolves API metadata and At Home pages", async () => {
   const requestedUrls: string[] = [];
   const client = new MangaDexClient({
     apiOrigin: "https://mangadex.test",
-    fetcher: async (input) => {
+    fetcher: stubFetch(async (input) => {
       const url = String(input);
       requestedUrls.push(url);
       if (url.endsWith("/manga/tag"))
@@ -70,7 +71,7 @@ test("MangaDex client resolves API metadata and At Home pages", async () => {
       if (url.includes("/data/hash/page-1.jpg"))
         return new Response(new Uint8Array([1, 2, 3]), {status: 200});
       throw new Error(`Unexpected URL ${url}`);
-    },
+    }),
     retryCount: 0,
   });
 
@@ -109,10 +110,10 @@ test("MangaDex client sorts discovery searches by recent updates", async () => {
   let requestedUrl = "";
   const client = new MangaDexClient({
     apiOrigin: "https://mangadex.test",
-    fetcher: async (input) => {
+    fetcher: stubFetch(async (input) => {
       requestedUrl = String(input);
       return response({data: [manga]});
-    },
+    }),
     retryCount: 0,
   });
 
@@ -125,7 +126,7 @@ test("MangaDex client sorts discovery searches by recent updates", async () => {
 test("MangaDex client exposes chapter-feed pagination", async () => {
   const client = new MangaDexClient({
     apiOrigin: "https://mangadex.test",
-    fetcher: async (input) => {
+    fetcher: stubFetch(async (input) => {
       const url = String(input);
       expect(url).toContain("offset=100");
       return response({
@@ -144,7 +145,7 @@ test("MangaDex client exposes chapter-feed pagination", async () => {
         offset: 100,
         total: 101,
       });
-    },
+    }),
     retryCount: 0,
   });
 
@@ -161,7 +162,7 @@ test("MangaDex client exposes chapter-feed pagination", async () => {
 test("MangaDex client excludes external chapter placeholders", async () => {
   const client = new MangaDexClient({
     apiOrigin: "https://mangadex.test",
-    fetcher: async () =>
+    fetcher: stubFetch(async () =>
       response({
         data: [
           {
@@ -188,6 +189,7 @@ test("MangaDex client excludes external chapter placeholders", async () => {
         offset: 0,
         total: 2,
       }),
+    ),
     retryCount: 0,
   });
 
@@ -202,16 +204,18 @@ test("MangaDex client excludes external chapter placeholders", async () => {
 test("MangaDex client times out stalled requests", async () => {
   const client = new MangaDexClient({
     apiOrigin: "https://mangadex.test",
-    fetcher: (_input, init) =>
-      new Promise((_resolve, reject) => {
-        init?.signal?.addEventListener(
-          "abort",
-          () => reject(init.signal?.reason),
-          {
-            once: true,
-          },
-        );
-      }),
+    fetcher: stubFetch(
+      (_input, init) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener(
+            "abort",
+            () => reject(init.signal?.reason),
+            {
+              once: true,
+            },
+          );
+        }),
+    ),
     requestTimeoutMilliseconds: 5,
     retryCount: 0,
   });

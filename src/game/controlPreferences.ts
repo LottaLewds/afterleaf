@@ -34,7 +34,7 @@ const parseControlPreferences = (
   };
   if (typeof preferences.mouseSensitivity !== "number") return;
   const legacyReadingDirection = preferences.readingDirection;
-  let defaultReadingDirection = DEFAULT_READING_DIRECTION;
+  let defaultReadingDirection: ReadingDirection = DEFAULT_READING_DIRECTION;
   if (
     preferences.defaultReadingDirection === "LTR" ||
     preferences.defaultReadingDirection === "RTL"

@@ -22,6 +22,11 @@ content/posters/*
 !content/posters/.gitkeep
 content/models/*
 !content/models/.gitkeep
+# ROM folders for each arcade system (see src/arcade/systems.ts)
+content/roms/*
+!content/roms/*/
+content/roms/*/*
+!content/roms/*/.gitkeep
 content/world-save.json
 content/world-state-backups/
 *:Zone.Identifier

@@ -23,6 +23,7 @@ import {
   WebGLRenderer,
   type BufferAttribute,
   type BufferGeometry,
+  type InterleavedBufferAttribute,
   type Material,
   type Object3D,
 } from "three";
@@ -200,10 +201,15 @@ export class BookInspectScene {
   #onReady: (() => void) | undefined;
   #pitch = -0.08;
   #pitchTarget = -0.08;
-  #activeLeafPositions = new Float32Array();
-  #activeLeafPositionAttribute: BufferAttribute | undefined;
-  #activeLeafTurnUvs = new Float32Array();
-  #activeLeafUvs = new Float32Array();
+  // Annotated as plain Float32Array (ArrayBufferLike) so the geometry
+  // attribute's backing buffers can be aliased directly without copying.
+  #activeLeafPositions: Float32Array = new Float32Array();
+  #activeLeafPositionAttribute:
+    | BufferAttribute
+    | InterleavedBufferAttribute
+    | undefined;
+  #activeLeafTurnUvs: Float32Array = new Float32Array();
+  #activeLeafUvs: Float32Array = new Float32Array();
   #leftPageDepth = 0;
   #pageIndex = 0;
   #pageLoadRevision = 0;

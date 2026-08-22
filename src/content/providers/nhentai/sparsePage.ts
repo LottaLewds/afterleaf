@@ -1,4 +1,4 @@
-import {NhentaiClient} from "./client";
+import {NhentaiClient, type NhentaiGallery} from "./client";
 import {readFile, writeFile} from "node:fs/promises";
 import {resolve} from "node:path";
 import type {LibraryProviderSparsePageRequest} from "@afterleaf/provider-sdk";
@@ -13,13 +13,16 @@ type NhentaiSparsePageClient = Pick<
   "downloadPage" | "loadGallery"
 >;
 
+/** Gallery fields required to validate and download sparse pages. */
+type NhentaiSparseGalleryMetadata = Pick<
+  NhentaiGallery,
+  "id" | "mediaId" | "numPages" | "pages"
+>;
+
 export const createNhentaiSparsePageMaterializer = (
   client: NhentaiSparsePageClient,
 ) => {
-  const galleries = new Map<
-    string,
-    Promise<Awaited<ReturnType<NhentaiClient["loadGallery"]>>>
-  >();
+  const galleries = new Map<string, Promise<NhentaiSparseGalleryMetadata>>();
   return async ({
     metadataHash,
     pageCount,
@@ -79,6 +82,7 @@ export const createNhentaiSparsePageMaterializer = (
     const gallery = await galleryPromise;
     if (gallery.id !== Number(remoteId) || gallery.numPages !== pageCount)
       throw new Error("Remote nHentai metadata changed; fetch the book again");
-    return client.downloadPage(gallery, pageNumber - 1);
+    const bytes = await client.downloadPage(gallery, pageNumber - 1);
+    return Buffer.from(bytes);
   };
 };

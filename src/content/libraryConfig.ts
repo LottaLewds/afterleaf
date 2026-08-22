@@ -12,6 +12,10 @@ import {
 } from "node:fs/promises";
 import {dirname, extname, resolve} from "node:path";
 
+// Relative import: this module is also bundled into the Vite config
+// middleware, whose loader cannot resolve the "~" alias at runtime.
+import {findArcadeSystem, type ArcadeSystemId} from "../arcade/systems";
+
 export const LIBRARY_CONFIG_FILE_NAME = "afterleaf.library.json";
 export const LIBRARY_ROOT_MARKER_FILE_NAME = ".afterleaf-library-root.json";
 export const LIBRARY_ROOT_REGISTRY_FILE_NAME = "library-roots.json";
@@ -45,7 +49,22 @@ export interface AfterleafLibraryConfig {
   tvChannelPaths: readonly string[];
   posterPaths: readonly string[];
   artFramePaths: readonly string[];
+  /**
+   * Maps an emulated cabinet system id to extra folders holding its ROM
+   * files, on top of the built-in `content/roms/<system id>` convention
+   * folder. Configured through the Options menu.
+   */
+  romPaths: Partial<Record<ArcadeSystemId, readonly string[]>>;
 }
+
+/**
+ * Absolute path of a system's built-in ROM folder. This convention folder is
+ * scanned whenever it exists; `romPaths` holds additional locations.
+ */
+export const defaultRomFolderPath = (
+  workingDirectory: string,
+  systemId: ArcadeSystemId,
+): string => resolve(workingDirectory, "content", "roms", systemId);
 
 export const LIBRARY_CONFIG_PROPERTIES = PATH_PROPERTIES;
 
@@ -54,6 +73,7 @@ const emptyLibraryConfig = (): AfterleafLibraryConfig => ({
   comicPaths: [],
   mangaPaths: [],
   posterPaths: [],
+  romPaths: {},
   tvChannelPaths: [],
 });
 
@@ -64,7 +84,7 @@ const parseLibraryConfig = (
   if (!value || typeof value !== "object" || Array.isArray(value))
     throw new Error(`${configPath} must contain a JSON object`);
   const config = value as Record<string, unknown>;
-  const knownProperties = new Set<string>(PATH_PROPERTIES);
+  const knownProperties = new Set<string>([...PATH_PROPERTIES, "romPaths"]);
   const unknownKeys = Object.keys(config).filter(
     (key) => !knownProperties.has(key),
   );
@@ -84,6 +104,33 @@ const parseLibraryConfig = (
       throw new Error(`${configPath} ${property} must be an array of paths`);
     if (property === "mediaPaths") parsed.mediaPaths = paths;
     else parsed[property] = paths;
+  }
+
+  // ROM folders map an emulated system id to extra folders on top of the
+  // built-in content/roms/<system id> convention folder.
+  const romPaths = config.romPaths;
+  if (romPaths !== undefined) {
+    if (!romPaths || typeof romPaths !== "object" || Array.isArray(romPaths))
+      throw new Error(
+        `${configPath} romPaths must map emulated system ids to folder lists`,
+      );
+    for (const [systemId, folders] of Object.entries(romPaths)) {
+      const system = findArcadeSystem(systemId);
+      if (!system)
+        throw new Error(
+          `${configPath} romPaths contains the unknown system "${systemId}"`,
+        );
+      if (
+        !Array.isArray(folders) ||
+        !folders.every(
+          (path) => typeof path === "string" && path.trim().length > 0,
+        )
+      )
+        throw new Error(
+          `${configPath} romPaths.${systemId} must be an array of folder paths`,
+        );
+      parsed.romPaths[system.id] = folders.map((folder) => folder.trim());
+    }
   }
   return parsed;
 };
@@ -116,6 +163,13 @@ const resolveLibraryConfig = (
     throw new Error(
       `${conflictingPath} cannot be configured as both a comic and manga path`,
     );
+  const romPaths: Partial<Record<ArcadeSystemId, readonly string[]>> = {};
+  for (const [systemId, folders] of Object.entries(config.romPaths ?? {})) {
+    if (folders === undefined) continue;
+    romPaths[systemId as ArcadeSystemId] = folders.map((folder) =>
+      resolve(workingDirectory, folder),
+    );
+  }
   return {
     artFramePaths: config.artFramePaths.map((path) =>
       resolve(workingDirectory, path),
@@ -132,6 +186,7 @@ const resolveLibraryConfig = (
     posterPaths: config.posterPaths.map((path) =>
       resolve(workingDirectory, path),
     ),
+    romPaths,
     tvChannelPaths: config.tvChannelPaths.map((path) =>
       resolve(workingDirectory, path),
     ),

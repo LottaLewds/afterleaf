@@ -42,11 +42,13 @@ const createFixture = async () => {
   temporaryDirectories.push(root);
   const publicationDirectory = resolve(root, "test-provider", "book");
   await mkdir(resolve(publicationDirectory, "pages"), {recursive: true});
+  const pagePaths = ["pages/001.png", "pages/002.png", "pages/003.png"];
+  const backPath = "pages/010.png";
   const document: LocalPublicationDocument = {
     assets: {
-      back: "pages/010.png",
+      back: backPath,
       front: "pages/001.png",
-      pages: ["pages/001.png", "pages/002.png", "pages/003.png"],
+      pages: pagePaths,
     },
     id: "book",
     language: "english",
@@ -65,10 +67,10 @@ const createFixture = async () => {
   const manifestPath = resolve(publicationDirectory, "publication.json");
   await Promise.all([
     writeFile(manifestPath, `${JSON.stringify(document, null, 2)}\n`),
-    ...document.assets.pages.map((path) =>
+    ...pagePaths.map((path) =>
       writeFile(resolve(publicationDirectory, path), "stale"),
     ),
-    writeFile(resolve(publicationDirectory, document.assets.back), "stale"),
+    writeFile(resolve(publicationDirectory, backPath), "stale"),
   ]);
   return {document, manifestPath, publicationDirectory, root};
 };

@@ -572,6 +572,109 @@ describe("ShopPhysicsWorld", () => {
     }
   }, 10_000);
 
+  test("drops unlocked props into simulated bodies but re-pins locked ones", async () => {
+    const physics = new ShopPhysicsWorld();
+    try {
+      expect(
+        physics.addProp({
+          depth: 0.5,
+          height: 0.5,
+          id: "pinned-prop",
+          pose: identityPose(0, 0.25, 0),
+          width: 0.5,
+        }),
+      ).toBe(true);
+      expect(await physics.initialize()).toBe(true);
+
+      // An unlocked release falls under gravity like a television.
+      expect(physics.holdProp("pinned-prop")).toBe(true);
+      const airPose = identityPose(0, 2.4, 0);
+      expect(physics.snapHeldProp("pinned-prop", airPose)).toBe(true);
+      expect(physics.dropProp("pinned-prop", {pose: airPose})).toBe(true);
+      for (let frame = 0; frame < 120; frame += 1) physics.step(1 / 60);
+      const sample = createSample();
+      expect(
+        physics.sampleInterpolatedPropTransform("pinned-prop", sample),
+      ).toBe(true);
+      expect(sample.position.y).toBeLessThan(1);
+
+      // Locking pins the prop wherever it is released, even mid-air.
+      expect(physics.setPropLocked("pinned-prop", true)).toBe(true);
+      expect(physics.holdProp("pinned-prop")).toBe(true);
+      const pinnedPose = identityPose(1, 2.6, -1);
+      expect(physics.snapHeldProp("pinned-prop", pinnedPose)).toBe(true);
+      expect(physics.dropProp("pinned-prop", {pose: pinnedPose})).toBe(true);
+      for (let frame = 0; frame < 120; frame += 1) physics.step(1 / 60);
+      expect(
+        physics.sampleInterpolatedPropTransform("pinned-prop", sample),
+      ).toBe(true);
+      expect(sample.position.x).toBeCloseTo(pinnedPose.position.x);
+      expect(sample.position.y).toBeCloseTo(pinnedPose.position.y);
+      expect(sample.position.z).toBeCloseTo(pinnedPose.position.z);
+
+      // Unlocking hands the body back to the simulation.
+      expect(physics.setPropLocked("pinned-prop", false)).toBe(true);
+      for (let frame = 0; frame < 120; frame += 1) physics.step(1 / 60);
+      expect(
+        physics.sampleInterpolatedPropTransform("pinned-prop", sample),
+      ).toBe(true);
+      expect(sample.position.y).toBeLessThan(1);
+    } finally {
+      physics.dispose();
+    }
+  }, 10_000);
+
+  test("rescales multi-part prop colliders on size updates", async () => {
+    const physics = new ShopPhysicsWorld();
+    try {
+      expect(
+        physics.addProp({
+          colliderParts: [
+            {
+              halfExtents: {x: 0.1, y: 0.05, z: 0.1},
+              position: {x: -0.2, y: 0, z: 0},
+            },
+            {
+              halfExtents: {x: 0.1, y: 0.05, z: 0.1},
+              position: {x: 0.2, y: 0, z: 0},
+            },
+          ],
+          depth: 0.2,
+          height: 0.1,
+          id: "parted-prop",
+          pose: identityPose(0, 3, 0),
+          width: 0.6,
+        }),
+      ).toBe(true);
+      expect(await physics.initialize()).toBe(true);
+      // Size updates on part colliders used to be refused outright.
+      expect(
+        physics.updatePropSize("parted-prop", {
+          depth: 0.4,
+          height: 0.2,
+          width: 1.2,
+        }),
+      ).toBe(true);
+      expect(
+        physics.updatePropSize("parted-prop", {
+          depth: 0.2,
+          height: 0.1,
+          width: 0.6,
+        }),
+      ).toBe(true);
+      for (let frame = 0; frame < 120; frame += 1) physics.step(1 / 60);
+      const sample = createSample();
+      expect(
+        physics.sampleInterpolatedPropTransform("parted-prop", sample),
+      ).toBe(true);
+      expect(Number.isFinite(sample.position.x)).toBe(true);
+      expect(sample.position.y).toBeGreaterThan(0);
+      expect(sample.position.y).toBeLessThan(1);
+    } finally {
+      physics.dispose();
+    }
+  }, 10_000);
+
   test("keeps released static props fixed until they are picked up again", async () => {
     const physics = new ShopPhysicsWorld();
     try {

@@ -121,17 +121,15 @@ export const parseNhentaiSyncCliOptions = (
 ): NhentaiSyncCliOptions => {
   const parsed = parseArguments(arguments_);
   const cookieFile = parsed.values.get("cookie-file");
+  const flaresolverrUrl = parsed.values.get("flaresolverr-url");
+  const userAgent = parsed.values.get("user-agent");
   return {
     ...(cookieFile === undefined
       ? {}
       : {cookieFile: resolve(workingDirectory, cookieFile)}),
-    ...(parsed.values.get("flaresolverr-url") === undefined
-      ? {}
-      : {flaresolverrUrl: parsed.values.get("flaresolverr-url")}),
+    ...(flaresolverrUrl === undefined ? {} : {flaresolverrUrl}),
     help: parsed.flags.has("help"),
-    ...(parsed.values.get("user-agent") === undefined
-      ? {}
-      : {userAgent: parsed.values.get("user-agent")}),
+    ...(userAgent === undefined ? {} : {userAgent}),
     syncOptions: {
       blockedTags: normalizeTags(parseBlockedTags(parsed.values)),
       languages: parseLanguages(parsed.values.get("languages")),
