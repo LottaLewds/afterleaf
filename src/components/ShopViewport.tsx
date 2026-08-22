@@ -281,10 +281,6 @@ export const ShopViewport = (props: ShopViewportProps) => {
             : {tvScreenLighting: props.tvScreenLighting}),
           selectedPublicationId: props.selectedPublicationId,
           onGameStateChange: setGameState,
-          onPauseRequest: () => {
-            if (DEV) console.trace("[esc] scene pause request");
-            props.onOpenMenu?.();
-          },
           onTextPaste: (text) => props.onPasteText?.(text) ?? false,
           onPageIndexChange: (publicationId, pageIndex) =>
             props.onPageIndexChange?.(publicationId, pageIndex),

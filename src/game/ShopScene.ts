@@ -933,7 +933,6 @@ export type ShopSceneOptions = {
   onDiscardPublication?: (publicationId: string) => Promise<boolean>;
   onMediaChannelCreateRequest?: (kind: "art-frame" | "tv") => void;
   onGameStateChange?: (snapshot: ShopGameSnapshot) => void;
-  onPauseRequest?: () => void;
   onPageIndexChange?: (publicationId: string, pageIndex: number) => void;
   onSignEditRequest?: (request: ShopSignEditRequest) => void;
   onTextPaste?: (text: string) => boolean | Promise<boolean>;
@@ -1245,7 +1244,6 @@ export class ShopScene {
   readonly #onGameStateChange:
     | ((snapshot: ShopGameSnapshot) => void)
     | undefined;
-  readonly #onPauseRequest: (() => void) | undefined;
   readonly #onPageIndexChange:
     | ((publicationId: string, pageIndex: number) => void)
     | undefined;
@@ -1497,7 +1495,6 @@ export class ShopScene {
   #shelfHoverTargetMeshes: Mesh[] = [];
   #shelfBrowsePublicationId: string | undefined;
   #shelfBrowseReadyAt = 0;
-  #suppressNextPointerUnlockPause = false;
   #targetedSignKey: string | undefined;
   #targetedPosterId: string | undefined;
   #targetedDigitalArtFrameId: string | undefined;
@@ -1559,7 +1556,6 @@ export class ShopScene {
     this.#onDiscardPublication = options.onDiscardPublication;
     this.#onMediaChannelCreateRequest = options.onMediaChannelCreateRequest;
     this.#onGameStateChange = options.onGameStateChange;
-    this.#onPauseRequest = options.onPauseRequest;
     this.#onPageIndexChange = options.onPageIndexChange;
     this.#onSignEditRequest = options.onSignEditRequest;
     this.#onWorldSave = options.onWorldSave;
@@ -1638,8 +1634,6 @@ export class ShopScene {
     if (this.#disposed) return;
     if (this.#inputSuspended) return;
     this.#inputSuspended = true;
-    if (document.pointerLockElement === this.#canvas)
-      this.#suppressNextPointerUnlockPause = true;
     this.#suspendInput();
   }
 
@@ -1726,7 +1720,6 @@ export class ShopScene {
     // several machines can run at once.
     if (cabinet.sessionStatus) return;
     this.#activeArcadeCabinet = cabinet;
-    this.#suppressNextPointerUnlockPause = true;
     this.#releasePointerLock();
     this.#aimCameraAtObject(cabinet.object);
     cabinet.beginBrowsing();
@@ -8030,11 +8023,6 @@ export class ShopScene {
     this.#resetPointerMovement();
     this.#ignoreNextLockedPointerMove =
       this.#pointerLocked && !wasPointerLocked;
-    const suppressPause =
-      wasPointerLocked &&
-      !this.#pointerLocked &&
-      this.#suppressNextPointerUnlockPause;
-    if (suppressPause) this.#suppressNextPointerUnlockPause = false;
     if (!this.#pointerLocked) {
       this.#keysDown.clear();
       this.#cancelThrowCharge();
@@ -8042,17 +8030,10 @@ export class ShopScene {
     }
     this.#canvas.style.cursor = this.#pointerLocked ? "none" : "pointer";
     this.#emitGameState();
-    if (
-      wasPointerLocked &&
-      !this.#pointerLocked &&
-      !suppressPause &&
-      !this.#arcadeStatusForUi() &&
-      document.hasFocus() &&
-      this.#inspectionMode === "none" &&
-      !this.#paused() &&
-      !this.#disposed
-    )
-      this.#onPauseRequest?.();
+    // Pointer lock state is orthogonal to menus: unlocks never open the
+    // pause menu. Escape routing owns that (modal stack, then the armed
+    // fallback), so programmatic releases and browser lock teardowns around
+    // mode changes cannot summon it.
     if (
       resumePointerLock &&
       !this.#paused() &&
@@ -8176,7 +8157,6 @@ export class ShopScene {
         kind === "tv" ? this.#targetedTelevision : undefined;
       this.#channelEditorDigitalArtFrameId =
         kind === "art-frame" ? this.#targetedDigitalArtFrameId : undefined;
-      this.#suppressNextPointerUnlockPause = true;
       this.#releasePointerLock();
       this.#onMediaChannelCreateRequest(kind);
       return;
@@ -11695,7 +11675,6 @@ export class ShopScene {
     if (!key || !this.#onSignEditRequest) return;
     const signSlot = this.#signSlots.get(key);
     if (!signSlot) return;
-    this.#suppressNextPointerUnlockPause = true;
     this.#releasePointerLock();
     this.#onSignEditRequest({
       id: signSlot.id,

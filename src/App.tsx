@@ -38,7 +38,6 @@ import {
   createSignal,
   on,
   untrack,
-  DEV,
   type JSX,
 } from "solid-js";
 
@@ -1912,13 +1911,6 @@ const GlobalEscapeShortcuts = (props: {onFallback: () => void}) => {
       if (event.defaultPrevented || event.repeat) return;
       if (!modalModes.consumeEscape()) return;
       lastStackConsumeAt = performance.now();
-      if (DEV)
-        console.info(
-          "[esc] stack consumed @",
-          Math.round(event.timeStamp),
-          "scopes:",
-          modalModes.depth,
-        );
       event.preventDefault();
     },
     {signal: routerAbortController.signal},
@@ -1930,22 +1922,8 @@ const GlobalEscapeShortcuts = (props: {onFallback: () => void}) => {
       (event) => {
         if (event.key !== "Escape") return;
         if (event.defaultPrevented || event.repeat) return;
-        const sinceConsume = performance.now() - lastStackConsumeAt;
-        if (sinceConsume < ESCAPE_GESTURE_COOLDOWN_MS) {
-          if (DEV)
-            console.info(
-              "[esc] fallback suppressed by cooldown",
-              Math.round(sinceConsume),
-            );
+        if (performance.now() - lastStackConsumeAt < ESCAPE_GESTURE_COOLDOWN_MS)
           return;
-        }
-        if (DEV)
-          console.info(
-            "[esc] fallback -> menu toggle @",
-            Math.round(event.timeStamp),
-            "prevented:",
-            event.defaultPrevented,
-          );
         event.preventDefault();
         props.onFallback();
       },
@@ -2028,7 +2006,6 @@ export const App = () => {
   let shopViewportControls: ShopViewportControls | undefined;
   const openMenu = () => {
     if (menuOpen()) return;
-    if (DEV) console.trace("[esc] openMenu called");
     setMenuOpen(true);
   };
   const closeMenu = (requestPointerLock = true) => {
