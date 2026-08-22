@@ -14,6 +14,7 @@ import {BOOK_ASPECT_RATIO_INFERENCE_VERSION} from "~/content/bookAspectRatio";
 import {WeebCentralClient} from "~/content/providers/weebcentral/client";
 import {WEEBCENTRAL_SPARSE_METADATA_FILE} from "~/content/providers/weebcentral/sparseMetadata";
 import {syncWeebCentralCatalog} from "~/content/providers/weebcentral/sync";
+import {stubFetch} from "~/test/fetchStub";
 
 const temporaryDirectories: string[] = [];
 
@@ -62,7 +63,7 @@ const createClient = (
   const seriesId = options.uppercaseIds ? "SERIES-ID" : "series-id";
   const searchHtml = `<a href="/series/${seriesId}/Test-Manga">Test Manga</a>`;
   return new WeebCentralClient({
-    fetcher: async (input) => {
+    fetcher: stubFetch(async (input) => {
       const url = new URL(String(input));
       options.track?.push(url.toString());
       if (url.pathname === "/search/data")
@@ -89,7 +90,7 @@ const createClient = (
         });
       }
       throw new Error(`Unexpected URL ${url}`);
-    },
+    }),
     origin: "https://weebcentral.test",
     requestIntervalMilliseconds: 0,
     retryCount: 0,
@@ -283,7 +284,10 @@ test("WeebCentral sync deduplicates representative pages for short chapters", as
       resolve(root, "weebcentral-series-id-chapter-1/publication.json"),
       "utf8",
     ),
-  ) as {assets: {back: string; pages: string[]}; pageCount: number};
+  ) as {
+    assets: {back: string; front?: string; pages: string[]};
+    pageCount: number;
+  };
 
   expect(manifest.pageCount).toBe(2);
   expect(manifest.assets).toEqual({

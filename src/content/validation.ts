@@ -53,9 +53,10 @@ const parseKind = (
 ): PublicationKind | undefined => {
   if (value === undefined) return undefined;
   const kind = expectString(value, field);
-  if (!PUBLICATION_KINDS.some((candidate) => candidate === kind))
+  const matchedKind = PUBLICATION_KINDS.find((candidate) => candidate === kind);
+  if (!matchedKind)
     throw new Error(`${field} must be one of: ${PUBLICATION_KINDS.join(", ")}`);
-  return kind;
+  return matchedKind;
 };
 
 const parsePositiveInteger = (

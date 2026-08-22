@@ -27,6 +27,16 @@ export type PaperSheetStep = {
 const finiteDeltaSeconds = (deltaSeconds: number) =>
   Number.isFinite(deltaSeconds) ? Math.max(0, deltaSeconds) : 0;
 
+// Compound assignment reads the current slot, which may be out of bounds under
+// noUncheckedIndexedAccess, so fall back to 0 like every other read here.
+const addTo = (array: Float32Array, offset: number, delta: number) => {
+  array[offset] = (array[offset] ?? 0) + delta;
+};
+
+const subtractFrom = (array: Float32Array, offset: number, delta: number) => {
+  array[offset] = (array[offset] ?? 0) - delta;
+};
+
 export class PaperSheetSimulation {
   readonly #constraintA: Uint16Array;
   readonly #constraintB: Uint16Array;
@@ -160,10 +170,16 @@ export class PaperSheetSimulation {
           (position - previousPosition) * VELOCITY_DAMPING +
           (targetPosition - position) * shapePull * fixedStepSquared;
       }
-      this.#positions[positionOffset + 1] -=
-        WORLD_DOWN_GRAVITY * fixedStepSquared;
-      this.#positions[positionOffset + 2] -=
-        PAGE_NORMAL_GRAVITY * fixedStepSquared;
+      subtractFrom(
+        this.#positions,
+        positionOffset + 1,
+        WORLD_DOWN_GRAVITY * fixedStepSquared,
+      );
+      subtractFrom(
+        this.#positions,
+        positionOffset + 2,
+        PAGE_NORMAL_GRAVITY * fixedStepSquared,
+      );
     }
   }
 
@@ -200,18 +216,38 @@ export class PaperSheetSimulation {
         (this.#constraintStiffness[constraintIndex] ?? 0);
       const firstCorrection = (correction * firstWeight) / totalWeight;
       const secondCorrection = (correction * secondWeight) / totalWeight;
-      this.#positions[firstOffset] += deltaX * firstCorrection;
-      this.#positions[firstOffset + 1] += deltaY * firstCorrection;
-      this.#positions[firstOffset + 2] += deltaZ * firstCorrection;
-      this.#positions[secondOffset] -= deltaX * secondCorrection;
-      this.#positions[secondOffset + 1] -= deltaY * secondCorrection;
-      this.#positions[secondOffset + 2] -= deltaZ * secondCorrection;
-      this.#previousPositions[firstOffset] += deltaX * firstCorrection;
-      this.#previousPositions[firstOffset + 1] += deltaY * firstCorrection;
-      this.#previousPositions[firstOffset + 2] += deltaZ * firstCorrection;
-      this.#previousPositions[secondOffset] -= deltaX * secondCorrection;
-      this.#previousPositions[secondOffset + 1] -= deltaY * secondCorrection;
-      this.#previousPositions[secondOffset + 2] -= deltaZ * secondCorrection;
+      addTo(this.#positions, firstOffset, deltaX * firstCorrection);
+      addTo(this.#positions, firstOffset + 1, deltaY * firstCorrection);
+      addTo(this.#positions, firstOffset + 2, deltaZ * firstCorrection);
+      subtractFrom(this.#positions, secondOffset, deltaX * secondCorrection);
+      subtractFrom(
+        this.#positions,
+        secondOffset + 1,
+        deltaY * secondCorrection,
+      );
+      subtractFrom(
+        this.#positions,
+        secondOffset + 2,
+        deltaZ * secondCorrection,
+      );
+      addTo(this.#previousPositions, firstOffset, deltaX * firstCorrection);
+      addTo(this.#previousPositions, firstOffset + 1, deltaY * firstCorrection);
+      addTo(this.#previousPositions, firstOffset + 2, deltaZ * firstCorrection);
+      subtractFrom(
+        this.#previousPositions,
+        secondOffset,
+        deltaX * secondCorrection,
+      );
+      subtractFrom(
+        this.#previousPositions,
+        secondOffset + 1,
+        deltaY * secondCorrection,
+      );
+      subtractFrom(
+        this.#previousPositions,
+        secondOffset + 2,
+        deltaZ * secondCorrection,
+      );
     }
   }
 

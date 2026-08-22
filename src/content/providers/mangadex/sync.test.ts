@@ -6,6 +6,7 @@ import {BOOK_ASPECT_RATIO_INFERENCE_VERSION} from "~/content/bookAspectRatio";
 import {MangaDexClient} from "~/content/providers/mangadex/client";
 import {MANGADEX_SPARSE_METADATA_FILE} from "~/content/providers/mangadex/sparseMetadata";
 import {syncMangaDexCatalog} from "~/content/providers/mangadex/sync";
+import {stubFetch} from "~/test/fetchStub";
 
 const temporaryDirectories: string[] = [];
 
@@ -22,7 +23,7 @@ test("MangaDex sync writes a sparse local catalog", async () => {
   temporaryDirectories.push(root);
   const client = new MangaDexClient({
     apiOrigin: "https://mangadex.test",
-    fetcher: async (input) => {
+    fetcher: stubFetch(async (input) => {
       const url = String(input);
       if (url.includes("/manga?"))
         return new Response(
@@ -72,7 +73,7 @@ test("MangaDex sync writes a sparse local catalog", async () => {
       if (url.includes("/data/hash/"))
         return new Response(new Uint8Array([1, 2, 3]));
       throw new Error(`Unexpected URL ${url}`);
-    },
+    }),
     retryCount: 0,
   });
 
@@ -139,7 +140,7 @@ test("MangaDex sync advances past cached and duplicate chapter uploads", async (
   let chapterFeedRequestCount = 0;
   const client = new MangaDexClient({
     apiOrigin: "https://mangadex.test",
-    fetcher: async (input) => {
+    fetcher: stubFetch(async (input) => {
       const url = String(input);
       if (url.includes("/manga?"))
         return new Response(
@@ -198,7 +199,7 @@ test("MangaDex sync advances past cached and duplicate chapter uploads", async (
       if (url.includes("https://uploads.mangadex.test/data/"))
         return new Response(new Uint8Array([1, 2, 3]));
       throw new Error(`Unexpected URL ${url}`);
-    },
+    }),
     retryCount: 0,
   });
   const options = {
@@ -240,7 +241,7 @@ test("MangaDex sync overlaps materialization with later search pages", async () 
   let observedOverlap = false;
   const client = new MangaDexClient({
     apiOrigin: "https://mangadex.test",
-    fetcher: async (input) => {
+    fetcher: stubFetch(async (input) => {
       const url = new URL(String(input));
       if (url.pathname === "/manga") {
         const page = Number(url.searchParams.get("offset")) === 0 ? 1 : 2;
@@ -311,7 +312,7 @@ test("MangaDex sync overlaps materialization with later search pages", async () 
         return new Response(new Uint8Array([1, 2, 3]));
       }
       throw new Error(`Unexpected URL ${url}`);
-    },
+    }),
     retryCount: 0,
   });
 
@@ -349,7 +350,7 @@ test("MangaDex sync bounds concurrent chapter materializations and reports disco
   });
   const client = new MangaDexClient({
     apiOrigin: "https://mangadex.test",
-    fetcher: async (input) => {
+    fetcher: stubFetch(async (input) => {
       const url = new URL(String(input));
       if (url.pathname === "/manga")
         return new Response(
@@ -414,7 +415,7 @@ test("MangaDex sync bounds concurrent chapter materializations and reports disco
         return new Response(new Uint8Array([1, 2, 3]));
       }
       throw new Error(`Unexpected URL ${url}`);
-    },
+    }),
     retryCount: 0,
   });
 

@@ -316,10 +316,10 @@ const materializeChapter = async (
   await mkdir(resolve(stagingDirectory, "pages"), {recursive: true});
   try {
     const pagePlan = createRepresentativePagePlan(pageUrls.length);
-    const downloads = pagePlan.acquisitionPageIndexes.map((pageIndex) => ({
-      pageIndex,
-      path: document.assets.pages[pageIndex] ?? document.assets.back,
-    }));
+    const downloads = pagePlan.acquisitionPageIndexes.flatMap((pageIndex) => {
+      const path = document.assets.pages[pageIndex] ?? document.assets.back;
+      return path === undefined ? [] : [{pageIndex, path}];
+    });
     const downloadedPages: Array<{bytes: Uint8Array; pageIndex: number}> = [];
     let nextDownloadIndex = 0;
     await Promise.all(

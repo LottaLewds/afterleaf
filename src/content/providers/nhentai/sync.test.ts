@@ -15,6 +15,7 @@ import {syncNhentaiCatalog} from "~/content/providers/nhentai/sync";
 import {LocalCatalogSource} from "~/content/localCatalogSource";
 import {seedContentPack} from "~/content/seed";
 import {parseLocalPublicationDocument} from "~/content/validation";
+import {stubFetch} from "~/test/fetchStub";
 
 const temporaryDirectories: string[] = [];
 
@@ -102,7 +103,7 @@ const createFetcher = async (
   let imageRequestCount = 0;
   const galleryDetailRequestIds: number[] = [];
   const searchQueries: string[] = [];
-  const fetcher: typeof fetch = async (input) => {
+  const fetcher = stubFetch(async (input) => {
     const url = new URL(
       typeof input === "string" || input instanceof URL ? input : input.url,
     );
@@ -141,7 +142,7 @@ const createFetcher = async (
     return new Response(image, {
       headers: {"content-length": String(image.byteLength)},
     });
-  };
+  });
   return {
     fetcher,
     galleryDetailRequestIds: () => galleryDetailRequestIds,
@@ -174,10 +175,10 @@ describe("nHentai response validation", () => {
     const client = new NhentaiClient({
       apiOrigin: "https://example.test",
       cookie: "session=authenticated",
-      fetcher: async (_input, init) => {
+      fetcher: stubFetch(async (_input, init) => {
         requestHeaders = new Headers(init?.headers);
         return Response.json({result: []});
-      },
+      }),
       retryCount: 0,
       userAgent: "Afterleaf authenticated client",
     });
@@ -196,7 +197,7 @@ describe("nHentai response validation", () => {
     const retryEvents: NhentaiRequestRetryEvent[] = [];
     const client = new NhentaiClient({
       apiOrigin: "https://example.test",
-      fetcher: async () => {
+      fetcher: stubFetch(async () => {
         requestCount += 1;
         if (requestCount === 1)
           return new Response("rate limited", {
@@ -204,7 +205,7 @@ describe("nHentai response validation", () => {
             status: 429,
           });
         return Response.json({result: []});
-      },
+      }),
       onRetry: (event) => retryEvents.push(event),
       retryCount: 1,
       sleep: async (milliseconds) => {
@@ -231,7 +232,7 @@ describe("nHentai response validation", () => {
     const retryEvents: NhentaiRequestRetryEvent[] = [];
     const client = new NhentaiClient({
       apiOrigin: "https://example.test",
-      fetcher: async () => {
+      fetcher: stubFetch(async () => {
         requestCount += 1;
         if (requestCount === 1)
           return new Response("rate limited", {
@@ -241,7 +242,7 @@ describe("nHentai response validation", () => {
         if (requestCount === 2)
           return new Response("rate limited", {status: 429});
         return Response.json({result: []});
-      },
+      }),
       onRetry: (event) => retryEvents.push(event),
       retryCount: 2,
       sleep: async () => {},
@@ -468,7 +469,7 @@ describe("syncNhentaiCatalog", () => {
       gallery(1, "english"),
       gallery(2, "english"),
     ]);
-    const fetcher: typeof fetch = async (input, init) => {
+    const fetcher = stubFetch(async (input, init) => {
       const url = new URL(
         typeof input === "string" || input instanceof URL ? input : input.url,
       );
@@ -483,7 +484,7 @@ describe("syncNhentaiCatalog", () => {
             : page,
         ),
       });
-    };
+    });
 
     const report = await syncNhentaiCatalog(
       {...defaultOptions(root), limit: 1},
@@ -526,7 +527,7 @@ describe("syncNhentaiCatalog", () => {
     const firstGalleryDownloadStarted = new Promise<void>((resolvePromise) => {
       noteFirstGalleryDownloadStarted = resolvePromise;
     });
-    const fetcher: typeof fetch = async (input, init) => {
+    const fetcher = stubFetch(async (input, init) => {
       const url = new URL(
         typeof input === "string" || input instanceof URL ? input : input.url,
       );
@@ -544,7 +545,7 @@ describe("syncNhentaiCatalog", () => {
         });
       }
       return remote.fetcher(input, init);
-    };
+    });
     const progressMessages: string[] = [];
     const client = new NhentaiClient({
       apiOrigin: "https://example.test",
@@ -585,7 +586,7 @@ describe("syncNhentaiCatalog", () => {
     const firstGalleryDownloadGate = new Promise<void>((resolvePromise) => {
       releaseFirstGalleryDownloads = resolvePromise;
     });
-    const fetcher: typeof fetch = async (input, init) => {
+    const fetcher = stubFetch(async (input, init) => {
       const url = new URL(
         typeof input === "string" || input instanceof URL ? input : input.url,
       );
@@ -602,7 +603,7 @@ describe("syncNhentaiCatalog", () => {
         releaseFirstGalleryDownloads();
       }
       return remote.fetcher(input, init);
-    };
+    });
 
     const report = await syncNhentaiCatalog(
       {...defaultOptions(root), limit: 2, maxSearchPages: 2},
@@ -936,14 +937,14 @@ describe("syncNhentaiCatalog", () => {
     const changedGallery = gallery(7, "english");
     changedGallery.title.english = "Interrupted Replacement";
     const changedRemote = await createFetcher([changedGallery]);
-    const failingFetcher: typeof fetch = async (input, init) => {
+    const failingFetcher = stubFetch(async (input, init) => {
       const url = new URL(
         typeof input === "string" || input instanceof URL ? input : input.url,
       );
       if (url.pathname.endsWith("/2.png"))
         return new Response("temporary failure", {status: 503});
       return changedRemote.fetcher(input, init);
-    };
+    });
 
     const progressMessages: string[] = [];
     await expect(
@@ -976,7 +977,7 @@ describe("syncNhentaiCatalog", () => {
 
 test("nHentai client can use FlareSolverr after an API 403", async () => {
   const requests: Array<{input: string; init: RequestInit | undefined}> = [];
-  const fetcher: typeof fetch = async (input, init) => {
+  const fetcher = stubFetch(async (input, init) => {
     const url = String(input);
     requests.push({input: url, init});
     if (url === "http://127.0.0.1:8191/v1")
@@ -993,7 +994,7 @@ test("nHentai client can use FlareSolverr after an API 403", async () => {
         {headers: {"Content-Type": "application/json"}},
       );
     return new Response("Forbidden", {status: 403});
-  };
+  });
   const client = new NhentaiClient({
     apiOrigin: "https://example.test",
     fetcher,
@@ -1017,7 +1018,7 @@ test("nHentai provider reports HTTP retries through import progress", async () =
   temporaryDirectories.push(root);
   const remote = await createFetcher([gallery(9, "english")]);
   let rateLimited = false;
-  const fetcher: typeof fetch = async (input, init) => {
+  const fetcher = stubFetch(async (input, init) => {
     const url = new URL(
       typeof input === "string" || input instanceof URL ? input : input.url,
     );
@@ -1029,7 +1030,7 @@ test("nHentai provider reports HTTP retries through import progress", async () =
       });
     }
     return remote.fetcher(input, init);
-  };
+  });
   const provider = createNhentaiProvider({
     clientOptions: {
       apiOrigin: "https://example.test",

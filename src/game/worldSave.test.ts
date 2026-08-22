@@ -13,6 +13,13 @@ const pose = (x = 0) => ({
   quaternion: {w: 2, x: 0, y: 0, z: 0},
 });
 
+/** Copies a save without its catalog key so it reads as "no catalog saved". */
+const omitCatalog = (save: WorldSaveV1): WorldSaveV1 => {
+  const clone = {...save};
+  delete clone.catalog;
+  return clone;
+};
+
 const saveFixture = (): WorldSaveV1 => ({
   aisleSigns: [{id: "gondola-1", subtitle: "AISLE 01", title: "Adult Comics"}],
   books: [
@@ -383,9 +390,7 @@ test("catalog compatibility requires exact pack, hash, and snapshot identity", (
   expect(
     worldSaveMatchesCatalog(save, {...catalog, snapshotId: "new-snapshot"}),
   ).toBe(false);
-  expect(worldSaveMatchesCatalog({...save, catalog: undefined}, catalog)).toBe(
-    false,
-  );
+  expect(worldSaveMatchesCatalog(omitCatalog(save), catalog)).toBe(false);
 });
 
 test("catalog reconciliation allows a new snapshot of the same logical library", () => {
@@ -403,9 +408,7 @@ test("catalog reconciliation allows a new snapshot of the same logical library",
   expect(
     worldSaveCanReconcileCatalog(save, {...catalog, packId: "other-library"}),
   ).toBe(false);
-  expect(
-    worldSaveCanReconcileCatalog({...save, catalog: undefined}, catalog),
-  ).toBe(false);
+  expect(worldSaveCanReconcileCatalog(omitCatalog(save), catalog)).toBe(false);
 });
 
 test("world save validation rejects malformed or duplicate pending arrivals", () => {

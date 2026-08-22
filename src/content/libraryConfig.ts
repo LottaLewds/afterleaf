@@ -104,7 +104,8 @@ const parseLibraryConfig = (
         `${configPath} romPaths must map emulated system ids to folders`,
       );
     for (const [systemId, folder] of Object.entries(romPaths)) {
-      if (!findArcadeSystem(systemId))
+      const system = findArcadeSystem(systemId);
+      if (!system)
         throw new Error(
           `${configPath} romPaths contains the unknown system "${systemId}"`,
         );
@@ -112,7 +113,7 @@ const parseLibraryConfig = (
         throw new Error(
           `${configPath} romPaths.${systemId} must be a folder path`,
         );
-      parsed.romPaths[systemId] = folder.trim();
+      parsed.romPaths[system.id] = folder.trim();
     }
   }
   return parsed;
@@ -147,8 +148,10 @@ const resolveLibraryConfig = (
       `${conflictingPath} cannot be configured as both a comic and manga path`,
     );
   const romPaths: Partial<Record<ArcadeSystemId, string>> = {};
-  for (const [systemId, folder] of Object.entries(config.romPaths ?? {}))
-    romPaths[systemId] = resolve(workingDirectory, folder);
+  for (const [systemId, folder] of Object.entries(config.romPaths ?? {})) {
+    if (folder === undefined) continue;
+    romPaths[systemId as ArcadeSystemId] = resolve(workingDirectory, folder);
+  }
   return {
     artFramePaths: config.artFramePaths.map((path) =>
       resolve(workingDirectory, path),

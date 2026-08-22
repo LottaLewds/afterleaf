@@ -40,7 +40,10 @@ import {
   Vector3,
   WebGLRenderer,
   type AnimationClip,
+  type BufferAttribute,
   type BufferGeometry,
+  type ColorSpace,
+  type InterleavedBufferAttribute,
   type Material,
   type Object3D,
 } from "three";
@@ -280,9 +283,7 @@ const ARCADE_INTERACTION_DISTANCE = 3.4;
 const ARCADE_CABINET_PLACEMENTS: readonly {
   position: readonly [number, number, number];
   rotationY: number;
-}[] = [
-  {position: [2.7, ARCADE_CABINET_HEIGHT / 2, 16.2], rotationY: Math.PI},
-];
+}[] = [{position: [2.7, ARCADE_CABINET_HEIGHT / 2, 16.2], rotationY: Math.PI}];
 const MOVABLE_PROP_INTERACTION_DISTANCE = 4;
 const POSTER_INTERACTION_DISTANCE = 4;
 const POSTER_PLACEMENT_DISTANCE = POSTER_INTERACTION_DISTANCE * 2;
@@ -491,7 +492,8 @@ type ArtFrameTextureCacheEntry = {
 };
 
 type ArtFrameTextureLoadState = {
-  preparation?: ArtFrameTexturePreparation;
+  // Explicitly nullable so queue removal can clear the back-reference.
+  preparation?: ArtFrameTexturePreparation | undefined;
   priority: "display" | "preload";
 };
 
@@ -532,9 +534,11 @@ type MovablePropRecord = {
   currentRotation: Quaternion;
   /** Pinned in place: fixed body, immune to bumps, still collides. */
   locked: boolean;
-  placementStartPosition?: Vector3;
-  placementStartRotation?: Quaternion;
-  placementStartScale?: number;
+  // Explicitly cleared back to undefined on cancel, so these slots honestly
+  // admit undefined under exactOptionalPropertyTypes.
+  placementStartPosition?: Vector3 | undefined;
+  placementStartRotation?: Quaternion | undefined;
+  placementStartScale?: number | undefined;
   ghostMaterialSwaps: PropMaterialSwap[];
   halfDepth: number;
   halfHeight: number;
@@ -905,6 +909,19 @@ const hashString = (value: string) => {
 
 const normalizePosterRotation = (rotation: number) =>
   MathUtils.euclideanModulo(rotation + Math.PI, Math.PI * 2) - Math.PI;
+
+/**
+ * Dot product against the physics world's plain quaternion record, avoiding a
+ * Quaternion allocation that `Quaternion.dot` would otherwise require.
+ */
+const dotWithPhysicsQuaternion = (
+  quaternion: Quaternion,
+  physicsRotation: {w: number; x: number; y: number; z: number},
+) =>
+  quaternion.x * physicsRotation.x +
+  quaternion.y * physicsRotation.y +
+  quaternion.z * physicsRotation.z +
+  quaternion.w * physicsRotation.w;
 
 const STANDALONE_BOOK_TEXTURE_CACHE_SIZE = 24;
 
@@ -2139,26 +2156,20 @@ export class ShopScene {
     this.#createCeilingLights(architecture);
     this.#createNightWindows(architecture);
     const fixedTelevision = new ShopTelevision({
-      audioManager: this.#audioManager,
-      initialChannelId:
+      ...this.#sharedTelevisionOptions(
         this.#pendingWorldSave?.televisionChannels?.[FIXED_TELEVISION_SAVE_ID],
-      initialVolume:
         this.#pendingWorldSave?.televisionVolumes?.[FIXED_TELEVISION_SAVE_ID],
-      onChannelChange: this.#markTelevisionSettingChanged,
-      onStateChange: () => this.#emitGameState(),
-      onVolumeChange: this.#markTelevisionSettingChanged,
+      ),
       parent: architecture,
-      tvScreenLighting: this.#tvScreenLighting,
       tableMaterial: woodMaterial,
     });
     const movableTelevision = new ShopTelevision({
-      audioManager: this.#audioManager,
-      initialChannelId:
+      ...this.#sharedTelevisionOptions(
         this.#pendingWorldSave?.televisionChannels?.[
           MOVABLE_TELEVISION_SAVE_ID
         ],
-      initialVolume:
         this.#pendingWorldSave?.televisionVolumes?.[MOVABLE_TELEVISION_SAVE_ID],
+      ),
       model: {
         screenAspect: 4 / 3,
         screenNodeName: "Screen",
@@ -2166,13 +2177,9 @@ export class ShopScene {
         scale: SHOP_MODEL_TELEVISION_SCALE,
         url: crtTvModelUrl,
       },
-      onChannelChange: this.#markTelevisionSettingChanged,
-      onStateChange: () => this.#emitGameState(),
-      onVolumeChange: this.#markTelevisionSettingChanged,
       parent: architecture,
       position: SHOP_MODEL_TELEVISION_POSITION,
       rotationY: 0,
-      tvScreenLighting: this.#tvScreenLighting,
       tableMaterial: woodMaterial,
     });
     this.#registerTelevision(FIXED_TELEVISION_SAVE_ID, fixedTelevision);
@@ -2247,7 +2254,13 @@ export class ShopScene {
         continue;
       const position = object.geometry.getAttribute("position");
       if (!position) continue;
-      const attributeSignature = Object.entries(object.geometry.attributes)
+      // Annotated explicitly: the geometry's attribute map widens to `any`
+      // through Mesh's default generics, which would leave entries unknown.
+      const attributes: Record<
+        string,
+        BufferAttribute | InterleavedBufferAttribute
+      > = object.geometry.attributes;
+      const attributeSignature = Object.entries(attributes)
         .map(
           ([name, attribute]) =>
             `${name}:${attribute.array.constructor.name}:${attribute.itemSize}:${attribute.normalized}`,
@@ -2315,7 +2328,10 @@ export class ShopScene {
       8,
       this.#renderer.capabilities.getMaxAnisotropy(),
     );
-    const loadTexture = (url: string, colorSpace = NoColorSpace) => {
+    const loadTexture = (
+      url: string,
+      colorSpace: ColorSpace = NoColorSpace,
+    ) => {
       const texture = this.#textureLoader.load(url);
       texture.colorSpace = colorSpace;
       texture.wrapS = RepeatWrapping;
@@ -4256,6 +4272,23 @@ export class ShopScene {
     if (this.#tvChannels.length > 0) television.setChannels(this.#tvChannels);
   }
 
+  // Shared ShopTelevision options for every set; saved tuning slots are only
+  // spread when present so exactOptionalPropertyTypes stays honest.
+  #sharedTelevisionOptions(
+    initialChannelId: string | undefined,
+    initialVolume: number | undefined,
+  ) {
+    return {
+      audioManager: this.#audioManager,
+      onChannelChange: this.#markTelevisionSettingChanged,
+      onStateChange: () => this.#emitGameState(),
+      onVolumeChange: this.#markTelevisionSettingChanged,
+      tvScreenLighting: this.#tvScreenLighting,
+      ...(initialChannelId === undefined ? {} : {initialChannelId}),
+      ...(initialVolume === undefined ? {} : {initialVolume}),
+    };
+  }
+
   #createTelevisionRooms(parent: Group, woodMaterial: MeshStandardMaterial) {
     const upholsteryTextures = loadUpholsteryTextures(
       this.#textureLoader,
@@ -4263,25 +4296,22 @@ export class ShopScene {
     );
     const acousticMaterial = createUpholsteryMaterial(upholsteryTextures);
     const theatreTelevision = new ShopTelevision({
-      audioManager: this.#audioManager,
-      flatScreen: {height: 6.6, width: 11.75},
-      initialChannelId:
+      ...this.#sharedTelevisionOptions(
         this.#pendingWorldSave?.televisionChannels?.[
           THEATRE_TELEVISION_SAVE_ID
         ] ??
-        this.#pendingWorldSave?.televisionChannels?.[FIXED_TELEVISION_SAVE_ID],
-      initialVolume:
+          this.#pendingWorldSave?.televisionChannels?.[
+            FIXED_TELEVISION_SAVE_ID
+          ],
         this.#pendingWorldSave?.televisionVolumes?.[
           THEATRE_TELEVISION_SAVE_ID
         ] ??
-        this.#pendingWorldSave?.televisionVolumes?.[FIXED_TELEVISION_SAVE_ID],
-      onChannelChange: this.#markTelevisionSettingChanged,
-      onStateChange: () => this.#emitGameState(),
-      onVolumeChange: this.#markTelevisionSettingChanged,
+          this.#pendingWorldSave?.televisionVolumes?.[FIXED_TELEVISION_SAVE_ID],
+      ),
+      flatScreen: {height: 6.6, width: 11.75},
       parent,
       position: [-33.78, 9.75, SHOP_THEATRE.centerZ],
       rotationY: Math.PI / 2,
-      tvScreenLighting: this.#tvScreenLighting,
       tableMaterial: woodMaterial,
     });
     theatreTelevision.object.name = `${THEATRE_TELEVISION_SAVE_ID}-screen`;
@@ -4377,17 +4407,16 @@ export class ShopScene {
     ) => {
       const id = `tv-cave-v6-${wall}-${row + 1}-${column + 1}`;
       const television = new ShopTelevision({
-        audioManager: this.#audioManager,
-        initialChannelId:
+        ...this.#sharedTelevisionOptions(
           this.#pendingWorldSave?.televisionChannels?.[id] ??
-          this.#pendingWorldSave?.televisionChannels?.[
-            MOVABLE_TELEVISION_SAVE_ID
-          ],
-        initialVolume:
+            this.#pendingWorldSave?.televisionChannels?.[
+              MOVABLE_TELEVISION_SAVE_ID
+            ],
           this.#pendingWorldSave?.televisionVolumes?.[id] ??
-          this.#pendingWorldSave?.televisionVolumes?.[
-            MOVABLE_TELEVISION_SAVE_ID
-          ],
+            this.#pendingWorldSave?.televisionVolumes?.[
+              MOVABLE_TELEVISION_SAVE_ID
+            ],
+        ),
         model: {
           screenAspect: 4 / 3,
           screenNodeName: "Screen",
@@ -4395,13 +4424,9 @@ export class ShopScene {
           scale: SHOP_MODEL_TELEVISION_SCALE,
           url: crtTvModelUrl,
         },
-        onChannelChange: this.#markTelevisionSettingChanged,
-        onStateChange: () => this.#emitGameState(),
-        onVolumeChange: this.#markTelevisionSettingChanged,
         parent,
         position,
         rotationY,
-        tvScreenLighting: this.#tvScreenLighting,
         tableMaterial: woodMaterial,
       });
       television.object.name = id;
@@ -5294,9 +5319,10 @@ export class ShopScene {
     if (!tableMaterial)
       throw new Error("CRT television materials are not ready.");
     const television = new ShopTelevision({
-      audioManager: this.#audioManager,
-      initialChannelId: this.#savedTelevisionChannels[id],
-      initialVolume: this.#savedTelevisionVolumes[id],
+      ...this.#sharedTelevisionOptions(
+        this.#savedTelevisionChannels[id],
+        this.#savedTelevisionVolumes[id],
+      ),
       model: {
         screenAspect: 4 / 3,
         screenNodeName: "Screen",
@@ -5304,11 +5330,7 @@ export class ShopScene {
         scale: SHOP_MODEL_TELEVISION_SCALE,
         url: crtTvModelUrl,
       },
-      onChannelChange: this.#markTelevisionSettingChanged,
-      onStateChange: () => this.#emitGameState(),
-      onVolumeChange: this.#markTelevisionSettingChanged,
       parent: this.#scene,
-      tvScreenLighting: this.#tvScreenLighting,
       tableMaterial,
     });
     television.object.name = id;
@@ -5439,9 +5461,10 @@ export class ShopScene {
     normalizedModel.scale.setScalar(normalizationScale);
     normalizedModel.add(model);
     const television = new ShopTelevision({
-      audioManager: this.#audioManager,
-      initialChannelId: this.#savedTelevisionChannels[id],
-      initialVolume: this.#savedTelevisionVolumes[id],
+      ...this.#sharedTelevisionOptions(
+        this.#savedTelevisionChannels[id],
+        this.#savedTelevisionVolumes[id],
+      ),
       model: {
         audioPosition: [0, 0, 0],
         center: [0, 0, 0],
@@ -5453,11 +5476,7 @@ export class ShopScene {
         screenSafeArea: {bottom: 0, left: 0, right: 0, top: 0},
         scale: 1,
       },
-      onChannelChange: this.#markTelevisionSettingChanged,
-      onStateChange: () => this.#emitGameState(),
-      onVolumeChange: this.#markTelevisionSettingChanged,
       parent: this.#scene,
-      tvScreenLighting: this.#tvScreenLighting,
       tableMaterial,
     });
     television.object.name = id;
@@ -7452,7 +7471,7 @@ export class ShopScene {
       const direction = Math.sign(event.deltaY) as -1 | 1;
       if (event.ctrlKey) {
         event.preventDefault();
-        this.#targetedTelevision?.adjustVolume(-direction);
+        this.#targetedTelevision?.adjustVolume(direction === 1 ? -1 : 1);
         this.#tvWheelScrubDirection = undefined;
         this.#tvWheelScrubLastAt = Number.NEGATIVE_INFINITY;
         this.#tvWheelScrubStepIndex = 0;
@@ -8103,7 +8122,8 @@ export class ShopScene {
     const record = publicationId
       ? this.#booksById.get(publicationId)
       : undefined;
-    if (record) this.#ensureStandaloneBookTextures(publicationId, record);
+    if (record && publicationId !== undefined)
+      this.#ensureStandaloneBookTextures(publicationId, record);
     this.#applyBookStates();
     this.#emitGameState();
   }
@@ -8170,7 +8190,7 @@ export class ShopScene {
     const record = selectedPublicationId
       ? this.#booksById.get(selectedPublicationId)
       : undefined;
-    if (record)
+    if (record && selectedPublicationId)
       this.#ensureStandaloneBookTextures(selectedPublicationId, record);
     this.#applyBookStates();
   }
@@ -11480,7 +11500,8 @@ export class ShopScene {
       )
         continue;
       const candidateIntersection = this.#raycaster.intersectObjects(
-        candidate.interactionTargets,
+        // Raycaster only reads the input list, so bypass the readonly getter.
+        candidate.interactionTargets as Mesh[],
         false,
       )[0];
       if (
@@ -12279,12 +12300,11 @@ export class ShopScene {
         const quaternion = record.frame.object.getWorldQuaternion(
           new Quaternion(),
         );
+        const currentImageId = record.frame.currentImageId();
         return {
           aspectRatio: record.frame.aspectRatio(),
           channelId: record.frame.channelId(),
-          ...(record.frame.currentImageId()
-            ? {currentImageId: record.frame.currentImageId()}
-            : {}),
+          ...(currentImageId ? {currentImageId} : {}),
           fit: record.frame.fit(),
           height: record.height,
           id: record.id,
@@ -12661,7 +12681,10 @@ export class ShopScene {
       prompt = `E shelve ${this.#shelfTargetSelection?.presentation ?? this.#shelfPresentation}-out · Q switch shelf presentation · Hold F charge throw · G drop · R inspect${this.#carriedPublicationIds.length > 1 ? " · Wheel cycle books" : ""}`;
     else if (carriedRecord)
       prompt = `Q ${this.#shelfPresentation}-out · Aim at a shelf · Hold F charge throw · G drop · R inspect${this.#carriedPublicationIds.length > 1 ? " · Wheel cycle books" : ""}`;
-    else if (this.#targetedArcadeCabinet?.sessionStatus === undefined) {
+    else if (
+      this.#targetedArcadeCabinet &&
+      this.#targetedArcadeCabinet.sessionStatus === undefined
+    ) {
       const cabinetProp = this.#arcadeProps.get(this.#targetedArcadeCabinet);
       prompt = `E play the arcade · T move cabinet${cabinetProp?.locked ? " · L unlock" : " · L lock"}`;
     } else if (this.#televisionTargeted) {
@@ -12932,6 +12955,9 @@ export class ShopScene {
       ...interaction,
       key: formatInteractionKey(interaction.key, this.#keyboardLayout),
     }));
+    // Read once so the conditional spread below gets a narrowed value.
+    const arcadeStatus = this.#arcadeStatusForUi();
+    const arcadeSystemId = this.#arcadeSystemIdForUi();
     const snapshot: ShopGameSnapshot = {
       ...(interactionContext ? {interactionContext} : {}),
       ...(displayedInteractions.length > 0
@@ -13001,13 +13027,13 @@ export class ShopScene {
       ...(this.#tvVideoImportMessage
         ? {tvVideoImportMessage: this.#tvVideoImportMessage}
         : {}),
-      ...(this.#arcadeStatusForUi()
+      ...(arcadeStatus
         ? {
-            arcadeStatus: this.#arcadeStatusForUi(),
-            arcadeCabinetId: this.#activeArcadeCabinet?.id,
-            ...(this.#arcadeSystemIdForUi()
-              ? {arcadeSystemId: this.#arcadeSystemIdForUi()}
+            arcadeStatus,
+            ...(this.#activeArcadeCabinet
+              ? {arcadeCabinetId: this.#activeArcadeCabinet.id}
               : {}),
+            ...(arcadeSystemId ? {arcadeSystemId} : {}),
             ...(this.#activeArcadeCabinet?.sessionDetail
               ? {
                   arcadeDetail: this.#activeArcadeCabinet.sessionDetail,
@@ -13048,7 +13074,10 @@ export class ShopScene {
       const rotationChanged =
         1 -
           Math.abs(
-            record.currentRotation.dot(this.#physicsTransform.rotation),
+            dotWithPhysicsQuaternion(
+              record.currentRotation,
+              this.#physicsTransform.rotation,
+            ),
           ) >
         1e-7;
       record.object.position.copy(this.#physicsTransform.position);
@@ -13121,7 +13150,10 @@ export class ShopScene {
           !shelfIsStationary &&
           1 -
             Math.abs(
-              record.mesh.quaternion.dot(this.#physicsTransform.rotation),
+              dotWithPhysicsQuaternion(
+                record.mesh.quaternion,
+                this.#physicsTransform.rotation,
+              ),
             ) >
             1e-7;
         if (record.mesh.parent !== this.#scene) this.#scene.attach(record.mesh);

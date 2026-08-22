@@ -149,7 +149,10 @@ const parseManga = (value: unknown, field: string): MangaDexManga => {
   const attributes = requiredRecord(record.attributes, `${field}.attributes`);
   const relationships = parseRelationships(record.relationships);
   const id = requiredString(record.id, `${field}.id`);
-  const tags = requiredArray(attributes.tags).flatMap((tag, index) => {
+  const tags = requiredArray(
+    attributes.tags,
+    `${field}.attributes.tags`,
+  ).flatMap((tag, index) => {
     const tagRecord = requiredRecord(tag, `${field}.attributes.tags[${index}]`);
     const tagAttributes = requiredRecord(
       tagRecord.attributes,
@@ -165,34 +168,41 @@ const parseManga = (value: unknown, field: string): MangaDexManga => {
   const year = Number.isSafeInteger(attributes.year)
     ? Number(attributes.year)
     : undefined;
+  const originalLanguage = optionalString(attributes.originalLanguage);
+  const coverFileName =
+    cover?.attributes === undefined
+      ? undefined
+      : optionalString(cover.attributes.fileName);
   return {
-    altTitles: requiredArray(attributes.altTitles).flatMap((title) => {
+    altTitles: requiredArray(
+      attributes.altTitles,
+      `${field}.attributes.altTitles`,
+    ).flatMap((title) => {
       const parsed = parseTextMap(title);
       return Object.keys(parsed).length > 0 ? [parsed] : [];
     }),
     contentRating: optionalString(attributes.contentRating) ?? "safe",
     description: parseTextMap(attributes.description),
     id,
-    ...(optionalString(attributes.originalLanguage) === undefined
-      ? {}
-      : {originalLanguage: optionalString(attributes.originalLanguage)}),
+    ...(originalLanguage === undefined ? {} : {originalLanguage}),
     tags,
     title: parseTextMap(attributes.title),
     ...(year === undefined ? {} : {year}),
-    ...(cover?.attributes && optionalString(cover.attributes.fileName)
-      ? {coverFileName: optionalString(cover.attributes.fileName)}
-      : {}),
+    ...(coverFileName === undefined ? {} : {coverFileName}),
   };
 };
 
 const parseChapter = (value: unknown, field: string): MangaDexChapter => {
   const record = requiredRecord(value, field);
   const attributes = requiredRecord(record.attributes, `${field}.attributes`);
+  const chapter = optionalString(attributes.chapter);
+  const externalUrl = optionalString(attributes.externalUrl);
+  const publishedAt = optionalString(attributes.publishedAt);
+  const title = optionalString(attributes.title);
+  const volume = optionalString(attributes.volume);
   return {
-    chapter: optionalString(attributes.chapter),
-    ...(optionalString(attributes.externalUrl) === undefined
-      ? {}
-      : {externalUrl: optionalString(attributes.externalUrl)}),
+    ...(chapter === undefined ? {} : {chapter}),
+    ...(externalUrl === undefined ? {} : {externalUrl}),
     id: requiredString(record.id, `${field}.id`),
     mangaId: requiredString(
       attributes.mangaId ??
@@ -204,19 +214,13 @@ const parseChapter = (value: unknown, field: string): MangaDexChapter => {
     pages: Number.isSafeInteger(attributes.pages)
       ? Number(attributes.pages)
       : 0,
-    ...(optionalString(attributes.publishedAt) === undefined
-      ? {}
-      : {publishedAt: optionalString(attributes.publishedAt)}),
-    ...(optionalString(attributes.title) === undefined
-      ? {}
-      : {title: optionalString(attributes.title)}),
+    ...(publishedAt === undefined ? {} : {publishedAt}),
+    ...(title === undefined ? {} : {title}),
     translatedLanguage: requiredString(
       attributes.translatedLanguage,
       `${field}.translatedLanguage`,
     ),
-    ...(optionalString(attributes.volume) === undefined
-      ? {}
-      : {volume: optionalString(attributes.volume)}),
+    ...(volume === undefined ? {} : {volume}),
   };
 };
 
@@ -225,10 +229,14 @@ const parseAtHomeServer = (value: unknown): MangaDexAtHomeServer => {
   const chapter = requiredRecord(record.chapter, "at-home response.chapter");
   const baseUrl = requiredString(record.baseUrl, "at-home response.baseUrl");
   const hash = requiredString(chapter.hash, "at-home response.chapter.hash");
-  const data = requiredArray(chapter.data).map((page, index) =>
-    requiredString(page, `at-home response.chapter.data[${index}]`),
+  const data = requiredArray(chapter.data, "at-home response.chapter.data").map(
+    (page, index) =>
+      requiredString(page, `at-home response.chapter.data[${index}]`),
   );
-  const dataSaver = requiredArray(chapter.dataSaver).map((page, index) =>
+  const dataSaver = requiredArray(
+    chapter.dataSaver,
+    "at-home response.chapter.dataSaver",
+  ).map((page, index) =>
     requiredString(page, `at-home response.chapter.dataSaver[${index}]`),
   );
   return {baseUrl, chapter: {data, dataSaver, hash}};

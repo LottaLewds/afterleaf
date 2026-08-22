@@ -227,7 +227,7 @@ describe("LibraryUpdateService", () => {
     const messages: string[] = [];
     service.subscribe((state) => {
       phases.push(state.phase);
-      messages.push(state.message);
+      if (state.status === "running") messages.push(state.message);
     });
 
     const result = await service.fetchMore({

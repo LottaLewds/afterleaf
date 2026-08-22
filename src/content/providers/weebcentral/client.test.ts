@@ -6,6 +6,7 @@ import {
   parseWeebCentralSeriesHtml,
   WeebCentralClient,
 } from "~/content/providers/weebcentral/client";
+import {stubFetch} from "~/test/fetchStub";
 
 const reference = {
   id: "series-id",
@@ -85,7 +86,7 @@ test("WeebCentral client sends safe search filters and retries Cloudflare failur
   const sleeps: number[] = [];
   let responseCount = 0;
   const client = new WeebCentralClient({
-    fetcher: async (input, init) => {
+    fetcher: stubFetch(async (input, init) => {
       requests.push({
         headers: new Headers(init?.headers),
         url: new URL(String(input)),
@@ -96,7 +97,7 @@ test("WeebCentral client sends safe search filters and retries Cloudflare failur
         `<a href="/series/series-id/Test-Manga">Test Manga</a>`,
         {headers: {"content-type": "text/html"}},
       );
-    },
+    }),
     origin: "https://weebcentral.test",
     requestIntervalMilliseconds: 0,
     retryCount: 1,
@@ -140,10 +141,12 @@ test("WeebCentral parsers reject incomplete remote markup", async () => {
 
 test("WeebCentral client rejects non-image page responses", async () => {
   const client = new WeebCentralClient({
-    fetcher: async () =>
-      new Response("not an image", {
-        headers: {"content-type": "text/html"},
-      }),
+    fetcher: stubFetch(
+      async () =>
+        new Response("not an image", {
+          headers: {"content-type": "text/html"},
+        }),
+    ),
     origin: "https://weebcentral.test",
     requestIntervalMilliseconds: 0,
     retryCount: 0,

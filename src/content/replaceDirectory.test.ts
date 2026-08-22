@@ -10,7 +10,7 @@ describe("replaceDirectory", () => {
     let copyAttempts = 0;
     let renameAttempts = 0;
     const removed: string[] = [];
-    const operations = {
+    const operations: ReplaceDirectoryOperations = {
       copy: async () => {
         copyAttempts += 1;
         if (copyAttempts === 1) throw filesystemError("EPERM");
@@ -23,7 +23,7 @@ describe("replaceDirectory", () => {
         throw filesystemError("EPERM");
       },
       wait: async () => {},
-    } as unknown as ReplaceDirectoryOperations;
+    };
 
     await expect(
       replaceDirectory("staging", "revision", operations),
@@ -34,7 +34,7 @@ describe("replaceDirectory", () => {
   });
 
   test("reports both rename and fallback errors", async () => {
-    const operations = {
+    const operations: ReplaceDirectoryOperations = {
       copy: async () => {
         throw filesystemError("EIO");
       },
@@ -43,7 +43,7 @@ describe("replaceDirectory", () => {
         throw filesystemError("EPERM");
       },
       wait: async () => {},
-    } as unknown as ReplaceDirectoryOperations;
+    };
 
     await expect(
       replaceDirectory("staging", "revision", operations),

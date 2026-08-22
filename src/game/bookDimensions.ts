@@ -10,9 +10,10 @@ export const physicalBookWidth = (
   aspectRatio: number | undefined,
   renderedHeight: number,
 ) => {
-  const ratio = Number.isFinite(aspectRatio)
-    ? (aspectRatio ?? DEFAULT_BOOK_ASPECT_RATIO)
-    : DEFAULT_BOOK_ASPECT_RATIO;
+  const ratio =
+    aspectRatio !== undefined && Number.isFinite(aspectRatio)
+      ? aspectRatio
+      : DEFAULT_BOOK_ASPECT_RATIO;
   return (
     Math.min(MAX_BOOK_ASPECT_RATIO, Math.max(MIN_BOOK_ASPECT_RATIO, ratio)) *
     renderedHeight
@@ -23,9 +24,10 @@ export const physicalBookDepth = (
   thicknessMillimeters: number | undefined,
   renderedHeight: number,
 ) => {
-  const thickness = Number.isFinite(thicknessMillimeters)
-    ? thicknessMillimeters
-    : DEFAULT_BOOK_THICKNESS_MILLIMETERS;
+  const thickness =
+    thicknessMillimeters !== undefined && Number.isFinite(thicknessMillimeters)
+      ? thicknessMillimeters
+      : DEFAULT_BOOK_THICKNESS_MILLIMETERS;
   const boundedThickness = Math.min(
     MAX_BOOK_THICKNESS_MILLIMETERS,
     Math.max(MIN_BOOK_THICKNESS_MILLIMETERS, thickness),

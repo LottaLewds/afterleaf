@@ -1,8 +1,11 @@
 import {describe, expect, test} from "bun:test";
 
-import {modalModes} from "./modalModes";
+import {modalModes, type ModalModeScope} from "~/game/modalModes";
 
-const scope = (id: string, onEscape?: () => boolean) => ({id, onEscape});
+const scope = (id: string, onEscape?: () => boolean): ModalModeScope => ({
+  id,
+  ...(onEscape && {onEscape}),
+});
 
 describe("modalModes", () => {
   test("consumes Escape from the top of the stack first", () => {

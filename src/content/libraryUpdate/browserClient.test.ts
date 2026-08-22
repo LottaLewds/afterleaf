@@ -32,12 +32,16 @@ import {
   summarizeLibraryBlacklistListResult,
   summarizeLibraryBlacklistResult,
   summarizeLibrarySnapshotResult,
+  type LibraryOperationStartHttpSuccess,
+  type LibrarySnapshotHttpSuccess,
   type LibrarySnapshotOperation,
 } from "~/content/libraryUpdate/httpProtocol";
 
 const jobId = "123e4567-e89b-42d3-a456-426614174000";
 
-const snapshotResponse = (operation: LibrarySnapshotOperation) => ({
+const snapshotResponse = (
+  operation: LibrarySnapshotOperation,
+): LibrarySnapshotHttpSuccess => ({
   changes: {
     addedCount: 2,
     removedCount: 1,
@@ -63,7 +67,9 @@ const compactSnapshotResult = {
   updatedCount: 1,
 };
 
-const jobStartResponse = (operation: LibrarySnapshotOperation) => ({
+const jobStartResponse = (
+  operation: LibrarySnapshotOperation,
+): LibraryOperationStartHttpSuccess => ({
   jobId,
   ok: true,
   operation,
@@ -114,7 +120,14 @@ describe("browser library operation client", () => {
     const fetcher: LibraryOperationFetch = async () =>
       response({entries: [], ok: true, path: "/media"});
 
-    await expect(browseLibraryLocation("/media", fetcher)).resolves.toEqual({
+    const listing = await browseLibraryLocation("/media", fetcher);
+    expect(Object.keys(listing).toSorted()).toEqual([
+      "drives",
+      "entries",
+      "ok",
+      "path",
+    ]);
+    expect(listing).toMatchObject({
       drives: [],
       entries: [],
       ok: true,

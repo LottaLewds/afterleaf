@@ -88,7 +88,7 @@ const extractLibraryDirectories = (
 
 const parseProviderId = (arguments_: readonly string[]) => {
   const remainingArguments: string[] = [];
-  let providerId = DEFAULT_LIBRARY_PROVIDER_ID;
+  let providerId: string = DEFAULT_LIBRARY_PROVIDER_ID;
   for (let index = 0; index < arguments_.length; index += 1) {
     const argument = arguments_[index];
     if (argument?.startsWith("--provider=")) {

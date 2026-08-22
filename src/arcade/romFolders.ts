@@ -71,7 +71,9 @@ export const listArcadeFolderRoms = async (
   const {fetcher = fetch, signal} = options;
   const response = await fetcher(
     `${LIBRARY_ROMS_ENDPOINT}?system=${encodeURIComponent(systemId)}`,
-    {signal},
+    // Only forward the init object when a signal is present so the optional
+    // property never carries an explicit undefined under exactOptionalPropertyTypes.
+    ...(signal ? [{signal}] : []),
   );
   if (response.ok)
     return {...parseRomsPayload(await response.json()), state: "ready"};

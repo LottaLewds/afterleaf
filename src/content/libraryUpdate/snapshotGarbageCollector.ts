@@ -1,5 +1,5 @@
 import {spawn} from "node:child_process";
-import {readdirSync, rmSync} from "node:fs";
+import {readdirSync, rmSync, type Dirent} from "node:fs";
 import {basename, resolve} from "node:path";
 import {fileURLToPath} from "node:url";
 
@@ -22,7 +22,7 @@ export const pruneSnapshotGarbage = (garbageDirectory: string) => {
       "Snapshot garbage collection requires its dedicated directory",
     );
 
-  let entries: ReturnType<typeof readdirSync>;
+  let entries: Dirent<string>[];
   try {
     entries = readdirSync(resolvedDirectory, {withFileTypes: true});
   } catch (error) {

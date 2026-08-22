@@ -27,16 +27,18 @@ test("local catalog source excludes blacklisted publication IDs", async () => {
     title: id,
   });
   await Promise.all(
-    [
-      ["local-blacklisted-01", "english"],
-      ["local-blacklisted-02", "japanese"],
-      ["local-comedy-01", "english"],
-    ].map(async ([id, language]) => {
+    (
+      [
+        ["local-blacklisted-01", "english"],
+        ["local-blacklisted-02", "japanese"],
+        ["local-comedy-01", "english"],
+      ] as const
+    ).map(async ([id, language]) => {
       const directory = resolve(root, id);
       await mkdir(directory);
       await writeFile(
         resolve(directory, "publication.json"),
-        JSON.stringify(publication(id, language as "english" | "japanese")),
+        JSON.stringify(publication(id, language)),
       );
     }),
   );

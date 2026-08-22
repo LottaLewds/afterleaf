@@ -267,6 +267,7 @@ const createNoSignalTexture = () => {
 
 const curveScreenGeometry = (geometry: PlaneGeometry) => {
   const positions = geometry.attributes.position;
+  if (!positions) return geometry;
   for (let index = 0; index < positions.count; index += 1) {
     const normalizedX = positions.getX(index) / (SCREEN_WIDTH * 0.5);
     const normalizedY = positions.getY(index) / (SCREEN_HEIGHT * 0.5);

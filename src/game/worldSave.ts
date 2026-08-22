@@ -646,9 +646,7 @@ export const parseWorldSave = (value: unknown): WorldSaveV1 => {
     player: parsePose(value.player, "player"),
     ...(posters === undefined ? {} : {posters}),
     ...(props === undefined ? {} : {props}),
-    ...(removedDefaultPropIds === undefined
-      ? {}
-      : {removedDefaultPropIds}),
+    ...(removedDefaultPropIds === undefined ? {} : {removedDefaultPropIds}),
     savedAt: value.savedAt,
     schemaVersion: WORLD_SAVE_SCHEMA_VERSION,
     ...(shelfSigns === undefined ? {} : {shelfSigns}),

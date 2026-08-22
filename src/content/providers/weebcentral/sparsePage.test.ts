@@ -6,6 +6,7 @@ import type {PackedPublication} from "~/content/schema";
 import {WeebCentralClient} from "~/content/providers/weebcentral/client";
 import {createWeebCentralSparsePageMaterializer} from "~/content/providers/weebcentral/sparsePage";
 import {WEEBCENTRAL_SPARSE_METADATA_FILE} from "~/content/providers/weebcentral/sparseMetadata";
+import {stubFetch} from "~/test/fetchStub";
 
 const publication = {
   pageCount: 2,
@@ -22,7 +23,7 @@ test("WeebCentral sparse pages validate metadata and page count", async () => {
   );
   const requests: string[] = [];
   const client = new WeebCentralClient({
-    fetcher: async (input) => {
+    fetcher: stubFetch(async (input) => {
       const url = String(input);
       requests.push(url);
       if (url.includes("/images?"))
@@ -33,7 +34,7 @@ test("WeebCentral sparse pages validate metadata and page count", async () => {
       return new Response(new Uint8Array([2]), {
         headers: {"content-type": "image/png"},
       });
-    },
+    }),
     origin: "https://weebcentral.test",
     requestIntervalMilliseconds: 0,
     retryCount: 0,
@@ -67,10 +68,12 @@ test("WeebCentral sparse pages validate metadata and page count", async () => {
 
 test("WeebCentral sparse pages reject changed remote page counts", async () => {
   const client = new WeebCentralClient({
-    fetcher: async () =>
-      new Response('<img alt="Page 1" src="https://images.test/1.png">', {
-        headers: {"content-type": "text/html"},
-      }),
+    fetcher: stubFetch(
+      async () =>
+        new Response('<img alt="Page 1" src="https://images.test/1.png">', {
+          headers: {"content-type": "text/html"},
+        }),
+    ),
     origin: "https://weebcentral.test",
     requestIntervalMilliseconds: 0,
     retryCount: 0,

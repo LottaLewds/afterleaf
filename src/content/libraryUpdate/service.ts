@@ -426,7 +426,7 @@ export class LibraryUpdateService implements LibraryUpdateClient {
       if (
         syncReport &&
         previousSnapshot &&
-        request.localSourceChanged === false &&
+        remoteRequest?.localSourceChanged === false &&
         syncReport.addedCount === 0 &&
         syncReport.updatedCount === 0 &&
         migrationReport.pendingCount === 0
@@ -499,7 +499,7 @@ export class LibraryUpdateService implements LibraryUpdateClient {
           force: false,
           forceRebuild:
             mode === "scan" && (request as LibraryScanRequest).repair === true,
-          languages: catalogLanguages,
+          languages: [...catalogLanguages],
           limit: snapshotLimit,
           match: request.match ?? "all",
           onDiagnostic: (diagnostic) =>

@@ -106,13 +106,14 @@ export const parseArtFrameCatalog = (value: unknown): ArtFrameCatalog => {
     if (channelIds.has(channel.id))
       throw new Error("Art frame catalog has duplicate channel IDs");
     channelIds.add(channel.id);
+    const channelId: string = channel.id;
     const images = channel.images.map((image, imageIndex) => {
       if (
         !isRecord(image) ||
         typeof image.id !== "string" ||
         !isSafeId(image.id) ||
-        !image.id.startsWith(`${channel.id}/`) ||
-        image.id.slice(channel.id.length + 1).includes("/") ||
+        !image.id.startsWith(`${channelId}/`) ||
+        image.id.slice(channelId.length + 1).includes("/") ||
         typeof image.label !== "string" ||
         image.label.trim().length === 0 ||
         image.label.length > 512 ||

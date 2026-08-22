@@ -255,24 +255,27 @@ export const parseLibraryScanRequest = (value: unknown): LibraryScanRequest => {
       : ["repairProviderMetadata"]),
   ];
   const request = requireExactKeys(value, expectedKeys, "scan");
-  for (const field of expectedKeys) {
-    if (typeof request[field] !== "boolean")
+  const parseFlag = (field: string): boolean | undefined => {
+    const flag = request[field];
+    if (flag === undefined) return undefined;
+    if (typeof flag !== "boolean")
       throw new Error(`Library scan ${field} must be a boolean`);
-  }
+    return flag;
+  };
+  const redownloadProviderAssets = parseFlag("redownloadProviderAssets");
+  const repair = parseFlag("repair");
+  const repairProviderMetadata = parseFlag("repairProviderMetadata");
   if (
-    request.repair !== true &&
-    (request.repairProviderMetadata === true ||
-      request.redownloadProviderAssets === true)
+    repair !== true &&
+    (repairProviderMetadata === true || redownloadProviderAssets === true)
   )
     throw new Error("Remote repair options require a deep repair scan");
   return {
-    ...(request.redownloadProviderAssets === undefined
+    ...(redownloadProviderAssets === undefined
       ? {}
-      : {redownloadProviderAssets: request.redownloadProviderAssets}),
-    ...(request.repair === undefined ? {} : {repair: request.repair}),
-    ...(request.repairProviderMetadata === undefined
-      ? {}
-      : {repairProviderMetadata: request.repairProviderMetadata}),
+      : {redownloadProviderAssets}),
+    ...(repair === undefined ? {} : {repair}),
+    ...(repairProviderMetadata === undefined ? {} : {repairProviderMetadata}),
   };
 };
 
@@ -613,8 +616,9 @@ export const summarizeLibrarySnapshotResult = (
 ): LibrarySnapshotHttpSuccess => {
   if (!isRecord(value) || !isRecord(value.snapshot) || !isRecord(value.diff))
     throw new Error(`Library ${operation} command returned a malformed result`);
+  const diff = value.diff;
   const arrayLength = (field: string) => {
-    const entries = value.diff[field];
+    const entries = diff[field];
     if (!Array.isArray(entries))
       throw new Error(`Library snapshot result diff.${field} must be an array`);
     return entries.length;

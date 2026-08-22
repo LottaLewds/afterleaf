@@ -57,10 +57,8 @@ export const ArcadeBrowser = (props: ArcadeBrowserProps) => {
     .then(setSavedRoms)
     .catch(() => {});
 
-  const [folder, {refetch}] = createResource(
-    selectedSystemId,
-    async (systemId, context) =>
-      listArcadeFolderRoms(systemId, {signal: context.signal}),
+  const [folder, {refetch}] = createResource(selectedSystemId, (systemId) =>
+    listArcadeFolderRoms(systemId),
   );
 
   const readyFolder = () => {

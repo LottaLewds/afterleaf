@@ -106,6 +106,11 @@ export const queueServerWorldSave = (
   const queuedSave = saveQueue.then(() =>
     saveServerWorldSave(save, serverInstanceId, revision),
   );
-  saveQueue = queuedSave.catch(() => {});
+  // Discard the resolved revision so the chain stays Promise<void>; failures
+  // are swallowed here because each caller already handles its own rejection.
+  saveQueue = queuedSave.then(
+    () => undefined,
+    () => undefined,
+  );
   return queuedSave;
 };

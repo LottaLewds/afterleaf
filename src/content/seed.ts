@@ -662,11 +662,13 @@ const reusablePublicationMetadata = (
   material: PublicationMaterial,
 ) => {
   const document = candidate.document;
-  const includeAspectRatio =
+  const aspectRatio =
     document.physical?.aspectRatio !== undefined &&
     (document.aspectRatioInferenceVersion === undefined ||
       document.aspectRatioInferenceVersion ===
-        BOOK_ASPECT_RATIO_INFERENCE_VERSION);
+        BOOK_ASPECT_RATIO_INFERENCE_VERSION)
+      ? document.physical.aspectRatio
+      : undefined;
   return {
     ...(document.groupId === undefined ? {} : {groupId: document.groupId}),
     id: document.id,
@@ -684,9 +686,7 @@ const reusablePublicationMetadata = (
       ...(document.physical?.readingDirection === undefined
         ? {}
         : {readingDirection: document.physical.readingDirection}),
-      ...(!includeAspectRatio
-        ? {}
-        : {aspectRatio: document.physical.aspectRatio}),
+      ...(aspectRatio === undefined ? {} : {aspectRatio}),
       ...(document.physical?.thicknessMm === undefined
         ? {}
         : {thicknessMm: document.physical.thicknessMm}),

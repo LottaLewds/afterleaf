@@ -256,7 +256,7 @@ export const ShopViewport = (props: ShopViewportProps) => {
           catalogAvailable: props.catalogAvailable,
           catalogIdentity: props.catalogIdentity,
           catalogItems: props.publications,
-          initialWorldSave,
+          ...(initialWorldSave === undefined ? {} : {initialWorldSave}),
           worldSaveWritable,
           ...(props.pageIndexForPublication === undefined
             ? {}

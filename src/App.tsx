@@ -38,6 +38,7 @@ import {
   createSignal,
   on,
   untrack,
+  type JSX,
 } from "solid-js";
 
 import {
@@ -63,9 +64,14 @@ import {
   saveLibraryConfig,
   type LocalLibraryJob,
   type LocalLibrarySnapshotResult,
+  type LibraryDirectoryEntry,
   type LibraryDirectoryListing,
 } from "~/content/libraryUpdate/browserClient";
-import {ARCADE_SYSTEMS, type ArcadeSystemId} from "~/arcade/systems";
+import {
+  ARCADE_SYSTEMS,
+  findArcadeSystem,
+  type ArcadeSystemId,
+} from "~/arcade/systems";
 import {findBlacklistedTagMatches} from "~/content/libraryUpdate/tagPurge";
 import {
   loadBootFetchPreference,
@@ -290,8 +296,6 @@ const ReadingDirectionControl = (props: {
 
 const TagBlacklistControl = (props: {
   availableTags: readonly string[];
-  libraryConfig: AfterleafLibraryConfig;
-  onLibraryConfigChange: (config: AfterleafLibraryConfig) => void;
   blacklistedTags: readonly string[];
   onChange: (tags: readonly string[]) => void;
   onPurge: () => void;
@@ -507,6 +511,11 @@ const romSystemOfKind = (
 ): ArcadeSystemId | undefined =>
   kind.startsWith("rom:") ? (kind.slice(4) as ArcadeSystemId) : undefined;
 
+/** Narrows a location kind to plain path collections, excluding `rom:` kinds. */
+const isBookLocationKind = (
+  kind: AdditionalLocationKind,
+): kind is ArrayLocationKind => !kind.startsWith("rom:");
+
 /** Copies the config with one system's ROM folder set or cleared. */
 const withRomFolder = (
   config: AfterleafLibraryConfig,
@@ -638,7 +647,7 @@ const FolderBrowserDialog = (props: {
   browser: FolderBrowser;
   onChoose: (path: string) => void;
   /** Overrides the raw directory entries, e.g. with a ranked view. */
-  entries?: () => LibraryDirectoryEntry[];
+  entries?: () => readonly LibraryDirectoryEntry[];
   trailingControls?: JSX.Element;
 }) => (
   <Show when={props.browser.browserOpen() && props.browser.listing()}>
@@ -747,8 +756,8 @@ const AdditionalLocationsControl = (props: {
     tvChannelPaths: "TV",
   };
   const labelFor = (key: AdditionalLocationKind): string => {
-    const system = romSystemOfKind(key);
-    if (!system) return arrayLabels[key];
+    if (isBookLocationKind(key)) return arrayLabels[key];
+    const system = key.slice(4);
     return findArcadeSystem(system)?.label ?? system;
   };
   const locationKeys: readonly AdditionalLocationKind[] = [
@@ -761,8 +770,9 @@ const AdditionalLocationsControl = (props: {
     (key) => key !== "mediaPaths",
   );
   const locationsFor = (key: AdditionalLocationKind): readonly string[] => {
+    if (isBookLocationKind(key)) return props.config[key] ?? [];
     const system = romSystemOfKind(key);
-    if (!system) return props.config[key] ?? [];
+    if (!system) return [];
     const folder = props.config.romPaths?.[system];
     return folder ? [folder] : [];
   };
@@ -806,27 +816,28 @@ const AdditionalLocationsControl = (props: {
     to: AdditionalLocationKind,
   ) => {
     if (from === to) return;
-    const fromSystem = romSystemOfKind(from);
+    let nextConfig = props.config;
+    if (isBookLocationKind(from)) {
+      // Detach the path from its current slot first.
+      const detached = {...props.config};
+      detached[from] = locationsFor(from).filter((entry) => entry !== path);
+      nextConfig = detached;
+    } else {
+      const fromSystem = romSystemOfKind(from);
+      if (!fromSystem) return;
+      nextConfig = withRomFolder(props.config, fromSystem, undefined);
+    }
     const toSystem = romSystemOfKind(to);
-    // Detach the path from its current slot first.
-    let nextConfig = fromSystem
-      ? withRomFolder(props.config, fromSystem, undefined)
-      : (() => {
-          const detached = {...props.config};
-          detached[from] = locationsFor(from).filter((entry) => entry !== path);
-          return detached;
-        })();
     if (toSystem) {
       // One folder per system, so the new mapping replaces any previous one.
       nextConfig = withRomFolder(nextConfig, toSystem, path);
-    } else {
+    } else if (isBookLocationKind(to)) {
       const targetLocations = locationsFor(to);
-      nextConfig = {
-        ...withBookLocation(nextConfig, to, path),
-        [to]: targetLocations.includes(path)
-          ? targetLocations
-          : [...targetLocations, path],
-      };
+      const merged = withBookLocation(nextConfig, to, path);
+      merged[to] = targetLocations.includes(path)
+        ? targetLocations
+        : [...targetLocations, path];
+      nextConfig = merged;
     }
     props.onChange(nextConfig);
   };
@@ -839,12 +850,13 @@ const AdditionalLocationsControl = (props: {
       browser.close();
       return;
     }
+    if (!isBookLocationKind(key)) return;
     const locations = locationsFor(key);
-    if (!locations.includes(path))
-      props.onChange({
-        ...withBookLocation(props.config, key, path),
-        [key]: [...locations, path],
-      });
+    if (!locations.includes(path)) {
+      const merged = withBookLocation(props.config, key, path);
+      merged[key] = [...locations, path];
+      props.onChange(merged);
+    }
     browser.close();
   };
   const remove = (key: AdditionalLocationKind, path: string) => {
@@ -853,10 +865,10 @@ const AdditionalLocationsControl = (props: {
       props.onChange(withRomFolder(props.config, system, undefined));
       return;
     }
-    props.onChange({
-      ...props.config,
-      [key]: locationsFor(key).filter((entry) => entry !== path),
-    });
+    if (!isBookLocationKind(key)) return;
+    const next = {...props.config};
+    next[key] = locationsFor(key).filter((entry) => entry !== path);
+    props.onChange(next);
   };
   const reenroll = async (path: string) => {
     if (
@@ -1345,7 +1357,7 @@ const LibraryUpdateDialog = (props: {
   maxSearchPages: number;
   providerId: string;
   providers: readonly LibraryProviderDescriptor[];
-  providerError?: string;
+  providerError?: string | undefined;
   onCancel: () => void;
   onConfirm: (
     fetchOnBoot: boolean,
@@ -1619,7 +1631,7 @@ const LibraryActivityToast = (props: {
   completedSteps: number;
   elapsedSeconds: number;
   failed: boolean;
-  notice?: string;
+  notice?: string | undefined;
   status: string;
   totalSteps: number;
   onDismiss: () => void;
@@ -2158,6 +2170,10 @@ export const App = () => {
       currentLibrary?.identity.snapshotId === result.snapshotId
         ? currentLibrary
         : await refetch();
+    if (!activatedLibrary)
+      throw new Error(
+        `The library refresh returned no snapshot while activating ${result.snapshotId}`,
+      );
     if (activatedLibrary.identity.snapshotId !== result.snapshotId)
       throw new Error(
         `The library activated snapshot ${result.snapshotId}, but the game loaded ${activatedLibrary.identity.snapshotId ?? "an empty library"}`,

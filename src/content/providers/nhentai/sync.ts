@@ -37,7 +37,7 @@ import {nhentaiGalleryIdFromText} from "./url";
 
 export interface NhentaiSyncOptions {
   blockedTags: string[];
-  languages: SupportedLanguage[];
+  languages: readonly SupportedLanguage[];
   limit: number;
   maxSearchPages: number;
   onProgress?: (message: string) => void;
@@ -335,7 +335,8 @@ const materializeGallery = async (
     2,
   )}\n`;
   if (
-    existing?.source?.metadataHash === document.source?.metadataHash &&
+    existing &&
+    existing.source?.metadataHash === metadataHash &&
     publicationAssetsMatch(existing.assets, document.assets) &&
     (await publicationIsComplete(publicationDirectory, existing))
   ) {
@@ -487,17 +488,14 @@ export const syncNhentaiCatalog = async (
   if (options.write) await mkdir(outputDirectory, {recursive: true});
   const syncedAt = (dependencies.now?.() ?? new Date()).toISOString();
   const exactGalleryId = nhentaiGalleryIdFromText(options.query);
-  const exactPublicationId = exactGalleryId
-    ? `nhentai-${exactGalleryId}`
-    : undefined;
   const exactGalleryAlreadyImported =
-    exactPublicationId !== undefined &&
-    cachedPublications.completePublicationIds.has(exactPublicationId);
+    exactGalleryId !== undefined &&
+    cachedPublications.completePublicationIds.has(`nhentai-${exactGalleryId}`);
   if (exactGalleryAlreadyImported)
     diagnostics.push({
       code: "existing-complete",
       galleryId: exactGalleryId,
-      message: `Skipped existing complete publication ${exactPublicationId}`,
+      message: `Skipped existing complete publication nhentai-${exactGalleryId}`,
     });
   const exactGallery =
     exactGalleryId === undefined || exactGalleryAlreadyImported
@@ -578,7 +576,11 @@ export const syncNhentaiCatalog = async (
       try {
         const result = await materializeGallery(
           client,
-          {gallery: prepared.gallery, language: prepared.language},
+          {
+            gallery: prepared.gallery,
+            language: prepared.language,
+            repair: prepared.repair,
+          },
           outputDirectory,
           syncedAt,
           options.previewPageCount,
@@ -665,14 +667,15 @@ export const syncNhentaiCatalog = async (
           continue;
         }
         const repair = cachedPublications.publicationIds.has(publicationId);
+        const incompleteReason =
+          cachedPublications.incompleteReasonByPublicationId.get(publicationId);
         const selectedGallery = {
           gallery,
           language,
           repair,
-          repairReason:
-            cachedPublications.incompleteReasonByPublicationId.get(
-              publicationId,
-            ),
+          ...(incompleteReason === undefined
+            ? {}
+            : {repairReason: incompleteReason}),
         };
         const languageCandidates = candidatesByLanguage.get(language);
         languageCandidates?.push(selectedGallery);

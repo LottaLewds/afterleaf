@@ -324,20 +324,25 @@ describe("shop expansion layout", () => {
 
   test("keeps atrium rail collision entirely on supported floor", () => {
     const [west, east, north, south] = SHOP_ATRIUM_RAIL_BOXES;
-    expect(west?.position[0]).toBeLessThan(SHOP_ATRIUM.minX);
-    expect(east?.position[0]).toBeGreaterThan(SHOP_ATRIUM.maxX);
-    expect(north?.position[2]).toBeLessThan(SHOP_ATRIUM.minZ);
-    expect(south?.position[2]).toBeGreaterThan(SHOP_ATRIUM.maxZ);
-    expect(west?.position[2] - (west?.size[2] ?? 0) / 2).toBeCloseTo(
+    expect(west).toBeDefined();
+    expect(east).toBeDefined();
+    expect(north).toBeDefined();
+    expect(south).toBeDefined();
+    if (!west || !east || !north || !south) return;
+    expect(west.position[0]).toBeLessThan(SHOP_ATRIUM.minX);
+    expect(east.position[0]).toBeGreaterThan(SHOP_ATRIUM.maxX);
+    expect(north.position[2]).toBeLessThan(SHOP_ATRIUM.minZ);
+    expect(south.position[2]).toBeGreaterThan(SHOP_ATRIUM.maxZ);
+    expect(west.position[2] - west.size[2] / 2).toBeCloseTo(
       SHOP_ATRIUM.minZ - SHOP_ATRIUM_RAIL_FLOOR_INSET,
     );
-    expect(west?.position[2] + (west?.size[2] ?? 0) / 2).toBeCloseTo(
+    expect(west.position[2] + west.size[2] / 2).toBeCloseTo(
       SHOP_ATRIUM.maxZ + SHOP_ATRIUM_RAIL_FLOOR_INSET,
     );
-    expect(north?.position[0] - (north?.size[0] ?? 0) / 2).toBeCloseTo(
+    expect(north.position[0] - north.size[0] / 2).toBeCloseTo(
       SHOP_ATRIUM.minX - SHOP_ATRIUM_RAIL_FLOOR_INSET,
     );
-    expect(north?.position[0] + (north?.size[0] ?? 0) / 2).toBeCloseTo(
+    expect(north.position[0] + north.size[0] / 2).toBeCloseTo(
       SHOP_ATRIUM.maxX + SHOP_ATRIUM_RAIL_FLOOR_INSET,
     );
   });

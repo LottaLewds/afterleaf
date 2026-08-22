@@ -115,7 +115,9 @@ export const createNhentaiProvider = (
             languages: [...syncOptions.languages],
             limit: syncOptions.limit,
             maxSearchPages: syncOptions.maxSearchPages,
-            onProgress: syncOptions.onProgress,
+            ...(syncOptions.onProgress === undefined
+              ? {}
+              : {onProgress: syncOptions.onProgress}),
             outputDirectory: syncOptions.outputDirectory,
             previewPageCount: 3,
             query: normalizeQuery(syncOptions.query),

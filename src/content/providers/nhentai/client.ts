@@ -280,6 +280,9 @@ export const parseNhentaiGallery = (
   const uploadDate = Number.isSafeInteger(value.upload_date)
     ? Number(value.upload_date)
     : undefined;
+  const englishTitle = optionalString(value.title.english);
+  const japaneseTitle = optionalString(value.title.japanese);
+  const prettyTitle = optionalString(value.title.pretty);
   return {
     id: requiredInteger(value.id, `${field}.id`),
     mediaId,
@@ -289,15 +292,9 @@ export const parseNhentaiGallery = (
       parseTag(tag, `${field}.tags[${index}]`),
     ),
     title: {
-      ...(optionalString(value.title.english) === undefined
-        ? {}
-        : {english: optionalString(value.title.english)}),
-      ...(optionalString(value.title.japanese) === undefined
-        ? {}
-        : {japanese: optionalString(value.title.japanese)}),
-      ...(optionalString(value.title.pretty) === undefined
-        ? {}
-        : {pretty: optionalString(value.title.pretty)}),
+      ...(englishTitle === undefined ? {} : {english: englishTitle}),
+      ...(japaneseTitle === undefined ? {} : {japanese: japaneseTitle}),
+      ...(prettyTitle === undefined ? {} : {pretty: prettyTitle}),
     },
     ...(uploadDate === undefined ? {} : {uploadDate}),
   };
@@ -314,6 +311,8 @@ const parseNhentaiSearchResult = (
   if (!isRecord(value)) throw new Error(`${field} must be an object`);
   if (!Array.isArray(value.tag_ids))
     throw new Error(`${field}.tag_ids must be an array`);
+  const englishTitle = optionalString(value.english_title);
+  const japaneseTitle = optionalString(value.japanese_title);
   return {
     id: requiredInteger(value.id, `${field}.id`),
     mediaId: String(
@@ -324,12 +323,8 @@ const parseNhentaiSearchResult = (
       requiredInteger(id, `${field}.tag_ids[${index}]`),
     ),
     title: {
-      ...(optionalString(value.english_title) === undefined
-        ? {}
-        : {english: optionalString(value.english_title)}),
-      ...(optionalString(value.japanese_title) === undefined
-        ? {}
-        : {japanese: optionalString(value.japanese_title)}),
+      ...(englishTitle === undefined ? {} : {english: englishTitle}),
+      ...(japaneseTitle === undefined ? {} : {japanese: japaneseTitle}),
     },
   };
 };

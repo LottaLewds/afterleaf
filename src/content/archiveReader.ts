@@ -1,4 +1,5 @@
 import {createHash} from "node:crypto";
+import type {Stats} from "node:fs";
 import {lstat, mkdtemp, readFile, rm, stat} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {extname, isAbsolute, join, posix, resolve} from "node:path";
@@ -80,7 +81,10 @@ const cachedInspection = async (archivePath: string) => {
 
 const cacheInspection = (
   resolvedArchivePath: string,
-  archiveStat: Awaited<ReturnType<typeof stat>>,
+  // Deliberately the plain-number Stats flavor: single-argument stat() never
+  // produces bigint values (bigint stats require an explicit opt-in option),
+  // and the cache stores number timestamps/sizes.
+  archiveStat: Stats,
   inspection: ArchiveInspection,
 ) => {
   archiveInspectionCache.delete(resolvedArchivePath);
@@ -199,7 +203,7 @@ const validateArchiveEntry = (entry: Entry, normalizedPaths: Set<string>) => {
 
 const inspectZipArchive = async (
   resolvedArchivePath: string,
-  archiveStat: Awaited<ReturnType<typeof stat>>,
+  archiveStat: Stats,
 ): Promise<ArchiveInspection> => {
   const zipFile = await openZip(resolvedArchivePath);
   if (zipFile.entryCount > MAX_ARCHIVE_ENTRIES) {
@@ -325,7 +329,7 @@ const validateRarEntry = (entry: FileHeader, normalizedPaths: Set<string>) => {
 
 const inspectRarArchive = async (
   resolvedArchivePath: string,
-  archiveStat: Awaited<ReturnType<typeof stat>>,
+  archiveStat: Stats,
 ): Promise<ArchiveInspection> => {
   const extractor = await createExtractorFromFile({
     filepath: resolvedArchivePath,

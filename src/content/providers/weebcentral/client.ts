@@ -286,6 +286,9 @@ export const parseWeebCentralSeriesHtml = async (
   if (!adult && adultText.toLowerCase() !== "no")
     throw new Error("WeebCentral adult-content marker is invalid");
   const officialText = officialValues.map(optionalString).find(Boolean);
+  const description = descriptions.map(optionalString).find(Boolean);
+  const status = statuses.map(optionalString).find(Boolean);
+  const seriesType = types.map(optionalString).find(Boolean);
   const coverUrl = coverUrls[0]
     ? parseUrl(
         coverUrls[0],
@@ -300,20 +303,26 @@ export const parseWeebCentralSeriesHtml = async (
   return {
     ...reference,
     adult,
-    authors: [...new Set(authors.map(optionalString).filter(Boolean))],
+    authors: [
+      ...new Set(
+        authors
+          .map(optionalString)
+          .filter((author): author is string => author !== undefined),
+      ),
+    ],
     ...(coverUrl ? {coverUrl} : {}),
-    ...(descriptions.map(optionalString).find(Boolean)
-      ? {description: descriptions.map(optionalString).find(Boolean)}
-      : {}),
+    ...(description === undefined ? {} : {description}),
     officialTranslation: officialText?.toLowerCase() === "yes",
-    ...(statuses.map(optionalString).find(Boolean)
-      ? {status: statuses.map(optionalString).find(Boolean)}
-      : {}),
-    tags: [...new Set(tags.map(optionalString).filter(Boolean))],
+    ...(status === undefined ? {} : {status}),
+    tags: [
+      ...new Set(
+        tags
+          .map(optionalString)
+          .filter((tag): tag is string => tag !== undefined),
+      ),
+    ],
     title,
-    ...(types.map(optionalString).find(Boolean)
-      ? {type: types.map(optionalString).find(Boolean)}
-      : {}),
+    ...(seriesType === undefined ? {} : {type: seriesType}),
     ...(year === undefined ? {} : {year}),
   };
 };
