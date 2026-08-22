@@ -43,8 +43,7 @@ import {
 import {
   EMULATOR_DATA_URL_PATH,
   copyEmulatorDataInto,
-  emulatorDataContentType,
-  resolveEmulatorDataFile,
+  loadEmulatorDataAsset,
 } from "./src/arcade/emulatorAssets";
 import {
   parseActiveLibraryAssetRequest,
@@ -2791,7 +2790,7 @@ const emulatorDataPlugin = (): Plugin => {
   // EMULATOR_DATA_URL_PATH so emulator boots never touch cdn.emulatorjs.org.
   // Core packages mirror the data/cores layout, so requests are resolved by
   // resolveEmulatorDataFile and streamed like any other static asset.
-  const serveEmulatorData = (
+  const serveEmulatorData = async (
     request: IncomingMessage,
     response: ServerResponse,
     next: () => void,
@@ -2812,27 +2811,32 @@ const emulatorDataPlugin = (): Plugin => {
     } catch {
       relativePath = "";
     }
-    const filePath = resolveEmulatorDataFile(
+    const asset = await loadEmulatorDataAsset(
       nodeModulesDirectory,
       relativePath,
     );
-    if (!filePath) {
+    if (!asset) {
       response.statusCode = 404;
       response.setHeader("Cache-Control", "no-store");
       return response.end();
     }
     try {
-      // Containment was checked during resolution; statSync just rejects
-      // directories that slipped through existsSync.
-      const fileStat = statSync(filePath);
-      if (!fileStat.isFile()) throw new Error("not a regular file");
       response.statusCode = 200;
-      response.setHeader("Content-Type", emulatorDataContentType(filePath));
-      response.setHeader("Content-Length", String(fileStat.size));
+      response.setHeader("Content-Type", asset.contentType);
       // Version-pinned npm packages: stable across a session, cheap to refetch.
       response.setHeader("Cache-Control", "public, max-age=3600");
+      if (asset.kind === "bundle") {
+        response.setHeader("Content-Length", String(asset.body.byteLength));
+        if (request.method === "HEAD") return response.end();
+        return response.end(asset.body);
+      }
+      // Containment was checked during resolution; statSync just rejects
+      // directories that slipped through existsSync.
+      const fileStat = statSync(asset.filePath);
+      if (!fileStat.isFile()) throw new Error("not a regular file");
+      response.setHeader("Content-Length", String(fileStat.size));
       if (request.method === "HEAD") return response.end();
-      const stream = createReadStream(filePath);
+      const stream = createReadStream(asset.filePath);
       stream.on("error", () => response.destroy());
       return stream.pipe(response);
     } catch {

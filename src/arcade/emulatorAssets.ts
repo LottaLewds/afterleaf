@@ -16,7 +16,7 @@
  * version; a UI/cores version skew breaks core loading.
  */
 import {existsSync} from "node:fs";
-import {copyFile, cp, mkdir, readdir} from "node:fs/promises";
+import {copyFile, cp, mkdir, readFile, readdir} from "node:fs/promises";
 import path from "node:path";
 
 // Relative import: this module is also bundled into the Vite config
@@ -77,6 +77,19 @@ const containedPath = (root: string, candidate: string): string | undefined => {
   return resolved;
 };
 
+const CONTENT_TYPE_BY_EXTENSION: Record<string, string> = {
+  ".css": "text/css; charset=utf-8",
+  ".html": "text/html; charset=utf-8",
+  ".js": "text/javascript; charset=utf-8",
+  ".json": "application/json; charset=utf-8",
+  ".svg": "image/svg+xml",
+  ".wasm": "application/wasm",
+};
+
+export const emulatorDataContentType = (filePath: string): string =>
+  CONTENT_TYPE_BY_EXTENSION[path.extname(filePath).toLowerCase()] ??
+  "application/octet-stream";
+
 /**
  * Resolved absolute file path for `relativePath` beneath
  * {@link EMULATOR_DATA_URL_PATH}, or undefined when no vendored file provides
@@ -84,7 +97,7 @@ const containedPath = (root: string, candidate: string): string | undefined => {
  * packages, whose on-disk layout already matches `data/cores/`; everything
  * else maps into the EmulatorJS data directory itself.
  */
-export const resolveEmulatorDataFile = (
+const resolveWithinVendoredTree = (
   nodeModulesDirectory: string,
   relativePath: string,
 ): string | undefined => {
@@ -107,18 +120,103 @@ export const resolveEmulatorDataFile = (
   return candidate && existsSync(candidate) ? candidate : undefined;
 };
 
-const CONTENT_TYPE_BY_EXTENSION: Record<string, string> = {
-  ".css": "text/css; charset=utf-8",
-  ".html": "text/html; charset=utf-8",
-  ".js": "text/javascript; charset=utf-8",
-  ".json": "application/json; charset=utf-8",
-  ".svg": "image/svg+xml",
-  ".wasm": "application/wasm",
+/**
+ * Resolves like {@link resolveWithinVendoredTree}, but falls back to the
+ * unminified sibling when a `.min.*` name misses: the npm package ships only
+ * the unminified runtime, while loader.js asks for `emulator.min.css` and
+ * friends in production mode. The one exception is `emulator.min.js`, which
+ * has no single-file equivalent and is bundled by
+ * {@link loadEmulatorDataAsset} instead.
+ */
+export const resolveEmulatorDataFile = (
+  nodeModulesDirectory: string,
+  relativePath: string,
+): string | undefined =>
+  resolveWithinVendoredTree(nodeModulesDirectory, relativePath) ??
+  resolveWithinVendoredTree(
+    nodeModulesDirectory,
+    relativePath.replace(/\.min(?=\.[^./]+$)/u, ""),
+  );
+
+/** Name loader.js uses for the production script bundle. */
+export const EMULATOR_MIN_JS_NAME = "emulator.min.js";
+
+/**
+ * The sources loader.js concatenates into that bundle, in its own scripts
+ * order; we mirror it so serving the unminified set stays boot-compatible.
+ */
+const MIN_JS_BUNDLE_SOURCES = [
+  "emulator.js",
+  "nipplejs.js",
+  "shaders.js",
+  "storage.js",
+  "gamepad.js",
+  "GameManager.js",
+  "socket.io.min.js",
+  "compression.js",
+] as const;
+
+const JS_CONTENT_TYPE = emulatorDataContentType("bundle.js");
+
+export type EmulatorDataAsset =
+  | {
+      readonly kind: "file";
+      readonly filePath: string;
+      readonly contentType: string;
+    }
+  | {
+      readonly kind: "bundle";
+      readonly body: Buffer;
+      readonly contentType: string;
+    };
+
+let minJsBundleCache: Buffer | undefined;
+
+/**
+ * Loads the vendored asset for `relativePath`: either the resolved file, or,
+ * for {@link EMULATOR_MIN_JS_NAME}, an on-demand concatenation of the
+ * unminified sources (cached for the server's lifetime). Undefined when the
+ * runtime cannot provide the path.
+ */
+export const loadEmulatorDataAsset = async (
+  nodeModulesDirectory: string,
+  relativePath: string,
+): Promise<EmulatorDataAsset | undefined> => {
+  const filePath = resolveEmulatorDataFile(nodeModulesDirectory, relativePath);
+  if (filePath)
+    return {
+      kind: "file",
+      filePath,
+      contentType: emulatorDataContentType(filePath),
+    };
+  if (relativePath !== EMULATOR_MIN_JS_NAME) return undefined;
+  minJsBundleCache ??= await buildMinJsBundle(nodeModulesDirectory);
+  return (
+    minJsBundleCache && {
+      kind: "bundle",
+      body: minJsBundleCache,
+      contentType: JS_CONTENT_TYPE,
+    }
+  );
 };
 
-export const emulatorDataContentType = (filePath: string): string =>
-  CONTENT_TYPE_BY_EXTENSION[path.extname(filePath).toLowerCase()] ??
-  "application/octet-stream";
+const buildMinJsBundle = async (
+  nodeModulesDirectory: string,
+): Promise<Buffer | undefined> => {
+  // A bare semicolon between files keeps a missing trailing semicolon in one
+  // source from swallowing the next file's first statement.
+  const separator = Buffer.from("\n;\n");
+  const chunks: Buffer[] = [];
+  for (const source of MIN_JS_BUNDLE_SOURCES) {
+    const sourcePath = resolveEmulatorDataFile(
+      nodeModulesDirectory,
+      `src/${source}`,
+    );
+    if (!sourcePath) return undefined;
+    chunks.push(await readFile(sourcePath), separator);
+  }
+  return Buffer.concat(chunks);
+};
 
 /**
  * Copies the vendored EmulatorJS runtime plus every core the systems registry
