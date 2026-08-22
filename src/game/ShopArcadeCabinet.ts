@@ -122,6 +122,7 @@ export class ShopArcadeCabinet {
   #hud: HTMLDivElement | undefined;
   #hudElapsed = 0;
   #hudHostFrames = 0;
+  #hudWorstFrameMs = 0;
   #hudLastCoreFrames: number | undefined;
 
   constructor(options: ShopArcadeCabinetOptions) {
@@ -320,21 +321,17 @@ export class ShopArcadeCabinet {
           .then((stream) => {
             if (this.#disposed || this.#host !== host) return;
             if (!stream) return; // Tap failed; local speaker output remains.
-            const handle = this.#audioManager.createPositionalMediaStream(
-              stream,
-              ARCADE_SPEAKER_AUDIO,
-            );
-            if (this.#disposed || this.#host !== host) {
-              handle.dispose();
-              return;
-            }
-            this.#arcadeAudio = handle;
-            this.object.add(handle.node);
-            void this.#audioManager.resume();
+            this.#attachArcadeAudio(host, stream);
           })
           .catch((cause: unknown) => {
             console.warn("Afterleaf arcade audio tap failed.", cause);
           });
+      },
+      // Driver restarts (e.g. after a hide/resume cycle) move the tap to a
+      // fresh AudioContext; rewire the positional node onto the new stream.
+      onAudioStreamChange: (stream) => {
+        if (this.#disposed || this.#host !== host) return;
+        this.#attachArcadeAudio(host, stream);
       },
       onExit: () => {
         if (this.#host !== host) return;
@@ -345,8 +342,25 @@ export class ShopArcadeCabinet {
         this.setLiveCanvas(undefined);
         this.#setSession("browsing", message);
       },
+      safeAudioContext: this.#audioManager.listener.context,
     });
     this.#host = host;
+  }
+
+  #attachArcadeAudio(host: EmulatorSession, stream: MediaStream) {
+    // Replace any existing handle so the old stream's wiring is released.
+    this.#arcadeAudio?.dispose();
+    const handle = this.#audioManager.createPositionalMediaStream(
+      stream,
+      ARCADE_SPEAKER_AUDIO,
+    );
+    if (this.#disposed || this.#host !== host) {
+      handle.dispose();
+      return;
+    }
+    this.#arcadeAudio = handle;
+    this.object.add(handle.node);
+    void this.#audioManager.resume();
   }
 
   /** Playing → back to the ROM picker. */
@@ -440,8 +454,9 @@ export class ShopArcadeCabinet {
     const offset = (timeSeconds * 90) % tickerWidth;
     context.fillStyle = "rgba(141,160,152,0.85)";
     context.textAlign = "left";
-    context.fillText(ticker, width - offset, height * 0.93);
-    context.fillText(ticker, -offset, height * 0.93);
+    for (let x = -offset; x < width; x += tickerWidth) {
+      context.fillText(ticker, x, height * 0.93);
+    }
     context.textAlign = "center";
 
     // Static-ish CRT scanlines.
@@ -520,22 +535,28 @@ export class ShopArcadeCabinet {
     this.#hud?.remove();
     this.#hud = undefined;
     this.#hudLastCoreFrames = undefined;
+    this.#hudWorstFrameMs = 0;
   }
 
   /**
    * Windowed rate sampler. HOST is the render loop's cadence (update calls
    * per second); CORE is emulated frames per wall second straight from the
-   * core's frame counter, which is the real "is it full speed" number.
+   * core's frame counter, which is the real "is it full speed" number; MAX
+   * is the slowest frame in the window - spikes there are what dropped or
+   * unevenly-timed frames feel like, and averages never show them.
    */
   #sampleFps(deltaSeconds: number) {
     const hud = this.#hud;
     if (!hud) return;
+    const frameMs = deltaSeconds * 1000;
+    if (frameMs > this.#hudWorstFrameMs) this.#hudWorstFrameMs = frameMs;
     this.#hudHostFrames += 1;
     this.#hudElapsed += deltaSeconds;
     if (this.#hudElapsed < HUD_SAMPLE_INTERVAL_S) return;
 
     const coreFrames = this.#host?.frameCount();
     let text = `HOST ${(this.#hudHostFrames / this.#hudElapsed).toFixed(1)} fps`;
+    text += ` · MAX ${this.#hudWorstFrameMs.toFixed(1)}ms`;
     if (coreFrames === undefined) {
       text += " · CORE n/a";
     } else {
@@ -547,6 +568,7 @@ export class ShopArcadeCabinet {
     hud.textContent = text;
     this.#hudHostFrames = 0;
     this.#hudElapsed = 0;
+    this.#hudWorstFrameMs = 0;
   }
 
   dispose() {

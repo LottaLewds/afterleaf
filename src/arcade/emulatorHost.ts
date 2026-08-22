@@ -155,6 +155,8 @@ type EmulatorJsInstance = {
   setVolume: (volume: number) => void;
   gameManager?: {
     functions?: {getFrameNum?: () => number};
+    /** Native video info from the core; see EJS GameManager.getVideoDimensions. */
+    getVideoDimensions?: (type: string) => number | undefined;
   };
   Module?: {
     AL?: {
@@ -227,23 +229,99 @@ export type EmulatorLaunchOptions = ArcadeEmulatorOptions & {
   onError?: (message: string) => void;
   /** Milliseconds without a successful boot before reporting failure. */
   bootTimeoutMs?: number;
+  /**
+   * Fires when the core's audio driver was restarted and the tap moved to a
+   * new AudioContext; the consumer must swap to this stream to keep
+   * positional audio. Same-context re-wiring does not fire this.
+   */
+  onAudioStreamChange?: (stream: MediaStream) => void;
+  /**
+   * The app's own AudioContext (ShopAudioManager's). Everything except this
+   * context is treated as emulator audio: its destination connections are
+   * diverted into silent sinks so restarted drivers cannot reach speakers.
+   */
+  safeAudioContext?: BaseAudioContext;
 };
 
 const BOOT_TIMEOUT_MS = 150_000;
 const AUDIO_TAP_TIMEOUT_MS = 15_000;
 const AUDIO_TAP_POLL_MS = 100;
-
-// Offscreen layout only feeds EmulatorJS's resize math: the canvas backing
-// store follows this box times devicePixelRatio (e.g. 320x240 becomes
-// 480x360 at dpr 1.5), and every texture copy the host does scales with it.
-// The cabinet screen mesh never gets close enough to need more than that.
-const CONTAINER_WIDTH_PX = 320;
-const CONTAINER_HEIGHT_PX = 240;
+// Frequent enough that a restarted driver's sources sit in their silent
+// divert sink for at most a fraction of a second before the watchdog
+// claims them into the positional stream.
+const AUDIO_WATCHDOG_INTERVAL_MS = 250;
+const VIDEO_FIT_TIMEOUT_MS = 10_000;
+const VIDEO_FIT_POLL_MS = 200;
 
 let nextSlotId = 1;
 // Cores define shared globals while their glue executes; keep boot phases
 // mutually exclusive across sessions (see module docstring).
 let bootChain = Promise.resolve();
+
+// -- Speaker interception ----------------------------------------------------
+//
+// Afterleaf owns every audio path on the page, so connections targeting a
+// raw AudioDestinationNode come from exactly two parties: three.js's
+// AudioListener internals (on the one shared app context) and emscripten's
+// OpenAL glue (on whatever context it spawns or restarts). Intercepting
+// connect() and diverting every non-app destination into a per-context sink
+// makes the speakers structurally unreachable for emulator audio - driver
+// restarts cannot blast sound while the watchdog is on its way to claim
+// them. MediaStreamAudioDestinationNode (the tap's target) extends
+// AudioNode directly, so our own wiring never trips this.
+
+/** Per-context silent sinks created for diverted connections. */
+const divertSinks = new WeakMap<
+  BaseAudioContext,
+  MediaStreamAudioDestinationNode
+>();
+
+type AudioConnectFn = (
+  destination: AudioNode | AudioParam,
+  output?: number,
+  input?: number,
+) => AudioNode | AudioParam;
+
+let interceptorInstalled = false;
+
+/**
+ * Installs the global connect() diversion once per page. `safeContext` is
+ * the app's own AudioContext whose destination keeps working normally;
+ * every other context's destination-connects land in a silent sink.
+ */
+const installAudioInterceptor = (safeContext: BaseAudioContext) => {
+  if (interceptorInstalled) return;
+  interceptorInstalled = true;
+  const prototype = AudioNode.prototype as {connect: AudioConnectFn};
+  const originalConnect = prototype.connect;
+  prototype.connect = function (destination, output, input) {
+    if (
+      destination instanceof AudioDestinationNode &&
+      destination.context !== safeContext
+    ) {
+      const context = destination.context;
+      // OfflineAudioContext cannot produce realtime sound; only realtime
+      // contexts are worth diverting (and only they have stream sinks).
+      if (!(context instanceof AudioContext))
+        return originalConnect.call(this, destination, output, input);
+      let sink = divertSinks.get(context);
+      if (!sink) {
+        sink = context.createMediaStreamDestination();
+        divertSinks.set(context, sink);
+      }
+      return originalConnect.call(this, sink, output, input);
+    }
+    return originalConnect.call(this, destination, output, input);
+  };
+};
+
+// Offscreen layout only feeds EmulatorJS's resize math: the canvas backing
+// store follows this box times devicePixelRatio, and every texture copy the
+// host does scales with it. This is just the pre-boot placeholder; once the
+// core reports its native video dimensions the box is resized so the backing
+// store lands at native height x presentation aspect (see fitContainer).
+const CONTAINER_WIDTH_PX = 320;
+const CONTAINER_HEIGHT_PX = 240;
 
 /**
  * Boots an EmulatorJS session directly in this document. Callers own the
@@ -252,6 +330,8 @@ let bootChain = Promise.resolve();
 export const launchEmulator = (
   options: EmulatorLaunchOptions,
 ): EmulatorSession => {
+  if (options.safeAudioContext)
+    installAudioInterceptor(options.safeAudioContext);
   let destroyed = false;
   let bootWatchdogHandle: ReturnType<typeof setTimeout> | undefined;
   let emulator: EmulatorJsInstance | undefined;
@@ -350,12 +430,68 @@ export const launchEmulator = (
   /**
    * Reroutes every OpenAL source gain into a MediaStreamDestination so the
    * cabinet can play the game positionally. This is exclusive: source gains
-   * are disconnected from the default output first, otherwise each sound
+   * are disconnected from their default routing first, otherwise each sound
    * would play twice (flat + spatialized). EJS's own setVolume writes these
    * exact nodes (`currentCtx.sources[*].gain`), so its mute/volume controls
    * keep working through the tap. If OpenAL never initializes, resolving
    * undefined leaves normal speaker output intact.
+   *
+   * The tap is self-healing: sources can appear after the first successful
+   * wiring (late driver init - a boot-time race), and a hide/resume cycle
+   * can restart RetroArch's audio driver entirely. The connect() interceptor
+   * guarantees those sources never reach speakers - they land in the
+   * context's silent divert sink - and this watchdog claims them into the
+   * positional stream, adopting that sink as the tap destination whenever
+   * one already exists so there is no silent gap either.
    */
+  // The tap's single MediaStreamDestination. Re-taps must rewire gains into
+  // THIS node - creating a second one would orphan the stream the cabinet
+  // already consumes.
+  let tapDestination: MediaStreamAudioDestinationNode | undefined;
+  let tapDestinationContext: AudioContext | undefined;
+  let tapDelivered = false;
+
+  /**
+   * One-shot check: wire whatever AL sources currently exist into the shared
+   * destination. Returns true once a tap exists in the live context.
+   */
+  const ensureTapWiring = (): boolean => {
+    if (destroyed) return false;
+    const currentCtx = emulator?.Module?.AL?.currentCtx;
+    const audioCtx = currentCtx?.audioCtx;
+    const gains = (currentCtx?.sources ?? [])
+      .map((source) => source.gain)
+      .filter((gain): gain is GainNode => Boolean(gain));
+    if (!audioCtx || gains.length === 0) return false;
+
+    if (!tapDestination || tapDestinationContext !== audioCtx) {
+      // Adopt the interceptor's sink when it exists: freshly restarted
+      // drivers may already be feeding it, so adopting instead of creating
+      // a sibling node keeps those sources flowing without a gap.
+      const adoptedSink = divertSinks.get(audioCtx);
+      tapDestination = adoptedSink ?? audioCtx.createMediaStreamDestination();
+      tapDestinationContext = audioCtx;
+      if (!tapDelivered) {
+        tapDelivered = true;
+        resolveAudioStream(tapDestination.stream);
+        // setVolume may have run before OpenAL existed; apply once so a
+        // muted or lowered session does not come through at full blast.
+        const activeEmulator = emulator;
+        if (activeEmulator && !activeEmulator.muted)
+          activeEmulator.setVolume(activeEmulator.volume);
+        else if (activeEmulator) activeEmulator.setVolume(0);
+      } else {
+        // Whole-context swap (driver restart): same wiring, new stream.
+        options.onAudioStreamChange?.(tapDestination.stream);
+      }
+    }
+    for (const gain of gains) {
+      gain.disconnect();
+      gain.connect(tapDestination);
+    }
+    return true;
+  };
+
   const tapAudio = async () => {
     const deadline = performance.now() + AUDIO_TAP_TIMEOUT_MS;
     for (;;) {
@@ -363,31 +499,77 @@ export const launchEmulator = (
         resolveAudioStream(undefined);
         return;
       }
-      const currentCtx = emulator?.Module?.AL?.currentCtx;
-      const gains = (currentCtx?.sources ?? [])
-        .map((source) => source.gain)
-        .filter((gain): gain is GainNode => Boolean(gain));
-      if (currentCtx?.audioCtx && gains.length > 0) {
-        const destination = currentCtx.audioCtx.createMediaStreamDestination();
-        for (const gain of gains) {
-          gain.disconnect();
-          gain.connect(destination);
-        }
-        // setVolume may have run before OpenAL existed; reapply so a muted
-        // or lowered session does not come through the tap at full blast.
-        const activeEmulator = emulator;
-        if (activeEmulator && !activeEmulator.muted)
-          activeEmulator.setVolume(activeEmulator.volume);
-        else if (activeEmulator) activeEmulator.setVolume(0);
-        resolveAudioStream(destination.stream);
-        return;
-      }
+      if (ensureTapWiring()) return;
       if (performance.now() > deadline) {
         resolveAudioStream(undefined);
         return;
       }
       await new Promise((resolve) => setTimeout(resolve, AUDIO_TAP_POLL_MS));
     }
+  };
+
+  // Self-healing loop: claims late-created or recreated sources within a
+  // second of them appearing, forever, for the life of the session.
+  const audioWatchdog = setInterval(() => {
+    ensureTapWiring();
+  }, AUDIO_WATCHDOG_INTERVAL_MS);
+  abortController.signal.addEventListener(
+    "abort",
+    () => clearInterval(audioWatchdog),
+    {once: true},
+  );
+
+  /**
+   * Sizes the offscreen container so the canvas backing store lands at the
+   * core's native height x presentation aspect (e.g. SNES: 299x224 instead
+   * of a layout-derived 480x360). Fewer bytes per texture copy and crisper
+   * magnification, since upscale-to-fit then happens once on the GPU at
+   * sample time. Backing store tracks element size x devicePixelRatio, so
+   * the CSS box is divided back out; emscripten only re-syncs the drawing
+   * buffer on window resize events, hence the synthetic dispatch.
+   */
+  const fitContainerToVideo = async () => {
+    const getDimensions = () => {
+      const getVideoDimensions = emulator?.gameManager?.getVideoDimensions;
+      if (!getVideoDimensions) return undefined;
+      try {
+        const width = getVideoDimensions("width");
+        const height = getVideoDimensions("height");
+        const aspect = getVideoDimensions("aspect");
+        if (!width || !height || !aspect) return undefined;
+        return {width, height, aspect};
+      } catch {
+        return undefined;
+      }
+    };
+
+    const deadline = performance.now() + VIDEO_FIT_TIMEOUT_MS;
+    let previous = getDimensions();
+    for (;;) {
+      if (destroyed) return;
+      await new Promise((resolve) => setTimeout(resolve, VIDEO_FIT_POLL_MS));
+      // Wait until the video driver reports stable dimensions - they move
+      // around during boot before settling.
+      const current = getDimensions();
+      if (
+        current &&
+        previous &&
+        current.width === previous.width &&
+        current.height === previous.height &&
+        current.aspect === previous.aspect
+      )
+        break;
+      previous = current;
+      if (performance.now() > deadline) return; // Keep the placeholder geometry rather than guessing.
+    }
+    if (destroyed || !previous) return;
+
+    const dpr = window.devicePixelRatio || 1;
+    const targetHeight = Math.max(1, Math.round(previous.height));
+    const targetWidth = Math.max(1, Math.round(targetHeight * previous.aspect));
+    container.style.width = `${targetWidth / dpr}px`;
+    container.style.height = `${targetHeight / dpr}px`;
+    window.dispatchEvent(new Event("resize"));
   };
 
   const boot = async () => {
@@ -421,6 +603,14 @@ export const launchEmulator = (
       options.onStart?.();
       resolveCanvas(instance.canvas);
       void tapAudio();
+      // Resizing the canvas backing store can make the core reconfigure its
+      // drivers, which spawns fresh OpenAL sources wired straight to the
+      // speakers - so re-tap once the video dimensions have settled. The
+      // second run only reconnects nodes: audioStreamReady ignores resolves
+      // after the first.
+      void fitContainerToVideo().then(() => {
+        if (!destroyed) void tapAudio();
+      });
     });
     instance.on("exit", () => {
       // Our own destroy() triggers this event too; the destroyed flag keeps
