@@ -63,8 +63,20 @@ import {
   reenrollLibraryRootPath,
   writeAfterleafLibraryConfig,
   unavailableLibraryPaths,
-  LIBRARY_ROOT_REGISTRY_FILE_NAME,
 } from "./src/content/libraryConfig";
+import {
+  artFramesDirectory as artFramesDirectoryFor,
+  ensureDataRootStructure,
+  libraryPackDirectory,
+  libraryRootRegistryPath,
+  resolveDataRoot,
+  modelsDirectory as modelsDirectoryFor,
+  postersDirectory as postersDirectoryFor,
+  providersDirectory,
+  tvChannelsDirectory as tvChannelsDirectoryFor,
+  worldSaveBackupsDirectory as worldSaveBackupsDirectoryFor,
+  worldSavePath as worldSavePathFor,
+} from "./src/content/dataRoot";
 import type {PackedPublication} from "./src/content/schema";
 import {createCachedTvVideoAnalyzer} from "./src/tv/channelAnalysis";
 import {
@@ -135,15 +147,11 @@ import {
 const MAX_TV_MEDIA_RANGE_BYTES = 8 * 1024 * 1024;
 /** Upper bound on entries returned by the ROM folder listing endpoint. */
 const MAX_ROM_LISTING_ENTRIES = 2_000;
-const libraryDirectory = path.resolve(
-  import.meta.dirname,
-  "content-packs/library",
-);
-const acquisitionDirectory = path.resolve(
-  import.meta.dirname,
-  "content-sources",
-);
-const generatedLibraryDirectories = [libraryDirectory, acquisitionDirectory];
+const libraryDirectory = libraryPackDirectory(import.meta.dirname);
+const acquisitionDirectory = providersDirectory(import.meta.dirname);
+// Everything under the unified data root is served through custom
+// middleware or generated, so Vite never needs to watch it.
+const generatedLibraryDirectories = [resolveDataRoot(import.meta.dirname)];
 const ignoreGeneratedLibraryPath = (filePath: string) =>
   generatedLibraryDirectories.some((directory) => {
     const relativePath = path.relative(directory, path.resolve(filePath));
@@ -165,10 +173,7 @@ const availableWindowsDrives = () => {
     return {name, path: `${name}\\`};
   }).filter((drive) => existsSync(drive.path));
 };
-const tvChannelsDirectory = path.resolve(
-  import.meta.dirname,
-  "content/channels",
-);
+const tvChannelsDirectory = tvChannelsDirectoryFor(import.meta.dirname);
 const tvChannelsDirectories = async () =>
   uniquePaths([
     tvChannelsDirectory,
@@ -179,7 +184,7 @@ const tvVideoAnalyzer = createCachedTvVideoAnalyzer({
   onError: (filePath, error) =>
     console.warn(`[afterleaf] Could not analyze TV video ${filePath}`, error),
 });
-const postersDirectory = path.resolve(import.meta.dirname, "content/posters");
+const postersDirectory = postersDirectoryFor(import.meta.dirname);
 const posterDerivativeCacheDirectory = path.resolve(
   postersDirectory,
   ".afterleaf-cache",
@@ -189,10 +194,7 @@ const postersDirectories = async () =>
     postersDirectory,
     ...(await readAfterleafLibraryConfig(import.meta.dirname)).posterPaths,
   ]);
-const artFramesDirectory = path.resolve(
-  import.meta.dirname,
-  "content/art-frames",
-);
+const artFramesDirectory = artFramesDirectoryFor(import.meta.dirname);
 const artFrameDerivativeCacheDirectory = path.resolve(
   artFramesDirectory,
   ".afterleaf-cache",
@@ -202,18 +204,14 @@ const artFramesDirectories = async () =>
     artFramesDirectory,
     ...(await readAfterleafLibraryConfig(import.meta.dirname)).artFramePaths,
   ]);
-const modelsDirectory = path.resolve(import.meta.dirname, "content/models");
+const modelsDirectory = modelsDirectoryFor(import.meta.dirname);
 const modelCompatibilityCacheDirectory = path.resolve(
   modelsDirectory,
   ".afterleaf-cache",
 );
-const worldSavePath = path.resolve(
+const worldSavePath = worldSavePathFor(import.meta.dirname);
+const worldStateBackupDirectory = worldSaveBackupsDirectoryFor(
   import.meta.dirname,
-  "content/world-save.json",
-);
-const worldStateBackupDirectory = path.resolve(
-  import.meta.dirname,
-  "content/world-state-backups",
 );
 const WORLD_STATE_BACKUP_INTERVAL_MS = 15 * 60 * 1_000;
 const WORLD_STATE_BACKUP_RETENTION_COUNT = 96;
@@ -266,7 +264,7 @@ const configuredBookPaths = [
 ];
 const unavailableBookPathsAtStartup = await unavailableLibraryPaths(
   configuredBookPaths,
-  path.resolve(acquisitionDirectory, LIBRARY_ROOT_REGISTRY_FILE_NAME),
+  libraryRootRegistryPath(import.meta.dirname),
 );
 if (unavailableBookPathsAtStartup.length > 0)
   console.warn(
@@ -992,7 +990,7 @@ const localLibraryOperationsPlugin = (): Plugin => ({
             throw new Error("Only a configured book root can be re-enrolled");
           await reenrollLibraryRootPath(
             requestedPath,
-            path.resolve(acquisitionDirectory, LIBRARY_ROOT_REGISTRY_FILE_NAME),
+            libraryRootRegistryPath(import.meta.dirname),
           );
           sendJson(response, 200, {ok: true});
         } catch (error) {
@@ -1355,7 +1353,7 @@ const localLibraryOperationsPlugin = (): Plugin => ({
         ];
         const unavailableBookPaths = await unavailableLibraryPaths(
           currentBookPaths,
-          path.resolve(acquisitionDirectory, LIBRARY_ROOT_REGISTRY_FILE_NAME),
+          libraryRootRegistryPath(import.meta.dirname),
         );
         const reenrollableBookPaths = (
           await Promise.all(
@@ -2873,6 +2871,18 @@ const activeLibraryPlugin = (): Plugin => ({
 const cacheableStaticAssetPath =
   /^\/(?:src\/assets|assets)\/.+\.(?:avif|gif|jpe?g|mp3|mp4|ogg|png|webm|webp|glb|woff2?)$/u;
 
+const dataRootBootstrapperPlugin = (): Plugin => ({
+  name: "afterleaf-data-root-bootstrapper",
+  configureServer() {
+    void ensureDataRootStructure(import.meta.dirname).catch((error: unknown) =>
+      console.warn(
+        "[afterleaf] Could not prepare the Afterleaf data folder",
+        error,
+      ),
+    );
+  },
+});
+
 const staticAssetCachePlugin = (): Plugin => {
   const setStaticAssetCacheHeaders = (
     request: IncomingMessage,
@@ -2909,6 +2919,7 @@ const staticAssetCachePlugin = (): Plugin => {
 
 export default defineConfig(({command}) => ({
   plugins: [
+    dataRootBootstrapperPlugin(),
     staticAssetCachePlugin(),
     emulatorDataPlugin(),
     devServerDiscoveryPlugin(),

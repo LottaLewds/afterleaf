@@ -40,8 +40,11 @@ describe("managed publication discard", () => {
   test("removes prepared content and its managed source archive", async () => {
     const root = await mkdtemp(join(tmpdir(), "afterleaf-discard-"));
     temporaryDirectories.push(root);
-    const archivePath = resolve(root, "content/books/comics/book.cbz");
-    const publicationDirectory = resolve(root, "content-sources/catalog/book");
+    const archivePath = resolve(root, "afterleaf-data/content/comics/book.cbz");
+    const publicationDirectory = resolve(
+      root,
+      "afterleaf-data/game/.cache/prepared/book",
+    );
     await Promise.all([
       mkdir(resolve(archivePath, ".."), {recursive: true}),
       mkdir(publicationDirectory, {recursive: true}),
@@ -60,7 +63,7 @@ describe("managed publication discard", () => {
     await expect(access(archivePath)).rejects.toThrow();
     await expect(access(publicationDirectory)).rejects.toThrow();
     expect(
-      await readdir(resolve(root, "content-sources/source-garbage")),
+      await readdir(resolve(root, "afterleaf-data/providers/source-garbage")),
     ).toHaveLength(2);
   });
 
@@ -71,7 +74,10 @@ describe("managed publication discard", () => {
     );
     temporaryDirectories.push(root, externalRoot);
     const archivePath = resolve(externalRoot, "book.cbz");
-    const publicationDirectory = resolve(root, "content-sources/catalog/book");
+    const publicationDirectory = resolve(
+      root,
+      "afterleaf-data/game/.cache/prepared/book",
+    );
     await mkdir(publicationDirectory, {recursive: true});
     await Promise.all([
       writeFile(archivePath, "archive"),

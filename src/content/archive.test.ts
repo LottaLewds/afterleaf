@@ -519,8 +519,10 @@ test("archive import infers aspect ratio from early and midpoint interior pages"
 test("archive CLI parses preview defaults", () => {
   const defaults = parseArchiveImportCliOptions([], "/workspace/afterleaf");
   expect(defaults.importOptions).toMatchObject({
-    archivesDirectory: resolve("/workspace/afterleaf/content/books"),
-    outputDirectory: resolve("/workspace/afterleaf/content-sources/catalog"),
+    archivesDirectory: resolve("/workspace/afterleaf/afterleaf-data/content"),
+    outputDirectory: resolve(
+      "/workspace/afterleaf/afterleaf-data/game/.cache/prepared",
+    ),
     tags: [],
     write: false,
   });

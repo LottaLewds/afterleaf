@@ -1,4 +1,9 @@
 import {isAbsolute, relative, resolve} from "node:path";
+import {
+  libraryPackDirectory,
+  preparedCatalogDirectory,
+  providersDirectory,
+} from "~/content/dataRoot";
 import {importLocalMedia} from "~/content/libraryMedia";
 import type {LibraryUpdateState} from "~/content/libraryUpdate/protocol";
 import {PublicationBlacklistStore} from "~/content/libraryUpdate/publicationBlacklist";
@@ -33,8 +38,8 @@ const extractLibraryDirectories = (
   workingDirectory: string,
 ) => {
   const remainingArguments: string[] = [];
-  let catalogDirectory = "content-sources";
-  let libraryDirectory = "content-packs/library";
+  let catalogDirectory = providersDirectory(workingDirectory);
+  let libraryDirectory = libraryPackDirectory(workingDirectory);
   const mediaPaths: string[] = [];
   for (let index = 0; index < arguments_.length; index += 1) {
     const argument = arguments_[index];
@@ -245,7 +250,7 @@ const importPendingLocalMedia = async (
 ) => {
   const result = await importLocalMedia(
     workingDirectory,
-    resolve(workingDirectory, "content-sources/catalog"),
+    preparedCatalogDirectory(workingDirectory),
     options.mediaPaths,
     {repair: options.sync.repair},
   );
@@ -264,13 +269,13 @@ Usage:
 
 This command never contacts a remote provider. It imports CBZ, ZIP, CBR, RAR,
 and image-folder publications from built-in and configured media paths, scans
---catalog-root (default: content-sources), excludes persistent blacklist entries,
+--catalog-root (default: the providers folder), excludes persistent blacklist entries,
 updates the persistent derived-asset pool, and atomically advances the active
 catalog revision.
 
 Repeat --media-path <file-or-directory> to add media for this run. Import & scan
-also reads comicPaths and mangaPaths from afterleaf.library.json in the Afterleaf
-directory.
+also reads comicPaths and mangaPaths from afterleaf.library.json in the
+Afterleaf data folder.
 
 Quick scans reuse unchanged generated assets using local file metadata. Pass
 --repair to rebuild and validate every local publication and archive. Add

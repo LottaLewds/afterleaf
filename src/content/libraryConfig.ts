@@ -15,6 +15,7 @@ import {dirname, extname, resolve} from "node:path";
 // Relative import: this module is also bundled into the Vite config
 // middleware, whose loader cannot resolve the "~" alias at runtime.
 import {findArcadeSystem, type ArcadeSystemId} from "../arcade/systems";
+import {resolveDataRoot, romsDirectory} from "./dataRoot";
 
 export const LIBRARY_CONFIG_FILE_NAME = "afterleaf.library.json";
 export const LIBRARY_ROOT_MARKER_FILE_NAME = ".afterleaf-library-root.json";
@@ -64,7 +65,15 @@ export interface AfterleafLibraryConfig {
 export const defaultRomFolderPath = (
   workingDirectory: string,
   systemId: ArcadeSystemId,
-): string => resolve(workingDirectory, "content", "roms", systemId);
+): string => resolve(romsDirectory(workingDirectory), systemId);
+
+/** Primary config location inside the unified data root. */
+const libraryConfigPath = (workingDirectory: string) =>
+  resolve(resolveDataRoot(workingDirectory), LIBRARY_CONFIG_FILE_NAME);
+
+/** Pre-restructure location beside the app code; read as a fallback. */
+const legacyLibraryConfigPath = (workingDirectory: string) =>
+  resolve(workingDirectory, LIBRARY_CONFIG_FILE_NAME);
 
 export const LIBRARY_CONFIG_PROPERTIES = PATH_PROPERTIES;
 
@@ -197,7 +206,8 @@ export const writeAfterleafLibraryConfig = async (
   workingDirectory: string,
   config: AfterleafLibraryConfig,
 ) => {
-  const configPath = resolve(workingDirectory, LIBRARY_CONFIG_FILE_NAME);
+  const configPath = libraryConfigPath(workingDirectory);
+  await mkdir(dirname(configPath), {recursive: true});
   const parsed = parseLibraryConfig(config, configPath);
   resolveLibraryConfig(workingDirectory, parsed);
   const temporaryPath = `${configPath}.staging-${process.pid}-${Date.now()}`;
@@ -217,35 +227,57 @@ export const writeAfterleafLibraryConfig = async (
   return parsed;
 };
 
-export const readAfterleafLibraryConfig = async (workingDirectory: string) => {
-  const configPath = resolve(workingDirectory, LIBRARY_CONFIG_FILE_NAME);
+const readLibraryConfigText = async (workingDirectory: string) => {
   let text: string;
   try {
-    text = await readFile(configPath, "utf8");
+    text = await readFile(libraryConfigPath(workingDirectory), "utf8");
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT")
-      return emptyLibraryConfig();
-    throw error;
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    // Fall back to the pre-restructure location so an install keeps
+    // working until the migration CLI relocates the file.
+    try {
+      text = await readFile(legacyLibraryConfigPath(workingDirectory), "utf8");
+    } catch (legacyError) {
+      if ((legacyError as NodeJS.ErrnoException).code === "ENOENT")
+        return undefined;
+      throw legacyError;
+    }
   }
+  return text;
+};
+
+const readLibraryConfigTextSync = (workingDirectory: string) => {
+  try {
+    return readFileSync(libraryConfigPath(workingDirectory), "utf8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    // Fall back to the pre-restructure location so an install keeps
+    // working until the migration CLI relocates the file.
+    try {
+      return readFileSync(legacyLibraryConfigPath(workingDirectory), "utf8");
+    } catch (legacyError) {
+      if ((legacyError as NodeJS.ErrnoException).code === "ENOENT")
+        return undefined;
+      throw legacyError;
+    }
+  }
+};
+
+export const readAfterleafLibraryConfig = async (workingDirectory: string) => {
+  const text = await readLibraryConfigText(workingDirectory);
+  if (text === undefined) return emptyLibraryConfig();
   return resolveLibraryConfig(
     workingDirectory,
-    parseLibraryConfigText(text, configPath),
+    parseLibraryConfigText(text, libraryConfigPath(workingDirectory)),
   );
 };
 
 export const readAfterleafLibraryConfigSync = (workingDirectory: string) => {
-  const configPath = resolve(workingDirectory, LIBRARY_CONFIG_FILE_NAME);
-  let text: string;
-  try {
-    text = readFileSync(configPath, "utf8");
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT")
-      return emptyLibraryConfig();
-    throw error;
-  }
+  const text = readLibraryConfigTextSync(workingDirectory);
+  if (text === undefined) return emptyLibraryConfig();
   return resolveLibraryConfig(
     workingDirectory,
-    parseLibraryConfigText(text, configPath),
+    parseLibraryConfigText(text, libraryConfigPath(workingDirectory)),
   );
 };
 

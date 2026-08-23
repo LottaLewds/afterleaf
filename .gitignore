@@ -29,6 +29,9 @@ content/roms/*/*
 !content/roms/*/.gitkeep
 content/world-save.json
 content/world-state-backups/
+# The unified Afterleaf data root (user media, providers, game state).
+# Legacy entries above stay until a future cleanup PR removes them.
+afterleaf-data/
 *:Zone.Identifier
 .bun-cache/
 .codex
@@ -37,4 +40,3 @@ _temp/
 *.bak
 Desktop.ini
 *.ico
-

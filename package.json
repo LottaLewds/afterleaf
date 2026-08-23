@@ -11,6 +11,7 @@
     "content:prepare": "bun scripts/content-prepare.ts",
     "content:sync:nhentai": "bun scripts/content-sync-nhentai.ts",
     "library:scan": "bun scripts/library-scan.ts",
+    "library:migrate": "bun scripts/library-migrate.ts",
     "library:fetch-more": "bun scripts/library-fetch-more.ts",
     "library:blacklist": "bun scripts/library-blacklist.ts",
     "tv:analyze": "bun scripts/tv-analyze.ts",

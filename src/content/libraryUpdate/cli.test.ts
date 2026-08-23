@@ -129,7 +129,7 @@ test("library scan imports new archives before activating the combined catalog",
   expect(result?.diff.addedPublicationIds).toEqual(["new-local-comic"]);
   const publicationDirectory = resolve(
     root,
-    "content-sources/catalog/New Local Comic [English]",
+    "afterleaf-data/game/.cache/prepared/New Local Comic [English]",
   );
   const manifest = parseLocalPublicationDocument(
     JSON.parse(
@@ -190,7 +190,12 @@ test("library scan removes missing archives from a verified configured media pat
   expect(second?.snapshot.publicationCount).toBe(1);
   expect(second?.diff.removedPublicationIds).toEqual(["external-one"]);
   await expect(
-    stat(resolve(root, "content-sources/catalog/External One [English]")),
+    stat(
+      resolve(
+        root,
+        "afterleaf-data/game/.cache/prepared/External One [English]",
+      ),
+    ),
   ).rejects.toThrow();
 });
 
@@ -224,7 +229,11 @@ test("library scan treats an archive rename as the same publication", async () =
   if (!first) throw new Error("First archive scan result is missing");
   const firstCatalog = JSON.parse(
     await readFile(
-      resolve(root, "content-packs/library", first.snapshot.catalogPath),
+      resolve(
+        root,
+        "afterleaf-data/game/.cache/library",
+        first.snapshot.catalogPath,
+      ),
       "utf8",
     ),
   ) as {publications: Array<{assets: unknown; shelfAtlasIndex?: number}>};
@@ -236,7 +245,10 @@ test("library scan treats an archive rename as the same publication", async () =
   expect(second?.diff.updatedPublicationIds).toEqual(["original-name"]);
   const document = JSON.parse(
     await readFile(
-      resolve(root, "content-sources/catalog/Original Name/publication.json"),
+      resolve(
+        root,
+        "afterleaf-data/game/.cache/prepared/Original Name/publication.json",
+      ),
       "utf8",
     ),
   ) as {id?: string; source?: {remoteId?: string}};
@@ -247,7 +259,11 @@ test("library scan treats an archive rename as the same publication", async () =
   if (!second) throw new Error("Second archive scan result is missing");
   const secondCatalog = JSON.parse(
     await readFile(
-      resolve(root, "content-packs/library", second.snapshot.catalogPath),
+      resolve(
+        root,
+        "afterleaf-data/game/.cache/library",
+        second.snapshot.catalogPath,
+      ),
       "utf8",
     ),
   ) as {publications: Array<{assets: unknown; shelfAtlasIndex?: number}>};
@@ -349,7 +365,11 @@ test("library scan preserves an image-folder publication ID when its folder move
   if (!first) throw new Error("First folder scan result is missing");
   const firstCatalog = JSON.parse(
     await readFile(
-      resolve(root, "content-packs/library", first.snapshot.catalogPath),
+      resolve(
+        root,
+        "afterleaf-data/game/.cache/library",
+        first.snapshot.catalogPath,
+      ),
       "utf8",
     ),
   ) as {publications: Array<{assets: unknown; shelfAtlasIndex?: number}>};
@@ -370,7 +390,11 @@ test("library scan preserves an image-folder publication ID when its folder move
   if (!second) throw new Error("Second folder scan result is missing");
   const secondCatalog = JSON.parse(
     await readFile(
-      resolve(root, "content-packs/library", second.snapshot.catalogPath),
+      resolve(
+        root,
+        "afterleaf-data/game/.cache/library",
+        second.snapshot.catalogPath,
+      ),
       "utf8",
     ),
   ) as {publications: Array<{assets: unknown; shelfAtlasIndex?: number}>};

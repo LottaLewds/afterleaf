@@ -1,5 +1,9 @@
 import {resolve} from "node:path";
 import {
+  preparedCatalogDirectory,
+  userContentDirectory,
+} from "~/content/dataRoot";
+import {
   importContentArchives,
   type ArchiveImportOptions,
 } from "~/content/archive";
@@ -70,16 +74,16 @@ export const parseArchiveImportCliOptions = (
   return {
     help,
     importOptions: {
-      archivesDirectory: resolve(
-        workingDirectory,
-        parsed.values.get("archives") ?? "content/books",
-      ),
+      archivesDirectory:
+        parsed.values.get("archives") === undefined
+          ? userContentDirectory(workingDirectory)
+          : resolve(workingDirectory, parsed.values.get("archives") ?? ""),
       defaultLanguage: parseLanguage(parsed.values.get("language")),
       force: parsed.flags.has("force"),
-      outputDirectory: resolve(
-        workingDirectory,
-        parsed.values.get("out") ?? "content-sources/catalog",
-      ),
+      outputDirectory:
+        parsed.values.get("out") === undefined
+          ? preparedCatalogDirectory(workingDirectory)
+          : resolve(workingDirectory, parsed.values.get("out") ?? ""),
       tags: normalizeTags(
         parsed.values
           .get("tags")
