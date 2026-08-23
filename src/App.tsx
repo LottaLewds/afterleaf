@@ -1996,8 +1996,11 @@ export const App = () => {
     setLibraryUpdateNotice("Locations are already up to date.");
   };
 
+  // Profiling/automation mode (?profile=1) skips interactive gates so CDP
+  // runs can boot the shop unattended.
   const [ageConfirmed, setAgeConfirmed] = createSignal(
-    sessionStorage.getItem("afterleaf-age-confirmed") === "yes",
+    new URLSearchParams(window.location.search).has("profile") ||
+      sessionStorage.getItem("afterleaf-age-confirmed") === "yes",
   );
   const [query, setQuery] = createSignal("");
   const [language, setLanguage] = createSignal<LanguageFilter>("all");

@@ -18,6 +18,7 @@
     "chrome:profile:wsl": "bash scripts/cdp/start-chrome-wsl.sh",
     "cdp:navigate:wsl": "bash scripts/cdp/run-wsl.sh bun scripts/cdp/navigate.ts",
     "cdp:profile:wsl": "bash scripts/cdp/run-wsl.sh bun scripts/cdp/profile-renderer.ts",
+    "cdp:census:wsl": "bash scripts/cdp/run-wsl.sh bun scripts/cdp/scene-census.ts",
     "cdp:console:wsl": "bash scripts/cdp/run-wsl.sh bun scripts/cdp/collect-console.ts",
     "cdp:screenshot:wsl": "bash scripts/cdp/run-wsl.sh bun scripts/cdp/capture-screenshot.ts",
     "format": "oxfmt --config .oxfmtrc.json --write .",

@@ -40,17 +40,18 @@ import {
   Vector2,
   Vector3,
   WebGLRenderer,
+  BufferAttribute,
   type AnimationClip,
-  type BufferAttribute,
   type BufferGeometry,
   type ColorSpace,
-  type InterleavedBufferAttribute,
   type Material,
 } from "three";
 import {GLTFLoader} from "three/examples/jsm/loaders/GLTFLoader.js";
 import {RectAreaLightUniformsLib} from "three/examples/jsm/lights/RectAreaLightUniformsLib.js";
 import {clone as cloneWithSkeleton} from "three/examples/jsm/utils/SkeletonUtils.js";
 import {DEV} from "solid-js";
+import {buildMergedStaticParts} from "~/game/staticModelBatching";
+import {FpsHud} from "~/game/FpsHud";
 
 import type {ArtFrameFit} from "~/artFrames/aspect";
 import {artFrameChannelId} from "~/artFrames/protocol";
@@ -88,6 +89,11 @@ import {
   findModelTelevisionScreen,
   getInitialModelAnimationIndex,
 } from "~/game/modelTelevision";
+import {
+  applyCeilingShapeUv,
+  createCeilingBoxGeometry,
+  createCeilingMaterial,
+} from "~/game/ceilingMaterials";
 import {
   createWallpaperBoxGeometry,
   createWallpaperMaterial,
@@ -250,6 +256,7 @@ const FACE_DISPLAY_COLUMNS = 8;
 const FACE_DISPLAY_ROWS = 4;
 const FACE_SHELF_SLOT_COUNT = FACE_DISPLAY_COLUMNS * FACE_DISPLAY_ROWS;
 const FACE_SHELF_ID = "new-arrivals";
+const FACE_DISPLAY_COLUMN_SPACING = 1.12;
 const FACE_DISPLAY_SHELF_HALF_WIDTH = 4.4;
 const FACE_DISPLAY_SHELF_INSET = 0.15;
 const FACE_DISPLAY_SHELF_FRONT_Z = -9.54;
@@ -332,6 +339,15 @@ const LOOK_SMOOTHING = 32;
 const MAX_LOOK_DELTA_PER_FRAME = (Math.PI / 180) * 10;
 const WORLD_SAVE_INTERVAL_MS = 10_000;
 const WORLD_SAVE_IDLE_TIMEOUT_MS = 250;
+// Late async prop models (CRT GLBs, cabinets, lamps) usually finish well
+// within this window; the second compile pass sweeps up their programs.
+const SHADER_PRECOMPILE_LATE_DELAY_MS = 4_000;
+// While the camera holds still, the aim sweep reuses its previous result
+// and refreshes at this interval so dynamic content cannot stale-highlight.
+// The full-shop reticle sweep runs on a fixed-rate budget (60 Hz) instead
+// of every animation tick; highlight prompts and clicks tolerate a frame
+// or two of latency, and the sweep costs real time against many props.
+const AIM_SWEEP_MIN_INTERVAL_MS = 1000 / 60;
 const INSPECTION_PAGE_GUTTER = 0;
 const INSPECTION_SURFACE_GAP = 0.001;
 const INSPECTION_FRAME_FILL = 0.88;
@@ -469,13 +485,16 @@ type SpineShelfDefinition = {
   halfWidth: number;
   id: string;
   normal: Vector3;
+  signKey?: string;
 };
 
 const faceDisplayShelfId = (row: number) => `${FACE_SHELF_ID}:row:${row}`;
 
 const faceDisplayShelfOffset = (slotIndex: number) => {
   const column = slotIndex % FACE_DISPLAY_COLUMNS;
-  return (column - (FACE_DISPLAY_COLUMNS - 1) / 2) * 1.12;
+  return (
+    (column - (FACE_DISPLAY_COLUMNS - 1) / 2) * FACE_DISPLAY_COLUMN_SPACING
+  );
 };
 
 type ShelfTargetSelection = {
@@ -1001,18 +1020,26 @@ const createBookExteriorMaterial = (
   accent: Color,
   spineNormalSign: -1 | 1,
   atlasUvs = false,
+  // Vertex-driven mode reads per-instance accent and spine sign from
+  // geometry attributes instead of uniforms, so books sharing one set of
+  // atlas textures merge into a single BatchedMesh draw call.
+  vertexDriven = false,
 ) => {
+  const tint = (multiplier: number) =>
+    vertexDriven
+      ? new Color("#ffffff")
+      : accent.clone().multiplyScalar(multiplier);
   const uniforms: BookExteriorUniforms = {
     backMap: {value: null},
     backMapEnabled: {value: false},
-    backTint: {value: accent.clone().multiplyScalar(0.76)},
+    backTint: {value: tint(0.76)},
     coverMap: {value: null},
-    edgeTint: {value: accent.clone().multiplyScalar(0.62)},
+    edgeTint: {value: tint(0.62)},
     pageTint: {value: new Color("#d8cfba")},
     spineMap: {value: null},
     spineMapEnabled: {value: false},
     spineNormalSign: {value: spineNormalSign},
-    spineTint: {value: accent.clone().multiplyScalar(0.62)},
+    spineTint: {value: tint(0.62)},
   };
   const material = new MeshStandardMaterial({
     color: "#ffffff",
@@ -1020,16 +1047,24 @@ const createBookExteriorMaterial = (
     roughness: 0.68,
   });
   material.customProgramCacheKey = () =>
-    `afterleaf-book-exterior-v4-${atlasUvs ? "atlas" : "standalone"}`;
+    `afterleaf-book-exterior-${
+      vertexDriven ? "v5-merged" : atlasUvs ? "v4-atlas" : "v4-standalone"
+    }`;
   material.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, uniforms);
     shader.vertexShader = shader.vertexShader
       .replace(
         "#include <common>",
         `#include <common>
-uniform float spineNormalSign;
-${atlasUvs ? "attribute vec2 bookSpineUv;\nvarying vec2 vBookSpineUv;" : ""}
-varying vec2 vBookUv;
+${vertexDriven ? "" : "uniform float spineNormalSign;\n"}${
+          atlasUvs
+            ? "attribute vec2 bookSpineUv;\nvarying vec2 vBookSpineUv;\n"
+            : ""
+        }${
+          vertexDriven
+            ? "attribute vec3 bookAccent;\nattribute float bookSpineSign;\nvarying vec3 vBookAccent;\nvarying float vBookSign;\n"
+            : ""
+        }varying vec2 vBookUv;
 varying float vBookFace;`,
       )
       .replace(
@@ -1039,9 +1074,12 @@ vBookUv = uv;
 ${atlasUvs ? "vBookSpineUv = bookSpineUv;" : ""}
 if (objectNormal.z > 0.5) vBookFace = 1.0;
 else if (objectNormal.z < -0.5) vBookFace = 2.0;
-else if (objectNormal.x * spineNormalSign > 0.5) vBookFace = 3.0;
+else if (objectNormal.x * ${
+          vertexDriven ? "bookSpineSign" : "spineNormalSign"
+        } > 0.5) vBookFace = 3.0;
 else if (abs(objectNormal.y) > 0.5) vBookFace = 4.0;
-else vBookFace = 5.0;`,
+else vBookFace = 5.0;
+${vertexDriven ? "vBookAccent = bookAccent;\nvBookSign = bookSpineSign;" : ""}`,
       );
     shader.fragmentShader = shader.fragmentShader
       .replace(
@@ -1049,14 +1087,12 @@ else vBookFace = 5.0;`,
         `#include <common>
 uniform sampler2D backMap;
 uniform bool backMapEnabled;
-uniform vec3 backTint;
+${vertexDriven ? "varying vec3 vBookAccent;" : "uniform vec3 backTint;"}
 uniform sampler2D coverMap;
-uniform vec3 edgeTint;
-uniform vec3 pageTint;
+${vertexDriven ? "" : "uniform vec3 edgeTint;\n"}uniform vec3 pageTint;
 uniform sampler2D spineMap;
 uniform bool spineMapEnabled;
-uniform vec3 spineTint;
-varying vec2 vBookUv;
+${vertexDriven ? "" : "uniform vec3 spineTint;\n"}varying vec2 vBookUv;
 ${atlasUvs ? "varying vec2 vBookSpineUv;" : ""}
 varying float vBookFace;`,
       )
@@ -1066,12 +1102,18 @@ varying float vBookFace;`,
 if (vBookFace < 1.5) bookSurface = texture2D(coverMap, vBookUv);
 else if (vBookFace < 2.5 && backMapEnabled)
   bookSurface = texture2D(backMap, vBookUv);
-else if (vBookFace < 2.5) bookSurface = vec4(backTint, 1.0);
+else if (vBookFace < 2.5) bookSurface = vec4(${
+          vertexDriven ? "vBookAccent * 0.76" : "backTint"
+        }, 1.0);
 else if (vBookFace < 3.5 && spineMapEnabled)
   bookSurface = texture2D(spineMap, ${atlasUvs ? "vBookSpineUv" : "vBookUv"});
-else if (vBookFace < 3.5) bookSurface = vec4(spineTint, 1.0);
+else if (vBookFace < 3.5) bookSurface = vec4(${
+          vertexDriven ? "vBookAccent * 0.62" : "spineTint"
+        }, 1.0);
 else if (vBookFace < 4.5) bookSurface = vec4(pageTint, 1.0);
-else bookSurface = vec4(edgeTint, 1.0);
+else bookSurface = vec4(${
+          vertexDriven ? "vBookAccent * 0.62" : "edgeTint"
+        }, 1.0);
 diffuseColor *= bookSurface;`,
       )
       .replace(
@@ -1135,6 +1177,7 @@ export class ShopScene {
   readonly #abortController = new AbortController();
   readonly #catalogAtlases: () => CatalogAtlases;
   readonly #audioManager = new ShopAudioManager();
+  readonly #fpsHud = new FpsHud();
   readonly #bookAtlasBatches: BookAtlasBatch[] = [];
   readonly #bookAtlasTextures: BookAtlasTextures[] = [];
   readonly #booksById = new Map<string, BookRecord>();
@@ -1302,11 +1345,15 @@ export class ShopScene {
   readonly #raycaster = new Raycaster();
   readonly #rareRoomDoorPivot = new Group();
   readonly #reticle = new Vector2();
+  /** Frame timestamp from the animation loop; one time source per frame. */
+  #frameNowMs = 0;
+  #lastAimSweepTimeMs = -Infinity;
   readonly #renderer: WebGLRenderer;
   readonly #scene = new Scene();
   readonly #signSlots = new Map<string, ShopSignSlot>();
   readonly #signTargetMeshes: Mesh[] = [];
   readonly #spineShelfDefinitions = new Map<string, SpineShelfDefinition>();
+  readonly #shelfSignPreviewTargetMeshes: Mesh[] = [];
   readonly #selectedPublicationId: () => string | null | undefined;
   readonly #shelfTargetMeshes: Mesh[] = [];
   readonly #shelfSnapMesh = new Mesh(
@@ -1443,6 +1490,7 @@ export class ShopScene {
   #posterAssetIndex = 0;
   #nextPosterDepthLayer = 1;
   #mediaCatalogRefreshHandle: number | undefined;
+  #lateShaderPrecompileHandle: number | undefined;
   #mediaCatalogRequestPending = false;
   #posterImportCount = 0;
   #posterImportError: string | undefined;
@@ -1494,6 +1542,7 @@ export class ShopScene {
   #shelfHoverTargetMeshes: Mesh[] = [];
   #shelfBrowsePublicationId: string | undefined;
   #shelfBrowseReadyAt = 0;
+  #shelfSignPreviewKey: string | undefined;
   #targetedSignKey: string | undefined;
   #targetedPosterId: string | undefined;
   #targetedDigitalArtFrameId: string | undefined;
@@ -1573,7 +1622,10 @@ export class ShopScene {
       powerPreference: "high-performance",
     });
     this.#renderer.outputColorSpace = SRGBColorSpace;
-    this.#renderer.shadowMap.enabled = true;
+    // Deliberate shadow story: no light casts shadows today, so shadow
+    // mapping stays off. Mesh cast/receive flags are preserved so wiring a
+    // caster later is a one-flag change.
+    this.#renderer.shadowMap.enabled = false;
     this.#renderer.shadowMap.type = PCFSoftShadowMap;
     this.#renderer.toneMapping = ACESFilmicToneMapping;
     this.#renderer.toneMappingExposure = 1.08;
@@ -1595,6 +1647,11 @@ export class ShopScene {
     );
     this.#abortController.signal.addEventListener(
       "abort",
+      () => this.#fpsHud.dispose(),
+      {once: true},
+    );
+    this.#abortController.signal.addEventListener(
+      "abort",
       unsubscribeFromWidePages,
       {once: true},
     );
@@ -1608,6 +1665,7 @@ export class ShopScene {
     this.#lastFrameTime = performance.now();
     this.#applyResize();
     this.#renderer.render(this.#scene, this.#camera);
+    this.#precompileShaders();
     this.#markReady();
     this.#worldSaveIntervalHandle = window.setInterval(
       this.#scheduleWorldSave,
@@ -1618,6 +1676,25 @@ export class ShopScene {
       SHOP_MEDIA_CATALOG_REFRESH_INTERVAL_MS,
     );
     this.#frameHandle = requestAnimationFrame(this.#animate);
+  }
+
+  /**
+   * Compiles shader programs ahead of camera movement. Async prop models
+   * (CRT televisions, cabinets, lamps) attach after boot, so a second pass
+   * runs later to catch their material variants before the player rotates
+   * into them and stutters on first sight.
+   */
+  #precompileShaders() {
+    if (this.#disposed) return;
+    void this.#renderer.compileAsync(this.#scene, this.#camera).catch(() => {});
+    if (this.#lateShaderPrecompileHandle !== undefined) return;
+    this.#lateShaderPrecompileHandle = window.setTimeout(() => {
+      this.#lateShaderPrecompileHandle = undefined;
+      if (this.#disposed) return;
+      void this.#renderer
+        .compileAsync(this.#scene, this.#camera)
+        .catch(() => {});
+    }, SHADER_PRECOMPILE_LATE_DELAY_MS);
   }
 
   requestPointerLock() {
@@ -1898,6 +1975,9 @@ export class ShopScene {
     if (this.#mediaCatalogRefreshHandle !== undefined)
       window.clearInterval(this.#mediaCatalogRefreshHandle);
     this.#mediaCatalogRefreshHandle = undefined;
+    if (this.#lateShaderPrecompileHandle !== undefined)
+      window.clearTimeout(this.#lateShaderPrecompileHandle);
+    this.#lateShaderPrecompileHandle = undefined;
 
     this.#bookAtlasRevision += 1;
     this.#disposeBookAtlasBatches();
@@ -1936,6 +2016,7 @@ export class ShopScene {
     if (this.#disposed) return;
     const deltaSeconds = Math.min((time - this.#lastFrameTime) / 1000, 0.05);
     this.#lastFrameTime = time;
+    this.#frameNowMs = time;
 
     this.#syncInputs();
     this.#syncPixelRatio();
@@ -1947,6 +2028,7 @@ export class ShopScene {
       television.update(deltaSeconds);
     }
     for (const cabinet of this.#arcadeCabinets) cabinet.update(deltaSeconds);
+    this.#fpsHud.update(deltaSeconds, this.#activeArcadeCabinet?.perfSample);
     if (paused) {
       if (!this.#inputSuspended) {
         this.#inputSuspended = true;
@@ -2253,56 +2335,219 @@ export class ShopScene {
     this.#batchStaticInteriorMeshes(architecture);
   }
 
+  // Two exclusion tiers:
+  //   HARD - runtime-mutated materials (screens, displays) or interactive
+  //          systems; never swept into batches.
+  //   SOFT - movable-later fixtures (shelving); their contents ARE batched,
+  //          but scoped inside the fixture so it stays one movable unit.
+  static readonly #interiorBatchHard =
+    /television|screen|arcade|art-?frame|face-?out|display|snap|helper/iu;
+  static readonly #interiorBatchSoft = /shelf|gondola|fixture|cave/iu;
+
+  /**
+   * Parameter fingerprint so identical inline materials (builders create
+   * `new MeshBasicMaterial({color})` per call) share one batch even though
+   * they are separate instances.
+   */
+  static #interiorMaterialSignature(material: Material): string {
+    if (
+      !(material instanceof MeshStandardMaterial) &&
+      !(material instanceof MeshBasicMaterial)
+    )
+      return `${material.type}|${material.uuid}`;
+    const parts = [
+      material.type,
+      `#${material.color.getHexString()}`,
+      material.map ? material.map.uuid : "-",
+      material.side,
+      material.transparent ? material.opacity : 1,
+    ];
+    if (material instanceof MeshStandardMaterial)
+      parts.push(
+        String(material.roughness),
+        String(material.metalness),
+        `#${material.emissive.getHexString()}`,
+        String(material.emissiveIntensity),
+      );
+    return parts.join("|");
+  }
+
   #batchStaticInteriorMeshes(parent: Group) {
-    const batchesByMaterial = new Map<
-      Material,
-      Map<string, Mesh<BufferGeometry, Material>[]>
-    >();
-    for (const object of [...parent.children]) {
-      if (!(object instanceof Mesh) || object instanceof BatchedMesh) continue;
+    parent.updateMatrixWorld(true);
+    const parentInverse = new Matrix4().copy(parent.matrixWorld).invert();
+
+    /**
+     * Untextured color-only materials bake their color into vertex colors so
+     * one finish-class material serves every tint of that class.
+     */
+    const isBakeableColorMaterial = (
+      material: Material,
+    ): material is MeshStandardMaterial | MeshBasicMaterial => {
       if (
-        !object.visible ||
-        Array.isArray(object.material) ||
-        object.material.transparent ||
-        object.children.length > 0
+        !(material instanceof MeshStandardMaterial) &&
+        !(material instanceof MeshBasicMaterial)
       )
-        continue;
-      const position = object.geometry.getAttribute("position");
-      if (!position) continue;
-      // Annotated explicitly: the geometry's attribute map widens to `any`
-      // through Mesh's default generics, which would leave entries unknown.
-      const attributes: Record<
-        string,
-        BufferAttribute | InterleavedBufferAttribute
-      > = object.geometry.attributes;
-      const attributeSignature = Object.entries(attributes)
-        .map(
-          ([name, attribute]) =>
-            `${name}:${attribute.array.constructor.name}:${attribute.itemSize}:${attribute.normalized}`,
-        )
-        .sort()
-        .join("|");
-      const index = object.geometry.getIndex();
-      const signature = [
-        object.castShadow,
-        object.receiveShadow,
-        object.renderOrder,
-        index?.array.constructor.name ?? "unindexed",
-        attributeSignature,
-      ].join(":");
-      let batches = batchesByMaterial.get(object.material);
-      if (!batches) {
-        batches = new Map();
-        batchesByMaterial.set(object.material, batches);
+        return false;
+      if (material.map || material.vertexColors) return false;
+      for (const value of Object.values(material))
+        if (value instanceof Texture) return false;
+      if (material instanceof MeshStandardMaterial)
+        return (
+          material.emissive.getHexString() === "000000" &&
+          material.emissiveIntensity === 1
+        );
+      return true;
+    };
+
+    /** Shared vertexColors materials, one per finish class. */
+    const finishMaterials = new Map<string, Material>();
+    const finishMaterialFor = (finishKey: string, source: Material) => {
+      let material = finishMaterials.get(finishKey);
+      if (!material) {
+        material =
+          source instanceof MeshStandardMaterial
+            ? new MeshStandardMaterial({
+                color: "#ffffff",
+                flatShading: source.flatShading,
+                metalness: source.metalness,
+                roughness: source.roughness,
+                side: source.side,
+                vertexColors: true,
+              })
+            : new MeshBasicMaterial({
+                color: "#ffffff",
+                side: source.side,
+                vertexColors: true,
+              });
+        finishMaterials.set(finishKey, material);
       }
-      const meshes = batches.get(signature);
-      if (meshes) meshes.push(object);
-      else batches.set(signature, [object]);
-    }
+      return material;
+    };
+
+    /** Buckets keyed by container node: global for unscoped content. */
+    const bucketsByContainer = new Map<
+      Object3D,
+      Map<string, {material: Material; meshes: Mesh[]}>
+    >();
+    const bucketFor = (container: Object3D) => {
+      let buckets = bucketsByContainer.get(container);
+      if (!buckets) {
+        buckets = new Map();
+        bucketsByContainer.set(container, buckets);
+      }
+      return buckets;
+    };
+
+    const visit = (
+      object: Object3D,
+      scopeContainer: Object3D | null,
+      excludedFromBatch = false,
+    ): void => {
+      if (!object.visible) return;
+      const nextExcludedFromBatch =
+        excludedFromBatch || object.userData.excludeFromStaticBatch === true;
+      // Topmost soft match owns the scope; everything under it batches
+      // into the container just above that match so the fixture stays
+      // movable as a unit.
+      const scope =
+        scopeContainer ??
+        (ShopScene.#interiorBatchSoft.test(object.name) ? object : null);
+      const container = scope === null ? parent : (scope.parent ?? parent);
+      const effectiveContainer =
+        scope === null ? parent : container === parent ? parent : container;
+
+      if (
+        !nextExcludedFromBatch &&
+        object instanceof Mesh &&
+        !(object instanceof BatchedMesh) &&
+        !ShopScene.#interiorBatchHard.test(object.name)
+      ) {
+        const material = object.material;
+        if (
+          !Array.isArray(material) &&
+          !material.transparent &&
+          // colorWrite/depthWrite-off meshes are raycast-only overlays
+          // (poster surfaces); sweeping them into a batch would either paint
+          // the shared finish material over walls or blank out a whole
+          // bucket, and hiding them breaks placement raycasts.
+          material.colorWrite &&
+          material.depthWrite &&
+          object.geometry.getAttribute("position")
+        ) {
+          const indexed = object.geometry.getIndex() ? "indexed" : "unindexed";
+          let signature: string;
+          let bucketMaterial = material;
+          if (isBakeableColorMaterial(material)) {
+            const attributesKey = Object.keys(object.geometry.attributes)
+              .sort()
+              .join("+");
+            // MeshBasicMaterial has no flatShading; the `in` guard keeps
+            // the finish key honest for both material classes.
+            const flatShading =
+              "flatShading" in material && material.flatShading;
+            signature = [
+              "finish",
+              material.type,
+              String(material.side),
+              String(flatShading),
+              ...(material instanceof MeshStandardMaterial
+                ? [String(material.roughness), String(material.metalness)]
+                : []),
+              attributesKey,
+              indexed,
+            ].join("|");
+            bucketMaterial = finishMaterialFor(signature, material);
+            // Bake once per mesh; clones keep shared source geometries
+            // untouched when siblings carry different tints.
+            const baked = object.geometry.clone();
+            const vertexCount = baked.getAttribute("position").count;
+            const colors = new Float32Array(vertexCount * 3);
+            const {b, g, r} = material.color;
+            for (let index = 0; index < vertexCount; index += 1) {
+              colors[index * 3] = r;
+              colors[index * 3 + 1] = g;
+              colors[index * 3 + 2] = b;
+            }
+            baked.setAttribute("color", new BufferAttribute(colors, 3));
+            object.geometry = baked;
+          } else {
+            // Flags deliberately excluded: per-row renderOrder/shadow flags
+            // would otherwise split identical fixtures into singleton buckets.
+            // Opaque draws are depth-sorted by the GPU regardless.
+            signature = [
+              ShopScene.#interiorMaterialSignature(bucketMaterial),
+              indexed,
+            ].join(":");
+          }
+          const buckets = bucketFor(effectiveContainer);
+          let bucket = buckets.get(signature);
+          if (!bucket) {
+            // The batch renders with the bucket material - the shared
+            // finish material for baked buckets, otherwise the first
+            // member's own material.
+            bucket = {material: bucketMaterial, meshes: []};
+            buckets.set(signature, bucket);
+          }
+          bucket.meshes.push(object);
+        }
+      }
+
+      for (const child of object.children)
+        visit(
+          child,
+          scope ?? (effectiveContainer === parent ? null : scope),
+          nextExcludedFromBatch,
+        );
+    };
+    for (const child of [...parent.children]) visit(child, null);
 
     let batchIndex = 0;
-    for (const [material, batches] of batchesByMaterial)
-      for (const meshes of batches.values()) {
+    for (const [container, buckets] of bucketsByContainer) {
+      const containerInverse =
+        container === parent
+          ? parentInverse
+          : new Matrix4().copy(container.matrixWorld).invert();
+      for (const {material, meshes} of buckets.values()) {
         if (meshes.length < 2) continue;
         const vertexCount = meshes.reduce(
           (total, mesh) =>
@@ -2313,29 +2558,51 @@ export class ShopScene {
           (total, mesh) => total + (mesh.geometry.getIndex()?.count ?? 0),
           0,
         );
-        const batch = new BatchedMesh(
-          meshes.length,
-          vertexCount,
-          indexCount,
-          material,
-        );
+        let batch;
+        try {
+          batch = new BatchedMesh(
+            meshes.length,
+            vertexCount,
+            indexCount,
+            material,
+          );
+        } catch (error) {
+          if (DEV)
+            console.error(
+              "[afterleaf] BatchedMesh creation failed:",
+              error,
+              "meshes:",
+              meshes.length,
+              "verts:",
+              vertexCount,
+            );
+          continue;
+        }
         batch.name = `static-interior-batch-${batchIndex}`;
         batchIndex += 1;
-        batch.castShadow = meshes[0]?.castShadow ?? false;
-        batch.receiveShadow = meshes[0]?.receiveShadow ?? false;
-        batch.renderOrder = meshes[0]?.renderOrder ?? 0;
+        batch.castShadow = meshes.some((mesh) => mesh.castShadow);
+        batch.receiveShadow = meshes.some((mesh) => mesh.receiveShadow);
         batch.sortObjects = false;
         for (const mesh of meshes) {
-          mesh.updateMatrix();
+          mesh.updateWorldMatrix(true, false);
+          const relative = new Matrix4().multiplyMatrices(
+            containerInverse,
+            mesh.matrixWorld,
+          );
           const geometryId = batch.addGeometry(mesh.geometry);
           const instanceId = batch.addInstance(geometryId);
-          batch.setMatrixAt(instanceId, mesh.matrix);
+          batch.setMatrixAt(instanceId, relative);
           mesh.visible = false;
         }
         batch.computeBoundingBox();
         batch.computeBoundingSphere();
-        parent.add(batch);
+        container.add(batch);
       }
+    }
+    if (DEV)
+      console.log(
+        `[afterleaf] interior batching: ${batchIndex} batches from ${bucketsByContainer.size} container(s)`,
+      );
   }
 
   #createFloorMaterial() {
@@ -2452,11 +2719,38 @@ export class ShopScene {
       });
       const target = new Mesh(targetGeometry, targetMaterial);
       target.name = `mixed-shelf-target-${shelfId}`;
+      // Invisible raycast proxy: rendering hundreds of fully transparent
+      // quads costs a draw call each while contributing nothing on screen.
+      // Raycaster does not test .visible, so targeting keeps working.
+      target.visible = false;
       target.position.copy(frontCenter);
       target.userData.shelfId = shelfId;
       parent.add(target);
       this.#shelfTargetMeshes.push(target);
     }
+    const signPreviewTarget = new Mesh(
+      new PlaneGeometry(
+        FACE_DISPLAY_SHELF_HALF_WIDTH * 2,
+        FACE_OUT_DISPLAY.sideSize[1],
+      ),
+      new MeshBasicMaterial({
+        depthWrite: false,
+        opacity: 0,
+        transparent: true,
+      }),
+    );
+    signPreviewTarget.name = "mixed-shelf-sign-preview-target";
+    // Broad raycast-only surface; keep sign previews independent from book
+    // placement rows and the physical shelf boards between them.
+    signPreviewTarget.visible = false;
+    signPreviewTarget.position.set(
+      FACE_OUT_DISPLAY.boardCenterX,
+      FACE_OUT_DISPLAY.sideCenterY,
+      FACE_DISPLAY_SHELF_FRONT_Z,
+    );
+    signPreviewTarget.userData.shelfId = faceDisplayShelfId(0);
+    parent.add(signPreviewTarget);
+    this.#shelfSignPreviewTargetMeshes.push(signPreviewTarget);
     this.#createShelfSignSlots(parent);
   }
 
@@ -2486,6 +2780,8 @@ export class ShopScene {
     target.position.copy(frontCenter);
     target.rotation.y = Math.PI;
     target.userData.shelfId = TELEVISION_TABLE_SHELF_ID;
+    // Invisible raycast proxy - see mixed-shelf-target note above.
+    target.visible = false;
     parent.add(target);
     this.#shelfTargetMeshes.push(target);
   }
@@ -2495,7 +2791,9 @@ export class ShopScene {
     for (let column = 0; column < FACE_DISPLAY_COLUMNS; column += 1) {
       const group = new Group();
       group.position.set(
-        -2 + (column - (FACE_DISPLAY_COLUMNS - 1) / 2) * 1.12,
+        -2 +
+          (column - (FACE_DISPLAY_COLUMNS - 1) / 2) *
+            FACE_DISPLAY_COLUMN_SPACING,
         4.18,
         -9.82,
       );
@@ -2503,13 +2801,16 @@ export class ShopScene {
         targetGeometry,
         new MeshBasicMaterial({
           color: "#d9b96f",
+          depthTest: false,
           depthWrite: false,
           opacity: 0.1,
-          side: DoubleSide,
+          side: FrontSide,
           transparent: true,
         }),
       );
       target.name = `shelf-sign-target-${column}`;
+      // Hidden raycast proxy; #updateSignTargetVisuals reveals it on demand.
+      target.visible = false;
       const id = String(column);
       const key = shopSignKey("shelf", id);
       target.userData.signKey = key;
@@ -3133,9 +3434,12 @@ export class ShopScene {
       );
       let targetRotationY = normal > 0 ? Math.PI / 2 : -Math.PI / 2;
       if (alongX) targetRotationY = normal > 0 ? 0 : Math.PI;
+      let face = normal > 0 ? "east" : "west";
+      if (alongX) face = normal > 0 ? "south" : "north";
+      const signKeys = new Map<number, string>();
       for (let bay = 0; bay < bayCount; bay += 1) {
         const bayCenter = -length / 2 + bayWidth * (bay + 0.5);
-        this.#createSpineShelfSignSlot(
+        const signKey = this.#createSpineShelfSignSlot(
           parent,
           `${fixtureId.toUpperCase()} · BAY ${String(bay + 1).padStart(2, "0")}`,
           alongX ? x + bayCenter : x + normal * 0.57,
@@ -3144,11 +3448,31 @@ export class ShopScene {
           targetRotationY,
           elevation,
         );
+        signKeys.set(bay, signKey);
+        const signPreviewTarget = new Mesh(
+          new PlaneGeometry(bayWidth - 0.18, SPINE_SHELF_HEIGHT),
+          new MeshBasicMaterial({
+            depthWrite: false,
+            opacity: 0,
+            transparent: true,
+          }),
+        );
+        signPreviewTarget.name = `spine-shelf-sign-preview-target-${fixtureId}-${face}-${bay}`;
+        // Broad raycast-only surface; keep sign previews independent from
+        // book placement rows and the physical shelf boards between them.
+        signPreviewTarget.visible = false;
+        signPreviewTarget.position.set(
+          alongX ? x + bayCenter : x + normal * SPINE_SHELF_FRONT_OFFSET,
+          elevation + SPINE_SHELF_HEIGHT / 2,
+          alongX ? z + normal * SPINE_SHELF_FRONT_OFFSET : z + bayCenter,
+        );
+        signPreviewTarget.rotation.y = targetRotationY;
+        signPreviewTarget.userData.shelfId = `${fixtureId}:${face}:0:${bay}`;
+        parent.add(signPreviewTarget);
+        this.#shelfSignPreviewTargetMeshes.push(signPreviewTarget);
       }
       for (let row = 0; row < 4; row += 1) {
         for (let bay = 0; bay < bayCount; bay += 1) {
-          let face = normal > 0 ? "east" : "west";
-          if (alongX) face = normal > 0 ? "south" : "north";
           const shelfId = `${fixtureId}:${face}:${row}:${bay}`;
           const bayCenter = -length / 2 + bayWidth * (bay + 0.5);
           const frontCenter = new Vector3(
@@ -3166,6 +3490,8 @@ export class ShopScene {
             id: shelfId,
             normal: shelfNormal,
           };
+          const signKey = signKeys.get(bay);
+          if (signKey) definition.signKey = signKey;
           this.#spineShelfDefinitions.set(shelfId, definition);
           const material = new MeshBasicMaterial({
             color: "#d94c3f",
@@ -3178,6 +3504,8 @@ export class ShopScene {
             material,
           );
           target.name = `spine-shelf-target-${shelfId}`;
+          // Invisible raycast proxy - see mixed-shelf-target note above.
+          target.visible = false;
           target.position.copy(frontCenter);
           target.rotation.y = targetRotationY;
           target.userData.shelfId = shelfId;
@@ -3207,13 +3535,16 @@ export class ShopScene {
       new PlaneGeometry(width, 0.5),
       new MeshBasicMaterial({
         color: "#d9b96f",
+        depthTest: false,
         depthWrite: false,
         opacity: 0.1,
-        side: DoubleSide,
+        side: FrontSide,
         transparent: true,
       }),
     );
     target.name = `spine-shelf-sign-target-${column}`;
+    // Hidden raycast proxy; #updateSignTargetVisuals reveals it on demand.
+    target.visible = false;
     const id = String(column);
     const key = shopSignKey("shelf", id);
     target.userData.signKey = key;
@@ -3234,6 +3565,7 @@ export class ShopScene {
       title: "",
       width,
     });
+    return key;
   }
 
   #createAisleSignSlot(
@@ -3251,13 +3583,16 @@ export class ShopScene {
       new PlaneGeometry(2.6, 0.72),
       new MeshBasicMaterial({
         color: "#d9b96f",
+        depthTest: false,
         depthWrite: false,
         opacity: 0.1,
-        side: DoubleSide,
+        side: FrontSide,
         transparent: true,
       }),
     );
     target.name = `aisle-sign-target-${id}`;
+    // Hidden raycast proxy; #updateSignTargetVisuals reveals it on demand.
+    target.visible = false;
     target.userData.signKey = key;
     group.add(target);
     parent.add(group);
@@ -3726,6 +4061,9 @@ export class ShopScene {
 
     const door = this.#rareRoomDoorPivot;
     door.name = "special-collection-door";
+    // The door pivot animates at runtime; keep the entire subtree out of the
+    // static interior batch so its leaf meshes follow the pivot rotation.
+    door.userData.excludeFromStaticBatch = true;
     door.position.set(7.52, 0, RARE_ROOM_DOOR_Z);
     parent.add(door);
     const doorMaterial = woodMaterial.clone();
@@ -3767,13 +4105,16 @@ export class ShopScene {
       new PlaneGeometry(2.65, 0.58),
       new MeshBasicMaterial({
         color: "#d9b96f",
+        depthTest: false,
         depthWrite: false,
         opacity: 0.1,
-        side: DoubleSide,
+        side: FrontSide,
         transparent: true,
       }),
     );
     target.name = "special-collection-sign-target";
+    // Invisible raycast proxy; reveal it only while the sign is targeted.
+    target.visible = false;
     target.userData.signKey = key;
     group.add(target);
     parent.add(group);
@@ -3995,21 +4336,26 @@ export class ShopScene {
     return mesh;
   }
 
-  #createFloorUnderside(parent: Group, surface: Mesh<BufferGeometry>) {
-    const underside = new Mesh(
-      surface.geometry,
-      new MeshBasicMaterial({color: "#242a28", side: BackSide}),
-    );
-    underside.name = `${surface.name || "floor"}-underside`;
-    underside.position.copy(surface.position);
-    underside.quaternion.copy(surface.quaternion);
-    parent.add(underside);
-  }
-
-  #createUpperFloorStructures(parent: Group) {
-    const material = new MeshBasicMaterial({color: "#242a28"});
+  #createUpperFloorStructures(
+    parent: Group,
+    ceilingMaterial: MeshStandardMaterial,
+  ) {
+    // Only the underside of each slab is visible from the ground floor; keep
+    // the edges (and the covered top) on the cheap unlit gray material.
+    const edgeMaterial = new MeshBasicMaterial({color: "#242a28"});
+    const slabMaterials = [
+      edgeMaterial,
+      edgeMaterial,
+      edgeMaterial,
+      ceilingMaterial,
+      edgeMaterial,
+      edgeMaterial,
+    ];
     for (const box of SHOP_UPPER_FLOOR_BOXES) {
-      const floorStructure = new Mesh(new BoxGeometry(...box.size), material);
+      const floorStructure = new Mesh(
+        createCeilingBoxGeometry(box.size, box.position),
+        slabMaterials,
+      );
       floorStructure.position.set(...box.position);
       parent.add(floorStructure);
       this.#registerPropPlacementSupport(floorStructure);
@@ -4454,13 +4800,16 @@ export class ShopScene {
       new PlaneGeometry(2.8, 0.64),
       new MeshBasicMaterial({
         color: "#d9b96f",
+        depthTest: false,
         depthWrite: false,
         opacity: 0.1,
-        side: DoubleSide,
+        side: FrontSide,
         transparent: true,
       }),
     );
     target.name = `${id}-sign-target`;
+    // Hidden raycast proxy; #updateSignTargetVisuals reveals it on demand.
+    target.visible = false;
     target.userData.signKey = key;
     group.add(target);
     parent.add(group);
@@ -4503,6 +4852,9 @@ export class ShopScene {
     const frameCenterY = SHOP_UPPER_FLOOR_Y + 1.3;
     const doorGroup = new Group();
     doorGroup.name = `upper-hallway-door-${id}`;
+    // Door leaves rotate with their pivots during play; they are not static
+    // architecture even though their materials match nearby trim.
+    doorGroup.userData.excludeFromStaticBatch = true;
     doorGroup.position.set(centerX, 0, centerZ);
     if (wallAxis === "z") doorGroup.rotation.y = Math.PI / 2;
     parent.add(doorGroup);
@@ -4751,7 +5103,11 @@ export class ShopScene {
     shelfEdgeMaterial: MeshStandardMaterial,
     readingFurnitureMaterials: ReadingFurnitureMaterials,
   ) {
-    this.#createUpperFloorStructures(parent);
+    const ceilingMaterial = createCeilingMaterial(
+      this.#textureLoader,
+      this.#renderer.capabilities.getMaxAnisotropy(),
+    );
+    this.#createUpperFloorStructures(parent, ceilingMaterial);
     const stairFloorStructure = new Mesh(
       new BoxGeometry(
         SHOP_STAIR_ROOM.maxX - SHOP_STAIR_ROOM.minX,
@@ -4960,11 +5316,7 @@ export class ShopScene {
       -Math.PI / 2,
     );
 
-    const roofMaterial = new MeshStandardMaterial({
-      color: "#1d2927",
-      metalness: 0.22,
-      roughness: 0.82,
-    });
+    const roofMaterial = ceilingMaterial;
     const skylight = SHOP_ATRIUM;
     const skylightWidth = skylight.maxX - skylight.minX;
     const skylightDepth = skylight.maxZ - skylight.minZ;
@@ -4977,8 +5329,8 @@ export class ShopScene {
       SHOP_UPPER_CEILING_Y,
       roofMaterial,
     );
+    applyCeilingShapeUv(roof.geometry);
     roof.name = "main-roof";
-    this.#createFloorUnderside(parent, roof);
     const stairRoof = this.#createHorizontalShape(
       parent,
       SHOP_STAIR_ROOM,
@@ -4986,8 +5338,8 @@ export class ShopScene {
       SHOP_UPPER_CEILING_Y,
       roofMaterial,
     );
+    applyCeilingShapeUv(stairRoof.geometry);
     stairRoof.name = "stair-tower-roof";
-    this.#createFloorUnderside(parent, stairRoof);
     const skylightGlass = new Mesh(
       new PlaneGeometry(skylightWidth, skylightDepth),
       glassMaterial,
@@ -5046,6 +5398,10 @@ export class ShopScene {
     backgroundColor: string,
   ) {
     const sign = new Group();
+    // Signs are replaced when users customize their content. Keeping the
+    // visual subtree out of static batching prevents the old canvas texture
+    // from surviving in a permanent batch beside the replacement sign.
+    sign.userData.excludeFromStaticBatch = true;
     const canvas = document.createElement("canvas");
     canvas.width = 1024;
     canvas.height = Math.max(128, Math.round(canvas.width * (height / width)));
@@ -5119,7 +5475,8 @@ export class ShopScene {
     slot.subtitle = subtitle.trim().slice(0, 72);
     if (!slot.title) {
       slot.subtitle = "";
-      slot.target.material.opacity = 0.1;
+      slot.target.visible = false;
+      slot.target.material.opacity = 0;
       return;
     }
     const sign = this.#createSign(
@@ -5132,6 +5489,7 @@ export class ShopScene {
     );
     sign.position.z = -0.012;
     slot.sign = sign;
+    slot.target.visible = false;
     slot.target.material.opacity = 0;
     slot.group.add(sign);
   }
@@ -5279,6 +5637,8 @@ export class ShopScene {
       geometry = createWallpaperBoxGeometry(size, position);
     else if (material.userData.boxUvMode === "upholstery")
       geometry = createUpholsteryBoxGeometry(size, position);
+    else if (material.userData.boxUvMode === "ceiling")
+      geometry = createCeilingBoxGeometry(size, position);
     else if (material.map) geometry = createWoodBoxGeometry(size, position);
     else geometry = new BoxGeometry(...size);
     const mesh = new Mesh(geometry, material);
@@ -5471,6 +5831,22 @@ export class ShopScene {
       object.castShadow = true;
       object.receiveShadow = true;
     });
+    // Static decoration models collapse into one draw call per material
+    // signature; animated models keep their per-part nodes so mixers can
+    // drive them.
+    if (template.animations.length === 0) {
+      const {consumed, parts} = buildMergedStaticParts(model);
+      if (consumed.length > 1) {
+        for (const original of consumed) original.removeFromParent();
+        for (const {geometry, material} of parts) {
+          const mesh = new Mesh(geometry, material);
+          mesh.name = "user-model-static-parts";
+          mesh.castShadow = true;
+          mesh.receiveShadow = true;
+          model.add(mesh);
+        }
+      }
+    }
     const normalizedModel = new Group();
     normalizedModel.position
       .copy(template.center)
@@ -5791,6 +6167,10 @@ export class ShopScene {
         this.#savedTelevisionVolumes[id],
       ),
       model: {
+        // The CRT GLB predates the control strip; invisible knob targets
+        // would only cost draw calls, and screen clicks already drive power.
+        controls: false,
+        mergeStaticParts: true,
         screenAspect: 4 / 3,
         screenNodeName: "Screen",
         screenSafeArea: CRT_TV_SAFE_AREA,
@@ -8571,7 +8951,9 @@ export class ShopScene {
     this.#setHoveredPublicationId(undefined);
     this.#shelfTargeted = false;
     this.#shelfTargetSelection = undefined;
+    this.#shelfSignPreviewKey = undefined;
     this.#targetedSignKey = undefined;
+    this.#updateSignTargetVisuals();
     this.#setPropTargeted(undefined);
     this.#setTelevisionTargeted(false);
     this.#setArcadeTargeted(undefined);
@@ -9095,9 +9477,7 @@ export class ShopScene {
     const groups = new Map<
       string,
       {
-        accent: string;
         coverAtlas: CatalogShelfAtlas;
-        direction: CatalogItem["direction"];
         entries: {item: CatalogItem; record: BookRecord}[];
         spineAtlas: CatalogShelfAtlas;
         textures: BookAtlasTextures;
@@ -9114,14 +9494,14 @@ export class ShopScene {
         shelfAtlas.cellIndex >= resource.coverAtlas.publicationCount
       )
         continue;
-      const key = `${shelfAtlas.index}:${item.accent}:${item.direction}`;
+      // Accent and reading direction ride on per-instance geometry
+      // attributes now, so one atlas index forms one draw call.
+      const key = `${shelfAtlas.index}`;
       const group = groups.get(key);
       if (group) group.entries.push({item, record});
       else
         groups.set(key, {
-          accent: item.accent,
           coverAtlas: resource.coverAtlas,
-          direction: item.direction,
           entries: [{item, record}],
           spineAtlas: resource.spineAtlas,
           textures: resource.textures,
@@ -9130,8 +9510,9 @@ export class ShopScene {
 
     for (const group of groups.values()) {
       const {material, uniforms} = createBookExteriorMaterial(
-        new Color(group.accent),
-        group.direction === "LTR" ? -1 : 1,
+        new Color("#ffffff"),
+        -1,
+        true,
         true,
       );
       uniforms.coverMap.value = group.textures.front;
@@ -9178,6 +9559,26 @@ export class ShopScene {
           shelfAtlas.cellIndex,
           item.aspectRatio,
           item.thicknessMm,
+        );
+        // Per-instance accent and spine direction, consumed by the merged
+        // book shader in place of uniforms.
+        const positionCount = geometry.getAttribute("position")?.count ?? 0;
+        const accent = new Color(item.accent);
+        const accentArray = new Float32Array(positionCount * 3);
+        for (let index = 0; index < positionCount; index += 1) {
+          accentArray[index * 3] = accent.r;
+          accentArray[index * 3 + 1] = accent.g;
+          accentArray[index * 3 + 2] = accent.b;
+        }
+        geometry.setAttribute(
+          "bookAccent",
+          new BufferAttribute(accentArray, 3),
+        );
+        const sign = item.direction === "LTR" ? -1 : 1;
+        const signArray = new Float32Array(positionCount).fill(sign);
+        geometry.setAttribute(
+          "bookSpineSign",
+          new BufferAttribute(signArray, 1),
         );
         const geometryId = mesh.addGeometry(geometry);
         geometry.dispose();
@@ -11645,6 +12046,23 @@ export class ShopScene {
     };
   }
 
+  #shelfSignKeyForTarget(shelfId: string, offset?: number) {
+    const shelf = this.#spineShelfDefinitions.get(shelfId);
+    if (!shelf) return undefined;
+    if (shelf.signKey) return shelf.signKey;
+    if (!shelfId.startsWith(`${FACE_SHELF_ID}:`) || offset === undefined)
+      return undefined;
+    const column = MathUtils.clamp(
+      Math.round(
+        offset / FACE_DISPLAY_COLUMN_SPACING + (FACE_DISPLAY_COLUMNS - 1) / 2,
+      ),
+      0,
+      FACE_DISPLAY_COLUMNS - 1,
+    );
+    const key = shopSignKey("shelf", String(column));
+    return this.#signSlots.has(key) ? key : undefined;
+  }
+
   #cycleCarriedBook(direction: number) {
     if (
       direction === 0 ||
@@ -11752,11 +12170,15 @@ export class ShopScene {
 
   #updateInteractionTarget() {
     // An arcade session owns the screen; retargeting would fight its UI.
-    if (this.#arcadeStatusForUi()) return;
+    if (this.#arcadeStatusForUi()) {
+      this.#clearShelfSignPreview();
+      return;
+    }
     if (this.#inspectionMode !== "none") {
       this.#setHoveredPublicationId(undefined);
       this.#shelfTargeted = false;
       this.#shelfTargetSelection = undefined;
+      this.#clearShelfSignPreview();
       this.#targetedSignKey = undefined;
       this.#targetedPosterId = undefined;
       this.#setDigitalArtFrameTargeted();
@@ -11770,6 +12192,7 @@ export class ShopScene {
       this.#setHoveredPublicationId(undefined);
       this.#shelfTargeted = false;
       this.#shelfTargetSelection = undefined;
+      this.#clearShelfSignPreview();
       this.#targetedSignKey = undefined;
       this.#targetedPosterId = undefined;
       this.#setDigitalArtFrameTargeted();
@@ -11781,6 +12204,7 @@ export class ShopScene {
       return;
     }
     if (!this.#pointerLocked) {
+      this.#clearShelfSignPreview();
       this.#updatePosterPlacementTarget();
       this.#updateDigitalArtFramePlacementTarget();
       this.#setHoveredPublicationId(undefined);
@@ -11809,12 +12233,20 @@ export class ShopScene {
       return;
     }
 
+    // Aiming results feed highlight prompts and clicks, which tolerate a
+    // frame or two of latency - so the full-shop reticle sweep runs on a
+    // fixed-rate budget instead of every tick, capping its cost while the
+    // player whips the view around.
+    if (this.#frameNowMs - this.#lastAimSweepTimeMs < AIM_SWEEP_MIN_INTERVAL_MS)
+      return;
+    this.#lastAimSweepTimeMs = this.#frameNowMs;
     this.#camera.updateMatrixWorld();
     this.#raycaster.setFromCamera(this.#reticle, this.#camera);
     if (this.#artFramePlacement) {
       this.#setHoveredPublicationId(undefined);
       this.#shelfTargeted = false;
       this.#shelfTargetSelection = undefined;
+      this.#clearShelfSignPreview();
       this.#targetedSignKey = undefined;
       this.#targetedPosterId = undefined;
       this.#setDigitalArtFrameTargeted();
@@ -11830,6 +12262,7 @@ export class ShopScene {
       this.#setHoveredPublicationId(undefined);
       this.#shelfTargeted = false;
       this.#shelfTargetSelection = undefined;
+      this.#clearShelfSignPreview();
       this.#targetedSignKey = undefined;
       this.#targetedPosterId = undefined;
       this.#setDigitalArtFrameTargeted();
@@ -11846,6 +12279,7 @@ export class ShopScene {
       this.#setHoveredPublicationId(undefined);
       this.#shelfTargeted = false;
       this.#shelfTargetSelection = undefined;
+      this.#clearShelfSignPreview();
       this.#targetedSignKey = undefined;
       this.#targetedPosterId = undefined;
       this.#setDigitalArtFrameTargeted();
@@ -11902,6 +12336,7 @@ export class ShopScene {
         this.#setHoveredPublicationId(pickupPublicationId);
         this.#shelfTargeted = false;
         this.#shelfTargetSelection = undefined;
+        this.#clearShelfSignPreview();
         this.#trashTargeted = false;
         this.#updateShelfTargetVisuals();
         this.#updateSignTargetVisuals();
@@ -11926,6 +12361,9 @@ export class ShopScene {
       }
       this.#shelfTargeted = selection !== undefined;
       this.#shelfTargetSelection = selection;
+      this.#shelfSignPreviewKey = selection
+        ? this.#shelfSignKeyForTarget(selection.shelfId, selection.offset)
+        : undefined;
       this.#trashTargeted = trashTargeted;
       this.#updateShelfTargetVisuals();
       this.#updateSignTargetVisuals();
@@ -11982,6 +12420,7 @@ export class ShopScene {
       arcadeIntersection.distance <= ARCADE_INTERACTION_DISTANCE;
     this.#setArcadeTargeted(arcadeTargeted ? arcadeCabinet : undefined);
     if (arcadeTargeted) {
+      this.#clearShelfSignPreview();
       this.#setTelevisionTargeted(false);
       this.#setPropTargeted(undefined);
       this.#setTrashTargeted(false);
@@ -12041,6 +12480,7 @@ export class ShopScene {
       television,
     );
     if (televisionTargeted) {
+      this.#clearShelfSignPreview();
       this.#setPropTargeted(undefined);
       this.#setTrashTargeted(false);
       this.#targetedSignKey = undefined;
@@ -12070,6 +12510,7 @@ export class ShopScene {
         : undefined;
     this.#setPropTargeted(targetedProp);
     if (targetedProp) {
+      this.#clearShelfSignPreview();
       this.#setTrashTargeted(false);
       this.#targetedSignKey = undefined;
       this.#targetedPosterId = undefined;
@@ -12079,15 +12520,40 @@ export class ShopScene {
       return;
     }
     this.#setTrashTargeted(false);
+    const shelfIntersection = this.#raycaster
+      .intersectObjects(this.#shelfSignPreviewTargetMeshes, false)
+      .find((candidate) => candidate.distance <= SHELF_INTERACTION_DISTANCE);
+    const shelfId = shelfIntersection?.object.userData.shelfId;
+    const shelf =
+      typeof shelfId === "string"
+        ? this.#spineShelfDefinitions.get(shelfId)
+        : undefined;
+    const shelfOffset =
+      shelf && shelfIntersection
+        ? this.#shelfTargetOffset
+            .copy(shelfIntersection.point)
+            .sub(shelf.frontCenter)
+            .dot(shelf.axis)
+        : undefined;
+    const shelfSignPreviewKey =
+      typeof shelfId === "string"
+        ? this.#shelfSignKeyForTarget(shelfId, shelfOffset)
+        : undefined;
     const signIntersection = this.#raycaster
       .intersectObjects(this.#signTargetMeshes, false)
       .find((candidate) => candidate.distance <= SIGN_INTERACTION_DISTANCE);
     const signKey = signIntersection?.object.userData.signKey;
     const targetedSignKey = typeof signKey === "string" ? signKey : undefined;
-    if (targetedSignKey !== this.#targetedSignKey) {
+    const nextShelfSignPreviewKey =
+      signIntersection === undefined ? shelfSignPreviewKey : undefined;
+    const shelfSignPreviewChanged =
+      nextShelfSignPreviewKey !== this.#shelfSignPreviewKey;
+    this.#shelfSignPreviewKey = nextShelfSignPreviewKey;
+    const targetedSignChanged = targetedSignKey !== this.#targetedSignKey;
+    if (targetedSignChanged || shelfSignPreviewChanged) {
       this.#targetedSignKey = targetedSignKey;
       this.#updateSignTargetVisuals();
-      this.#emitGameState();
+      if (targetedSignChanged) this.#emitGameState();
     }
     if (targetedSignKey !== undefined) {
       this.#targetedPosterId = undefined;
@@ -13062,9 +13528,18 @@ export class ShopScene {
 
   #updateSignTargetVisuals() {
     for (const [key, slot] of this.#signSlots) {
-      slot.target.material.opacity =
-        key === this.#targetedSignKey ? 0.32 : slot.sign ? 0 : 0.1;
+      const targeted = key === this.#targetedSignKey;
+      const shelfPreview =
+        key === this.#shelfSignPreviewKey && slot.sign === undefined;
+      slot.target.visible = targeted || shelfPreview;
+      slot.target.material.opacity = targeted ? 0.32 : shelfPreview ? 0.2 : 0;
     }
+  }
+
+  #clearShelfSignPreview() {
+    if (this.#shelfSignPreviewKey === undefined) return;
+    this.#shelfSignPreviewKey = undefined;
+    this.#updateSignTargetVisuals();
   }
 
   #emitGameState() {

@@ -1,8 +1,10 @@
 import {CdpSession, positiveNumber} from "./client";
+import {startFramePump} from "./frame-pump";
 
 const sampleMs = positiveNumber(process.env.AFTERLEAF_CDP_CONSOLE_MS, 5_000);
 const reload = process.env.AFTERLEAF_CDP_CONSOLE_RELOAD === "true";
 const messages = new Map<string, number>();
+let pump: Awaited<ReturnType<typeof startFramePump>> | null = null;
 const session = await CdpSession.connect();
 const stopListening = session.onEvent((method, rawParams) => {
   if (method === "Runtime.consoleAPICalled") {
@@ -38,6 +40,13 @@ const stopListening = session.onEvent((method, rawParams) => {
 });
 try {
   await session.request("Runtime.enable");
+  await session.request("Emulation.setFocusEmulationEnabled", {enabled: true});
+  await session.request("Page.setWebLifecycleState", {state: "active"});
+  // The game logs through its animation loop; keep frames flowing even when
+  // the dedicated window is hidden, minimized, or the session is locked.
+  // Minimized windows keep visibilityState "visible" while dropping to ~1
+  // compositor frame per second, so detection alone is not trustworthy.
+  pump = await startFramePump(session);
   if (reload) await session.request("Page.reload", {ignoreCache: false});
   await Bun.sleep(sampleMs);
   console.log(
@@ -50,6 +59,7 @@ try {
     ),
   );
 } finally {
+  await pump?.stop();
   stopListening();
   session.close();
 }

@@ -12,6 +12,7 @@ import {
   PlaneGeometry,
   RectAreaLight,
   Shape,
+  SkinnedMesh,
   SRGBColorSpace,
   Vector2,
   Vector4,
@@ -33,6 +34,11 @@ import {
   findModelTelevisionScreen,
   getModelTelevisionScreenAspect,
 } from "~/game/modelTelevision";
+import {
+  buildMergedStaticParts,
+  isSharedStaticGeometry,
+  type MergedStaticParts,
+} from "~/game/staticModelBatching";
 import {createWoodBoxGeometry} from "~/game/woodMaterials";
 import {
   detectActivePictureRect,
@@ -152,6 +158,10 @@ export type ShopTelevisionModel = ShopTelevisionModelSource & {
   center?: readonly [x: number, y: number, z: number];
   // Set false to skip the invisible power/channel/skip strip (CRT layout).
   controls?: boolean;
+  // Merge the model's static opaque parts into shared per-material meshes so
+  // every copy costs one draw call per signature instead of one per part.
+  // Requires a url-backed model; screens stay independent.
+  mergeStaticParts?: boolean;
   // Overrides the targeting radius; defaults to scale * 0.4.
   interactionRadius?: number;
   // Name used in the pick-up prompt; defaults to "CRT".
@@ -183,7 +193,9 @@ export type ShopTelevisionOptions = {
 const disposeLoadedObject = (root: Object3D) => {
   root.traverse((object) => {
     if (!(object instanceof Mesh)) return;
-    object.geometry.dispose();
+    // Shared static merges outlive any single prop; the template cache
+    // disposes them when the last copy of a model is released.
+    if (!isSharedStaticGeometry(object.geometry)) object.geometry.dispose();
     const materials = Array.isArray(object.material)
       ? object.material
       : [object.material];
@@ -410,6 +422,7 @@ const normalizeVolume = (volume: number) => {
 
 export class ShopTelevision {
   static readonly #activePictureCache = new Map<string, ActivePictureRect>();
+  static readonly #mergedStaticPartCache = new Map<string, MergedStaticParts>();
   static readonly #modelLoader = new GLTFLoader();
   static readonly #modelPromises = new Map<string, Promise<Group>>();
   static readonly #modelReferenceCounts = new Map<string, number>();
@@ -425,6 +438,28 @@ export class ShopTelevision {
       this.#modelPromises.set(url, modelPromise);
     }
     return modelPromise.then((model) => model.clone(true));
+  }
+
+  /**
+   * Canonical merged static parts for a url-backed model, built once from
+   * the first working copy and shared by every later copy. The exclude
+   * callback only runs during that first build; clones of the same template
+   * have identical trees, so the result stays valid for all copies.
+   */
+  static #mergedStaticParts(
+    url: string,
+    modelObject: Object3D,
+    screen: Mesh,
+  ): MergedStaticParts {
+    let parts = this.#mergedStaticPartCache.get(url);
+    if (!parts) {
+      parts = buildMergedStaticParts(
+        modelObject,
+        (mesh) => mesh === screen,
+      ).parts;
+      this.#mergedStaticPartCache.set(url, parts);
+    }
+    return parts;
   }
 
   static #retainNoSignalTexture() {
@@ -455,6 +490,7 @@ export class ShopTelevision {
       return;
     }
     this.#modelReferenceCounts.delete(url);
+    this.#mergedStaticPartCache.delete(url);
     const modelPromise = this.#modelPromises.get(url);
     this.#modelPromises.delete(url);
     if (modelPromise)
@@ -1068,6 +1104,9 @@ uniform sampler2D afterleafScreenOverlay;\n${shader.fragmentShader}`;
         return;
       }
 
+      if (model.mergeStaticParts && model.url)
+        this.#applyMergedStaticParts(model.url, modelObject, screenMesh);
+
       modelObject.traverse((object) => {
         if (!(object instanceof Mesh) || object === screenMesh) return;
         object.userData.televisionInteraction = "body";
@@ -1115,6 +1154,42 @@ uniform sampler2D afterleafScreenOverlay;\n${shader.fragmentShader}`;
       this.#group.add(this.#audio.node, this.#buttonAudio.node);
     } catch (error) {
       console.error("Afterleaf could not load the television model.", error);
+    }
+  }
+
+  /**
+   * Replaces this copy's static part meshes with the template's shared
+   * merged meshes. Originals stay alive inside the cached template scene;
+   * removing them here only drops this copy's draw calls. Consumed meshes
+   * are collected per copy - the cached parts are shared, never the
+   * removal list.
+   */
+  #applyMergedStaticParts(
+    url: string,
+    modelObject: Object3D,
+    screen: Mesh,
+  ): void {
+    const originals: Mesh[] = [];
+    modelObject.traverse((object) => {
+      if (!(object instanceof Mesh) || object === screen) return;
+      if (isSharedStaticGeometry(object.geometry)) return;
+      if (object instanceof SkinnedMesh) return;
+      const material = object.material;
+      if (Array.isArray(material) || material.transparent) return;
+      if (!object.geometry.getAttribute("position")) return;
+      originals.push(object);
+    });
+    if (originals.length === 0) return;
+    const parts = ShopTelevision.#mergedStaticParts(url, modelObject, screen);
+    if (parts.length === 0) return;
+    for (const original of originals) original.removeFromParent();
+    for (const {geometry, material} of parts) {
+      const mesh = new Mesh(geometry, material);
+      mesh.name = "shop-model-television-static";
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      mesh.userData.televisionInteraction = "body";
+      modelObject.add(mesh);
     }
   }
 

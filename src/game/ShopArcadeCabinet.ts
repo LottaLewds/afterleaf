@@ -30,6 +30,7 @@ import {
   getModelTelevisionScreenAspect,
   normalizeModelScreenUvs,
 } from "~/game/modelTelevision";
+import {buildMergedStaticParts} from "~/game/staticModelBatching";
 
 export const ARCADE_CABINET_HEIGHT = 1.72;
 export const ARCADE_CABINET_SCREEN_NODE_NAME = "TVScreen";
@@ -63,9 +64,6 @@ export type ShopArcadeCabinetOptions = {
 };
 
 const ATTRACT_FPS = 12;
-
-/** How often the dev FPS readout recomputes its rates. */
-const HUD_SAMPLE_INTERVAL_S = 0.5;
 
 /** How long the on-screen volume indicator stays visible. */
 const OSD_DURATION_MS = 1_400;
@@ -168,14 +166,6 @@ export class ShopArcadeCabinet {
   #osdLabel = "";
   #osdColor = "#c9f0d3";
 
-  // Dev-only FPS readout (created when DEV); samples the emulated frame
-  // counter against wall time so core pacing is visible during play.
-  #hud: HTMLDivElement | undefined;
-  #hudElapsed = 0;
-  #hudHostFrames = 0;
-  #hudWorstFrameMs = 0;
-  #hudLastCoreFrames: number | undefined;
-
   constructor(options: ShopArcadeCabinetOptions) {
     this.id = `arcade-${ShopArcadeCabinet.nextId++}`;
     this.#audioManager = options.audioManager;
@@ -264,6 +254,23 @@ export class ShopArcadeCabinet {
     screen.material = this.#material;
     screen.userData.arcadeInteraction = "screen";
 
+    // The cabinet's static trim collapses into one draw call per material
+    // signature; the screen stays independent for live emulator output.
+    const {consumed, parts} = buildMergedStaticParts(
+      scene,
+      (mesh) => mesh === screen,
+    );
+    if (consumed.length > 1) {
+      for (const original of consumed) original.removeFromParent();
+      for (const {geometry, material} of parts) {
+        const merged = new Mesh(geometry, material);
+        merged.castShadow = true;
+        merged.receiveShadow = true;
+        merged.userData.arcadeInteraction = "body";
+        scene.add(merged);
+      }
+    }
+
     scene.traverse((child) => {
       if (!(child instanceof Mesh)) return;
       child.castShadow = true;
@@ -287,14 +294,7 @@ export class ShopArcadeCabinet {
       this.#liveTexture.image = canvas;
       this.#liveTexture.needsUpdate = true;
       this.#material.map = this.#liveTexture;
-      if (DEV && !this.#hud) {
-        this.#hud = this.#createDevHud();
-        this.#hudElapsed = 0;
-        this.#hudHostFrames = 0;
-        this.#hudLastCoreFrames = undefined;
-      }
     } else {
-      this.#removeDevHud();
       this.#disposeOsd();
       this.#material.map = this.#attractTexture;
     }
@@ -560,6 +560,15 @@ export class ShopArcadeCabinet {
     this.#host?.forwardKey(down, event);
   }
 
+  /** Telemetry for the scene-level FPS readout. */
+  get perfSample() {
+    return {
+      frameCount: this.#host?.frameCount(),
+      canvasWidth: this.#liveCanvas?.width,
+      canvasHeight: this.#liveCanvas?.height,
+    };
+  }
+
   private destroyHost() {
     this.#arcadeAudio?.dispose();
     this.#arcadeAudio = undefined;
@@ -646,10 +655,7 @@ export class ShopArcadeCabinet {
       // While the volume indicator is visible the material shows the
       // composite surface instead; refresh it every rendered frame so the
       // game keeps moving under the pill.
-      if (this.#updateOsd()) {
-        this.#sampleFps(deltaSeconds);
-        return;
-      }
+      if (this.#updateOsd()) return;
       // The emulator canvas lives in its own WebGL context, so every
       // needsUpdate costs a GPU-GPU copy (Chromium's cross-context copy).
       // Copy only when the core actually produced a new emulated frame -
@@ -675,7 +681,6 @@ export class ShopArcadeCabinet {
         this.#uploadedFrame = frames;
         this.#liveTexture.needsUpdate = true;
       }
-      this.#sampleFps(deltaSeconds);
       return;
     }
     this.#attractTime += deltaSeconds;
@@ -691,78 +696,12 @@ export class ShopArcadeCabinet {
       (this.#targeted ? 0.16 : 0);
   }
 
-  // -- Dev FPS readout -------------------------------------------------------
-
-  #createDevHud(): HTMLDivElement {
-    const hud = document.createElement("div");
-    // Parallel sessions stack by stable id suffix so their readouts never
-    // overlap on screen.
-    const index = Number.parseInt(this.id.slice("arcade-".length), 10);
-    hud.style.position = "fixed";
-    hud.style.left = "12px";
-    hud.style.top = `${12 + (Number.isNaN(index) ? 0 : index - 1) * 24}px`;
-    hud.style.zIndex = "60";
-    hud.style.padding = "3px 9px";
-    hud.style.borderRadius = "6px";
-    hud.style.background = "rgba(7,16,15,0.85)";
-    hud.style.color = "#a8e6b0";
-    hud.style.font = "11px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace";
-    hud.style.pointerEvents = "none";
-    hud.style.whiteSpace = "pre";
-    hud.textContent = "HOST … · CORE …";
-    document.body.appendChild(hud);
-    return hud;
-  }
-
-  #removeDevHud() {
-    this.#hud?.remove();
-    this.#hud = undefined;
-    this.#hudLastCoreFrames = undefined;
-    this.#hudWorstFrameMs = 0;
-  }
-
-  /**
-   * Windowed rate sampler. HOST is the render loop's cadence (update calls
-   * per second); CORE is emulated frames per wall second straight from the
-   * core's frame counter, which is the real "is it full speed" number; MAX
-   * is the slowest frame in the window - spikes there are what dropped or
-   * unevenly-timed frames feel like, and averages never show them.
-   */
-  #sampleFps(deltaSeconds: number) {
-    const hud = this.#hud;
-    if (!hud) return;
-    const frameMs = deltaSeconds * 1000;
-    if (frameMs > this.#hudWorstFrameMs) this.#hudWorstFrameMs = frameMs;
-    this.#hudHostFrames += 1;
-    this.#hudElapsed += deltaSeconds;
-    if (this.#hudElapsed < HUD_SAMPLE_INTERVAL_S) return;
-
-    const coreFrames = this.#host?.frameCount();
-    let text = `HOST ${(this.#hudHostFrames / this.#hudElapsed).toFixed(1)} fps`;
-    text += ` · MAX ${this.#hudWorstFrameMs.toFixed(1)}ms`;
-    if (coreFrames === undefined) {
-      text += " · CORE n/a";
-    } else {
-      if (this.#hudLastCoreFrames !== undefined)
-        text += ` · CORE ${((coreFrames - this.#hudLastCoreFrames) / this.#hudElapsed).toFixed(1)} fps`;
-      this.#hudLastCoreFrames = coreFrames;
-    }
-    text += ` · ${this.#liveCanvas?.width ?? 0}×${this.#liveCanvas?.height ?? 0}`;
-    hud.textContent = text;
-    this.#hudHostFrames = 0;
-    this.#hudElapsed = 0;
-    this.#hudWorstFrameMs = 0;
-  }
-
   dispose() {
     if (this.#disposed) return;
     this.#disposed = true;
     this.destroyHost();
     this.setLiveCanvas(undefined);
     this.object.removeFromParent();
-    // setLiveCanvas(undefined) already dropped the HUD and OSD when DEV;
-    // guard for the production build where the HUD was never created.
-    this.#removeDevHud();
     this.#disposeOsd();
     this.#attractTexture.dispose();
     this.#liveTexture.dispose();
