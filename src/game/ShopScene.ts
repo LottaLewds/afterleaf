@@ -359,6 +359,8 @@ const INSPECTION_READER_COLOR = "#f6f2e8";
 const INSPECTION_LIGHTING_BLEND_SPEED = 8;
 const INSPECTION_READER_EMISSIVE = new Color("#fff0d8");
 const INSPECTION_READER_EMISSIVE_INTENSITY = 0.62;
+const DISCARD_TARGETED_EMISSIVE = new Color("#ff3524");
+const DISCARD_TARGETED_EMISSIVE_INTENSITY = 0.95;
 const INSPECTION_PAGE_DEFORMATION = {
   maxCurl: 0.1,
   maxTorsion: 0.008,
@@ -1378,9 +1380,9 @@ export class ShopScene {
     TRASH_CAN_HEIGHT / 2,
     SHOP_PHYSICS_TRASH_POSITION_Z,
   );
-  readonly #trashTargetMesh = new Mesh<BoxGeometry, MeshBasicMaterial>();
-  #trashTargetReady = false;
-  #trashBinPresent = false;
+  /** Invisible discard volumes, keyed by the trash can prop that owns them. */
+  readonly #discardVolumes = new Map<string, Mesh>();
+  #discardVolumeMeshes: Mesh[] = [];
   readonly #trashTossTarget = new Vector3();
   readonly #trashTossRotation = new Quaternion().setFromEuler(
     new Euler(-Math.PI / 2, 0.45, Math.PI * 0.5),
@@ -1565,6 +1567,7 @@ export class ShopScene {
   #savedTelevisionChannels: WorldTelevisionChannels = {};
   #savedTelevisionVolumes: WorldTelevisionVolumes = {};
   #trashTargeted = false;
+  #targetedTrashBinId: string | undefined;
   #throwChargeActive = false;
   #throwChargeBucket = -1;
   #throwChargeSeconds = 0;
@@ -2853,8 +2856,8 @@ export class ShopScene {
   async #createTrashcan(parent: Group) {
     // The discard bin is a seeded default like any other prop: injected
     // once as a spawned, deletable prop and persisted through modelProps.
-    // Worlds that already seeded skip straight to their saved props; the
-    // invisible discard volume rides along via #reattachTrashTarget.
+    // Worlds that already seeded skip straight to their saved props; every
+    // trash can gets its invisible discard volume via #attachTrashTarget.
     if (!this.#needsSeedPass(INITIAL_WORLD_SEEDING_VERSION)) return;
     const trashcan = this.#trashcanGroup;
     trashcan.name = TRASH_CAN_PROP_ID;
@@ -2944,37 +2947,42 @@ export class ShopScene {
     if (markDirty) this.#worldStateDirty = true;
   }
 
-  #ensureTrashTargetMesh() {
-    if (this.#trashTargetReady) return this.#trashTargetMesh;
-    this.#trashTargetMesh.geometry = new BoxGeometry(1.18, 1.45, 1.18);
-    this.#trashTargetMesh.material = new MeshBasicMaterial({
-      depthWrite: false,
-      opacity: 0,
-      transparent: true,
-    });
-    this.#trashTargetMesh.name = "discard-trashcan-target";
-    this.#trashTargetReady = true;
-    return this.#trashTargetMesh;
-  }
-
   /**
-   * Rides the invisible discard volume on the current discard bin so
-   * deleting or restoring the seeded trash can keeps discarding working.
+   * Rides an invisible discard volume inside every trash can prop so any
+   * spawned, saved, or seeded bin accepts discards.
    */
-  #reattachTrashTarget() {
-    const record = this.#movableProps.get(TRASH_CAN_PROP_ID);
-    if (!record) return;
-    const mesh = this.#ensureTrashTargetMesh();
-    if (mesh.parent !== record.object) {
-      mesh.position.set(0, record.halfHeight * 0.55, 0);
-      record.object.add(mesh);
-    }
-    this.#trashBinPresent = true;
+  #attachTrashTarget(record: MovablePropRecord) {
+    if (this.#discardVolumes.has(record.id)) return;
+    const width = record.halfWidth * 2;
+    const mesh = new Mesh(
+      new BoxGeometry(width * 1.31, record.halfHeight * 3.22, width * 1.31),
+      new MeshBasicMaterial({
+        depthWrite: false,
+        opacity: 0,
+        transparent: true,
+      }),
+    );
+    mesh.name = "discard-trashcan-target";
+    mesh.userData.propId = record.id;
+    mesh.position.set(0, record.halfHeight * 0.55, 0);
+    record.object.add(mesh);
+    this.#discardVolumes.set(record.id, mesh);
+    this.#refreshDiscardVolumeMeshes();
   }
 
-  #detachTrashTarget() {
-    this.#trashBinPresent = false;
-    this.#trashTargetMesh.removeFromParent();
+  /** Drops the discard volume that lived inside a deleted trash can. */
+  #detachTrashTarget(record: MovablePropRecord) {
+    const mesh = this.#discardVolumes.get(record.id);
+    if (!mesh) return;
+    this.#discardVolumes.delete(record.id);
+    this.#refreshDiscardVolumeMeshes();
+    mesh.removeFromParent();
+    mesh.geometry.dispose();
+    (mesh.material as MeshBasicMaterial).dispose();
+  }
+
+  #refreshDiscardVolumeMeshes() {
+    this.#discardVolumeMeshes = [...this.#discardVolumes.values()];
   }
 
   #registerMovableProp(registration: MovablePropRegistration) {
@@ -3050,9 +3058,12 @@ export class ShopScene {
       this.#pendingPropSaves.delete(record.id);
     }
     if (record.locked) this.#physicsWorld.setPropLocked(record.id, true);
-    if (registration.id === TRASH_CAN_PROP_ID) this.#reattachTrashTarget();
+    // Cache the spawn template before the discard volume joins the object
+    // so cloned trash can templates stay volume-free.
     if (registration.templateForSpawning)
       this.#cacheBuiltinPropTemplate(registration);
+    if (registration.spawnAssetId === BUILTIN_TRASH_CAN_ASSET_ID)
+      this.#attachTrashTarget(record);
     return record;
   }
 
@@ -6683,8 +6694,8 @@ export class ShopScene {
       cabinet.dispose();
       break;
     }
-    // The discard volume lives inside the bin; losing the bin loses it.
-    if (record.id === TRASH_CAN_PROP_ID) this.#detachTrashTarget();
+    // The discard volume lives inside the bin; losing a bin loses its volume.
+    this.#detachTrashTarget(record);
     this.#physicsWorld.removeProp(record.id);
     if (this.#movableProps.get(record.id) === record)
       this.#movableProps.delete(record.id);
@@ -8999,6 +9010,7 @@ export class ShopScene {
   #setTrashTargeted(targeted: boolean) {
     if (targeted === this.#trashTargeted) return;
     this.#trashTargeted = targeted;
+    this.#applyBookStates();
     this.#emitGameState();
   }
 
@@ -10422,10 +10434,22 @@ export class ShopScene {
       else if (selected) targetScale = 1.025;
       record.targetScale = targetScale;
       record.targetLift = hovered && !shelfHovered ? 0.08 : 0;
+      const discardTargeted =
+        publicationId === this.#carriedPublicationId && this.#trashTargeted;
       record.sceneEmissive.set(
-        hovered ? "#a34437" : selected ? "#49231f" : "#000000",
+        discardTargeted
+          ? DISCARD_TARGETED_EMISSIVE
+          : hovered
+            ? "#a34437"
+            : selected
+              ? "#49231f"
+              : "#000000",
       );
-      record.sceneEmissiveIntensity = hovered ? 0.55 : 0.2;
+      record.sceneEmissiveIntensity = discardTargeted
+        ? DISCARD_TARGETED_EMISSIVE_INTENSITY
+        : hovered
+          ? 0.55
+          : 0.2;
       record.exteriorMaterial.emissive.copy(record.sceneEmissive);
       record.exteriorMaterial.emissiveIntensity = record.sceneEmissiveIntensity;
       this.#applyInspectionLighting(record);
@@ -12259,7 +12283,7 @@ export class ShopScene {
         this.#targetedPosterId = undefined;
         this.#setDigitalArtFrameTargeted();
         this.#setPropTargeted(undefined);
-        this.#trashTargeted = false;
+        this.#setTrashTargeted(false);
         this.#setTelevisionTargeted(false);
         this.#setArcadeTargeted(undefined);
         this.#updateShelfTargetVisuals();
@@ -12333,12 +12357,16 @@ export class ShopScene {
       this.#setDigitalArtFrameTargeted();
       this.#setPropTargeted(undefined);
       this.#setTelevisionTargeted(false);
-      const trashIntersection = this.#trashBinPresent
-        ? this.#raycaster.intersectObject(this.#trashTargetMesh, false)[0]
-        : undefined;
+      const trashIntersection = this.#raycaster.intersectObjects(
+        this.#discardVolumeMeshes,
+        false,
+      )[0];
       const trashTargeted =
         trashIntersection !== undefined &&
         trashIntersection.distance <= TRASH_INTERACTION_DISTANCE;
+      this.#targetedTrashBinId = trashTargeted
+        ? (trashIntersection?.object.userData.propId as string | undefined)
+        : undefined;
       let pickupPublicationId: string | undefined;
       if (
         !trashTargeted &&
@@ -12373,7 +12401,7 @@ export class ShopScene {
         this.#shelfTargeted = false;
         this.#shelfTargetSelection = undefined;
         this.#clearShelfSignPreview();
-        this.#trashTargeted = false;
+        this.#setTrashTargeted(false);
         this.#updateShelfTargetVisuals();
         this.#updateSignTargetVisuals();
         return;
@@ -12400,7 +12428,7 @@ export class ShopScene {
       this.#shelfSignPreviewKey = selection
         ? this.#shelfSignKeyForTarget(selection.shelfId, selection.offset)
         : undefined;
-      this.#trashTargeted = trashTargeted;
+      this.#setTrashTargeted(trashTargeted);
       this.#updateShelfTargetVisuals();
       this.#updateSignTargetVisuals();
       this.#emitGameState();
@@ -13077,7 +13105,7 @@ export class ShopScene {
         this.#booksById.delete(publicationId);
       }
       this.#removeCarriedPublication(publicationId);
-      this.#trashTargeted = false;
+      this.#setTrashTargeted(false);
       this.#syncCarriedBookPresentation();
       this.#updateHeldPhysicsTarget();
       this.#syncInteractiveMeshes();
@@ -13099,7 +13127,7 @@ export class ShopScene {
     this.#removeCarriedPublication(publicationId);
     this.#shelfTargeted = false;
     this.#shelfTargetSelection = undefined;
-    this.#trashTargeted = false;
+    this.#setTrashTargeted(false);
     this.#syncCarriedBookPresentation();
     this.#updateHeldPhysicsTarget();
     this.#syncInteractiveMeshes();
@@ -13180,9 +13208,14 @@ export class ShopScene {
     );
     const progress = animation.elapsedSeconds / DISCARD_TOSS_DURATION_SECONDS;
     const eased = 1 - (1 - progress) ** 3;
-    // Aim the toss at whichever object currently plays the discard bin.
+    // Aim the toss at whichever bin the player targeted, falling back to
+    // the seeded discard bin when that one is gone.
     const discardBin =
-      this.#movableProps.get(TRASH_CAN_PROP_ID)?.object ?? this.#trashcanGroup;
+      (this.#targetedTrashBinId !== undefined
+        ? this.#movableProps.get(this.#targetedTrashBinId)?.object
+        : undefined) ??
+      this.#movableProps.get(TRASH_CAN_PROP_ID)?.object ??
+      this.#trashcanGroup;
     discardBin.updateWorldMatrix(true, false);
     this.#trashTossTarget.set(0, TRASH_CAN_HEIGHT * 0.35, 0);
     discardBin.localToWorld(this.#trashTossTarget);
