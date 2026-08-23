@@ -2,7 +2,8 @@ import {isSparseLibraryPageUrl} from "~/content/libraryUpdate/activeLibraryRoute
 import {readerPageSourceUrl} from "~/reader/pageSpreadDetection";
 import {
   READER_PAGE_BUFFER_SIZE,
-  getAdjacentSpreadPageIndices,
+  READER_SPARSE_PRELOAD_PAGE_COUNT,
+  getSparsePreloadPageIndices,
   getReaderWindow,
 } from "~/reader/pagination";
 
@@ -35,11 +36,23 @@ export const createReaderPagePreloadPlan = (options: {
       ? []
       : [url];
   });
-  const sparseAdjacentUrls = getAdjacentSpreadPageIndices(
-    options.pageIndex,
-    options.pageCount,
-    options.widePageIndices,
-  ).flatMap((pageIndex) => {
+  const sparsePreloadUrls = [
+    // Forward first: reading usually advances, so start those fetches first.
+    ...getSparsePreloadPageIndices(
+      options.pageIndex,
+      options.pageCount,
+      "forward",
+      READER_SPARSE_PRELOAD_PAGE_COUNT,
+      options.widePageIndices,
+    ),
+    ...getSparsePreloadPageIndices(
+      options.pageIndex,
+      options.pageCount,
+      "backward",
+      READER_SPARSE_PRELOAD_PAGE_COUNT,
+      options.widePageIndices,
+    ),
+  ].flatMap((pageIndex) => {
     const url = options.pageUrl(pageIndex);
     return url &&
       isSparseLibraryPageUrl(url) &&
@@ -49,7 +62,7 @@ export const createReaderPagePreloadPlan = (options: {
   });
 
   return {
-    httpUrls: [...textureUrls, ...sparseAdjacentUrls],
+    httpUrls: [...textureUrls, ...sparsePreloadUrls],
     textureUrls,
   };
 };

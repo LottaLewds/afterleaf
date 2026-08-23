@@ -3,12 +3,12 @@ import {describe, expect, test} from "bun:test";
 import {
   clampPageIndex,
   formatPageCounter,
-  getAdjacentSpreadPageIndices,
   getAdjacentSpreadStart,
   getArrowNavigation,
   getReaderSpread,
   getReaderSpreadSides,
   getReaderWindow,
+  getSparsePreloadPageIndices,
   orderSpreadPages,
 } from "~/reader/pagination";
 
@@ -97,13 +97,27 @@ describe("reader pagination", () => {
     expect(getAdjacentSpreadStart(0, 8, "spread", "backward")).toBe(0);
   });
 
-  test("selects exactly the previous and next spreads for HTTP preloading", () => {
-    expect(getAdjacentSpreadPageIndices(5, 12)).toEqual([7, 8, 3, 4]);
-    expect(getAdjacentSpreadPageIndices(0, 8)).toEqual([1, 2]);
-    expect(getAdjacentSpreadPageIndices(7, 8)).toEqual([5, 6]);
-    expect(getAdjacentSpreadPageIndices(2, 9, new Set([2, 5]))).toEqual([
-      3, 4, 1,
+  test("selects six pages in each direction for sparse HTTP preloading", () => {
+    expect(getSparsePreloadPageIndices(5, 12, "forward")).toEqual([
+      7, 8, 9, 10, 11,
     ]);
+    expect(getSparsePreloadPageIndices(5, 12, "backward")).toEqual([
+      0, 1, 2, 3, 4,
+    ]);
+    expect(getSparsePreloadPageIndices(0, 8, "forward")).toEqual([
+      1, 2, 3, 4, 5, 6,
+    ]);
+    expect(getSparsePreloadPageIndices(0, 8, "backward")).toEqual([]);
+    expect(getSparsePreloadPageIndices(7, 8, "forward")).toEqual([]);
+    expect(getSparsePreloadPageIndices(1, 12, "forward")).toEqual([
+      3, 4, 5, 6, 7, 8,
+    ]);
+    expect(
+      getSparsePreloadPageIndices(2, 9, "forward", undefined, new Set([2, 5])),
+    ).toEqual([3, 4, 5, 6, 7, 8]);
+    expect(
+      getSparsePreloadPageIndices(2, 9, "backward", undefined, new Set([2, 5])),
+    ).toEqual([0, 1]);
   });
 
   test("maps physical arrow keys to each reading direction", () => {

@@ -6,7 +6,7 @@ const sparsePageUrl = (pageIndex: number) =>
   `/api/library/publications/nhentai-42/pages/${pageIndex + 1}`;
 
 describe("reader page preload planning", () => {
-  test("HTTP preloads the previous and next sparse spreads without GPU prefetching them", () => {
+  test("HTTP preloads six pages in each direction without GPU prefetching them", () => {
     const plan = createReaderPagePreloadPlan({
       pageCount: 12,
       pageIndex: 5,
@@ -18,8 +18,35 @@ describe("reader page preload planning", () => {
     expect(plan.httpUrls).toEqual([
       sparsePageUrl(7),
       sparsePageUrl(8),
+      sparsePageUrl(9),
+      sparsePageUrl(10),
+      sparsePageUrl(11),
+      sparsePageUrl(0),
+      sparsePageUrl(1),
+      sparsePageUrl(2),
       sparsePageUrl(3),
       sparsePageUrl(4),
+    ]);
+    expect(plan.textureUrls).toEqual([]);
+  });
+
+  test("HTTP preloads pages 4-9 when showing the 2+3 spread", () => {
+    const plan = createReaderPagePreloadPlan({
+      pageCount: 12,
+      pageIndex: 1,
+      pageUrl: sparsePageUrl,
+      requestedUrls: new Set([sparsePageUrl(1), sparsePageUrl(2)]),
+      widePageIndices: new Set(),
+    });
+
+    expect(plan.httpUrls).toEqual([
+      sparsePageUrl(3),
+      sparsePageUrl(4),
+      sparsePageUrl(5),
+      sparsePageUrl(6),
+      sparsePageUrl(7),
+      sparsePageUrl(8),
+      sparsePageUrl(0),
     ]);
     expect(plan.textureUrls).toEqual([]);
   });

@@ -1826,34 +1826,19 @@ const findCachedSparsePage = async (
 };
 
 const sparsePageRequests = new Map<string, Promise<Buffer | string>>();
-const sparsePublicationRequestTails = new Map<string, Promise<void>>();
 
+// Materialization runs fully in parallel; the reader only prefetches a few
+// pages per spread turn, so simultaneous downloads stay naturally bounded.
 const queueSparsePageMaterialization = (
   publicationId: string,
   pageNumber: number,
   queuedAt: number,
-) => {
-  const previous = sparsePublicationRequestTails.get(publicationId);
-  const pending = (previous ?? Promise.resolve())
-    .catch(() => {})
-    .then(() =>
-      materializeSparsePage(
-        publicationId,
-        pageNumber,
-        performance.now() - queuedAt,
-      ),
-    );
-  const tail = pending.then(
-    () => {},
-    () => {},
+) =>
+  materializeSparsePage(
+    publicationId,
+    pageNumber,
+    performance.now() - queuedAt,
   );
-  sparsePublicationRequestTails.set(publicationId, tail);
-  void tail.finally(() => {
-    if (sparsePublicationRequestTails.get(publicationId) === tail)
-      sparsePublicationRequestTails.delete(publicationId);
-  });
-  return pending;
-};
 
 const activeSparsePublication = (publicationId: string) => {
   const location = requestLibraryLocation();

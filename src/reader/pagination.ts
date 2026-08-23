@@ -14,6 +14,7 @@ export type ReaderSpreadSides = {
 
 export const READER_PAGE_BUFFER_SIZE = 4;
 export const READER_PAGE_TEXTURE_CACHE_SIZE = READER_PAGE_BUFFER_SIZE * 2 + 2;
+export const READER_SPARSE_PRELOAD_PAGE_COUNT = 6;
 const EMPTY_WIDE_PAGE_INDICES: ReadonlySet<number> = new Set();
 
 const normalizePageCount = (pageCount: number) =>
@@ -88,6 +89,43 @@ export const getReaderWindow = (
   );
 };
 
+// Pages adjacent to the current spread in the given direction, used for
+// sparse-library HTTP preloading so pages land on disk before they are shown.
+export const getSparsePreloadPageIndices = (
+  pageIndex: number,
+  pageCount: number,
+  navigation: ReaderNavigation,
+  count = READER_SPARSE_PRELOAD_PAGE_COUNT,
+  widePageIndices: ReadonlySet<number> = EMPTY_WIDE_PAGE_INDICES,
+): readonly number[] => {
+  const normalizedPageCount = normalizePageCount(pageCount);
+  if (normalizedPageCount === 0) return [];
+
+  const spread = getReaderSpread(
+    pageIndex,
+    normalizedPageCount,
+    "spread",
+    widePageIndices,
+  );
+  const normalizedCount = Math.max(0, Math.trunc(count));
+  if (navigation === "backward") {
+    const firstPage = Math.max(0, spread.start - normalizedCount);
+    return Array.from(
+      {length: spread.start - firstPage},
+      (_, offset) => firstPage + offset,
+    );
+  }
+  const lastVisiblePage = spread.pageIndices.at(-1) ?? spread.start;
+  const lastPage = Math.min(
+    normalizedPageCount - 1,
+    lastVisiblePage + normalizedCount,
+  );
+  return Array.from(
+    {length: lastPage - lastVisiblePage},
+    (_, offset) => lastVisiblePage + offset + 1,
+  );
+};
+
 export const getAdjacentSpreadStart = (
   pageIndex: number,
   pageCount: number,
@@ -122,38 +160,6 @@ export const getAdjacentSpreadStart = (
     layout,
     widePageIndices,
   ).start;
-};
-
-export const getAdjacentSpreadPageIndices = (
-  pageIndex: number,
-  pageCount: number,
-  widePageIndices: ReadonlySet<number> = EMPTY_WIDE_PAGE_INDICES,
-) => {
-  const currentSpread = getReaderSpread(
-    pageIndex,
-    pageCount,
-    "spread",
-    widePageIndices,
-  );
-  const adjacentPages = new Set<number>();
-  for (const navigation of ["forward", "backward"] as const) {
-    const adjacentStart = getAdjacentSpreadStart(
-      currentSpread.start,
-      pageCount,
-      "spread",
-      navigation,
-      widePageIndices,
-    );
-    if (adjacentStart === currentSpread.start) continue;
-    for (const adjacentPage of getReaderSpread(
-      adjacentStart,
-      pageCount,
-      "spread",
-      widePageIndices,
-    ).pageIndices)
-      adjacentPages.add(adjacentPage);
-  }
-  return [...adjacentPages];
 };
 
 export const getArrowNavigation = (
