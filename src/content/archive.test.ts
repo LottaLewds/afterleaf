@@ -413,9 +413,9 @@ test("archive import creates sparse English/Japanese catalogs and skips Chinese"
       match: "all",
       seed: "archive-test",
       dryRun: false,
-      force: false,
-      outputDirectory: resolve(root, "pack"),
+      outputDirectory: resolve(root, "revision"),
       packId: "archive-test",
+      persistentAssetDirectory: root,
     },
   );
   expect(seeded.report.selectedPublicationIds).toEqual([
@@ -506,9 +506,9 @@ test("archive import infers aspect ratio from early and midpoint interior pages"
       match: "all",
       seed: "archive-aspect",
       dryRun: false,
-      force: false,
-      outputDirectory: resolve(root, "pack"),
+      outputDirectory: resolve(root, "revision"),
       packId: "archive-aspect",
+      persistentAssetDirectory: root,
     },
   );
   expect(seeded.catalog?.publications[0]?.physical.aspectRatio).toBeCloseTo(
@@ -519,8 +519,10 @@ test("archive import infers aspect ratio from early and midpoint interior pages"
 test("archive CLI parses preview defaults", () => {
   const defaults = parseArchiveImportCliOptions([], "/workspace/afterleaf");
   expect(defaults.importOptions).toMatchObject({
-    archivesDirectory: resolve("/workspace/afterleaf/content/books"),
-    outputDirectory: resolve("/workspace/afterleaf/content-sources/catalog"),
+    archivesDirectory: resolve("/workspace/afterleaf/afterleaf-data/content"),
+    outputDirectory: resolve(
+      "/workspace/afterleaf/afterleaf-data/game/.cache/prepared",
+    ),
     tags: [],
     write: false,
   });

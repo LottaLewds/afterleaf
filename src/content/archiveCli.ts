@@ -1,5 +1,9 @@
 import {resolve} from "node:path";
 import {
+  preparedCatalogDirectory,
+  userContentDirectory,
+} from "~/content/dataRoot";
+import {
   importContentArchives,
   type ArchiveImportOptions,
 } from "~/content/archive";
@@ -70,16 +74,16 @@ export const parseArchiveImportCliOptions = (
   return {
     help,
     importOptions: {
-      archivesDirectory: resolve(
-        workingDirectory,
-        parsed.values.get("archives") ?? "content/books",
-      ),
+      archivesDirectory:
+        parsed.values.get("archives") === undefined
+          ? userContentDirectory(workingDirectory)
+          : resolve(workingDirectory, parsed.values.get("archives") ?? ""),
       defaultLanguage: parseLanguage(parsed.values.get("language")),
       force: parsed.flags.has("force"),
-      outputDirectory: resolve(
-        workingDirectory,
-        parsed.values.get("out") ?? "content-sources/catalog",
-      ),
+      outputDirectory:
+        parsed.values.get("out") === undefined
+          ? preparedCatalogDirectory(workingDirectory)
+          : resolve(workingDirectory, parsed.values.get("out") ?? ""),
       tags: normalizeTags(
         parsed.values
           .get("tags")
@@ -99,9 +103,9 @@ Usage:
 Options:
   --archives <directory>   Folder containing CBZ/ZIP/CBR/RAR files and optional
                            comics/ and manga/ directive subdirectories
-                           (default: content/books)
+                           (default: the content folder of the data directory)
   --out <directory>        Prepared local-catalog destination
-                           (default: content-sources/catalog)
+                           (default: game/.cache/prepared in the data directory)
   --tags <tag,tag>         Tags applied to every imported publication
   --language <language>    Fallback for names without a language hint
                            (default: english; supports english or japanese)

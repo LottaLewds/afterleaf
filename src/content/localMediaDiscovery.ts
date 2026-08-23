@@ -53,7 +53,14 @@ export const discoverLocalMedia = async (
     if (!current) break;
 
     if (!current.visited) {
-      const entries = await readdir(current.directory, {withFileTypes: true});
+      let entries: import("node:fs").Dirent[];
+      try {
+        entries = await readdir(current.directory, {withFileTypes: true});
+      } catch (error) {
+        // Roots may not exist yet on a fresh install; they are simply empty.
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
+        throw error;
+      }
       entries.sort((left, right) =>
         NATURAL_COLLATOR.compare(left.name, right.name),
       );

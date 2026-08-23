@@ -165,7 +165,7 @@ const createDependencies = (
   }),
   createRequestId: () => "request-1",
   createSnapshotId: () => "next",
-  discardSnapshot: async () => {},
+  discardRevision: async () => {},
   now: () => new Date("2026-07-29T12:00:00.000Z"),
   readBlacklist: async () => [],
   readIndex: async () => previousIndex,
@@ -194,10 +194,8 @@ describe("LibraryUpdateService", () => {
       runSeed: async (catalogDirectory, options, excludedPublicationIds) => {
         calls.push("seed");
         expect(catalogDirectory).toBe(resolve("/source"));
-        expect(options.force).toBe(false);
         expect(options.dryRun).toBe(false);
         expect(options.excludedTags).toEqual([]);
-        expect(options.assetPathPrefix).toBe("assets/next");
         expect(options.persistentAssetDirectory).toBe(resolve("/library"));
         expect(options.languages).toEqual(["english", "japanese"]);
         expect([...excludedPublicationIds]).toEqual([
@@ -258,7 +256,6 @@ describe("LibraryUpdateService", () => {
       "seeding",
       "activating",
       "activating",
-      "activating",
       "complete",
     ]);
     expect(messages).toContain("Fetching publication 1 of 20");
@@ -275,11 +272,12 @@ describe("LibraryUpdateService", () => {
         "missing was materialized by weebcentral but did not enter the derived catalog",
       ),
     );
-    expect(messages).toContain("Promoting new derived library assets");
     expect(messages).toContain(
       "Activating the completed library catalog revision",
     );
-    expect(messages).toContain("Scheduling retired library assets for cleanup");
+    expect(messages).toContain(
+      "Scheduling unreferenced pooled assets for cleanup",
+    );
     expect(service.getState()).toMatchObject({
       activeSnapshot: {snapshotId: "next"},
       phase: "complete",
@@ -442,7 +440,7 @@ describe("LibraryUpdateService", () => {
       activateSnapshot: async () => {
         throw new Error("index write failed");
       },
-      discardSnapshot: async (directory) => {
+      discardRevision: async (directory) => {
         discarded.push(directory);
       },
     });
@@ -580,19 +578,9 @@ describe("LibraryUpdateService", () => {
           calls.push("activate");
           return previousIndex;
         },
-        discardAssetSet: async (revisionId) => {
-          calls.push("discard-assets");
-          expect(revisionId).toBe("next");
-        },
-        discardSnapshot: async (snapshotDirectory) => {
-          calls.push("discard-snapshot");
-          expect(snapshotDirectory).toBe(resolve("/library/revisions/next"));
-        },
-        promoteAssetSet: async () => {
-          calls.push("promote");
-        },
-        retireUnreferencedAssetSets: async () => {
-          calls.push("retire");
+        discardRevision: async (revisionDirectory) => {
+          calls.push("discard-revision");
+          expect(revisionDirectory).toBe(resolve("/library/revisions/next"));
         },
         runSeed: async () => {
           calls.push("seed");
@@ -603,7 +591,7 @@ describe("LibraryUpdateService", () => {
 
     const result = await service.scan({});
 
-    expect(calls).toEqual(["seed", "discard-snapshot", "discard-assets"]);
+    expect(calls).toEqual(["seed", "discard-revision"]);
     expect(result.snapshot).toBe(previousSnapshot);
     expect(result.previousSnapshot).toBe(previousSnapshot);
     expect(result.diff).toEqual({
@@ -663,18 +651,15 @@ describe("LibraryUpdateService", () => {
           calls.push("activate");
           return previousIndex;
         },
-        discardAssetSet: async () => {
-          calls.push("discard-assets");
-        },
-        discardSnapshot: async () => {
-          calls.push("discard-snapshot");
+        discardRevision: async () => {
+          calls.push("discard-revision");
         },
         runSeed: async () => unsafeSeedResult,
       }),
     );
 
     await expect(service.scan({})).rejects.toThrow("kept the current catalog");
-    expect(calls).toEqual(["discard-snapshot", "discard-assets"]);
+    expect(calls).toEqual(["discard-revision"]);
     expect(service.getState()).toMatchObject({
       activeSnapshot: previousSnapshot,
       status: "failed",
@@ -757,7 +742,7 @@ describe("LibraryUpdateService", () => {
     expect(result.snapshot.snapshotId).toBe("next");
   });
 
-  test("promotes only newly derived assets before activating a catalog revision", async () => {
+  test("activates a catalog revision directly against the persistent asset pool", async () => {
     const calls: string[] = [];
     const service = new LibraryUpdateService(
       {
@@ -782,17 +767,15 @@ describe("LibraryUpdateService", () => {
             {contentHash: "removed-v1", id: "removed"},
           ],
         }),
-        promoteAssetSet: async (revisionDirectory, revisionId) => {
-          calls.push("promote");
-          expect(revisionDirectory).toBe(resolve("/library/revisions/next"));
-          expect(revisionId).toBe("next");
+        retireUnreferencedAssets: async () => {
+          calls.push("retire");
         },
       }),
     );
 
     const result = await service.scan({});
 
-    expect(calls).toEqual(["promote", "activate"]);
+    expect(calls).toEqual(["activate", "retire"]);
     expect(result.diff.unchangedPublicationIds).toEqual(["kept"]);
   });
 

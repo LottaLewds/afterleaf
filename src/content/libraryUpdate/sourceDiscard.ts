@@ -2,6 +2,7 @@ import {randomUUID} from "node:crypto";
 import type {Dirent} from "node:fs";
 import {mkdir, readdir, readFile, rename, stat} from "node:fs/promises";
 import {basename, isAbsolute, relative, resolve, sep} from "node:path";
+import {preparedCatalogDirectory, providersDirectory} from "~/content/dataRoot";
 import {fileURLToPath} from "node:url";
 import {
   ARCHIVE_SOURCE_PROVIDER,
@@ -115,15 +116,15 @@ export const discardManagedPublicationSources = async (
 ): Promise<DiscardManagedPublicationSourcesResult> => {
   const stablePublicationId = assertStablePublicationId(publicationId);
   const resolvedWorkingDirectory = resolve(workingDirectory);
-  const managedSourceDirectory = resolve(
-    resolvedWorkingDirectory,
-    "content-sources",
-  );
+  const managedSourceDirectories = [
+    providersDirectory(resolvedWorkingDirectory),
+    preparedCatalogDirectory(resolvedWorkingDirectory),
+  ];
   const configuredMediaPaths = await configuredLibraryMediaPaths(
     resolvedWorkingDirectory,
   );
   const managedMediaDirectories = [
-    managedSourceDirectory,
+    ...managedSourceDirectories,
     ...configuredMediaPaths
       .map(({path}) => path)
       .filter(
@@ -156,9 +157,7 @@ export const discardManagedPublicationSources = async (
   }
   const protectedDirectories = new Set([
     resolvedWorkingDirectory,
-    managedSourceDirectory,
-    resolve(managedSourceDirectory, "archives"),
-    resolve(managedSourceDirectory, "catalog"),
+    ...managedSourceDirectories,
   ]);
   const topLevelTargets = [...targets].filter(
     (candidate) =>
@@ -170,7 +169,12 @@ export const discardManagedPublicationSources = async (
   if (topLevelTargets.length === 0)
     return {managedSourceCount: 0, publicationId: stablePublicationId};
 
-  const garbageDirectory = resolve(managedSourceDirectory, "source-garbage");
+  // Discarded managed sources are quarantined beside the provider caches
+  // before the detached garbage collector deletes them.
+  const garbageDirectory = resolve(
+    providersDirectory(resolvedWorkingDirectory),
+    "source-garbage",
+  );
   await mkdir(garbageDirectory, {recursive: true});
   const moved: string[] = [];
   for (const target of topLevelTargets) {

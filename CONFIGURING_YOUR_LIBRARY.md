@@ -6,10 +6,10 @@ catalog and optimized assets around them.
 
 ## Quick setup
 
-Use the default folders:
+Use the default folders inside `afterleaf-data/content`:
 
 ```text
-content/books/
+afterleaf-data/content/
   comics/   # Left-to-right
   manga/    # Right-to-left
 ```
@@ -61,8 +61,8 @@ Nested books take priority over an outer manifest.
 
 ### Reading direction
 
-- `comicPaths` and `content/books/comics` are left-to-right.
-- `mangaPaths` and `content/books/manga` are right-to-left.
+- `comicPaths` and `content/comics` are left-to-right.
+- `mangaPaths` and `content/manga` are right-to-left.
 - The legacy `mediaPaths` setting does not specify a direction.
 - `[LTR]` or `[RTL]` in a book name overrides an unspecified root.
 
@@ -183,12 +183,21 @@ state.
 
 ## Where Afterleaf stores data
 
-- `content/books`: default local archive roots.
-- `content-sources/catalog`: generated manifests and prepared provider content.
-- `content-packs/library`: active catalog revisions, optimized assets,
-  blacklists, and other managed library state.
+Everything lives in one `afterleaf-data/` folder; copying it is a complete
+backup.
+
+- `afterleaf-data/content/comics` and `.../manga`: default local archive roots.
+- `afterleaf-data/game/.cache/prepared`: generated manifests and prepared
+  provider content. Regenerable.
+- `afterleaf-data/game/.cache/library`: optimized assets and the active catalog
+  pointer. Regenerable; safe to delete to reclaim disk space (rescan rebuilds).
+- `afterleaf-data/game/publication-blacklist.json`: discarded publication IDs.
+- `afterleaf-data/providers/<provider>`: downloaded provider caches.
 - `.afterleaf-library-root.json`: the mount marker inside each configured book
   root.
+
+Installs from before this layout can be moved with `bun run library:migrate`
+(dry-run by default, add `--write`).
 
 For provider development details, see
 [`docs/CONTENT_PROVIDERS.md`](docs/CONTENT_PROVIDERS.md).

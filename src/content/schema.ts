@@ -132,17 +132,19 @@ export interface PublicationSource {
 
 export interface SeedContentPackOptions extends PublicationSearchQuery {
   allowEmpty?: boolean;
-  assetPathPrefix?: string;
   dryRun: boolean;
-  force: boolean;
   forceRebuild?: boolean;
   onDiagnostic?: (diagnostic: ContentSeedDiagnostic) => void;
   outputDirectory: string;
   packId: string;
-  persistentAssetDirectory?: string;
+  /**
+   * Root of the persistent content-keyed asset pool. All derived assets are
+   * written here under stable `assets/...` catalog paths; nothing is staged
+   * or copied per revision.
+   */
+  persistentAssetDirectory: string;
   reuse?: {
     catalog: ContentPackCatalog;
-    directory: string;
   };
 }
 

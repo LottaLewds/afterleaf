@@ -1,4 +1,5 @@
 import {resolve} from "node:path";
+import {preparedCatalogDirectory} from "~/content/dataRoot";
 import {normalizeTags, parseSupportedLanguage} from "~/content/normalize";
 import {
   prepareLocalCatalog,
@@ -72,10 +73,10 @@ export const parseContentPrepareCliOptions = (
     prepareOptions: {
       defaultLanguage: parseLanguage(parsed.values.get("language")),
       force: parsed.flags.has("force"),
-      rootDirectory: resolve(
-        workingDirectory,
-        parsed.values.get("root") ?? "content-sources/catalog",
-      ),
+      rootDirectory:
+        parsed.values.get("root") === undefined
+          ? preparedCatalogDirectory(workingDirectory)
+          : resolve(workingDirectory, parsed.values.get("root") ?? ""),
       tags: normalizeTags(
         parsed.values
           .get("tags")
@@ -94,7 +95,7 @@ Usage:
 
 Options:
   --root <directory>       Folder containing one subfolder per publication
-                           (default: content-sources/catalog)
+                           (default: game/.cache/prepared in the data folder)
   --tags <tag,tag>         Tags applied to every discovered publication
   --language <language>    Fallback for names without a language hint
                            (default: english; supports english or japanese)

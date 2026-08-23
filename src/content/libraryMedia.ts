@@ -8,10 +8,16 @@ import {
 import {isContentArchivePath} from "~/content/archiveReader";
 import {
   LIBRARY_CONFIG_FILE_NAME,
-  LIBRARY_ROOT_REGISTRY_FILE_NAME,
   readAfterleafLibraryConfig,
   unavailableLibraryPaths,
 } from "~/content/libraryConfig";
+import {
+  comicsDirectory,
+  libraryRootRegistryPath,
+  mangaDirectory,
+  preparedCatalogDirectory,
+  scanFailuresLogPath,
+} from "~/content/dataRoot";
 import {
   prepareLocalCatalog,
   type ContentPrepareDiagnostic,
@@ -19,11 +25,6 @@ import {
 import {parseLocalPublicationDocument} from "~/content/validation";
 
 export {LIBRARY_CONFIG_FILE_NAME};
-
-const DEFAULT_MEDIA_PATHS = [
-  "content/books",
-  "content-sources/catalog",
-] as const;
 
 interface ConfiguredMediaRoot {
   path: string;
@@ -195,14 +196,13 @@ export const importLocalMedia = async (
   options: LocalMediaImportOptions = {},
 ): Promise<LocalMediaImportResult> => {
   const configMediaPaths = await configuredLibraryMediaPaths(workingDirectory);
-  const defaultMediaPaths = DEFAULT_MEDIA_PATHS.map((path) =>
-    resolve(workingDirectory, path),
-  );
+  const defaultArchiveDirectory = comicsDirectory(workingDirectory);
+  const defaultMediaPaths = [
+    defaultArchiveDirectory,
+    mangaDirectory(workingDirectory),
+    preparedCatalogDirectory(workingDirectory),
+  ];
   const defaultMediaPathSet = new Set(defaultMediaPaths);
-  const defaultArchiveDirectory = resolve(
-    workingDirectory,
-    DEFAULT_MEDIA_PATHS[0],
-  );
   const configuredMediaPaths = uniqueMediaPaths([
     ...defaultMediaPaths.map((path) => ({
       optional: true,
@@ -228,11 +228,7 @@ export const importLocalMedia = async (
     configuredMediaPaths
       .filter((mediaPath) => mediaPath.protectsExistingLibrary)
       .map((mediaPath) => mediaPath.path),
-    resolve(
-      workingDirectory,
-      "content-sources",
-      LIBRARY_ROOT_REGISTRY_FILE_NAME,
-    ),
+    libraryRootRegistryPath(workingDirectory),
   );
   if (unavailableProtectedPaths.length > 0)
     throw new UnavailableLibraryMediaPathsError(unavailableProtectedPaths);
@@ -311,11 +307,7 @@ export const importLocalMedia = async (
     write: true,
   });
 
-  const failureLogPath = resolve(
-    workingDirectory,
-    "content-sources",
-    "scan-failures.log",
-  );
+  const failureLogPath = scanFailuresLogPath(workingDirectory);
   const failures = [...folderDiagnostics, ...archiveReport.diagnostics].filter(
     (diagnostic) => diagnostic.code === "processing-failed",
   );

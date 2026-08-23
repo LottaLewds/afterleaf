@@ -139,10 +139,10 @@ export const parseNhentaiSyncCliOptions = (
         10,
         "max-search-pages",
       ),
-      outputDirectory: resolve(
-        workingDirectory,
-        parsed.values.get("out") ?? "content-sources/nhentai",
-      ),
+      outputDirectory:
+        parsed.values.get("out") === undefined
+          ? resolve(providersDirectory(workingDirectory), "nhentai")
+          : resolve(workingDirectory, parsed.values.get("out") ?? ""),
       query: parsed.values.get("query") ?? 'tag:"big breasts"',
       write: parsed.flags.has("write"),
     },
@@ -160,7 +160,7 @@ Options:
   --blocked-tags <tag,...>    Optional tags to reject; none are blocked by default
   --limit <count>              Newest matching galleries considered per run (default: 20)
   --max-search-pages <count>   Search-page safety limit (default: 10)
-  --out <directory>            Ignored local catalog (default: content-sources/nhentai)
+  --out <directory>            Ignored local catalog (default: providers/nhentai)
   --cookie-file <path>         Optional Cookie header read from a file
   --user-agent <value>         Browser User-Agent matching a Cloudflare cookie
   --flaresolverr-url <url>     FlareSolverr endpoint used as an HTTP 403 fallback
@@ -172,6 +172,7 @@ updated, unchanged, and repaired entries safe to distinguish. Review the preview
 using --write.
 `;
 
+import {providersDirectory} from "~/content/dataRoot";
 export const runNhentaiSyncCli = async (
   arguments_: readonly string[],
   workingDirectory = process.cwd(),
