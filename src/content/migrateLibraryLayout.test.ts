@@ -1,5 +1,6 @@
 import {afterEach, describe, expect, test} from "bun:test";
 import {
+  access,
   mkdir,
   mkdtemp,
   readFile,
@@ -241,6 +242,55 @@ describe("library layout migration", () => {
         resolve(root, "afterleaf-data/content/comics/My Comic.cbz"),
       ),
     ).toBeDefined();
+  });
+
+  test("tracked .gitkeep placeholder destinations do not block the move", async () => {
+    const root = await mkdtemp(join(tmpdir(), "afterleaf-migrate-keep-"));
+    temporaryDirectories.push(root);
+    await createLegacyLayout(root);
+    // Simulate a fresh clone's skeleton: every destination pre-exists with
+    // only placeholder dotfiles.
+    const placeholderDirs = [
+      "afterleaf-data/content/comics",
+      "afterleaf-data/content/manga",
+      "afterleaf-data/content/tv/afterleaf_tv",
+      "afterleaf-data/content/posters",
+      "afterleaf-data/content/art-frames",
+      "afterleaf-data/content/models",
+      "afterleaf-data/content/roms/nes",
+    ];
+    await Promise.all(
+      placeholderDirs.map(async (directory) => {
+        await mkdir(resolve(root, directory), {recursive: true});
+        await writeFile(resolve(root, directory, ".gitkeep"), "");
+      }),
+    );
+    await writeFile(resolve(root, "afterleaf-data/content/tv/.gitkeep"), "");
+
+    const result = await migrateLibraryLayout(root, {write: true});
+
+    expect(result.conflicts).toEqual([]);
+    expect(result.performedMoves.length).toBeGreaterThan(0);
+    expect(
+      await readFile(
+        resolve(root, "afterleaf-data/content/comics/My Comic.cbz"),
+      ),
+    ).toBeDefined();
+    expect(
+      await readFile(
+        resolve(root, "afterleaf-data/content/tv/music/video.mp4"),
+      ),
+    ).toBeDefined();
+    expect(
+      await readFile(
+        resolve(root, "afterleaf-data/game/world-save.json"),
+        "utf8",
+      ),
+    ).toBe('{"revision":7}');
+    // The incoming real content replaced the placeholders.
+    await expect(
+      access(resolve(root, "afterleaf-data/content/comics/.gitkeep")),
+    ).rejects.toThrow();
   });
 
   test("rerunning after a successful migration finds nothing to do", async () => {

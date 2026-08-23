@@ -100,6 +100,28 @@ const directoryIsEmpty = async (path: string) => {
 };
 
 /**
+ * True when a destination directory holds nothing but tracked placeholder
+ * dotfiles (for example .gitkeep from the repository skeleton), at any
+ * depth. Such a directory is replaceable: the incoming real content
+ * supersedes it.
+ */
+const directoryIsPlaceholderOnly = async (
+  path: string,
+  depth = 4,
+): Promise<boolean> => {
+  const entries = await readdir(path);
+  if (entries.length === 0) return true;
+  if (depth <= 0) return false;
+  for (const entry of entries) {
+    if (entry.startsWith(".")) continue;
+    const entryPath = resolve(path, entry);
+    if (!(await stat(entryPath)).isDirectory()) return false;
+    if (!(await directoryIsPlaceholderOnly(entryPath, depth - 1))) return false;
+  }
+  return true;
+};
+
+/**
  * Moves one file or directory tree into the data root. Same-volume moves
  * use a plain atomic rename; cross-volume moves copy recursively, verify
  * the byte count, then remove the source.
@@ -266,14 +288,20 @@ export const planLibraryLayoutMigration = async (
   for (const move of moves) {
     if (!(await pathExists(move.to))) continue;
     const destinationStat = await stat(move.to);
-    const empty =
-      destinationStat.isDirectory() && (await directoryIsEmpty(move.to));
-    if (empty) await rm(move.to, {force: true, recursive: true});
-    else
+    if (
+      destinationStat.isDirectory() &&
+      ((await directoryIsEmpty(move.to)) ||
+        // Fresh clones carry .gitkeep placeholders at exactly these
+        // destinations; real content replaces them.
+        (await directoryIsPlaceholderOnly(move.to)))
+    ) {
+      await rm(move.to, {force: true, recursive: true});
+    } else {
       conflicts.push({
         move,
         reason: `Destination already exists with content: ${move.to}`,
       });
+    }
   }
 
   return {
