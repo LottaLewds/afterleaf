@@ -80,9 +80,9 @@ the revision that its tab loaded, so a stale tab is stopped and must reload
 instead of overwriting a newer world state.
 
 While the world is changing, the server also preserves the previous state every
-15 minutes under the gitignored `content/world-state-backups` directory. The
-newest 96 `world-state.<UTC date>.json` snapshots are retained, and a suspicious
-large book-count drop forces a backup before the replacement is written.
+15 minutes under `afterleaf-data/game/world-save-backups`. The newest 96
+`world-state.<UTC date>.json` backups are retained, and a suspicious large
+book-count drop forces a backup before the replacement is written.
 
 ## Paste anything into the shop
 
@@ -112,11 +112,11 @@ The poster, art-frame, and TV workflows are described in more detail below.
 For setup, recursive-folder semantics, scanning, root-marker recovery, and
 troubleshooting, see [Configuring Your Library](CONFIGURING_YOUR_LIBRARY.md).
 
-Place local book archives beneath `content/books`, grouped by their reading
-format:
+Place local book archives beneath `afterleaf-data/content`, grouped by their
+reading format:
 
 ```text
-content/books/
+afterleaf-data/content/
   comics/  # left-to-right
     My Comic.cbz
   manga/   # right-to-left
@@ -126,7 +126,7 @@ content/books/
 The `comics` and `manga` directories set reading direction recursively, so books
 may be organized into further subdirectories. Archive files remain in place;
 generated manifests and shelf images are written beneath
-`content-sources/catalog`.
+`afterleaf-data/game/.cache/prepared`.
 
 Books can also be fetched through content-provider plugins. Afterleaf discovers
 trusted local plugins from `content-plugins` and paths listed in
@@ -246,13 +246,13 @@ television audio is spatialized from the model's normalized center.
 ![The in-shop television](screenshots/tv.webp)
 
 The in-shop television plays local `.mp4` and `.webm` files from named channel
-directories. From the repository root, create a directory beneath
-`content/channels` and put videos directly inside it:
+directories. Create a directory beneath `afterleaf-data/content/tv` and put
+videos directly inside it:
 
 ```text
-afterleaf/
+afterleaf-data/
   content/
-    channels/
+    tv/
       late-night-anime/
         episode-01.webm
         station-ident.mp4
@@ -260,8 +260,8 @@ afterleaf/
 
 Additional TV channel roots can be listed in `tvChannelPaths` in
 `afterleaf.library.json`. Changes to configured roots are picked up by the
-running local server; pasted/downloaded videos remain in the default repo
-folder.
+running local server; pasted/downloaded videos remain in the default data-folder
+channel directory.
 
 The immediate directory name is the stable channel ID; lowercase hyphenated
 names produce readable labels such as “Late Night Anime.” Nested directories,
@@ -291,7 +291,7 @@ current in your preferred Python environment:
 python -m pip install --upgrade --pre "yt-dlp[default,curl-cffi]"
 ```
 
-`content/channels` is gitignored local content. See [the television guide](docs/TV.md#adding-custom-channels)
+`afterleaf-data/content/tv` is local content. See [the television guide](docs/TV.md#adding-custom-channels)
 for playback, shuffle, aspect-ratio, spatial-audio, and interaction details.
 
 ## Library management
@@ -320,23 +320,54 @@ Afterleaf validates archive paths, duplicate names, encryption, entry counts,
 entry sizes, total expanded size, and compression ratios before accepting an
 archive. Symbolic links inside scanned media trees are skipped.
 
-### Default library folders
+### The Afterleaf data folder
 
-From the repository root, place archives under:
+Every non-code file lives in one `afterleaf-data/` folder beside the app, so
+copying that folder is a complete backup:
 
 ```text
-content/books/
+afterleaf-data/
+├── README.txt                  # explains each folder for new users
+├── afterleaf.library.json      # extra media locations (optional)
+├── content/                    # YOUR media; interact freely
+│   ├── comics/                 # left-to-right archives
+│   ├── manga/                  # right-to-left archives
+│   ├── tv/                     # television channel folders
+│   ├── posters/
+│   ├── art-frames/
+│   ├── models/
+│   └── roms/                   # emulator ROMs per system
+├── providers/                  # machine-managed download caches
+└── game/                       # app state; normally leave this alone
+    ├── world-save.json         # your world; back this up!
+    ├── world-save-backups/
+    ├── publication-blacklist.json
+    └── .cache/                 # regenerable: delete to reclaim disk
+        ├── prepared/           # per-book manifests + cover thumbnails
+        └── library/            # optimized textures + active catalog
+```
+
+Set the `AFTERLEAF_DATA_ROOT` environment variable to relocate it. An install
+using the pre-restructure folders can be moved with `bun run library:migrate`
+(dry-run by default; add `--write` to perform the move).
+
+### Default library folders
+
+Place archives under:
+
+```text
+afterleaf-data/content/
   comics/
     My Comic.cbz
   manga/
     Another Book.cbr
 ```
 
-Place unpacked publications under `content-sources/catalog`, with one folder per
-publication:
+Place unpacked publications under `afterleaf-data/game/.cache/prepared`, with
+one folder per publication:
 
 ```text
-content-sources/catalog/
+afterleaf-data/game/.cache/prepared/
   My Image Folder Comic/
     001.jpg
     002.jpg
@@ -349,14 +380,16 @@ list when pages are added, replaced, or removed while preserving edited title,
 tag, and other publication metadata.
 
 Archives remain in their source location. Afterleaf stores only their manifest
-and generated shelf images in `content-sources/catalog`; reader pages are
+and generated shelf images in the prepared cache; reader pages are
 decompressed and converted on demand. ZIP pages are read directly, while a
 requested RAR page uses an isolated temporary extraction that is removed after
 the page is read. Recent converted pages share a bounded 128 MiB memory cache.
 
 ### Additional content locations
 
-Edit `afterleaf.library.json` beside this README to add content stored elsewhere.
+Edit `afterleaf-data/afterleaf.library.json` to add content stored elsewhere.
+(Installs migrated from an older release may still keep the file beside the app;
+Afterleaf reads both locations until the file is relocated.)
 Every property is an array accepting zero or more paths, and every configured
 path is additive to its default repo folder. Put books in `comicPaths` or
 `mangaPaths` to set their reading direction:
@@ -371,20 +404,19 @@ path is additive to its default repo folder. Put books in `comicPaths` or
 }
 ```
 
-Copy the tracked example before adding private paths. The local config is
-gitignored so machine-specific paths are not committed:
+Copy the tracked example before adding private paths:
 
 ```sh
-cp afterleaf.library.example.json afterleaf.library.json
+cp afterleaf.library.example.json afterleaf-data/afterleaf.library.json
 ```
 
-| Property         | Default repo content   |
-| ---------------- | ---------------------- |
-| `comicPaths`     | `content/books/comics` |
-| `mangaPaths`     | `content/books/manga`  |
-| `tvChannelPaths` | `content/channels`     |
-| `posterPaths`    | `content/posters`      |
-| `artFramePaths`  | `content/art-frames`   |
+| Property         | Default data-folder location        |
+| ---------------- | ----------------------------------- |
+| `comicPaths`     | `afterleaf-data/content/comics`     |
+| `mangaPaths`     | `afterleaf-data/content/manga`      |
+| `tvChannelPaths` | `afterleaf-data/content/tv`         |
+| `posterPaths`    | `afterleaf-data/content/posters`    |
+| `artFramePaths`  | `afterleaf-data/content/art-frames` |
 
 Each `comicPaths` or `mangaPaths` entry may point to:
 
@@ -448,16 +480,19 @@ magazine families and receive structured issue metadata.
   updated.
 - Discarding a publication in the shop permanently blacklists its publication
   ID, so later scans do not bring it back. The blacklist is stored at
-  `content-packs/library/publication-blacklist.json`.
+  `afterleaf-data/game/publication-blacklist.json`.
 - Deleting a book from a completely scanned, enrolled root removes its prepared
   catalog entry on the next **Scan new**, including configured external
   roots. A missing or mismatched root marker locks updates instead, preserving
   the active catalog until the expected storage is restored.
 
-Library snapshots live under `content-packs/library/snapshots`. Activation is
-atomic: a failed import or build leaves the previous snapshot active. Unchanged
-publication assets and shelf-atlas shards are hard-linked into the next snapshot
-so routine rescans avoid redundant image work and disk usage.
+Derived assets live in a persistent, content-addressed pool at
+`afterleaf-data/game/.cache/library/assets`: every derivative's filename embeds
+a hash of its bytes, so unchanged books are never rewritten on rescan and no
+filesystem hard-link support is required. Activation is atomic: a failed import
+or build leaves the previous catalog active, and assets orphaned by changed or
+removed books are quarantined and deleted automatically after the next
+successful scan.
 
 ### Optional CLI equivalents
 

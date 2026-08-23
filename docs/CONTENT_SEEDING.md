@@ -1,7 +1,8 @@
-# Content seeding
+# Content acquisition
 
-`content:seed` builds deterministic, runtime-ready Afterleaf packs from local
-source catalogs. Source catalogs and generated packs are ignored by Git.
+The commands here prepare local source catalogs for the library scanner. Use
+the in-game **Scan new** action (or `bun run library:scan --write`) to build the
+optimized library from them.
 
 ## Synchronize a local nHentai catalog
 
@@ -124,7 +125,7 @@ cookies remain valid.
 A Cookie header can also be supplied through `--cookie-file` with its matching
 User-Agent passed through `--user-agent`. Keep credentials outside the repository.
 
-The default destination is `content-sources/nhentai`. Each publication uses the
+The default destination is `afterleaf-data/providers/nhentai`. Each publication uses the
 stable `nhentai-<gallery-id>` identity. Repeat runs compare metadata fingerprints,
 skip complete unchanged entries without fetching their pages, atomically repair
 or replace changed entries, add newly visible galleries, and never delete older
@@ -135,21 +136,9 @@ version control. Afterleaf has no bundled content fallback: use local
 CBZ/ZIP/CBR/RAR imports, image folders, or an installed provider to populate the
 library.
 
-After syncing, create a runtime-ready snapshot through the ordinary pipeline:
-
-```sh
-bun run content:seed \
-  --catalog content-sources/nhentai \
-  --tags big-breasts \
-  --languages english,japanese \
-  --limit 20 \
-  --seed afterleaf-big-breasts-v1 \
-  --out content-packs/big-breasts-v1
-```
-
 The application-owned coordinator splits local discovery from network
-acquisition. Import local archives and image folders and rescan everything under
-`content-sources` without contacting nHentai:
+acquisition. Rescan the local library and provider caches under
+`afterleaf-data/providers` without contacting nHentai:
 
 ```sh
 bun run library:scan --write
@@ -170,14 +159,16 @@ publications with matching tags, while publications already downloaded remain
 eligible for every library revision. Removing existing matching publications
 is a separate, explicit discard or source-library cleanup operation.
 
-Each run writes a small catalog under `content-packs/library/revisions/<id>` and
-atomically advances `content-packs/library/index.json`. Immutable book assets
-live in `content-packs/library/assets`; unchanged publications retain their
-existing asset paths, while new or updated publications and affected shelf
-atlas shards are written under the new revision ID. A failed download, asset
-update, or activation leaves the previous catalog active. Retired catalog and
-asset directories are moved out of the serving path and garbage-collected by an
-isolated process. The coordinator reports its `syncing`, `seeding`, and
+Each run writes a small catalog revision under
+`afterleaf-data/game/.cache/library/revisions/<id>` and atomically advances
+`afterleaf-data/game/.cache/library/index.json`. Book assets live in the
+content-keyed pool at `afterleaf-data/game/.cache/library/assets`: every
+derivative's filename embeds a hash of its bytes, so unchanged publications
+never get rewritten, linked, or copied on any filesystem — including Windows
+drives formatted exFAT/FAT32 that do not support hard links. A failed download,
+asset update, or activation leaves the previous catalog active. Assets orphaned
+by changed or removed books are quarantined and garbage-collected by an
+isolated process after the next successful activation. The coordinator reports its `syncing`, `seeding`, and
 `activating` phases plus publication-level additions, updates, removals, and
 unchanged entries.
 
@@ -190,7 +181,7 @@ bun run library:blacklist --list
 ```
 
 The atomically written, server-side list lives at
-`content-packs/library/publication-blacklist.json` and survives catalog
+`afterleaf-data/game/publication-blacklist.json` and survives catalog
 activation.
 
 The in-app trashcan also retires matching app-managed source directories. A
@@ -200,7 +191,7 @@ catalog entry. Media referenced from outside the project through
 cache; the external archive or image folder is never deleted.
 
 The application automatically selects the active catalog revision in
-`content-packs/library/index.json` on startup. During local development and
+`afterleaf-data/game/.cache/library/index.json` on startup. During local development and
 local `vite preview`, its Vite adapter resolves the catalog and shared asset
 roots for every request while following later revision changes.
 The Escape menu keeps **Import & scan** and **Fetch more** as distinct actions.
@@ -226,32 +217,15 @@ the held book into the shop's trashcan. After activation, Solid retains the prev
 fetches the new catalog, so the running Three scene and Rapier world remain
 mounted.
 
-An individual non-library pack can still be selected explicitly:
-
-```sh
-AFTERLEAF_CONTENT_PACK=content-packs/big-breasts-v1 bun run dev
-AFTERLEAF_CONTENT_PACK=content-packs/big-breasts-v1 bun run build
-```
-
-If the variable is absent or does not point to a valid `catalog.json`, the app
-starts with an empty library. Production builds do not embed a content pack;
-running one through local `vite preview` overlays the active local library
-from disk without embedding it in the build. The library UI loads the selected
-pack's catalog on startup. The library-operation endpoints exist only
-on the local development host; a packaged Electron edition must expose the same
-coordinator through a narrow preload/main-process bridge. The browser never
-receives acquisition credentials; downloads run through the bounded local
-coordinator.
-
 ## Import archive publications
 
 Put one publication in each `.cbz`, `.zip`, `.cbr`, or `.rar` file beneath
-`content/books/comics` for left-to-right books or `content/books/manga` for
-right-to-left books. Archive names supply the same language and magazine
+`afterleaf-data/content/comics` for left-to-right books or
+`afterleaf-data/content/manga` for right-to-left books. Archive names supply the same language and magazine
 inference hints as image-folder names.
 
 The `comics` and `manga` direction applies recursively. Files placed directly
-under `content/books` have unspecified reading direction. External archive roots
+directly under `afterleaf-data/content` have unspecified reading direction. External archive roots
 can use `comicPaths` or `mangaPaths` in `afterleaf.library.json` to apply the
 same direction to every publication below that root. An explicit `[LTR]` or
 `[RTL]` filename hint is also accepted; a conflict between the filename and
@@ -266,8 +240,8 @@ To preflight a set manually without writing anything:
 
 ```sh
 bun run content:import-cbz \
-  --archives content/books \
-  --out content-sources/catalog \
+  --archives afterleaf-data/content \
+  --out afterleaf-data/game/.cache/prepared \
   --tags big-breasts
 ```
 
@@ -294,7 +268,7 @@ bun run library:scan --write
 The Escape-menu action loads the activated revision into the running shop as
 soon as it completes. When using the CLI directly, refresh the application;
 Afterleaf then selects the active revision from
-`content-packs/library/index.json`.
+`afterleaf-data/game/.cache/library/index.json`.
 
 Library revisions are incremental. Unchanged publication derivatives retain
 their existing pooled paths without being copied or relinked. Removed or
@@ -327,12 +301,12 @@ converted reader-page cache to its content storage.
 
 ## Prepare image folders
 
-`content:prepare` creates the sidecar manifests expected by `content:seed`. Its
+`content:prepare` creates the sidecar manifests consumed by the library scanner. Its
 root contains one directory per publication; images inside each publication may
 be nested in folders such as `pages/`.
 
 ```text
-content-sources/catalog/
+afterleaf-data/game/.cache/prepared/
 ├── Comic Moon Rabbit 2026-07 [English]/
 │   ├── cover.jpg
 │   └── pages/{001.jpg,002.jpg,...}
@@ -345,7 +319,7 @@ optional CLI preflight, preview the inferred manifests with:
 
 ```sh
 bun run content:prepare \
-  --root content-sources/catalog \
+  --root afterleaf-data/game/.cache/prepared \
   --tags big-breasts
 ```
 
@@ -373,7 +347,7 @@ every inference and skipped folder visible for review.
 Each publication is a directory containing `publication.json` and its images:
 
 ```text
-content-sources/catalog/
+afterleaf-data/game/.cache/prepared/
 └── moon-rabbit-01/
     ├── publication.json
     └── pages/
@@ -411,76 +385,3 @@ contain at most 1,000 pages; individual sources are capped at 100 megapixels and
 128 MiB. IDs are filesystem-safe lowercase slugs. Catalog traversal ignores
 symlinks, and every resolved asset path must remain inside its publication
 directory.
-
-## Seed a 20-publication visual set
-
-From the repository root:
-
-```sh
-bun run content:seed \
-  --source local-catalog \
-  --catalog content-sources/catalog \
-  --tags big-breasts \
-  --match all \
-  --languages english,japanese \
-  --limit 20 \
-  --seed afterleaf-big-breasts-v1 \
-  --out content-packs/big-breasts-v1
-```
-
-English matches are selected before Japanese matches. Chinese and other
-languages are skipped and recorded in `seed-report.json`. Within each language,
-the seed gives a stable order. The limit is applied only after manifests and
-images validate, so malformed candidates do not consume slots.
-
-Near-identical titles in the same language are associated as alternate editions
-before the limit is applied. Matching ignores case, punctuation, leading zeroes
-in numbers, the `Uncensored` edition marker, and bracketed supported-language
-markers such as `[English]`, `[ENG]`, `[Japanese]`, and `[JPN]`, plus `[Digital]`.
-Recognized markers are removed only after title text has begun; an initial
-bracketed credit such as `[Horori]` remains part of the identity. An uncensored
-edition is always chosen as the canonical publication. Its generated `tags` are
-the union of the editions' tags, while `originalTags` remains the canonical
-edition's own tag set and every `alternates` entry keeps that edition's ID,
-title, original tags, provenance, and page-zero asset. Source manifests are
-never rewritten by this association, so changing the title match restores
-independent publications without retaining previously merged tags.
-
-Use `--dry-run` to inspect the selection without writing. Existing output is
-never replaced unless `--force` is passed; replacement uses a staging directory
-and rename so an interrupted build does not leave a partial pack.
-
-## Generated pack
-
-```text
-content-packs/big-breasts-v1/
-├── catalog.json
-├── preview.html
-├── seed-report.json
-├── atlases/
-│   ├── front.webp
-│   ├── back.webp
-│   └── spine.webp
-└── publications/<publication-id>/
-    ├── front.webp
-    ├── back.webp
-    ├── spine.webp
-    └── pages/*.webp
-```
-
-Shelf surfaces are fixed-size atlas cells. Front and back surfaces derive from
-the source art; spine textures render the publication title on a deterministic
-book-cloth treatment rather than cropping a sliver of the cover. Individual
-spine derivatives preserve the aspect ratio of each publication's physical
-thickness so their lettering is not compressed when mapped onto the book.
-Runtime-ready WebP reader pages are copied byte-for-byte when they are no larger than 2048
-pixels on either axis, no larger than 2 MiB, and need no orientation correction.
-Other reader images preserve their aspect ratio and are normalized to quality-88
-sRGB WebP capped at 2048 pixels. Catalog, atlas, and per-publication hashes make
-repeated seeds auditable.
-`preview.html` is a self-contained metadata/contact-sheet view that references
-only those pack-local cover, spine, and atlas derivatives. Open it directly from
-disk to evaluate the set without starting a dev server or decoding reader pages.
-The current shop renders each book from its individual front and spine assets;
-the atlases are generated for visual auditing and the later batched shelf
-renderer, so they are not the texture source for the current mesh implementation.

@@ -103,9 +103,9 @@ Usage:
 Options:
   --archives <directory>   Folder containing CBZ/ZIP/CBR/RAR files and optional
                            comics/ and manga/ directive subdirectories
-                           (default: content/books)
+                           (default: the content folder of the data directory)
   --out <directory>        Prepared local-catalog destination
-                           (default: content-sources/catalog)
+                           (default: game/.cache/prepared in the data directory)
   --tags <tag,tag>         Tags applied to every imported publication
   --language <language>    Fallback for names without a language hint
                            (default: english; supports english or japanese)

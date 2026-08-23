@@ -14,7 +14,7 @@ content adapter.
 
 ## Content layout
 
-Television content lives under `content/channels`. Each immediate child directory
+Television content lives under `afterleaf-data/content/tv`. Each immediate child directory
 is one channel, and each supported video file directly inside it is one program.
 
 ```text
@@ -47,7 +47,7 @@ JavaScript bundle and are gitignored by default.
 
 No manifest or code change is required. To add a channel:
 
-1. Open `content/channels` from the repository root. Create the
+1. Open `afterleaf-data/content/tv`. Create the
    directory if it does not exist.
 2. Create one immediate child directory for the channel. Prefer a stable,
    lowercase, hyphenated name such as `late-night-anime`; it becomes the channel
@@ -118,7 +118,7 @@ Close and reopen PowerShell again before starting Afterleaf. Confirm that
 install the standalone `yt-dlp.yt-dlp` winget package: it can take precedence on
 `PATH` while lacking the Python installation's optional dependencies.
 
-Downloads are staged in `content/channels/.imports`, which the channel index
+Downloads are staged in `afterleaf-data/content/tv/.imports`, which the channel index
 excludes until finalization. A completed
 `.mp4` or `.webm` is hard-linked into the selected channel in one atomic
 operation, and a numeric suffix preserves both programs if its filename already
@@ -135,12 +135,12 @@ Keep these constraints in mind:
   ignored;
 - the `.mp4` or `.webm` container must contain codecs supported by the target
   Chrome version—the filename extension does not transcode a video; and
-- `content/channels` is gitignored because custom videos are local content.
+- Custom videos under `afterleaf-data/content/tv` are local content.
 
 ## Channel discovery
 
 Browser code cannot enumerate a directory. Afterleaf therefore needs a narrow
-content adapter that scans `content/channels` and exposes:
+content adapter that scans `afterleaf-data/content/tv` and exposes:
 
 1. a deterministic channel manifest; and
 2. read-only, same-origin URLs for the video files.
