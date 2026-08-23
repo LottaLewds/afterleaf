@@ -1448,6 +1448,7 @@ export class ShopScene {
   #inspectionTurnTargetPageIndex = 0;
   #inspectionTurnWillCommit = true;
   #inspectionQueuedTurn: ReaderNavigation | undefined;
+  #inspectionHeldNavigation: ReaderNavigation | undefined;
   #inspectionTurningBackTexture: Texture | undefined;
   #inspectionZoom = 1;
   #inspectionZoomOffsetX = 0;
@@ -1887,6 +1888,7 @@ export class ShopScene {
     this.#inspectionDragging = false;
     this.#inspectionDragReleaseDecision = undefined;
     this.#inspectionQueuedTurn = undefined;
+    this.#inspectionHeldNavigation = undefined;
     this.#releaseInspectionTurnTextures();
     this.#inspectionPageIndex = nextPageIndex;
     this.#inspectionTurnPage = undefined;
@@ -8510,12 +8512,13 @@ export class ShopScene {
         const publication = this.#inspectionPublication();
         if (!publication) return;
         event.preventDefault();
-        this.turnInspectionPage(
-          getArrowNavigation(
-            event.code === "KeyA" ? "ArrowLeft" : "ArrowRight",
-            publication.direction,
-          ),
+        if (event.repeat) return;
+        const navigation = getArrowNavigation(
+          event.code === "KeyA" ? "ArrowLeft" : "ArrowRight",
+          publication.direction,
         );
+        this.#inspectionHeldNavigation = navigation;
+        this.turnInspectionPage(navigation);
         return;
       }
       if (event.code === "KeyF" && inspectingCarriedBook) {
@@ -8911,6 +8914,15 @@ export class ShopScene {
       this.#releaseThrowCharge();
       return;
     }
+    if (event.code === "KeyA" || event.code === "KeyD") {
+      const direction = this.#inspectionPublication()?.direction ?? "LTR";
+      const navigation = getArrowNavigation(
+        event.code === "KeyA" ? "ArrowLeft" : "ArrowRight",
+        direction,
+      );
+      if (this.#inspectionHeldNavigation === navigation)
+        this.#inspectionHeldNavigation = undefined;
+    }
     if (event.code !== "KeyF" || this.#inspectionMode !== "none") return;
     this.#shelfBrowsePublicationId = undefined;
     this.#updateInteractionTarget();
@@ -8918,6 +8930,7 @@ export class ShopScene {
 
   readonly #handleWindowBlur = () => {
     this.#keysDown.clear();
+    this.#inspectionHeldNavigation = undefined;
     this.#cancelThrowCharge();
     this.#jumpQueued = false;
     this.#shelfBrowsePublicationId = undefined;
@@ -10776,6 +10789,7 @@ export class ShopScene {
     this.#inspectionDragging = false;
     this.#inspectionDragReleaseDecision = undefined;
     this.#inspectionQueuedTurn = undefined;
+    this.#inspectionHeldNavigation = undefined;
     this.#inspectionTurnPage = undefined;
     this.#inspectionTurnFromSingle = false;
     this.#inspectionTurnOpeningFromBack = false;
@@ -10809,6 +10823,7 @@ export class ShopScene {
     this.#inspectionDragNavigation = undefined;
     this.#inspectionDragReleaseDecision = undefined;
     this.#inspectionQueuedTurn = undefined;
+    this.#inspectionHeldNavigation = undefined;
     if (this.#inspectionTurnPage !== undefined) {
       const sourceMaterial =
         this.#inspectionTurnSourceSide === "left"
@@ -10855,6 +10870,14 @@ export class ShopScene {
       this.#inspectionTurnPage !== undefined ||
       this.#inspectionTurnPreparing
     ) {
+      // Accept the next command only once the in-flight turn is past 80%;
+      // the damped easing makes early progress look faster than it is, so a
+      // high threshold keeps rapid taps from queueing unintended turns.
+      const forward = this.#inspectionTurnNavigation === "forward";
+      const completion = forward
+        ? this.#inspectionTurnProgress
+        : 1 - this.#inspectionTurnProgress;
+      if (completion <= 0.8) return;
       // Buffer the latest intent; it fires once the in-flight turn finishes.
       this.#inspectionQueuedTurn = navigation;
       return;
@@ -11349,6 +11372,7 @@ export class ShopScene {
   }
 
   #animateInspectionPageTurn(record: BookRecord, deltaSeconds: number) {
+    this.#updateHeldInspectionTurn();
     if (this.#inspectionTurnPage === undefined) return;
     const turningPage = record.inspectionTurningPage;
     this.#inspectionTurnProgress = MathUtils.damp(
@@ -11428,6 +11452,23 @@ export class ShopScene {
     const navigation = this.#inspectionQueuedTurn;
     if (!navigation) return;
     this.#inspectionQueuedTurn = undefined;
+    this.turnInspectionPage(navigation);
+  }
+
+  // Fires the held key's navigation every frame the book can accept a turn,
+  // producing continuous page turns while A or D is held down.
+  #updateHeldInspectionTurn() {
+    const navigation = this.#inspectionHeldNavigation;
+    if (!navigation) return;
+    if (
+      this.#inspectionMode !== "spread" ||
+      this.#inspectionOpeningDelay > 0 ||
+      this.#inspectionOpenAngle > 0.08 ||
+      this.#inspectionTurnPage !== undefined ||
+      this.#inspectionTurnPreparing ||
+      this.#inspectionDragging
+    )
+      return;
     this.turnInspectionPage(navigation);
   }
 

@@ -299,6 +299,9 @@ export class BookInspectScene {
       truncatedDelta > 0 ? 1 : truncatedDelta < 0 ? -1 : 0;
     if (direction === 0) return;
     if (this.#pageTurnDirection !== 0 || this.#pageTurnPreparing) {
+      // Accept the next command only once the in-flight turn is past 80%;
+      // earlier presses are ignored so mashing cannot queue unintended turns.
+      if (this.#pageTurnElapsed / PAGE_TURN_DURATION_SECONDS <= 0.8) return;
       // Buffer the latest intent; it fires once the in-flight turn finishes.
       this.#queuedPageTurn = direction;
       return;
