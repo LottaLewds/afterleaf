@@ -29,10 +29,12 @@ other windows fully cover it.
 Keep the dedicated window in its **normal** (not minimized) state while
 profiling. A buried window renders at full display cadence; a _minimized_
 window silently paces compositor frames near 75 fps regardless of the flags,
-which floors every frametime sample and hides improvements below that ceiling.
-Census counters and console output stay valid while minimized; frametime
-comparisons do not. Locking or covering the window cannot always be prevented,
-so profiling scripts also run an automatic frame pump (see below).
+and a locked session or switched-off display floors pacing further (observed
+near 60 fps). Frametime samples taken in those states are quantized by the
+cadence floor and hide improvements below it, though large draw-call changes
+still show as steps between floors; census counters stay fully valid.
+Locking or covering the window cannot always be prevented, so profiling
+scripts also run an automatic frame pump (see below).
 
 ## Unattended operation (buried window, locked session)
 

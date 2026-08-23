@@ -12,6 +12,7 @@ import {
   PlaneGeometry,
   RectAreaLight,
   Shape,
+  SkinnedMesh,
   SRGBColorSpace,
   Vector2,
   Vector4,
@@ -452,7 +453,10 @@ export class ShopTelevision {
   ): MergedStaticParts {
     let parts = this.#mergedStaticPartCache.get(url);
     if (!parts) {
-      parts = buildMergedStaticParts(modelObject, (mesh) => mesh === screen);
+      parts = buildMergedStaticParts(
+        modelObject,
+        (mesh) => mesh === screen,
+      ).parts;
       this.#mergedStaticPartCache.set(url, parts);
     }
     return parts;
@@ -1156,7 +1160,9 @@ uniform sampler2D afterleafScreenOverlay;\n${shader.fragmentShader}`;
   /**
    * Replaces this copy's static part meshes with the template's shared
    * merged meshes. Originals stay alive inside the cached template scene;
-   * removing them here only drops this copy's draw calls.
+   * removing them here only drops this copy's draw calls. Consumed meshes
+   * are collected per copy - the cached parts are shared, never the
+   * removal list.
    */
   #applyMergedStaticParts(
     url: string,
@@ -1167,6 +1173,10 @@ uniform sampler2D afterleafScreenOverlay;\n${shader.fragmentShader}`;
     modelObject.traverse((object) => {
       if (!(object instanceof Mesh) || object === screen) return;
       if (isSharedStaticGeometry(object.geometry)) return;
+      if (object instanceof SkinnedMesh) return;
+      const material = object.material;
+      if (Array.isArray(material) || material.transparent) return;
+      if (!object.geometry.getAttribute("position")) return;
       originals.push(object);
     });
     if (originals.length === 0) return;

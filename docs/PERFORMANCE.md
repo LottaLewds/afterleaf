@@ -22,47 +22,77 @@ means we are CPU/draw-call bound at roughly half the target framerate -
 not vsync-capped. Other Three.js titles reach ~240fps on this machine,
 so the headroom exists once submission cost drops.
 
-## Snapshot after CRT static merge (2026-08)
+## Snapshot after draw-call consolidation rounds (2026-08)
 
-Same world and window state as the baseline above.
+Definitive normal-state samples (window restored, display awake, 12s runs):
 
-| Metric               | Value                                               |
-| -------------------- | --------------------------------------------------- |
-| Visible scene meshes | 493 (was 889)                                       |
-| TV-cave draw calls   | 126 across 42 units (was 504)                       |
-| Render calls (spawn) | ~234 (was 259)                                      |
-| Frametimes           | p50 8.30ms - unchanged this view                    |
-| Casing triangles     | lossless merge (-36 tris/unit = removed knob strip) |
+| Metric                  | Value                                                                |
+| ----------------------- | -------------------------------------------------------------------- |
+| Visible scene meshes    | ~420-520 by view (was 889 at baseline)                               |
+| Render calls            | 186-216 typical views (was ~259 flat)                                |
+| Wall-facing pose        | 239.99 fps - vsync-capped even at 207 calls                          |
+| Content-heavy poses     | p50 8.30ms = two 240Hz ticks (~120 fps); user saw ~180 fps mid-range |
+| TV-cave draw calls      | 126 across 42 units (was 504)                                        |
+| Book atlas batches      | 11 - one per atlas page (was 55)                                     |
+| Arcade cabinet          | 11 calls (was 17)                                                    |
+| Non-animated user props | 3 calls each (was 9)                                                 |
+| Resident interior       | vertex-baked; poster raycast overlays preserved                      |
+| Shadow maps             | disabled (no casting lights exist)                                   |
+| Shader precompile       | `compileAsync` at start + 4s second pass                             |
+
+At 240 Hz, intervals quantize into 4.17ms ticks: frames that finish inside
+one tick read as p50 4.2ms, frames just over read as 8.3ms. Even a
+wall-facing pose (207 calls) holds vsync-capped 240fps - the submission
+budget fits one tick in light poses. Content-heavy poses straddle two
+ticks; the cave room remains the honest benchmark for further work.
+
+Two regressions were caught by visual inspection during this round and
+fixed; both are lessons for future batching work:
+
+- Buckets must render with the bucket's own material. Storing the first
+  member's original material made baked buckets ignore their vertex colors
+  and paint walls white.
+- `colorWrite`/`depthWrite`-off raycast-only overlays (106 poster surfaces)
+  must never be swept or hidden: batching them painted shared materials
+  over the wallpaper and hid poster placement targets.
+
+Attribution experiment (hide-a-system-then-sample through CDP): dropping
+the 55 book batches alone moved p50 from 16.6ms to the ~12.5ms compositor
+floor while locked - draw-call count remains the dominant CPU lever.
 
 ## Checklist
 
 ### Draw calls
 
-- [ ] Resident interior singletons (~107 calls / 101 unique materials): mostly
-      one-off colored boxes. Bake `color` into a vertex-color attribute and
-      merge per finish class (type + roughness + metalness + map) under one
-      shared `vertexColors: true` material. Expected payoff: interior drops
-      to double digits. Now the largest remaining bucket.
-- [ ] book-atlas-batch still renders as 55 separate calls; investigate
-      whether those batches can consolidate further or become instanced.
-- [ ] User-model GLB props (31 calls for the largest): the static-merge
-      helper built for CRTs (`~/game/staticModelBatching`) can be adopted by
-      user-model televisions/props once skinned/animated subgraphs are
-      safely excluded.
-- [ ] Digital art frames (12 calls each): audit which faces ever change and
-      batch the static backing/trim per frame size.
-- [ ] Arcade cabinet (17 calls / 11 materials): candidate for the same
-      static-merge treatment.
+- [ ] Resident interior: the remaining ~46 paired single-quad sign/spine
+      labels carry unique per-item canvas textures (dynamic - `#setSign`
+      repaints them), so consolidating them means a runtime texture-atlas
+      with per-cell repaint. This is the known lever for pushing heavier
+      views from two 240Hz ticks to one; worth it only if those views still
+      matter after playing with current numbers.
+- [ ] Animated user-model GLB props (31 calls for the largest): deliberately
+      excluded from static merging because AnimationMixer-driven node
+      transforms would freeze. Options: merge only their non-animated
+      subtrees, or re-rig as skinned batches.
+- [ ] Digital art frames (~12 calls total): each frame is already minimal
+      (one backing box + dynamic display), so the only consolidation left is
+      cross-frame backing batching - but frames are movable props, which
+      would need per-instance matrix syncing for a handful of calls.
+      Deliberately skipped.
+- [ ] Arcade cabinet's remaining 11 calls are unique-textured parts; would
+      need an atlas to consolidate. Low priority.
 
 ### Frame pacing / stutter
 
-- [ ] Precompile shaders during boot with `renderer.compileAsync(scene,
-camera)` after first paint; rotating the camera currently reveals new
-      material variants and stutters until programs cache.
-- [ ] Decide the shadow story deliberately: `shadowMap.enabled = true`
-      (PCFSoft) but no light sets `castShadow`. Either wire the ceiling
-      spotlight knowingly (tight angle, small map) or disable shadowMap and
-      bake contact shading into textures.
+- [ ] Validate the shader precompile passes on a fresh boot: rotating the
+      camera into the TV cave and theatre should no longer stutter while
+      programs cache (`compileAsync` at start plus a second pass at +4s for
+      late async prop models).
+- [ ] Shadow story decided for now: `shadowMap.enabled = false` because no
+      light sets `castShadow`, so nothing regressed visually. All mesh
+      cast/receive flags are preserved; wiring the ceiling spotlight later
+      is a one-flag change plus a shadow-camera tuning pass. Contact shading
+      stays baked into textures meanwhile.
 
 ### GPU-side levers (only if we ever become GPU-bound)
 
@@ -71,8 +101,9 @@ camera)` after first paint; rotating the camera currently reveals new
 
 ### Process
 
-- [ ] Re-measure after each checklist item; the first target is p50
-      below 4.17ms so the scene can hold 240fps on this panel.
+- [x] Clean normal-state re-measure complete (see snapshot): lighter views
+      hold the single-tick target; heavier views sit just over it, with the
+      sign-atlas documented as their remaining lever.
 - [ ] When movable shelving lands as instanced models, retire its per-fixture
       batches and exclusion-list entries rather than accumulating special
       cases in `#interiorBatchSoft`.
@@ -83,7 +114,11 @@ camera)` after first paint; rotating the camera currently reveals new
       zero-visual draw calls removed; Raycaster ignores `.visible`.
 - [x] Deep recursive BatchedMesh pass over `night-shop-interior` with
       material-signature dedupe and HARD/SOFT exclusion tiers.
-- [x] Books instanced (55 batches / 857 instances).
+- [x] Books instanced (55 batches / 857 instances), then consolidated:
+      accent color and spine direction moved off uniforms onto per-instance
+      geometry attributes (`bookAccent`, `bookSpineSign`), so one material
+      per atlas page serves every book and the 55 batches collapsed to 11 -
+      one per atlas index - with zero shader errors and identical tint math.
 - [x] TV-cave CRT units: the "12 calls/unit" was never architecture content -
       they are spawned `ShopTelevision` GLB props outside the interior pass,
       each with 8 casing parts, an independent screen, and a vestigial
@@ -96,3 +131,19 @@ camera)` after first paint; rotating the camera currently reveals new
       screens keep per-unit VideoTexture and RectAreaLights. A future global
       `InstancedMesh` over the same merged geometries could reach ~2 calls
       for all casings if more headroom is needed.
+- [x] Static merge helper adopted beyond CRTs: non-animated user-model props
+      merge at spawn (animated models keep their node graphs), and the arcade
+      cabinet merges its trim around the live TVScreen (17 -> 11 calls).
+- [x] Resident interior vertex-color bake: untextured color-only materials
+      clone their geometry once, bake `material.color` into a `color`
+      attribute, and share one white `vertexColors` material per finish
+      class (type + side + shading + roughness + metalness + attribute set),
+      collapsing one-off colored boxes into shared batches. Zero shader
+      errors. Two regressions it briefly caused - buckets ignoring their
+      shared material, and raycast-only overlays being swept - were caught
+      by visual inspection and fixed (see snapshot notes).
+- [x] Shader precompile: `renderer.compileAsync(scene, camera)` fires after
+      the first paint and again four seconds later so late-loading prop
+      materials compile before the player looks at them.
+- [x] Shadow maps disabled (see checklist note); was enabled with zero
+      casting lights, costing program permutations for nothing.

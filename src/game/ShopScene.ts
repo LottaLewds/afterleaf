@@ -40,6 +40,7 @@ import {
   Vector2,
   Vector3,
   WebGLRenderer,
+  BufferAttribute,
   type AnimationClip,
   type BufferGeometry,
   type ColorSpace,
@@ -49,6 +50,7 @@ import {GLTFLoader} from "three/examples/jsm/loaders/GLTFLoader.js";
 import {RectAreaLightUniformsLib} from "three/examples/jsm/lights/RectAreaLightUniformsLib.js";
 import {clone as cloneWithSkeleton} from "three/examples/jsm/utils/SkeletonUtils.js";
 import {DEV} from "solid-js";
+import {buildMergedStaticParts} from "~/game/staticModelBatching";
 import {FpsHud} from "~/game/FpsHud";
 
 import type {ArtFrameFit} from "~/artFrames/aspect";
@@ -331,6 +333,15 @@ const LOOK_SMOOTHING = 32;
 const MAX_LOOK_DELTA_PER_FRAME = (Math.PI / 180) * 10;
 const WORLD_SAVE_INTERVAL_MS = 10_000;
 const WORLD_SAVE_IDLE_TIMEOUT_MS = 250;
+// Late async prop models (CRT GLBs, cabinets, lamps) usually finish well
+// within this window; the second compile pass sweeps up their programs.
+const SHADER_PRECOMPILE_LATE_DELAY_MS = 4_000;
+// While the camera holds still, the aim sweep reuses its previous result
+// and refreshes at this interval so dynamic content cannot stale-highlight.
+// The full-shop reticle sweep runs on a fixed-rate budget (60 Hz) instead
+// of every animation tick; highlight prompts and clicks tolerate a frame
+// or two of latency, and the sweep costs real time against many props.
+const AIM_SWEEP_MIN_INTERVAL_MS = 1000 / 60;
 const INSPECTION_PAGE_GUTTER = 0;
 const INSPECTION_SURFACE_GAP = 0.001;
 const INSPECTION_FRAME_FILL = 0.88;
@@ -1000,18 +1011,26 @@ const createBookExteriorMaterial = (
   accent: Color,
   spineNormalSign: -1 | 1,
   atlasUvs = false,
+  // Vertex-driven mode reads per-instance accent and spine sign from
+  // geometry attributes instead of uniforms, so books sharing one set of
+  // atlas textures merge into a single BatchedMesh draw call.
+  vertexDriven = false,
 ) => {
+  const tint = (multiplier: number) =>
+    vertexDriven
+      ? new Color("#ffffff")
+      : accent.clone().multiplyScalar(multiplier);
   const uniforms: BookExteriorUniforms = {
     backMap: {value: null},
     backMapEnabled: {value: false},
-    backTint: {value: accent.clone().multiplyScalar(0.76)},
+    backTint: {value: tint(0.76)},
     coverMap: {value: null},
-    edgeTint: {value: accent.clone().multiplyScalar(0.62)},
+    edgeTint: {value: tint(0.62)},
     pageTint: {value: new Color("#d8cfba")},
     spineMap: {value: null},
     spineMapEnabled: {value: false},
     spineNormalSign: {value: spineNormalSign},
-    spineTint: {value: accent.clone().multiplyScalar(0.62)},
+    spineTint: {value: tint(0.62)},
   };
   const material = new MeshStandardMaterial({
     color: "#ffffff",
@@ -1019,16 +1038,24 @@ const createBookExteriorMaterial = (
     roughness: 0.68,
   });
   material.customProgramCacheKey = () =>
-    `afterleaf-book-exterior-v4-${atlasUvs ? "atlas" : "standalone"}`;
+    `afterleaf-book-exterior-${
+      vertexDriven ? "v5-merged" : atlasUvs ? "v4-atlas" : "v4-standalone"
+    }`;
   material.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, uniforms);
     shader.vertexShader = shader.vertexShader
       .replace(
         "#include <common>",
         `#include <common>
-uniform float spineNormalSign;
-${atlasUvs ? "attribute vec2 bookSpineUv;\nvarying vec2 vBookSpineUv;" : ""}
-varying vec2 vBookUv;
+${vertexDriven ? "" : "uniform float spineNormalSign;\n"}${
+          atlasUvs
+            ? "attribute vec2 bookSpineUv;\nvarying vec2 vBookSpineUv;\n"
+            : ""
+        }${
+          vertexDriven
+            ? "attribute vec3 bookAccent;\nattribute float bookSpineSign;\nvarying vec3 vBookAccent;\nvarying float vBookSign;\n"
+            : ""
+        }varying vec2 vBookUv;
 varying float vBookFace;`,
       )
       .replace(
@@ -1038,9 +1065,12 @@ vBookUv = uv;
 ${atlasUvs ? "vBookSpineUv = bookSpineUv;" : ""}
 if (objectNormal.z > 0.5) vBookFace = 1.0;
 else if (objectNormal.z < -0.5) vBookFace = 2.0;
-else if (objectNormal.x * spineNormalSign > 0.5) vBookFace = 3.0;
+else if (objectNormal.x * ${
+          vertexDriven ? "bookSpineSign" : "spineNormalSign"
+        } > 0.5) vBookFace = 3.0;
 else if (abs(objectNormal.y) > 0.5) vBookFace = 4.0;
-else vBookFace = 5.0;`,
+else vBookFace = 5.0;
+${vertexDriven ? "vBookAccent = bookAccent;\nvBookSign = bookSpineSign;" : ""}`,
       );
     shader.fragmentShader = shader.fragmentShader
       .replace(
@@ -1048,14 +1078,12 @@ else vBookFace = 5.0;`,
         `#include <common>
 uniform sampler2D backMap;
 uniform bool backMapEnabled;
-uniform vec3 backTint;
+${vertexDriven ? "varying vec3 vBookAccent;" : "uniform vec3 backTint;"}
 uniform sampler2D coverMap;
-uniform vec3 edgeTint;
-uniform vec3 pageTint;
+${vertexDriven ? "" : "uniform vec3 edgeTint;\n"}uniform vec3 pageTint;
 uniform sampler2D spineMap;
 uniform bool spineMapEnabled;
-uniform vec3 spineTint;
-varying vec2 vBookUv;
+${vertexDriven ? "" : "uniform vec3 spineTint;\n"}varying vec2 vBookUv;
 ${atlasUvs ? "varying vec2 vBookSpineUv;" : ""}
 varying float vBookFace;`,
       )
@@ -1065,12 +1093,18 @@ varying float vBookFace;`,
 if (vBookFace < 1.5) bookSurface = texture2D(coverMap, vBookUv);
 else if (vBookFace < 2.5 && backMapEnabled)
   bookSurface = texture2D(backMap, vBookUv);
-else if (vBookFace < 2.5) bookSurface = vec4(backTint, 1.0);
+else if (vBookFace < 2.5) bookSurface = vec4(${
+          vertexDriven ? "vBookAccent * 0.76" : "backTint"
+        }, 1.0);
 else if (vBookFace < 3.5 && spineMapEnabled)
   bookSurface = texture2D(spineMap, ${atlasUvs ? "vBookSpineUv" : "vBookUv"});
-else if (vBookFace < 3.5) bookSurface = vec4(spineTint, 1.0);
+else if (vBookFace < 3.5) bookSurface = vec4(${
+          vertexDriven ? "vBookAccent * 0.62" : "spineTint"
+        }, 1.0);
 else if (vBookFace < 4.5) bookSurface = vec4(pageTint, 1.0);
-else bookSurface = vec4(edgeTint, 1.0);
+else bookSurface = vec4(${
+          vertexDriven ? "vBookAccent * 0.62" : "edgeTint"
+        }, 1.0);
 diffuseColor *= bookSurface;`,
       )
       .replace(
@@ -1302,6 +1336,9 @@ export class ShopScene {
   readonly #raycaster = new Raycaster();
   readonly #rareRoomDoorPivot = new Group();
   readonly #reticle = new Vector2();
+  /** Frame timestamp from the animation loop; one time source per frame. */
+  #frameNowMs = 0;
+  #lastAimSweepTimeMs = -Infinity;
   readonly #renderer: WebGLRenderer;
   readonly #scene = new Scene();
   readonly #signSlots = new Map<string, ShopSignSlot>();
@@ -1443,6 +1480,7 @@ export class ShopScene {
   #posterAssetIndex = 0;
   #nextPosterDepthLayer = 1;
   #mediaCatalogRefreshHandle: number | undefined;
+  #lateShaderPrecompileHandle: number | undefined;
   #mediaCatalogRequestPending = false;
   #posterImportCount = 0;
   #posterImportError: string | undefined;
@@ -1573,7 +1611,10 @@ export class ShopScene {
       powerPreference: "high-performance",
     });
     this.#renderer.outputColorSpace = SRGBColorSpace;
-    this.#renderer.shadowMap.enabled = true;
+    // Deliberate shadow story: no light casts shadows today, so shadow
+    // mapping stays off. Mesh cast/receive flags are preserved so wiring a
+    // caster later is a one-flag change.
+    this.#renderer.shadowMap.enabled = false;
     this.#renderer.shadowMap.type = PCFSoftShadowMap;
     this.#renderer.toneMapping = ACESFilmicToneMapping;
     this.#renderer.toneMappingExposure = 1.08;
@@ -1613,6 +1654,7 @@ export class ShopScene {
     this.#lastFrameTime = performance.now();
     this.#applyResize();
     this.#renderer.render(this.#scene, this.#camera);
+    this.#precompileShaders();
     this.#markReady();
     this.#worldSaveIntervalHandle = window.setInterval(
       this.#scheduleWorldSave,
@@ -1623,6 +1665,25 @@ export class ShopScene {
       SHOP_MEDIA_CATALOG_REFRESH_INTERVAL_MS,
     );
     this.#frameHandle = requestAnimationFrame(this.#animate);
+  }
+
+  /**
+   * Compiles shader programs ahead of camera movement. Async prop models
+   * (CRT televisions, cabinets, lamps) attach after boot, so a second pass
+   * runs later to catch their material variants before the player rotates
+   * into them and stutters on first sight.
+   */
+  #precompileShaders() {
+    if (this.#disposed) return;
+    void this.#renderer.compileAsync(this.#scene, this.#camera).catch(() => {});
+    if (this.#lateShaderPrecompileHandle !== undefined) return;
+    this.#lateShaderPrecompileHandle = window.setTimeout(() => {
+      this.#lateShaderPrecompileHandle = undefined;
+      if (this.#disposed) return;
+      void this.#renderer
+        .compileAsync(this.#scene, this.#camera)
+        .catch(() => {});
+    }, SHADER_PRECOMPILE_LATE_DELAY_MS);
   }
 
   requestPointerLock() {
@@ -1903,6 +1964,9 @@ export class ShopScene {
     if (this.#mediaCatalogRefreshHandle !== undefined)
       window.clearInterval(this.#mediaCatalogRefreshHandle);
     this.#mediaCatalogRefreshHandle = undefined;
+    if (this.#lateShaderPrecompileHandle !== undefined)
+      window.clearTimeout(this.#lateShaderPrecompileHandle);
+    this.#lateShaderPrecompileHandle = undefined;
 
     this.#bookAtlasRevision += 1;
     this.#disposeBookAtlasBatches();
@@ -1941,6 +2005,7 @@ export class ShopScene {
     if (this.#disposed) return;
     const deltaSeconds = Math.min((time - this.#lastFrameTime) / 1000, 0.05);
     this.#lastFrameTime = time;
+    this.#frameNowMs = time;
 
     this.#syncInputs();
     this.#syncPixelRatio();
@@ -2300,6 +2365,54 @@ export class ShopScene {
     parent.updateMatrixWorld(true);
     const parentInverse = new Matrix4().copy(parent.matrixWorld).invert();
 
+    /**
+     * Untextured color-only materials bake their color into vertex colors so
+     * one finish-class material serves every tint of that class.
+     */
+    const isBakeableColorMaterial = (
+      material: Material,
+    ): material is MeshStandardMaterial | MeshBasicMaterial => {
+      if (
+        !(material instanceof MeshStandardMaterial) &&
+        !(material instanceof MeshBasicMaterial)
+      )
+        return false;
+      if (material.map || material.vertexColors) return false;
+      for (const value of Object.values(material))
+        if (value instanceof Texture) return false;
+      if (material instanceof MeshStandardMaterial)
+        return (
+          material.emissive.getHexString() === "000000" &&
+          material.emissiveIntensity === 1
+        );
+      return true;
+    };
+
+    /** Shared vertexColors materials, one per finish class. */
+    const finishMaterials = new Map<string, Material>();
+    const finishMaterialFor = (finishKey: string, source: Material) => {
+      let material = finishMaterials.get(finishKey);
+      if (!material) {
+        material =
+          source instanceof MeshStandardMaterial
+            ? new MeshStandardMaterial({
+                color: "#ffffff",
+                flatShading: source.flatShading,
+                metalness: source.metalness,
+                roughness: source.roughness,
+                side: source.side,
+                vertexColors: true,
+              })
+            : new MeshBasicMaterial({
+                color: "#ffffff",
+                side: source.side,
+                vertexColors: true,
+              });
+        finishMaterials.set(finishKey, material);
+      }
+      return material;
+    };
+
     /** Buckets keyed by container node: global for unscoped content. */
     const bucketsByContainer = new Map<
       Object3D,
@@ -2335,19 +2448,66 @@ export class ShopScene {
         if (
           !Array.isArray(material) &&
           !material.transparent &&
+          // colorWrite/depthWrite-off meshes are raycast-only overlays
+          // (poster surfaces); sweeping them into a batch would either paint
+          // the shared finish material over walls or blank out a whole
+          // bucket, and hiding them breaks placement raycasts.
+          material.colorWrite &&
+          material.depthWrite &&
           object.geometry.getAttribute("position")
         ) {
-          // Flags deliberately excluded: per-row renderOrder/shadow flags
-          // would otherwise split identical fixtures into singleton buckets.
-          // Opaque draws are depth-sorted by the GPU regardless.
-          const signature = [
-            ShopScene.#interiorMaterialSignature(material),
-            object.geometry.getIndex() ? "indexed" : "unindexed",
-          ].join(":");
+          const indexed = object.geometry.getIndex() ? "indexed" : "unindexed";
+          let signature: string;
+          let bucketMaterial = material;
+          if (isBakeableColorMaterial(material)) {
+            const attributesKey = Object.keys(object.geometry.attributes)
+              .sort()
+              .join("+");
+            // MeshBasicMaterial has no flatShading; the `in` guard keeps
+            // the finish key honest for both material classes.
+            const flatShading =
+              "flatShading" in material && material.flatShading;
+            signature = [
+              "finish",
+              material.type,
+              String(material.side),
+              String(flatShading),
+              ...(material instanceof MeshStandardMaterial
+                ? [String(material.roughness), String(material.metalness)]
+                : []),
+              attributesKey,
+              indexed,
+            ].join("|");
+            bucketMaterial = finishMaterialFor(signature, material);
+            // Bake once per mesh; clones keep shared source geometries
+            // untouched when siblings carry different tints.
+            const baked = object.geometry.clone();
+            const vertexCount = baked.getAttribute("position").count;
+            const colors = new Float32Array(vertexCount * 3);
+            const {b, g, r} = material.color;
+            for (let index = 0; index < vertexCount; index += 1) {
+              colors[index * 3] = r;
+              colors[index * 3 + 1] = g;
+              colors[index * 3 + 2] = b;
+            }
+            baked.setAttribute("color", new BufferAttribute(colors, 3));
+            object.geometry = baked;
+          } else {
+            // Flags deliberately excluded: per-row renderOrder/shadow flags
+            // would otherwise split identical fixtures into singleton buckets.
+            // Opaque draws are depth-sorted by the GPU regardless.
+            signature = [
+              ShopScene.#interiorMaterialSignature(bucketMaterial),
+              indexed,
+            ].join(":");
+          }
           const buckets = bucketFor(effectiveContainer);
           let bucket = buckets.get(signature);
           if (!bucket) {
-            bucket = {material, meshes: []};
+            // The batch renders with the bucket material - the shared
+            // finish material for baked buckets, otherwise the first
+            // member's own material.
+            bucket = {material: bucketMaterial, meshes: []};
             buckets.set(signature, bucket);
           }
           bucket.meshes.push(object);
@@ -5572,6 +5732,22 @@ export class ShopScene {
       object.castShadow = true;
       object.receiveShadow = true;
     });
+    // Static decoration models collapse into one draw call per material
+    // signature; animated models keep their per-part nodes so mixers can
+    // drive them.
+    if (template.animations.length === 0) {
+      const {consumed, parts} = buildMergedStaticParts(model);
+      if (consumed.length > 1) {
+        for (const original of consumed) original.removeFromParent();
+        for (const {geometry, material} of parts) {
+          const mesh = new Mesh(geometry, material);
+          mesh.name = "user-model-static-parts";
+          mesh.castShadow = true;
+          mesh.receiveShadow = true;
+          model.add(mesh);
+        }
+      }
+    }
     const normalizedModel = new Group();
     normalizedModel.position
       .copy(template.center)
@@ -9200,9 +9376,7 @@ export class ShopScene {
     const groups = new Map<
       string,
       {
-        accent: string;
         coverAtlas: CatalogShelfAtlas;
-        direction: CatalogItem["direction"];
         entries: {item: CatalogItem; record: BookRecord}[];
         spineAtlas: CatalogShelfAtlas;
         textures: BookAtlasTextures;
@@ -9219,14 +9393,14 @@ export class ShopScene {
         shelfAtlas.cellIndex >= resource.coverAtlas.publicationCount
       )
         continue;
-      const key = `${shelfAtlas.index}:${item.accent}:${item.direction}`;
+      // Accent and reading direction ride on per-instance geometry
+      // attributes now, so one atlas index forms one draw call.
+      const key = `${shelfAtlas.index}`;
       const group = groups.get(key);
       if (group) group.entries.push({item, record});
       else
         groups.set(key, {
-          accent: item.accent,
           coverAtlas: resource.coverAtlas,
-          direction: item.direction,
           entries: [{item, record}],
           spineAtlas: resource.spineAtlas,
           textures: resource.textures,
@@ -9235,8 +9409,9 @@ export class ShopScene {
 
     for (const group of groups.values()) {
       const {material, uniforms} = createBookExteriorMaterial(
-        new Color(group.accent),
-        group.direction === "LTR" ? -1 : 1,
+        new Color("#ffffff"),
+        -1,
+        true,
         true,
       );
       uniforms.coverMap.value = group.textures.front;
@@ -9283,6 +9458,26 @@ export class ShopScene {
           shelfAtlas.cellIndex,
           item.aspectRatio,
           item.thicknessMm,
+        );
+        // Per-instance accent and spine direction, consumed by the merged
+        // book shader in place of uniforms.
+        const positionCount = geometry.getAttribute("position")?.count ?? 0;
+        const accent = new Color(item.accent);
+        const accentArray = new Float32Array(positionCount * 3);
+        for (let index = 0; index < positionCount; index += 1) {
+          accentArray[index * 3] = accent.r;
+          accentArray[index * 3 + 1] = accent.g;
+          accentArray[index * 3 + 2] = accent.b;
+        }
+        geometry.setAttribute(
+          "bookAccent",
+          new BufferAttribute(accentArray, 3),
+        );
+        const sign = item.direction === "LTR" ? -1 : 1;
+        const signArray = new Float32Array(positionCount).fill(sign);
+        geometry.setAttribute(
+          "bookSpineSign",
+          new BufferAttribute(signArray, 1),
         );
         const geometryId = mesh.addGeometry(geometry);
         geometry.dispose();
@@ -11914,6 +12109,13 @@ export class ShopScene {
       return;
     }
 
+    // Aiming results feed highlight prompts and clicks, which tolerate a
+    // frame or two of latency - so the full-shop reticle sweep runs on a
+    // fixed-rate budget instead of every tick, capping its cost while the
+    // player whips the view around.
+    if (this.#frameNowMs - this.#lastAimSweepTimeMs < AIM_SWEEP_MIN_INTERVAL_MS)
+      return;
+    this.#lastAimSweepTimeMs = this.#frameNowMs;
     this.#camera.updateMatrixWorld();
     this.#raycaster.setFromCamera(this.#reticle, this.#camera);
     if (this.#artFramePlacement) {

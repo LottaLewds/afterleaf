@@ -13,6 +13,13 @@ export type MergedStaticParts = readonly {
   material: Material;
 }[];
 
+export type MergedStaticResult = {
+  /** One entry per material signature, ready to attach as plain Meshes. */
+  parts: MergedStaticParts;
+  /** Source meshes folded into the parts; safe to remove from the tree. */
+  consumed: readonly Mesh[];
+};
+
 /**
  * Marks canonical static merges shared by every copy of a model template.
  * Individual props must not dispose these resources on teardown; the
@@ -37,11 +44,15 @@ export const isSharedStaticGeometry = (geometry: BufferGeometry): boolean =>
 export const buildMergedStaticParts = (
   root: Object3D,
   exclude?: (mesh: Mesh) => boolean,
-): MergedStaticParts => {
+): MergedStaticResult => {
   root.updateMatrixWorld(true);
   const rootInverse = new Matrix4().copy(root.matrixWorld).invert();
 
-  type Bucket = {geometries: BufferGeometry[]; material: Material};
+  type Bucket = {
+    geometries: BufferGeometry[];
+    material: Material;
+    meshes: Mesh[];
+  };
   const buckets = new Map<string, Bucket>();
 
   root.traverse((object) => {
@@ -59,9 +70,10 @@ export const buildMergedStaticParts = (
     ].join("|");
     let bucket = buckets.get(key);
     if (!bucket) {
-      bucket = {geometries: [], material};
+      bucket = {geometries: [], material, meshes: []};
       buckets.set(key, bucket);
     }
+    bucket.meshes.push(object);
     const baked = geometry.clone();
     baked.applyMatrix4(
       new Matrix4().multiplyMatrices(rootInverse, object.matrixWorld),
@@ -70,14 +82,17 @@ export const buildMergedStaticParts = (
   });
 
   const parts: {geometry: BufferGeometry; material: Material}[] = [];
+  const consumed: Mesh[] = [];
   for (const bucket of buckets.values()) {
     const merged = mergeGeometries(bucket.geometries, false);
     for (const baked of bucket.geometries) baked.dispose();
+    // A failed merge leaves this bucket's meshes untouched in the tree.
     if (!merged) continue;
     merged.userData[SHARED_STATIC_GEOMETRY] = true;
     merged.computeBoundingBox();
     merged.computeBoundingSphere();
     parts.push({geometry: merged, material: bucket.material});
+    consumed.push(...bucket.meshes);
   }
-  return parts;
+  return {consumed, parts};
 };

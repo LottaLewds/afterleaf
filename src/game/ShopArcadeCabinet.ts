@@ -30,6 +30,7 @@ import {
   getModelTelevisionScreenAspect,
   normalizeModelScreenUvs,
 } from "~/game/modelTelevision";
+import {buildMergedStaticParts} from "~/game/staticModelBatching";
 
 export const ARCADE_CABINET_HEIGHT = 1.72;
 export const ARCADE_CABINET_SCREEN_NODE_NAME = "TVScreen";
@@ -252,6 +253,23 @@ export class ShopArcadeCabinet {
     normalizeModelScreenUvs(screen);
     screen.material = this.#material;
     screen.userData.arcadeInteraction = "screen";
+
+    // The cabinet's static trim collapses into one draw call per material
+    // signature; the screen stays independent for live emulator output.
+    const {consumed, parts} = buildMergedStaticParts(
+      scene,
+      (mesh) => mesh === screen,
+    );
+    if (consumed.length > 1) {
+      for (const original of consumed) original.removeFromParent();
+      for (const {geometry, material} of parts) {
+        const merged = new Mesh(geometry, material);
+        merged.castShadow = true;
+        merged.receiveShadow = true;
+        merged.userData.arcadeInteraction = "body";
+        scene.add(merged);
+      }
+    }
 
     scene.traverse((child) => {
       if (!(child instanceof Mesh)) return;
