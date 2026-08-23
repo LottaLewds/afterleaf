@@ -1,14 +1,33 @@
 import {
   copyFile,
   mkdir,
+  readFile,
   readdir,
   rename,
   rm,
   rmdir,
   stat,
+  writeFile,
 } from "node:fs/promises";
 import {dirname, join, resolve} from "node:path";
-import {ensureDataRootStructure, resolveDataRoot} from "~/content/dataRoot";
+// Relative import: this module is loaded by the Vite config, whose loader
+// cannot resolve the "~" alias at runtime.
+import {ensureDataRootStructure, resolveDataRoot} from "./dataRoot";
+
+/**
+ * Written into the data root after a successful layout migration. Its
+ * presence tells the server the old folders were deliberately relocated,
+ * so any legacy leftovers are intentional and not worth warning about.
+ */
+export const MIGRATION_MARKER_FILE_NAME = ".afterleaf-layout-migrated.json";
+
+const MIGRATION_MARKER_SCHEMA_VERSION = 1;
+
+export interface LibraryLayoutMigrationMarker {
+  migratedAt: string;
+  movedCount: number;
+  schemaVersion: typeof MIGRATION_MARKER_SCHEMA_VERSION;
+}
 
 export interface LayoutMigrationMove {
   /** Absolute source path in the legacy layout. */
@@ -302,7 +321,109 @@ export const migrateLibraryLayout = async (
     await pruneIfEmpty(resolve(resolvedWorking, candidate));
   }
   await ensureDataRootStructure(resolvedWorking);
+  const marker: LibraryLayoutMigrationMarker = {
+    migratedAt: new Date().toISOString(),
+    movedCount: performedMoves.length,
+    schemaVersion: MIGRATION_MARKER_SCHEMA_VERSION,
+  };
+  await writeFile(
+    resolve(dataRoot, MIGRATION_MARKER_FILE_NAME),
+    `${JSON.stringify(marker, null, 2)}\n`,
+    {flag: "wx"},
+  ).catch(() => {});
   return {...plan, performedMoves, dataRoot};
+};
+
+/**
+ * Legacy-layout locations that indicate user data the server is not
+ * serving. Hidden bookkeeping files such as .gitkeep do not count.
+ */
+const LEGACY_ARTIFACT_DIRECTORIES = [
+  "content/books",
+  "content/channels",
+  "content/posters",
+  "content/art-frames",
+  "content/models",
+  "content/roms",
+  "content/world-state-backups",
+  "content-sources",
+  "content-packs",
+] as const;
+
+/** Entries that never count as legacy data on their own. */
+const IGNORED_LEGACY_ENTRY_NAMES = new Set(["demo-v1"]);
+
+const directoryHasVisibleContent = async (
+  path: string,
+  depth = 4,
+): Promise<boolean> => {
+  let entries;
+  try {
+    entries = await readdir(path);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+    throw error;
+  }
+  for (const entry of entries) {
+    if (entry.startsWith(".")) continue;
+    if (IGNORED_LEGACY_ENTRY_NAMES.has(entry)) continue;
+    if (depth <= 0) return true;
+    try {
+      const entryStat = await stat(resolve(path, entry));
+      if (!entryStat.isDirectory()) return true;
+      // A folder holding only dotfiles (for example .gitkeep) is empty.
+      if (await directoryHasVisibleContent(resolve(path, entry), depth - 1))
+        return true;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
+      throw error;
+    }
+  }
+  return false;
+};
+
+/**
+ * Finds legacy-layout locations that still hold data. An empty result
+ * means nothing is being left unserved.
+ */
+export const detectLegacyLayoutArtifacts = async (
+  workingDirectory: string,
+): Promise<string[]> => {
+  const resolvedWorking = resolve(workingDirectory);
+  const artifacts: string[] = [];
+  for (const directory of LEGACY_ARTIFACT_DIRECTORIES) {
+    const path = resolve(resolvedWorking, directory);
+    if (await directoryHasVisibleContent(path)) artifacts.push(path);
+  }
+  if (await pathExists(resolve(resolvedWorking, "content", "world-save.json")))
+    artifacts.push(resolve(resolvedWorking, "content", "world-save.json"));
+  return artifacts;
+};
+
+export const readLibraryLayoutMigrationMarker = async (
+  workingDirectory: string,
+): Promise<LibraryLayoutMigrationMarker | undefined> => {
+  try {
+    const parsed: unknown = JSON.parse(
+      await readFile(
+        resolve(resolveDataRoot(workingDirectory), MIGRATION_MARKER_FILE_NAME),
+        "utf8",
+      ),
+    );
+    if (
+      !parsed ||
+      typeof parsed !== "object" ||
+      (parsed as Partial<LibraryLayoutMigrationMarker>).schemaVersion !==
+        MIGRATION_MARKER_SCHEMA_VERSION ||
+      typeof (parsed as Partial<LibraryLayoutMigrationMarker>).migratedAt !==
+        "string"
+    )
+      return undefined;
+    return parsed as LibraryLayoutMigrationMarker;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    return undefined;
+  }
 };
 
 const rollbackMoves = async (

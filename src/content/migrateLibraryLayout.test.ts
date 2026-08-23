@@ -10,8 +10,11 @@ import {
 import {tmpdir} from "node:os";
 import {join, resolve} from "node:path";
 import {
+  detectLegacyLayoutArtifacts,
   migrateLibraryLayout,
+  MIGRATION_MARKER_FILE_NAME,
   planLibraryLayoutMigration,
+  readLibraryLayoutMigrationMarker,
 } from "~/content/migrateLibraryLayout";
 
 const temporaryDirectories: string[] = [];
@@ -255,5 +258,46 @@ describe("library layout migration", () => {
         "utf8",
       ),
     ).toBe('{"revision":7}');
+  });
+
+  test("a completed migration writes a marker that silences the legacy-layout warning", async () => {
+    const root = await mkdtemp(join(tmpdir(), "afterleaf-migrate-marker-"));
+    temporaryDirectories.push(root);
+
+    // A fresh install: nothing to warn about.
+    expect(await detectLegacyLayoutArtifacts(root)).toEqual([]);
+    await mkdir(resolve(root, "afterleaf-data"), {recursive: true});
+    expect(await readLibraryLayoutMigrationMarker(root)).toBeUndefined();
+
+    // A pre-migration install: artifacts present, no marker yet.
+    await createLegacyLayout(root);
+    const artifacts = await detectLegacyLayoutArtifacts(root);
+    expect(artifacts.length).toBeGreaterThan(0);
+    expect(artifacts).toContain(resolve(root, "content", "world-save.json"));
+
+    await migrateLibraryLayout(root, {write: true});
+
+    const marker = await readLibraryLayoutMigrationMarker(root);
+    expect(marker?.schemaVersion).toBe(1);
+    expect(marker?.movedCount).toBeGreaterThan(0);
+    expect(marker?.migratedAt).toBeTruthy();
+    expect(
+      await readFile(
+        resolve(root, "afterleaf-data", MIGRATION_MARKER_FILE_NAME),
+        "utf8",
+      ),
+    ).toContain('"schemaVersion": 1');
+    // After the move, no meaningful artifacts remain (only dotfiles such
+    // as .gitkeep would be ignored).
+    expect(await detectLegacyLayoutArtifacts(root)).toEqual([]);
+  });
+
+  test("gitkeep-only legacy folders do not trigger detection", async () => {
+    const root = await mkdtemp(join(tmpdir(), "afterleaf-migrate-empty-"));
+    temporaryDirectories.push(root);
+    await mkdir(resolve(root, "content/books/comics"), {recursive: true});
+    await writeFile(resolve(root, "content/books/comics/.gitkeep"), "");
+
+    expect(await detectLegacyLayoutArtifacts(root)).toEqual([]);
   });
 });

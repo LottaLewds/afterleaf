@@ -69,14 +69,18 @@ import {
   ensureDataRootStructure,
   libraryPackDirectory,
   libraryRootRegistryPath,
-  resolveDataRoot,
   modelsDirectory as modelsDirectoryFor,
   postersDirectory as postersDirectoryFor,
   providersDirectory,
+  resolveDataRoot,
   tvChannelsDirectory as tvChannelsDirectoryFor,
   worldSaveBackupsDirectory as worldSaveBackupsDirectoryFor,
   worldSavePath as worldSavePathFor,
 } from "./src/content/dataRoot";
+import {
+  detectLegacyLayoutArtifacts,
+  readLibraryLayoutMigrationMarker,
+} from "./src/content/migrateLibraryLayout";
 import type {PackedPublication} from "./src/content/schema";
 import {createCachedTvVideoAnalyzer} from "./src/tv/channelAnalysis";
 import {
@@ -2874,12 +2878,26 @@ const cacheableStaticAssetPath =
 const dataRootBootstrapperPlugin = (): Plugin => ({
   name: "afterleaf-data-root-bootstrapper",
   configureServer() {
-    void ensureDataRootStructure(import.meta.dirname).catch((error: unknown) =>
-      console.warn(
-        "[afterleaf] Could not prepare the Afterleaf data folder",
-        error,
-      ),
-    );
+    void ensureDataRootStructure(import.meta.dirname)
+      .then(async () => {
+        // A pre-restructure install must be told why its library and
+        // world look empty; the migration marker silences the notice.
+        const [legacyArtifacts, migrationMarker] = await Promise.all([
+          detectLegacyLayoutArtifacts(import.meta.dirname),
+          readLibraryLayoutMigrationMarker(import.meta.dirname),
+        ]);
+        if (migrationMarker || legacyArtifacts.length === 0) return;
+        console.warn(
+          `[afterleaf] Legacy data folders detected (${legacyArtifacts.length} location${legacyArtifacts.length === 1 ? "" : "s"}, e.g. ${legacyArtifacts[0]}). They are NOT being served: the library and world save now live under afterleaf-data/.\n` +
+            `[afterleaf] Run "bun run library:migrate" to preview the move, then "bun run library:migrate --write".`,
+        );
+      })
+      .catch((error: unknown) =>
+        console.warn(
+          "[afterleaf] Could not prepare the Afterleaf data folder",
+          error,
+        ),
+      );
   },
 });
 
