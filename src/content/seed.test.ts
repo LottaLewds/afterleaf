@@ -540,9 +540,13 @@ describe("seedContentPack", () => {
       back: scoped(keyedPublication.assets.back),
       backDetail: scoped(keyedPublication.assets.back),
       spine: scoped(keyedPublication.assets.spine),
-      pages: [`${legacyScope}/pages/001.webp`],
+      // Two pooled preview pages matching the source material count keeps
+      // the reuse-metadata comparison satisfied.
+      pages: [`${legacyScope}/pages/001.webp`, `${legacyScope}/pages/002.webp`],
     };
-    legacyPublication.pageCount = 2;
+    // Pre-pageCount catalogs omitted it; the reuse path must synthesize one
+    // because empty pooled pages require an explicit count.
+    delete legacyPublication.pageCount;
     legacyPublication.backFormatVersion = 1;
 
     const second = await seedContentPack(
@@ -567,7 +571,10 @@ describe("seedContentPack", () => {
     expect(migrated.assets.spine).toBe(keyedPublication.assets.spine);
     expect(migrated.assets.pages).toEqual([]);
     expect(migrated.assets.backDetail).toBeUndefined();
+    expect(migrated.pageCount).toBe(2);
     expect(migrated.backFormatVersion).toBe(2);
+    // Internal migration bookkeeping must never leak into packed entries.
+    expect("migrated" in migrated).toBe(false);
     for (const [from, to] of moves) {
       // The file lives again at its content-keyed location...
       await access(pooled(root, from));

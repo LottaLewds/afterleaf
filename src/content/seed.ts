@@ -986,13 +986,17 @@ const materializeReusedPublication = async (
   const previous = selection.previous;
   if (!previous)
     throw new Error("A reused publication requires its previous catalog entry");
+  // A buggy revision could leak the internal migration marker into packed
+  // entries; strip it here so reuse never carries bookkeeping fields forward.
+  const {migrated: _legacyMigrationMarker, ...previousEntry} =
+    previous as PackedPublication & {migrated?: boolean};
   const currentSource = selection.candidate.document.source;
   const localSourceId = selection.candidate.localSourceId;
   const sourceChanged =
     JSON.stringify(previous.source) !== JSON.stringify(currentSource);
   const localSourceChanged = previous.localSourceId !== localSourceId;
   const reusedPrevious: PackedPublication = {
-    ...previous,
+    ...previousEntry,
     ...(localSourceId === undefined ? {} : {localSourceId}),
     ...(currentSource === undefined ? {} : {source: currentSource}),
     ...(sourceChanged || localSourceChanged
@@ -1014,11 +1018,20 @@ const materializeReusedPublication = async (
   // pool here, and no-longer-referenced page/detail assets are dropped so
   // retirement reclaims them after activation. Only superseded derivative
   // formats are regenerated, landing under fresh content-keyed names.
-  const rekeyed = await rekeyLegacyPublicationAssets(poolDirectory, previous);
+  const {
+    alternates: rekeyedAlternates,
+    assets: rekeyedAssets,
+    migrated,
+  } = await rekeyLegacyPublicationAssets(poolDirectory, previous);
+  // Reused entries always carry an effective page count: catalogs predating
+  // pageCount omitted it, but an empty pooled page list now requires one.
   let next: PackedPublication = {
     ...reusedPrevious,
-    ...rekeyed,
-    ...(rekeyed.migrated
+    alternates: rekeyedAlternates,
+    assets: rekeyedAssets,
+    pageCount:
+      selection.candidate.document.pageCount ?? selection.material.pages.length,
+    ...(migrated
       ? {
           contentHash: hashJson({
             assetPathsMigrated: true,
