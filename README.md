@@ -489,10 +489,13 @@ magazine families and receive structured issue metadata.
 Derived assets live in a persistent, content-addressed pool at
 `afterleaf-data/game/.cache/library/assets`: every derivative's filename embeds
 a hash of its bytes, so unchanged books are never rewritten on rescan and no
-filesystem hard-link support is required. Activation is atomic: a failed import
-or build leaves the previous catalog active, and assets orphaned by changed or
-removed books are quarantined and deleted automatically after the next
-successful scan.
+filesystem hard-link support is required. The pool holds only the shelf and
+inspect textures (covers, spines, shelf atlases) — interior reader pages are
+streamed on demand from their source in `providers/` or from local archives, so
+the game directory stays small no matter how much you read. Activation is
+atomic: a failed import or build leaves the previous catalog active, and assets
+orphaned by changed or removed books are quarantined and deleted automatically
+after the next successful scan.
 
 ### Optional CLI equivalents
 

@@ -165,10 +165,14 @@ Each run writes a small catalog revision under
 content-keyed pool at `afterleaf-data/game/.cache/library/assets`: every
 derivative's filename embeds a hash of its bytes, so unchanged publications
 never get rewritten, linked, or copied on any filesystem — including Windows
-drives formatted exFAT/FAT32 that do not support hard links. A failed download,
-asset update, or activation leaves the previous catalog active. Assets orphaned
-by changed or removed books are quarantined and garbage-collected by an
-isolated process after the next successful activation. The coordinator reports its `syncing`, `seeding`, and
+drives formatted exFAT/FAT32 that do not support hard links. The pool holds
+only the shelf and inspect textures (covers, spines, shelf atlases); interior
+reader pages are streamed from `providers/` or local archives on demand, so
+the pool stays small regardless of how many pages your library contains. A
+failed download, asset update, or activation leaves the previous catalog
+active. Assets orphaned by changed or removed books are quarantined and
+garbage-collected by an isolated process after the next successful activation.
+The coordinator reports its `syncing`, `seeding`, and
 `activating` phases plus publication-level additions, updates, removals, and
 unchanged entries.
 

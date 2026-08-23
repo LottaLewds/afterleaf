@@ -709,7 +709,8 @@ describe("syncNhentaiCatalog", () => {
     expect(sparsePublication?.assets.back).toStartWith(
       "assets/publications/nhentai-9/back-",
     );
-    expect(sparsePublication?.assets.pages).toHaveLength(3);
+    // Interior pages stay unpooled; the reader streams them on demand.
+    expect(sparsePublication?.assets.pages).toEqual([]);
     if (!sparsePublication) throw new Error("Sparse publication is missing");
     const packedBackStats = await sharp(
       resolve(root, sparsePublication.assets.back),
@@ -768,11 +769,8 @@ describe("syncNhentaiCatalog", () => {
     await expect(
       sharp(resolve(root, englishPublication.assets.front)).metadata(),
     ).resolves.toMatchObject({format: "webp", height: 384, width: 256});
-    await expect(
-      sharp(
-        resolve(root, japanesePublication.assets.pages[0] ?? ""),
-      ).metadata(),
-    ).resolves.toMatchObject({format: "webp"});
+    // Interior pages are not pooled anymore, so nothing is written for them.
+    expect(japanesePublication.assets.pages).toEqual([]);
   });
 
   test("fetch-more pages past complete and blacklisted IDs without loading their details", async () => {

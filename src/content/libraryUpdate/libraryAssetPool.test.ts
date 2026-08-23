@@ -36,12 +36,14 @@ const catalogReferencing = (assetPaths: readonly string[]) => {
     id: "library",
     publications: [
       {
-        alternates: [],
+        alternates: page0
+          ? [{id: "alt", originalTags: [], page0, title: "Alt"}]
+          : [],
         assets: {
           back,
           front,
           frontDetail,
-          pages: [page0],
+          pages: [],
           spine,
         },
         contentHash: "book-hash",
@@ -74,7 +76,7 @@ describe("library asset pool", () => {
       "assets/publications/book/front-detail-b.webp",
       "assets/publications/book/back-c.webp",
       "assets/publications/book/spine-d.webp",
-      "assets/publications/book/pages/001-e.webp",
+      "assets/publications/book/alternates/alt/page-000-e.webp",
     ]);
     expect(referencedLibraryAssetPaths(catalog)).toEqual(
       new Set([
@@ -82,7 +84,7 @@ describe("library asset pool", () => {
         "assets/publications/book/front-detail-b.webp",
         "assets/publications/book/back-c.webp",
         "assets/publications/book/spine-d.webp",
-        "assets/publications/book/pages/001-e.webp",
+        "assets/publications/book/alternates/alt/page-000-e.webp",
       ]),
     );
   });
@@ -97,7 +99,6 @@ describe("library asset pool", () => {
       "assets/publications/book/front-detail-bbbb.webp",
       "assets/publications/book/back-cccc.webp",
       "assets/publications/book/spine-dddd.webp",
-      "assets/publications/book/pages/001-eeee.webp",
     ];
     for (const assetPath of kept) {
       await writePooledAsset(
@@ -105,9 +106,11 @@ describe("library asset pool", () => {
         assetPath.slice("assets/".length),
       );
     }
-    // Superseded derivatives and legacy per-snapshot trees are unreferenced.
+    // Superseded derivatives, pooled reader pages, and legacy per-snapshot
+    // trees are unreferenced by catalogs that stream their pages.
     await Promise.all([
       writePooledAsset(libraryDirectory, "publications/book/front-ffff.webp"),
+      writePooledAsset(libraryDirectory, "publications/book/pages/001.webp"),
       writePooledAsset(
         libraryDirectory,
         "publications/superseded/spine-gggg.webp",
@@ -126,6 +129,7 @@ describe("library asset pool", () => {
       "assets/20260801T000000-abcd1234/publications/old/front-hhhh.webp",
       "assets/atlases/front-iijj.webp",
       "assets/publications/book/front-ffff.webp",
+      "assets/publications/book/pages/001.webp",
       "assets/publications/superseded/spine-gggg.webp",
     ]);
     for (const assetPath of kept) {
@@ -133,6 +137,7 @@ describe("library asset pool", () => {
     }
     for (const retiredPath of [
       "publications/book/front-ffff.webp",
+      "publications/book/pages/001.webp",
       "publications/superseded/spine-gggg.webp",
       "20260801T000000-abcd1234/publications/old/front-hhhh.webp",
       "atlases/front-iijj.webp",
