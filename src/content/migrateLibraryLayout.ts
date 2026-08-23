@@ -9,6 +9,7 @@ import {
   stat,
   writeFile,
 } from "node:fs/promises";
+import {readdirSync, readFileSync, statSync} from "node:fs";
 import {dirname, join, resolve} from "node:path";
 // Relative import: this module is loaded by the Vite config, whose loader
 // cannot resolve the "~" alias at runtime.
@@ -402,14 +403,28 @@ export const detectLegacyLayoutArtifacts = async (
 
 export const readLibraryLayoutMigrationMarker = async (
   workingDirectory: string,
-): Promise<LibraryLayoutMigrationMarker | undefined> => {
+): Promise<LibraryLayoutMigrationMarker | undefined> =>
+  parseLibraryLayoutMigrationMarkerText(
+    await readMarkerTextIgnoringMissing(workingDirectory),
+  );
+
+const readMarkerTextIgnoringMissing = async (workingDirectory: string) => {
   try {
-    const parsed: unknown = JSON.parse(
-      await readFile(
-        resolve(resolveDataRoot(workingDirectory), MIGRATION_MARKER_FILE_NAME),
-        "utf8",
-      ),
+    return await readFile(
+      resolve(resolveDataRoot(workingDirectory), MIGRATION_MARKER_FILE_NAME),
+      "utf8",
     );
+  } catch {
+    return undefined;
+  }
+};
+
+const parseLibraryLayoutMigrationMarkerText = (
+  text: string | undefined,
+): LibraryLayoutMigrationMarker | undefined => {
+  if (text === undefined) return undefined;
+  try {
+    const parsed: unknown = JSON.parse(text);
     if (
       !parsed ||
       typeof parsed !== "object" ||
@@ -420,10 +435,73 @@ export const readLibraryLayoutMigrationMarker = async (
     )
       return undefined;
     return parsed as LibraryLayoutMigrationMarker;
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+  } catch {
     return undefined;
   }
+};
+
+const directoryHasVisibleContentSync = (path: string, depth = 4): boolean => {
+  let entries;
+  try {
+    entries = readdirSync(path);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+    throw error;
+  }
+  for (const entry of entries) {
+    if (entry.startsWith(".")) continue;
+    if (IGNORED_LEGACY_ENTRY_NAMES.has(entry)) continue;
+    if (depth <= 0) return true;
+    try {
+      if (!statSync(resolve(path, entry)).isDirectory()) return true;
+      // A folder holding only dotfiles (for example .gitkeep) is empty.
+      if (directoryHasVisibleContentSync(resolve(path, entry), depth - 1))
+        return true;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
+      throw error;
+    }
+  }
+  return false;
+};
+
+/**
+ * Blocking-state check for server startup: legacy-layout locations that
+ * still hold data while no migration marker records a completed move.
+ * Synchronous so the dev server can refuse to start before serving.
+ */
+export const detectUnmigratedLegacyLayout = (
+  workingDirectory: string,
+): string[] => {
+  const marker = parseLibraryLayoutMigrationMarkerText(
+    (() => {
+      try {
+        return readFileSync(
+          resolve(
+            resolveDataRoot(workingDirectory),
+            MIGRATION_MARKER_FILE_NAME,
+          ),
+          "utf8",
+        );
+      } catch {
+        return undefined;
+      }
+    })(),
+  );
+  if (marker) return [];
+  const resolvedWorking = resolve(workingDirectory);
+  const artifacts: string[] = [];
+  for (const directory of LEGACY_ARTIFACT_DIRECTORIES) {
+    const path = resolve(resolvedWorking, directory);
+    if (directoryHasVisibleContentSync(path)) artifacts.push(path);
+  }
+  try {
+    statSync(resolve(resolvedWorking, "content", "world-save.json"));
+    artifacts.push(resolve(resolvedWorking, "content", "world-save.json"));
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
+  return artifacts;
 };
 
 const rollbackMoves = async (

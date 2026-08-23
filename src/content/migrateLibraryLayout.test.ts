@@ -11,6 +11,7 @@ import {tmpdir} from "node:os";
 import {join, resolve} from "node:path";
 import {
   detectLegacyLayoutArtifacts,
+  detectUnmigratedLegacyLayout,
   migrateLibraryLayout,
   MIGRATION_MARKER_FILE_NAME,
   planLibraryLayoutMigration,
@@ -299,5 +300,21 @@ describe("library layout migration", () => {
     await writeFile(resolve(root, "content/books/comics/.gitkeep"), "");
 
     expect(await detectLegacyLayoutArtifacts(root)).toEqual([]);
+  });
+
+  test("the synchronous boot check blocks only before a completed migration", async () => {
+    const root = await mkdtemp(join(tmpdir(), "afterleaf-migrate-boot-"));
+    temporaryDirectories.push(root);
+
+    // Fresh install: no legacy data, no marker — the server may start.
+    expect(detectUnmigratedLegacyLayout(root)).toEqual([]);
+
+    await createLegacyLayout(root);
+    expect(detectUnmigratedLegacyLayout(root).length).toBeGreaterThan(0);
+
+    await migrateLibraryLayout(root, {write: true});
+    // The marker records the completed migration; leftovers such as the
+    // unused demo pack no longer block startup.
+    expect(detectUnmigratedLegacyLayout(root)).toEqual([]);
   });
 });

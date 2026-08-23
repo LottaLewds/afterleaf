@@ -77,10 +77,7 @@ import {
   worldSaveBackupsDirectory as worldSaveBackupsDirectoryFor,
   worldSavePath as worldSavePathFor,
 } from "./src/content/dataRoot";
-import {
-  detectLegacyLayoutArtifacts,
-  readLibraryLayoutMigrationMarker,
-} from "./src/content/migrateLibraryLayout";
+import {detectUnmigratedLegacyLayout} from "./src/content/migrateLibraryLayout";
 import type {PackedPublication} from "./src/content/schema";
 import {createCachedTvVideoAnalyzer} from "./src/tv/channelAnalysis";
 import {
@@ -317,11 +314,26 @@ const reportActiveLibraryAvailable = (
 
 const activeLibraryLocation = () => {
   const indexPath = path.resolve(libraryDirectory, "index.json");
+  let modifiedAt: number;
+  let index: unknown;
   try {
-    const modifiedAt = statSync(indexPath).mtimeMs;
+    modifiedAt = statSync(indexPath).mtimeMs;
     if (modifiedAt === cachedIndexModifiedAt) return cachedLibraryLocation;
-    const index = JSON.parse(readFileSync(indexPath, "utf8")) as unknown;
-    cachedIndexModifiedAt = modifiedAt;
+    index = JSON.parse(readFileSync(indexPath, "utf8")) as unknown;
+  } catch (error) {
+    // A missing index is normal before the first scan ever runs (fresh
+    // installs and fresh migrations); it means an empty library, not an
+    // error.
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+      cachedIndexModifiedAt = -1;
+      cachedLibraryLocation = undefined;
+      cachedSnapshotId = undefined;
+      reportActiveLibraryAvailable("empty", indexPath, 0);
+      return undefined;
+    }
+    throw error;
+  }
+  try {
     const location = resolveActiveLibraryStorage(libraryDirectory, index);
     if (!location) {
       cachedLibraryLocation = undefined;
@@ -2878,26 +2890,25 @@ const cacheableStaticAssetPath =
 const dataRootBootstrapperPlugin = (): Plugin => ({
   name: "afterleaf-data-root-bootstrapper",
   configureServer() {
-    void ensureDataRootStructure(import.meta.dirname)
-      .then(async () => {
-        // A pre-restructure install must be told why its library and
-        // world look empty; the migration marker silences the notice.
-        const [legacyArtifacts, migrationMarker] = await Promise.all([
-          detectLegacyLayoutArtifacts(import.meta.dirname),
-          readLibraryLayoutMigrationMarker(import.meta.dirname),
-        ]);
-        if (migrationMarker || legacyArtifacts.length === 0) return;
-        console.warn(
-          `[afterleaf] Legacy data folders detected (${legacyArtifacts.length} location${legacyArtifacts.length === 1 ? "" : "s"}, e.g. ${legacyArtifacts[0]}). They are NOT being served: the library and world save now live under afterleaf-data/.\n` +
-            `[afterleaf] Run "bun run library:migrate" to preview the move, then "bun run library:migrate --write".`,
-        );
-      })
-      .catch((error: unknown) =>
-        console.warn(
-          "[afterleaf] Could not prepare the Afterleaf data folder",
-          error,
-        ),
+    // A pre-restructure install would silently serve an empty library and
+    // a fresh world save. Refuse to start instead; configureServer runs
+    // before any request can be served.
+    const unmigrated = detectUnmigratedLegacyLayout(import.meta.dirname);
+    if (unmigrated.length > 0) {
+      console.error(
+        `\x1b[31m[afterleaf] Refusing to start: ${unmigrated.length} legacy data ${unmigrated.length === 1 ? "location" : "locations"} hold data that is not being served (for example ${unmigrated[0]}).\n` +
+          `[afterleaf] The library and world save now live under afterleaf-data/. Run:\n` +
+          `[afterleaf]   bun run library:migrate          # preview the move\n` +
+          `[afterleaf]   bun run library:migrate --write  # perform it\x1b[0m`,
       );
+      process.exit(1);
+    }
+    void ensureDataRootStructure(import.meta.dirname).catch((error: unknown) =>
+      console.warn(
+        "[afterleaf] Could not prepare the Afterleaf data folder",
+        error,
+      ),
+    );
   },
 });
 
