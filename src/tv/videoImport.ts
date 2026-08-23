@@ -1,5 +1,5 @@
 import {spawn} from "node:child_process";
-import {link, lstat, mkdir, mkdtemp, rm} from "node:fs/promises";
+import {copyFile, link, lstat, mkdir, mkdtemp, rm} from "node:fs/promises";
 import {basename, extname, relative, resolve} from "node:path";
 
 import {
@@ -187,6 +187,19 @@ const downloadedVideoPath = async (
   return candidate;
 };
 
+/**
+ * Filesystem error codes meaning a hard link cannot be created (for
+ * example a cross-device staging directory, or exFAT/FAT32 channel
+ * storage); the publish falls back to copying instead of failing.
+ */
+const LINK_UNAVAILABLE_CODES = new Set([
+  "EACCES",
+  "EMLINK",
+  "ENOTSUP",
+  "EPERM",
+  "EXDEV",
+]);
+
 const publishVideo = async (sourcePath: string, channelDirectory: string) => {
   const sourceName = basename(sourcePath);
   const extension = extname(sourceName);
@@ -199,7 +212,18 @@ const publishVideo = async (sourcePath: string, channelDirectory: string) => {
       return videoId;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "EEXIST") continue;
-      throw error;
+      // The staged download may live on another volume from the channel;
+      // copy the finished file into place rather than losing the import.
+      if (
+        !(
+          error instanceof Error &&
+          "code" in error &&
+          LINK_UNAVAILABLE_CODES.has(String(error.code))
+        )
+      )
+        throw error;
+      await copyFile(sourcePath, destinationPath);
+      return videoId;
     }
   }
 };
