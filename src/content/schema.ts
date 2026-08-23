@@ -188,8 +188,14 @@ export interface PackedPublication {
     front: string;
     frontDetail: string;
     back: string;
+    /** Legacy catalogs only; new seeds pool no back detail cover. */
     backDetail?: string;
     spine: string;
+    /**
+     * Legacy catalogs list pooled reader pages here. New seeds emit an
+     * empty array and rely on `pageCount` plus the sparse page route to
+     * stream interior pages from their source on demand.
+     */
     pages: string[];
   };
   shelfAtlasIndex: number;

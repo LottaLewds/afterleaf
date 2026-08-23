@@ -26,6 +26,7 @@ import {
   type ContentSeedDiagnostic,
   type ContentSeedReport,
   type PackedPublication,
+  type PackedPublicationAlternate,
   type PublicationCandidate,
   type PublicationMaterial,
   type PublicationSource,
@@ -68,13 +69,16 @@ const ATLAS_MAX_ROWS = 10;
 const ATLAS_PUBLICATION_CAPACITY = ATLAS_COLUMNS * ATLAS_MAX_ROWS;
 const FRONT_ATLAS_FORMAT_VERSION = 4;
 const BACK_ATLAS_FORMAT_VERSION = 1;
-const BACK_DERIVATIVE_FORMAT_VERSION = 1;
+/**
+ * Version of the pooled back-cover surface derivative. Version 2 renders at
+ * the back atlas cell height and no longer pools a separate detail cover.
+ */
+const BACK_DERIVATIVE_FORMAT_VERSION = 2;
 const SPINE_ATLAS_FORMAT_VERSION = 4;
 const SPINE_DERIVATIVE_FORMAT_VERSION = 4;
 const MAX_PUBLICATION_PAGES = 1_000;
 const MAX_SOURCE_FILE_BYTES = 128 * 1024 * 1024;
 const VALIDATION_CONCURRENCY = 8;
-const PAGE_MATERIALIZATION_CONCURRENCY = 4;
 const SUPPORTED_IMAGE_FORMATS = new Set(["avif", "jpeg", "png", "webp"]);
 
 type ShelfSurface = "front" | "back" | "spine";
@@ -660,9 +664,7 @@ const reusablePublicationMetadata = (
     ...(document.kind === undefined ? {} : {kind: document.kind}),
     title: document.title,
     language: candidate.language,
-    ...(document.pageCount === undefined
-      ? {}
-      : {pageCount: document.pageCount}),
+    pageCount: document.pageCount ?? material.pages.length,
     tags: candidate.normalizedTags,
     originalTags: normalizeTags(document.tags),
     alternates: candidate.alternates ?? [],
@@ -705,7 +707,7 @@ const previousPublicationMetadata = (
   ...(previous.kind === undefined ? {} : {kind: previous.kind}),
   title: previous.title,
   language: previous.language,
-  ...(previous.pageCount === undefined ? {} : {pageCount: previous.pageCount}),
+  pageCount: previous.pageCount ?? previous.assets.pages.length,
   tags: previous.tags,
   originalTags: previous.originalTags,
   alternates: previous.alternates.map(({id, originalTags, source, title}) => ({
@@ -802,9 +804,7 @@ const publicationAssetPaths = (publication: PackedPublication) => [
   publication.assets.front,
   publication.assets.frontDetail,
   publication.assets.back,
-  ...(publication.assets.backDetail ? [publication.assets.backDetail] : []),
   publication.assets.spine,
-  ...publication.assets.pages,
   ...publication.alternates.map(({page0}) => page0),
 ];
 
@@ -857,6 +857,126 @@ const persistentPublicationExists = async (
   return (await Promise.all(assets.map(fileExists))).every(Boolean);
 };
 
+/**
+ * Matches pooled paths written before the content-keyed pool, which scoped
+ * every asset under its revision directory (`assets/<snapshotId>/...`).
+ */
+const LEGACY_POOL_ASSET_PATTERN = /^assets\/(?:publications\/|atlases\/)/u;
+
+const isLegacyPooledAssetPath = (catalogPath: string) =>
+  catalogPath.startsWith(`${LIBRARY_ASSET_PREFIX}/`) &&
+  !LEGACY_POOL_ASSET_PATTERN.test(catalogPath);
+
+/**
+ * Moves a single legacy revision-scoped pooled asset into its content-keyed
+ * pool location. The keyed filename is derived from the file's own bytes, so
+ * a future seed re-derives the exact same path without re-encoding. Returns
+ * the (possibly unchanged) catalog path.
+ */
+const rekeyLegacyPoolAsset = async (
+  poolDirectory: string,
+  catalogPath: string,
+): Promise<string> => {
+  if (!isLegacyPooledAssetPath(catalogPath)) return catalogPath;
+  const publicationsMarker = "/publications/";
+  const markerIndex = catalogPath.indexOf(publicationsMarker);
+  if (markerIndex === -1) return catalogPath;
+  // The suffix keeps its publication directory segment.
+  const stableSuffix = catalogPath.slice(
+    markerIndex + publicationsMarker.length,
+  );
+  const sourcePath = resolveReusableAsset(poolDirectory, catalogPath);
+  let buffer: Buffer;
+  try {
+    buffer = await readFile(sourcePath);
+  } catch {
+    // A missing legacy file keeps its path so downstream existence checks
+    // report it instead of silently pretending the asset moved.
+    return catalogPath;
+  }
+  // An asset that was already keyed under the old scope carries its content
+  // hash in its name; strip that embedded hash when it matches the bytes so
+  // the renamed file lands on the canonical content-keyed name.
+  const embeddedHash = /-([0-9a-f]{16})(\.[a-z0-9]+)$/iu.exec(
+    stableSuffix,
+  )?.[1];
+  const extension = /(\.[a-z0-9]+)$/iu.exec(stableSuffix)?.[1] ?? "";
+  const normalizedSuffix =
+    embeddedHash !== undefined && embeddedHash === shortBufferHash(buffer)
+      ? `${stableSuffix.slice(0, stableSuffix.length - embeddedHash.length - 1 - extension.length)}${extension}`
+      : stableSuffix;
+  const targetCatalogPath = poolAssetPath(
+    keyedPoolAssetPath(`publications/${normalizedSuffix}`, buffer),
+  );
+  if (targetCatalogPath === catalogPath) return catalogPath;
+  const targetPath = resolveReusableAsset(poolDirectory, targetCatalogPath);
+  if (await fileExists(targetPath)) {
+    // The keyed name encodes the bytes, so an existing file is identical.
+    await rm(sourcePath, {force: true}).catch(() => {});
+  } else {
+    await mkdir(dirname(targetPath), {recursive: true});
+    try {
+      await rename(sourcePath, targetPath);
+    } catch {
+      // Cross-device renames fail; fall back to an atomic pooled write.
+      await writePoolAsset(poolDirectory, targetCatalogPath, buffer);
+      await rm(sourcePath, {force: true}).catch(() => {});
+    }
+  }
+  return targetCatalogPath;
+};
+
+/**
+ * Migrates a previous catalog entry into the content-keyed pool layout.
+ * Interior reader pages and the back detail cover are no longer referenced
+ * by catalogs, so they are dropped here and reclaimed later by asset
+ * retirement. Surface derivatives and alternate page zeros are renamed in
+ * place when they still live under a revision directory.
+ */
+const rekeyLegacyPublicationAssets = async (
+  poolDirectory: string,
+  previous: PackedPublication,
+): Promise<{
+  alternates: PackedPublicationAlternate[];
+  assets: PackedPublication["assets"];
+  migrated: boolean;
+}> => {
+  const assets = previous.assets;
+  const [front, frontDetail, back, spine, alternates] = await Promise.all([
+    rekeyLegacyPoolAsset(poolDirectory, assets.front),
+    rekeyLegacyPoolAsset(poolDirectory, assets.frontDetail),
+    rekeyLegacyPoolAsset(poolDirectory, assets.back),
+    rekeyLegacyPoolAsset(poolDirectory, assets.spine),
+    Promise.all(
+      previous.alternates.map(async (alternate) => ({
+        ...alternate,
+        page0: await rekeyLegacyPoolAsset(poolDirectory, alternate.page0),
+      })),
+    ),
+  ]);
+  return {
+    alternates,
+    assets: {
+      front: front ?? assets.front,
+      frontDetail: frontDetail ?? assets.frontDetail,
+      back: back ?? assets.back,
+      spine: spine ?? assets.spine,
+      pages: [],
+    },
+    migrated:
+      front !== assets.front ||
+      frontDetail !== assets.frontDetail ||
+      back !== assets.back ||
+      spine !== assets.spine ||
+      assets.pages.length > 0 ||
+      assets.backDetail !== undefined ||
+      alternates.some(
+        (alternate, index) =>
+          alternate.page0 !== previous.alternates[index]?.page0,
+      ),
+  };
+};
+
 const materializeReusedPublication = async (
   selection: ValidatedSelection,
   poolDirectory: string,
@@ -866,13 +986,17 @@ const materializeReusedPublication = async (
   const previous = selection.previous;
   if (!previous)
     throw new Error("A reused publication requires its previous catalog entry");
+  // A buggy revision could leak the internal migration marker into packed
+  // entries; strip it here so reuse never carries bookkeeping fields forward.
+  const {migrated: _legacyMigrationMarker, ...previousEntry} =
+    previous as PackedPublication & {migrated?: boolean};
   const currentSource = selection.candidate.document.source;
   const localSourceId = selection.candidate.localSourceId;
   const sourceChanged =
     JSON.stringify(previous.source) !== JSON.stringify(currentSource);
   const localSourceChanged = previous.localSourceId !== localSourceId;
   const reusedPrevious: PackedPublication = {
-    ...previous,
+    ...previousEntry,
     ...(localSourceId === undefined ? {} : {localSourceId}),
     ...(currentSource === undefined ? {} : {source: currentSource}),
     ...(sourceChanged || localSourceChanged
@@ -887,13 +1011,35 @@ const materializeReusedPublication = async (
   };
   const migrateBack =
     previous.backFormatVersion !== BACK_DERIVATIVE_FORMAT_VERSION ||
-    previous.assets.backDetail === undefined;
+    previous.assets.backDetail !== undefined;
   const migrateSpine =
     previous.spineFormatVersion !== SPINE_DERIVATIVE_FORMAT_VERSION;
-  // The reused publication's existing derivatives already live in the
-  // content-keyed pool under stable paths, so nothing is linked or copied.
-  // Only superseded derivative formats are regenerated, and they land in
-  // the pool under fresh content-keyed names.
+  // Legacy revision-scoped pooled assets are renamed into the content-keyed
+  // pool here, and no-longer-referenced page/detail assets are dropped so
+  // retirement reclaims them after activation. Only superseded derivative
+  // formats are regenerated, landing under fresh content-keyed names.
+  const {
+    alternates: rekeyedAlternates,
+    assets: rekeyedAssets,
+    migrated,
+  } = await rekeyLegacyPublicationAssets(poolDirectory, previous);
+  // Reused entries always carry an effective page count: catalogs predating
+  // pageCount omitted it, but an empty pooled page list now requires one.
+  let next: PackedPublication = {
+    ...reusedPrevious,
+    alternates: rekeyedAlternates,
+    assets: rekeyedAssets,
+    pageCount:
+      selection.candidate.document.pageCount ?? selection.material.pages.length,
+    ...(migrated
+      ? {
+          contentHash: hashJson({
+            assetPathsMigrated: true,
+            previousContentHash: reusedPrevious.contentHash,
+          }),
+        }
+      : {}),
+  };
   const regenerateIntoPool = async (
     relativeName: string,
     derivative: () => Promise<Buffer>,
@@ -912,7 +1058,6 @@ const materializeReusedPublication = async (
     };
   };
   try {
-    let next = reusedPrevious;
     if (migrateSpine || migrateBack) {
       const frontSource =
         selection.material.front ?? selection.material.pages[0];
@@ -980,29 +1125,30 @@ const materializeReusedPublication = async (
           backSource,
         );
         const backImage = await validateImage(backSource);
-        const backDetailHeight = Math.min(
-          DETAIL_COVER_MAX_HEIGHT,
+        const backSurfaceHeight = Math.min(
+          BACK_ATLAS_HEIGHT,
           wraparoundLayout?.back.height ??
             orientedImageDimensions(backImage).height,
         );
-        const backDetail = await regenerateIntoPool("back-detail.webp", () =>
-          detailCoverDerivative(
+        const back = await regenerateIntoPool("back.webp", () =>
+          webpDerivative(
             backSource,
             Math.max(
               1,
-              Math.round(backDetailHeight * previous.physical.aspectRatio),
+              Math.round(backSurfaceHeight * previous.physical.aspectRatio),
             ),
-            backDetailHeight,
+            backSurfaceHeight,
+            "cover",
             "centre",
             wraparoundLayout?.back,
           ),
         );
         next = {
           ...next,
-          assets: {...next.assets, backDetail: backDetail.catalogPath},
+          assets: {...next.assets, back: back.catalogPath},
           backFormatVersion: BACK_DERIVATIVE_FORMAT_VERSION,
           contentHash: hashJson({
-            backDetailAssetHash: backDetail.assetHash,
+            backAssetHash: back.assetHash,
             backFormatVersion: BACK_DERIVATIVE_FORMAT_VERSION,
             previousContentHash: next.contentHash,
           }),
@@ -1100,22 +1246,30 @@ const materializePublication = async (
     frontDimensions.width / frontDimensions.height > aspectRatio * 1.35
       ? "right"
       : "centre";
-  const pageDigits = Math.max(
-    3,
-    String(selection.material.pages.length).length,
+  const backSource = wraparoundLayout ? frontSource : fallbackBackSource;
+  const backImage = selection.images.get(backSource);
+  if (!backImage)
+    throw new Error(`Missing validated image metadata for ${backSource}`);
+  // The back cover doubles as the shelf atlas source, so it renders at the
+  // back atlas cell height instead of the smaller shelf cover height.
+  const backSurfaceHeight = Math.min(
+    BACK_ATLAS_HEIGHT,
+    wraparoundLayout?.back.height ?? orientedImageDimensions(backImage).height,
   );
   const surfaceSources = [
     {
       name: "front.webp",
       source: frontSource,
       width: coverWidth,
+      height: COVER_HEIGHT,
       position: frontPosition,
       region: wraparoundLayout?.front,
     },
     {
       name: "back.webp",
-      source: wraparoundLayout ? frontSource : fallbackBackSource,
-      width: coverWidth,
+      source: backSource,
+      width: Math.max(1, Math.round(backSurfaceHeight * aspectRatio)),
+      height: backSurfaceHeight,
       position: "centre",
       region: wraparoundLayout?.back,
     },
@@ -1129,7 +1283,7 @@ const materializePublication = async (
           await webpDerivative(
             surface.source,
             surface.width,
-            COVER_HEIGHT,
+            surface.height,
             "cover",
             surface.position,
             surface.region,
@@ -1154,26 +1308,6 @@ const materializePublication = async (
       ),
     ),
   );
-  const backSource = wraparoundLayout ? frontSource : fallbackBackSource;
-  const backImage = selection.images.get(backSource);
-  if (!backImage)
-    throw new Error(`Missing validated image metadata for ${backSource}`);
-  const backDetailHeight = Math.min(
-    DETAIL_COVER_MAX_HEIGHT,
-    wraparoundLayout?.back.height ?? orientedImageDimensions(backImage).height,
-  );
-  const backDetailPath = await commitAsset(
-    prepareAsset(
-      "back-detail.webp",
-      await detailCoverDerivative(
-        backSource,
-        Math.max(1, Math.round(backDetailHeight * aspectRatio)),
-        backDetailHeight,
-        "centre",
-        wraparoundLayout?.back,
-      ),
-    ),
-  );
   const spineWidth = spineTextureWidth(document.physical?.thicknessMm);
   const spineSource =
     selection.material.spine ?? (wraparoundLayout ? frontSource : undefined);
@@ -1192,38 +1326,9 @@ const materializePublication = async (
         : await spineDerivative(selection.candidate, spineWidth),
     ),
   );
-  const pagePaths: string[] = [];
-  for (
-    let batchStart = 0;
-    batchStart < selection.material.pages.length;
-    batchStart += PAGE_MATERIALIZATION_CONCURRENCY
-  ) {
-    const sources = selection.material.pages.slice(
-      batchStart,
-      batchStart + PAGE_MATERIALIZATION_CONCURRENCY,
-    );
-    const buffers = await Promise.all(
-      sources.map(async (source, batchIndex) => {
-        const image = selection.images.get(source);
-        if (!image)
-          throw new Error(`Missing validated image metadata for ${source}`);
-        return {
-          buffer: await readerDerivative(source, image),
-          index: batchStart + batchIndex,
-        };
-      }),
-    );
-    // Hashing must happen in page order before any writes so the
-    // publication content hash stays deterministic.
-    const assets = buffers.map(({buffer, index}) =>
-      prepareAsset(
-        `pages/${String(index + 1).padStart(pageDigits, "0")}.webp`,
-        buffer,
-      ),
-    );
-    pagePaths.push(...assets.map(({catalogPath}) => catalogPath));
-    await Promise.all(assets.map(commitAsset));
-  }
+  // Interior reader pages are no longer pooled: the client streams every
+  // page from its source through the sparse page route on demand, so the
+  // pool only holds the shelf/inspect surface derivatives.
 
   const alternateMaterialById = new Map(
     selection.material.alternates?.map((alternate) => [
@@ -1282,9 +1387,7 @@ const materializePublication = async (
     ...(document.kind === undefined ? {} : {kind: document.kind}),
     title: document.title,
     language: selection.candidate.language,
-    ...(document.pageCount === undefined
-      ? {}
-      : {pageCount: document.pageCount}),
+    pageCount: document.pageCount ?? selection.material.pages.length,
     tags: selection.candidate.normalizedTags,
     originalTags: normalizeTags(document.tags),
     alternates,
@@ -1294,9 +1397,8 @@ const materializePublication = async (
       front: frontPath,
       frontDetail: detailCoverPath,
       back: backPath,
-      backDetail: backDetailPath,
       spine: spinePath,
-      pages: pagePaths,
+      pages: [],
     },
     shelfAtlasIndex,
     ...(usesInferredAspectRatio
@@ -1327,8 +1429,7 @@ const shelfAtlasAssetPath = (
   surface: ShelfSurface,
 ) => {
   if (surface === "front") return publication.assets.frontDetail;
-  if (surface === "back")
-    return publication.assets.backDetail ?? publication.assets.back;
+  if (surface === "back") return publication.assets.back;
   return publication.assets.spine;
 };
 

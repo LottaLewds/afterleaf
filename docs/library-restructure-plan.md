@@ -98,3 +98,12 @@ Update path expectations in `libraryConfig.test.ts`, `archive.test.ts`, `library
 ## Execution order
 
 Workstream A first (self-contained, biggest risk), then B + C together (path moves depend on A's new pool shape), D throughout. Run `bun check` at the repository root after each workstream.
+
+## Addendum — Streaming reader pages and legacy pool re-key
+
+Follow-up to Workstream A, implemented after the pool shipped:
+
+- **Interior reader pages are no longer pooled.** The pool holds only shelf/inspect surface derivatives (`front`, `frontDetail`, `back`, `spine`), alternate page zeros, and the shelf atlases. Packed publications carry `pages: []` plus an always-present `pageCount`; `src/catalog.ts` already routes any page without a pooled asset to `/api/library/publications/<pubId>/pages/<n>`, which streams from `providers/` or reads directly out of local CBZ archives (re-encoding through the same ≤2048px webp derivative spec the pool used). This keeps `game/.cache/library/assets` roughly constant instead of growing with every downloaded book.
+- **The back cover renders at the back-atlas cell height** (576px) since it now doubles as the back-shelf atlas source; there is no separate pooled `backDetail`. Inspect mode falls back to the small `back` texture for the back cover.
+- **Legacy revision-scoped assets are re-keyed in place during reuse** (`rekeyLegacyPublicationAssets` in `seed.ts`): files still living under `assets/<snapshotId>/publications/...` are renamed into their canonical content-keyed names (hashing the file bytes, so a future seed derives identical names without re-encoding). Pooled pages/back details are dropped from the entry, and asset retirement plus the detached garbage collector reclaim the emptied per-snapshot trees after activation — no standalone migration CLI is required; the next normal library scan heals everything.
+- **nhentai sync defaults to sparse previews** (3 initial pages + back page, matching the other providers); earlier CLI runs that fell through to the all-pages default are the reason some galleries were fully downloaded.

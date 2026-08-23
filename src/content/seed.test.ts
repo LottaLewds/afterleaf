@@ -1,16 +1,17 @@
 import {afterEach, describe, expect, test} from "bun:test";
 import {
   access,
-  mkdtemp,
   mkdir,
+  mkdtemp,
   readFile,
+  rename,
   rm,
   stat,
   utimes,
   writeFile,
 } from "node:fs/promises";
 import {tmpdir} from "node:os";
-import {join, resolve} from "node:path";
+import {dirname, join, resolve} from "node:path";
 import sharp from "sharp";
 import {BOOK_ASPECT_RATIO_INFERENCE_VERSION} from "~/content/bookAspectRatio";
 import {LocalCatalogSource} from "~/content/localCatalogSource";
@@ -283,7 +284,7 @@ describe("seedContentPack", () => {
     expect(repeated.catalog?.contentHash).toBe(catalog.contentHash);
   });
 
-  test("preserves suitable WebP reader pages and renders title-based spine textures", async () => {
+  test("streams interior pages instead of pooling them and renders title-based spine textures", async () => {
     const root = await mkdtemp(join(tmpdir(), "afterleaf-seed-"));
     temporaryDirectories.push(root);
     const catalogDirectory = resolve(root, "catalog");
@@ -293,9 +294,6 @@ describe("seedContentPack", () => {
       "english",
       "#7c3f58",
       {format: "webp", height: 1800, width: 1280},
-    );
-    const sourcePage = await readFile(
-      resolve(catalogDirectory, "webp-book/pages/001.webp"),
     );
 
     const first = await seedContentPack(
@@ -307,11 +305,17 @@ describe("seedContentPack", () => {
       }),
     );
     if (!first.catalog) throw new Error("First catalog is missing");
-    const firstPagePath = first.catalog.publications[0]?.assets.pages[0];
-    const firstSpinePath = first.catalog.publications[0]?.assets.spine;
-    if (!firstPagePath || !firstSpinePath)
-      throw new Error("First publication assets are missing");
-    expect(await readFile(pooled(root, firstPagePath))).toEqual(sourcePage);
+    const firstPublication = first.catalog.publications[0];
+    if (!firstPublication) throw new Error("First publication is missing");
+    // Interior pages are streamed from their source at read time; only the
+    // shelf/inspect surface derivatives live in the pool.
+    expect(firstPublication.assets.pages).toEqual([]);
+    expect(firstPublication.pageCount).toBe(2);
+    await expect(
+      access(resolve(root, "assets/publications/webp-book/pages")),
+    ).rejects.toThrow();
+    const firstSpinePath = firstPublication.assets.spine;
+    if (!firstSpinePath) throw new Error("First spine is missing");
     expect(await sharp(pooled(root, firstSpinePath)).metadata()).toMatchObject({
       format: "webp",
       height: 1024,
@@ -437,13 +441,13 @@ describe("seedContentPack", () => {
     // a superseded format is deterministic, so even migrated derivatives
     // land on their original content-keyed names.
     expect(upgradedBookA.assets.front).toBe(previousBookA.assets.front);
-    expect(upgradedBookA.assets.backDetail).toBe(
-      previousBookA.assets.backDetail,
-    );
+    expect(upgradedBookA.assets.back).toBe(previousBookA.assets.back);
     expect(upgradedBookA.assets.spine).toBe(previousBookA.assets.spine);
-    await access(pooled(root, upgradedBookA.assets.backDetail ?? "missing"));
+    expect(upgradedBookA.assets.backDetail).toBeUndefined();
+    expect(upgradedBookA.assets.pages).toEqual([]);
+    await access(pooled(root, upgradedBookA.assets.back));
     await access(pooled(root, upgradedBookA.assets.spine));
-    expect(upgradedBookA.backFormatVersion).toBe(1);
+    expect(upgradedBookA.backFormatVersion).toBe(2);
     expect(second.catalog.publications[0]?.spineFormatVersion).toBe(4);
 
     const upgradedSpineAtlas = second.catalog.atlases.spine[0];
@@ -480,6 +484,103 @@ describe("seedContentPack", () => {
     expect(third.catalog?.atlases.front[0]?.path).not.toBe(
       second.catalog.atlases.front[0]?.path,
     );
+  });
+
+  test("rekeys revision-scoped pooled assets into the content-keyed pool on reuse", async () => {
+    const root = await mkdtemp(join(tmpdir(), "afterleaf-seed-rekey-"));
+    temporaryDirectories.push(root);
+    const catalogDirectory = resolve(root, "catalog");
+    await createPublication(
+      catalogDirectory,
+      "legacy-book",
+      "english",
+      "#703050",
+      {provenance: true},
+    );
+    const first = await seedContentPack(
+      new LocalCatalogSource(catalogDirectory),
+      poolOptions(root, {
+        packId: "rekey-test",
+        limit: 1,
+        outputDirectory: resolve(root, "revisions/rev-1"),
+      }),
+    );
+    if (!first.catalog) throw new Error("First rekey catalog is missing");
+    const keyedPublication = first.catalog.publications[0];
+    if (!keyedPublication) throw new Error("Keyed publication is missing");
+
+    // Rewind the pool to the pre-pool layout: every asset scoped under its
+    // revision directory, reader pages pooled, and a back detail cover.
+    const legacyScope =
+      "assets/20260801t000000-000z-legacy/publications/legacy-book";
+    const scoped = (catalogPath: string) =>
+      catalogPath.replace(
+        "assets/publications/legacy-book/",
+        `${legacyScope}/`,
+      );
+    const moves = [
+      keyedPublication.assets.front,
+      keyedPublication.assets.frontDetail,
+      keyedPublication.assets.back,
+      keyedPublication.assets.spine,
+    ].map((catalogPath) => [catalogPath, scoped(catalogPath)] as const);
+    await Promise.all(
+      moves.map(async ([from, to]) => {
+        await mkdir(dirname(pooled(root, to)), {recursive: true});
+        await rename(pooled(root, from), pooled(root, to));
+      }),
+    );
+    const legacyCatalog = structuredClone(first.catalog);
+    const legacyPublication = legacyCatalog.publications[0];
+    if (!legacyPublication)
+      throw new Error("Legacy publication clone is missing");
+    legacyPublication.assets = {
+      front: scoped(keyedPublication.assets.front),
+      frontDetail: scoped(keyedPublication.assets.frontDetail),
+      back: scoped(keyedPublication.assets.back),
+      backDetail: scoped(keyedPublication.assets.back),
+      spine: scoped(keyedPublication.assets.spine),
+      // Two pooled preview pages matching the source material count keeps
+      // the reuse-metadata comparison satisfied.
+      pages: [`${legacyScope}/pages/001.webp`, `${legacyScope}/pages/002.webp`],
+    };
+    // Pre-pageCount catalogs omitted it; the reuse path must synthesize one
+    // because empty pooled pages require an explicit count.
+    delete legacyPublication.pageCount;
+    legacyPublication.backFormatVersion = 1;
+
+    const second = await seedContentPack(
+      new LocalCatalogSource(catalogDirectory),
+      poolOptions(root, {
+        packId: "rekey-test",
+        limit: 1,
+        outputDirectory: resolve(root, "revisions/rev-2"),
+        reuse: {catalog: legacyCatalog},
+      }),
+    );
+    if (!second.catalog) throw new Error("Second rekey catalog is missing");
+    const migrated = second.catalog.publications[0];
+    if (!migrated) throw new Error("Migrated publication is missing");
+    // Every surface derivative landed on its original content-keyed name,
+    // because the renamed bytes hash to the same keyed filename.
+    expect(migrated.assets.front).toBe(keyedPublication.assets.front);
+    expect(migrated.assets.frontDetail).toBe(
+      keyedPublication.assets.frontDetail,
+    );
+    expect(migrated.assets.back).toBe(keyedPublication.assets.back);
+    expect(migrated.assets.spine).toBe(keyedPublication.assets.spine);
+    expect(migrated.assets.pages).toEqual([]);
+    expect(migrated.assets.backDetail).toBeUndefined();
+    expect(migrated.pageCount).toBe(2);
+    expect(migrated.backFormatVersion).toBe(2);
+    // Internal migration bookkeeping must never leak into packed entries.
+    expect("migrated" in migrated).toBe(false);
+    for (const [from, to] of moves) {
+      // The file lives again at its content-keyed location...
+      await access(pooled(root, from));
+      // ...and the revision-scoped copy is gone.
+      await expect(access(pooled(root, to))).rejects.toThrow();
+    }
   });
 
   test("rebuilds a legacy inferred aspect ratio once, then reuses the versioned result", async () => {
@@ -749,7 +850,7 @@ describe("seedContentPack", () => {
     );
   });
 
-  test("resizes WebP reader pages that exceed the runtime dimension limit", async () => {
+  test("leaves oversized source pages on disk for on-demand streaming", async () => {
     const root = await mkdtemp(join(tmpdir(), "afterleaf-seed-"));
     temporaryDirectories.push(root);
     const catalogDirectory = resolve(root, "catalog");
@@ -759,9 +860,6 @@ describe("seedContentPack", () => {
       "english",
       "#34485c",
       {format: "webp", height: 2200, width: 2200},
-    );
-    const sourcePage = await readFile(
-      resolve(catalogDirectory, "oversized-webp-book/pages/001.webp"),
     );
     const result = await seedContentPack(
       new LocalCatalogSource(catalogDirectory),
@@ -774,14 +872,15 @@ describe("seedContentPack", () => {
         tags: ["big-breasts"],
       },
     );
-    const readerPath = result.catalog?.publications[0]?.assets.pages[0];
-    if (!readerPath) throw new Error("Expected a resized reader page");
-    expect(await readFile(pooled(root, readerPath))).not.toEqual(sourcePage);
-    expect(await sharp(pooled(root, readerPath)).metadata()).toMatchObject({
-      format: "webp",
-      height: 2048,
-      width: 2048,
-    });
+    const publication = result.catalog?.publications[0];
+    if (!publication) throw new Error("Expected a seeded publication");
+    expect(publication.assets.pages).toEqual([]);
+    expect(publication.pageCount).toBe(2);
+    // The oversized source page is never re-encoded into the pool; the
+    // sparse page route resizes it on demand instead.
+    await expect(
+      access(resolve(root, "assets/publications/oversized-webp-book/pages")),
+    ).rejects.toThrow();
   });
 
   test("preserves a publication's inferred non-standard page aspect ratio", async () => {

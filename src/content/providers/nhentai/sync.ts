@@ -153,7 +153,9 @@ const manifestForGallery = (
   gallery: NhentaiGallery,
   language: SupportedLanguage,
   retrievedAt: string,
-  previewPageCount = gallery.numPages,
+  // Sparse by default, matching createRepresentativePagePlan and the other
+  // providers: only the initial preview pages are downloaded locally.
+  previewPageCount = 3,
 ): LocalPublicationDocument => {
   const tags = normalizeTags(gallery.tags.map((tag) => tag.name));
   const title = chooseTitle(gallery, language) ?? `nHentai ${gallery.id}`;
