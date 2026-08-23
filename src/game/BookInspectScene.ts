@@ -222,6 +222,7 @@ export class BookInspectScene {
   #pageTurnRevision = 0;
   #pageTurnTargetIndex = 0;
   #pageTurnTextureUrls = new Set<string>();
+  #queuedPageTurn: -1 | 0 | 1 = 0;
   #paperDepth = 0.3;
   #ready = false;
   #resizeDirty = true;
@@ -292,15 +293,16 @@ export class BookInspectScene {
 
   turnPage(delta: number) {
     const publication = this.#publication();
-    if (
-      !publication ||
-      publication.pages.length === 0 ||
-      this.#pageTurnDirection !== 0 ||
-      this.#pageTurnPreparing
-    )
-      return;
-    const direction = Math.sign(Math.trunc(delta));
+    if (!publication || publication.pages.length === 0) return;
+    const truncatedDelta = Math.trunc(delta);
+    const direction: -1 | 0 | 1 =
+      truncatedDelta > 0 ? 1 : truncatedDelta < 0 ? -1 : 0;
     if (direction === 0) return;
+    if (this.#pageTurnDirection !== 0 || this.#pageTurnPreparing) {
+      // Buffer the latest intent; it fires once the in-flight turn finishes.
+      this.#queuedPageTurn = direction;
+      return;
+    }
     const navigation: ReaderNavigation = direction > 0 ? "forward" : "backward";
     const nextPageIndex = getAdjacentSpreadStart(
       this.#pageIndex,
@@ -852,6 +854,12 @@ export class BookInspectScene {
     this.#onPageIndexChange?.(this.#pageIndex);
     this.#syncPageRigVisibility();
     void this.#syncPageTextures(publication);
+    // Start the queued turn before releasing the finished turn's textures:
+    // preparing re-acquires every URL still assigned to a material, so the
+    // release below cannot evict a texture that is on screen.
+    const queuedTurn = this.#queuedPageTurn;
+    this.#queuedPageTurn = 0;
+    if (queuedTurn !== 0) this.turnPage(queuedTurn);
     this.#releasePageTurnTextures();
   }
 
@@ -882,6 +890,7 @@ export class BookInspectScene {
     this.#pageTurnDirection = 0;
     this.#pageTurnElapsed = 0;
     this.#pageTurnTargetIndex = this.#pageIndex;
+    this.#queuedPageTurn = 0;
     this.#releasePageTurnTextures();
     this.#activeLeafFrontMaterial.map = null;
     this.#activeLeafBackMaterial.map = null;
@@ -1080,6 +1089,7 @@ export class BookInspectScene {
       ),
     );
     const revision = ++this.#pageLoadRevision;
+    const turnRevision = this.#pageTurnRevision;
     const textures = new Map<string, Texture>();
     const preloadPlan = createReaderPagePreloadPlan({
       pageCount: publication.pages.length,
@@ -1101,6 +1111,9 @@ export class BookInspectScene {
     if (
       this.#disposed ||
       revision !== this.#pageLoadRevision ||
+      // A page turn prepared after this sync started owns the surface
+      // materials; applying spread textures here would flash mid-turn.
+      turnRevision !== this.#pageTurnRevision ||
       this.#publication()?.id !== publication.id
     ) {
       for (const url of textures.keys()) this.#pageTextureCache.release(url);

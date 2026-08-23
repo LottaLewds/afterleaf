@@ -1445,6 +1445,7 @@ export class ShopScene {
   #inspectionTurnBackSourceRevealed = false;
   #inspectionTurnTargetPageIndex = 0;
   #inspectionTurnWillCommit = true;
+  #inspectionQueuedTurn: ReaderNavigation | undefined;
   #inspectionTurningBackTexture: Texture | undefined;
   #inspectionZoom = 1;
   #inspectionZoomOffsetX = 0;
@@ -1882,6 +1883,7 @@ export class ShopScene {
     this.#inspectionTurnPreparing = false;
     this.#inspectionDragging = false;
     this.#inspectionDragReleaseDecision = undefined;
+    this.#inspectionQueuedTurn = undefined;
     this.#releaseInspectionTurnTextures();
     this.#inspectionPageIndex = nextPageIndex;
     this.#inspectionTurnPage = undefined;
@@ -10749,6 +10751,7 @@ export class ShopScene {
     this.#inspectionTurnPreparing = false;
     this.#inspectionDragging = false;
     this.#inspectionDragReleaseDecision = undefined;
+    this.#inspectionQueuedTurn = undefined;
     this.#inspectionTurnPage = undefined;
     this.#inspectionTurnFromSingle = false;
     this.#inspectionTurnOpeningFromBack = false;
@@ -10781,6 +10784,7 @@ export class ShopScene {
     this.#inspectionDragging = false;
     this.#inspectionDragNavigation = undefined;
     this.#inspectionDragReleaseDecision = undefined;
+    this.#inspectionQueuedTurn = undefined;
     if (this.#inspectionTurnPage !== undefined) {
       const sourceMaterial =
         this.#inspectionTurnSourceSide === "left"
@@ -10811,8 +10815,7 @@ export class ShopScene {
     if (
       !publication ||
       this.#inspectionMode !== "spread" ||
-      this.#inspectionOpenAngle > 0.08 ||
-      this.#inspectionTurnPage !== undefined
+      this.#inspectionOpenAngle > 0.08
     )
       return;
     const previousPageIndex = this.#inspectionPageIndex;
@@ -10825,10 +10828,13 @@ export class ShopScene {
     );
     if (nextPageIndex === previousPageIndex) return;
     if (
-      this.#inspectionTurnPreparing &&
-      nextPageIndex === this.#inspectionTurnTargetPageIndex
-    )
+      this.#inspectionTurnPage !== undefined ||
+      this.#inspectionTurnPreparing
+    ) {
+      // Buffer the latest intent; it fires once the in-flight turn finishes.
+      this.#inspectionQueuedTurn = navigation;
       return;
+    }
     const record = this.#booksById.get(publication.id);
     if (!record) return;
     void this.#prepareInspectionPageTurn(
@@ -11011,10 +11017,20 @@ export class ShopScene {
     this.#inspectionTurnPreparing = true;
     this.#inspectionTurnTargetPageIndex = nextPageIndex;
     const targetUrls = this.#inspectionPageUrls(publication, nextPageIndex);
+    // Hold the current spread as well: its textures stay assigned to the
+    // surface materials until the turn commits, so they must stay referenced
+    // even if a prior texture sync was invalidated and dropped its holds.
+    const currentUrls = this.#inspectionPageUrls(
+      publication,
+      this.#inspectionPageIndex,
+    );
     const requestedUrls = new Set(
-      [targetUrls.left, targetUrls.right].filter(
-        (url): url is string => url !== undefined,
-      ),
+      [
+        currentUrls.left,
+        currentUrls.right,
+        targetUrls.left,
+        targetUrls.right,
+      ].filter((url): url is string => url !== undefined),
     );
     const textures = new Map<string, Texture>();
     await Promise.all(
@@ -11365,14 +11381,30 @@ export class ShopScene {
     this.#inspectionTurnToSingle = false;
     this.#configureInspectionPages(record, publication);
     if (!this.#inspectionTurnWillCommit) {
+      // Flush first so a queued prepare re-holds the restored spread
+      // textures before this release drops the finished turn's holds.
+      this.#flushQueuedInspectionTurn();
       this.#releaseInspectionTurnTextures();
       return;
     }
     this.#onPageIndexChange?.(publication.id, this.#inspectionPageIndex);
     this.#emitGameState();
-    void this.#syncInspectionPageTextures(publication).finally(() => {
-      this.#releaseInspectionTurnTextures();
-    });
+    // Re-acquire order matters here: the sync below re-holds the newly
+    // displayed spread, and a queued prepare re-holds current+target, both
+    // synchronously within this task. Releasing the finished turn's holds
+    // must also happen in this task — deferring it lets a stale sync run
+    // after a newer prepare swapped the turn-texture set, releasing the
+    // textures still assigned to materials and flashing them white.
+    void this.#syncInspectionPageTextures(publication);
+    this.#flushQueuedInspectionTurn();
+    this.#releaseInspectionTurnTextures();
+  }
+
+  #flushQueuedInspectionTurn() {
+    const navigation = this.#inspectionQueuedTurn;
+    if (!navigation) return;
+    this.#inspectionQueuedTurn = undefined;
+    this.turnInspectionPage(navigation);
   }
 
   #releaseInspectionTurnTextures() {
@@ -11463,6 +11495,7 @@ export class ShopScene {
 
   async #syncInspectionPageTextures(publication: CatalogItem) {
     const revision = ++this.#inspectionTextureRevision;
+    const turnRevision = this.#inspectionTurnRevision;
     const pageUrls = this.#inspectionPageUrls(
       publication,
       this.#inspectionPageIndex,
@@ -11493,6 +11526,9 @@ export class ShopScene {
     if (
       this.#disposed ||
       revision !== this.#inspectionTextureRevision ||
+      // A page turn prepared after this sync started owns the surface
+      // materials; applying spread textures here would flash mid-turn.
+      turnRevision !== this.#inspectionTurnRevision ||
       this.#inspectionPublication()?.id !== publication.id
     ) {
       for (const url of textures.keys())
