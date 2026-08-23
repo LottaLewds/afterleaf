@@ -129,6 +129,17 @@ import {
   readKeyboardLayout,
 } from "~/game/keyboardLayout";
 import {
+  loadShortcuts,
+  type ShortcutAction,
+  type ShortcutsConfig,
+} from "~/game/input/bindings";
+import {InputManager, type InputMode} from "~/game/input/inputManager";
+import {ARCADE_GAMEPAD_KEYS} from "~/arcade/arcadeGamepadKeys";
+import {
+  buildInteractionPrompts,
+  type InteractionPromptToken,
+} from "~/game/input/hints";
+import {
   createStackableStairBoxes,
   SHOP_ATRIUM,
   SHOP_ATRIUM_RAIL_FLOOR_INSET,
@@ -335,6 +346,12 @@ const THEATRE_TELEVISION_SAVE_ID = "moonlight-theatre";
 const DISCARD_TOSS_DURATION_SECONDS = 0.52;
 const SHELVE_BOOK_DURATION_SECONDS = 0.34;
 const LOOK_SENSITIVITY = 0.0021;
+/** Gamepad look speed in equivalent mouse pixels per second at full deflection. */
+const GAMEPAD_LOOK_SPEED = 700;
+
+const clampUnit = (value: number): number =>
+  value > 1 ? 1 : value < -1 ? -1 : value;
+
 const LOOK_SMOOTHING = 32;
 const MAX_LOOK_DELTA_PER_FRAME = (Math.PI / 180) * 10;
 const WORLD_SAVE_INTERVAL_MS = 10_000;
@@ -881,8 +898,19 @@ type RetainedBookGameplay = Pick<
 };
 
 export type ShopInteraction = {
+  /** Display string for keyboard users; also used as the aria label. */
   key: string;
   label: string;
+  /**
+   * Action refs aligned with the " / " alternatives of `key`. While a
+   * controller is active, prompts are derived from their pad bindings.
+   */
+  actions?: readonly (ShortcutAction | undefined)[];
+  /**
+   * Pad prompt tokens present only while a controller is active; renderers
+   * fall back to plain keycaps when omitted.
+   */
+  prompts?: readonly InteractionPromptToken[];
 };
 
 export type ShopGameSnapshot = {
@@ -962,6 +990,12 @@ export type ShopSceneOptions = {
   onSelectPublication: (publicationId: string) => void;
   onReady?: () => void;
   paused?: () => boolean;
+  /** Live shortcuts config; defaults are used when omitted. */
+  shortcutsConfig?: () => ShortcutsConfig;
+  /** Fired when the gamepad requests opening the pause menu. */
+  onPauseRequest?: () => void;
+  /** Fired when the gamepad requests closing the pause menu. */
+  onResumeRequest?: () => void;
   /** Current exclusive input owner; rows are dropped for other modes. */
   mode?: () => UiMode;
 };
@@ -1253,7 +1287,10 @@ export class ShopScene {
   readonly #loadMediaCatalog: (
     signal: AbortSignal,
   ) => Promise<ShopMediaCatalog>;
-  readonly #keysDown = new Set<string>();
+  readonly #input: InputManager;
+  readonly #getShortcuts: () => ShortcutsConfig;
+  readonly #onPauseRequest: (() => void) | undefined;
+  readonly #onResumeRequest: (() => void) | undefined;
   readonly #keyboardLayout = new Map<string, string>();
   readonly #lookAngles: LookAngles = {pitch: 0, yaw: 0};
   readonly #lookDelta: LookAngles = {pitch: 0, yaw: 0};
@@ -1620,6 +1657,36 @@ export class ShopScene {
       options.initialWorldSave?.televisionVolumes ?? {};
     this.#onReady = options.onReady;
     this.#paused = options.paused ?? (() => false);
+    this.#onResumeRequest = options.onResumeRequest;
+    this.#onPauseRequest = options.onPauseRequest;
+    // The fallback config is read once; callers pass a live accessor when
+    // rebinding from the menu should apply without rebuilding the scene.
+    const fallbackShortcuts = loadShortcuts();
+    this.#getShortcuts = options.shortcutsConfig ?? (() => fallbackShortcuts);
+    this.#input = new InputManager({
+      getShortcuts: this.#getShortcuts,
+      handleAction: (action, phase) => {
+        if (phase === "up") return this.#handleActionUp(action);
+        return this.#handleActionDown(action);
+      },
+      onMenuToggle: () => {
+        if (this.#paused()) this.#onResumeRequest?.();
+        else this.#onPauseRequest?.();
+      },
+      onKeyEvent: (event) => this.#observeKeyboardEvent(event),
+    });
+    this.#input.setKeyboardInterceptor((event) =>
+      this.#forwardArcadeKey(event),
+    );
+    this.#input.setRawGamepadForward((name, down) => {
+      const keyEvent = ARCADE_GAMEPAD_KEYS[name];
+      if (!keyEvent) return;
+      const cabinet =
+        this.#activeArcadeCabinet?.sessionStatus === "playing"
+          ? this.#activeArcadeCabinet
+          : undefined;
+      if (cabinet) cabinet.forwardKey(down, keyEvent);
+    });
 
     this.#renderer = new WebGLRenderer({
       antialias: true,
@@ -2030,6 +2097,14 @@ export class ShopScene {
     if (this.#resizeDirty) this.#applyResize();
 
     const paused = this.#paused();
+    // Polling runs in every mode so Start keeps toggling the menu and arcade
+    // sessions keep receiving forwarded pad buttons.
+    const inputMode: InputMode = paused
+      ? "paused"
+      : this.#activeArcadeCabinet?.sessionStatus === "playing"
+        ? "arcade"
+        : "shop";
+    this.#input.update(inputMode);
     for (const television of this.#televisions) {
       television.setSuspended(paused);
       television.update(deltaSeconds);
@@ -8112,12 +8187,7 @@ export class ShopScene {
       this.#handlePointerLockChange,
       passiveOptions,
     );
-    window.addEventListener("keydown", this.#handleKeyDown, {
-      signal: this.#abortController.signal,
-    });
-    window.addEventListener("keyup", this.#handleKeyUp, {
-      signal: this.#abortController.signal,
-    });
+    this.#input.attach(this.#abortController.signal);
     window.addEventListener("blur", this.#handleWindowBlur, passiveOptions);
     window.addEventListener("focus", this.#refreshMediaCatalogIfActive, {
       signal: this.#abortController.signal,
@@ -8208,6 +8278,14 @@ export class ShopScene {
   };
 
   #consumePointerMovement(deltaSeconds: number) {
+    // Gamepad look rides the same smoothed pointer-delta path as the mouse.
+    const padLook = this.#input.gamepad.look;
+    if (this.#pointerLocked && (padLook.yaw !== 0 || padLook.pitch !== 0)) {
+      this.#pendingPointerMovementX +=
+        padLook.yaw * GAMEPAD_LOOK_SPEED * deltaSeconds;
+      this.#pendingPointerMovementY +=
+        padLook.pitch * GAMEPAD_LOOK_SPEED * deltaSeconds;
+    }
     const movementX = this.#pendingPointerMovementX;
     const movementY = this.#pendingPointerMovementY;
     const anomalousEventCount = this.#anomalousPointerMovementCount;
@@ -8405,7 +8483,7 @@ export class ShopScene {
     }
     if (
       !this.#pointerLocked ||
-      !this.#keysDown.has("KeyF") ||
+      !this.#input.isActionDown("throw") ||
       event.timeStamp < this.#shelfBrowseReadyAt
     )
       return;
@@ -8461,7 +8539,7 @@ export class ShopScene {
     this.#ignoreNextLockedPointerMove =
       this.#pointerLocked && !wasPointerLocked;
     if (!this.#pointerLocked) {
-      this.#keysDown.clear();
+      this.#input.suspend();
       this.#cancelThrowCharge();
       this.#jumpQueued = false;
     }
@@ -8481,455 +8559,435 @@ export class ShopScene {
       this.#requestPointerLock();
   };
 
-  readonly #handleKeyDown = (event: KeyboardEvent) => {
-    if (this.#paused()) return;
-    this.#observeKeyboardEvent(event);
-    // While a cabinet game runs, shop controls are modal: every key goes to
-    // the emulator except R (step away), P (open the ROM picker), and Escape
-    // (left unconsumed for the shared modal stack; the browser also reserves
-    // it for dropping pointer lock).
-    if (this.#activeArcadeCabinet?.sessionStatus === "playing") {
-      if (event.code === "Escape") return;
-      if (event.code === "KeyR") {
-        event.preventDefault();
-        this.stepAwayFromArcade();
-        return;
-      }
-      if (event.code === "KeyP") {
-        event.preventDefault();
-        this.quitActiveArcadeGame();
-        return;
-      }
-      event.preventDefault();
-      this.#activeArcadeCabinet.forwardKey(true, describeKeyboardEvent(event));
-      return;
-    }
+  /**
+   * Single action dispatcher for every input device. Candidates arrive in
+   * `ACTION_DISPATCH_ORDER`; each case checks its own context and returns
+   * false when the action does not apply, letting the next candidate run.
+   */
+  readonly #handleActionDown = (action: ShortcutAction): boolean => {
+    if (this.#paused()) return true;
     if (this.#inspectionMode === "spread") {
-      if (event.repeat) return;
-      const inspectingCarriedBook =
-        this.#inspectionPublicationId === this.#carriedPublicationId;
-      if (event.code === "KeyA" || event.code === "KeyD") {
-        const publication = this.#inspectionPublication();
-        if (!publication) return;
-        event.preventDefault();
-        if (event.repeat) return;
-        const navigation = getArrowNavigation(
-          event.code === "KeyA" ? "ArrowLeft" : "ArrowRight",
-          publication.direction,
-        );
-        this.#inspectionHeldNavigation = navigation;
-        this.turnInspectionPage(navigation);
-        return;
+      switch (action) {
+        case "inspectionTurnLeft":
+        case "inspectionTurnRight": {
+          const publication = this.#inspectionPublication();
+          if (!publication) return true;
+          const navigation = getArrowNavigation(
+            action === "inspectionTurnLeft" ? "ArrowLeft" : "ArrowRight",
+            publication.direction,
+          );
+          this.#inspectionHeldNavigation = navigation;
+          this.turnInspectionPage(navigation);
+          return true;
+        }
+        case "inspectionThrow":
+          if (this.#inspectionPublicationId !== this.#carriedPublicationId)
+            return true;
+          this.#startInspectionClose("throw");
+          return true;
+        case "inspectionDrop":
+          if (this.#inspectionPublicationId !== this.#carriedPublicationId)
+            return true;
+          this.#startInspectionClose("drop");
+          return true;
+        case "inspectionReturn":
+          this.#startInspectionClose("return");
+          return true;
+        default:
+          // A spread owns all other actions while it is open.
+          return true;
       }
-      if (event.code === "KeyF" && inspectingCarriedBook) {
-        event.preventDefault();
-        this.#startInspectionClose("throw");
-        return;
-      }
-      if (event.code === "KeyG" && inspectingCarriedBook) {
-        event.preventDefault();
-        this.#startInspectionClose("drop");
-        return;
-      }
-      if (event.code !== "KeyR") return;
-      event.preventDefault();
-      this.#startInspectionClose("return");
-      return;
     }
-    if (!this.#pointerLocked) return;
-    if (event.code === "Space") {
-      event.preventDefault();
-      if (!event.repeat) {
+    if (!this.#pointerLocked) return false;
+    switch (action) {
+      case "jump":
         this.#jumpQueued = true;
         this.#jumpQueuedAt = performance.now();
+        return true;
+      case "moveForward":
+      case "moveBackward":
+      case "moveLeft":
+      case "moveRight":
+      case "sprint":
+        // Held-state actions are queried per frame via isActionDown.
+        return true;
+      case "toggleModelPlacement":
+        if (this.#televisionTargeted) return false;
+        if (this.#modelPlacement) {
+          this.#cancelModelPlacement();
+          return true;
+        }
+        if (
+          !this.#artFramePlacement &&
+          !this.#posterPlacement &&
+          !this.#carriedPublicationId &&
+          !this.#carriedProp
+        )
+          void this.#startModelPlacement(this.#spawnablePropAssetIndex);
+        return true;
+      case "toggleArtFramePlacement":
+        if (this.#artFramePlacement) {
+          this.#cancelDigitalArtFramePlacement();
+          return true;
+        }
+        if (
+          !this.#posterPlacement &&
+          !this.#modelPlacement &&
+          !this.#carriedPublicationId &&
+          !this.#carriedProp
+        ) {
+          if (this.#artFrameAssets.length > 0)
+            this.#startDigitalArtFramePlacement(this.#artFrameAssetIndex);
+          else this.#startEmptyDigitalArtFramePlacement();
+        }
+        return true;
+      case "channelEditorOpen":
+        if (
+          !(
+            this.#artFramePlacement ||
+            this.#targetedDigitalArtFrameId ||
+            this.#televisionTargeted
+          ) ||
+          !this.#onMediaChannelCreateRequest
+        )
+          return false;
+        {
+          const kind = this.#televisionTargeted ? "tv" : "art-frame";
+          this.#channelEditorTelevision =
+            kind === "tv" ? this.#targetedTelevision : undefined;
+          this.#channelEditorDigitalArtFrameId =
+            kind === "art-frame" ? this.#targetedDigitalArtFrameId : undefined;
+          this.#releasePointerLock();
+          this.#onMediaChannelCreateRequest(kind);
+        }
+        return true;
+      case "togglePosterPlacement":
+        if (this.#posterPlacement) {
+          this.#cancelPosterPlacement();
+          return true;
+        }
+        if (
+          !this.#artFramePlacement &&
+          !this.#modelPlacement &&
+          !this.#carriedPublicationId &&
+          !this.#carriedProp
+        ) {
+          if (this.#posterAssets.length > 0)
+            void this.#startPosterPlacement(this.#posterAssetIndex);
+          else this.#startEmptyPosterPlacement();
+        }
+        return true;
+      case "placementCycleLeft":
+        if (this.#modelPlacement) {
+          this.#cycleModelPlacement(-1);
+          return true;
+        }
+        if (this.#posterPlacement) {
+          this.#cyclePoster(-1);
+          return true;
+        }
+        return false;
+      case "placementCycleRight":
+        if (this.#modelPlacement) {
+          this.#cycleModelPlacement(1);
+          return true;
+        }
+        if (this.#posterPlacement) {
+          this.#cyclePoster(1);
+          return true;
+        }
+        return false;
+      case "placementCycleChannelLeft":
+        if (!this.#artFramePlacement) return false;
+        this.#cycleDigitalArtFramePlacementChannel(-1);
+        return true;
+      case "placementCycleChannelRight":
+        if (!this.#artFramePlacement) return false;
+        this.#cycleDigitalArtFramePlacementChannel(1);
+        return true;
+      case "placementCycleImageLeft":
+        if (!this.#artFramePlacement) return false;
+        this.#cycleDigitalArtFramePlacementImage(-1);
+        return true;
+      case "placementCycleImageRight":
+        if (!this.#artFramePlacement) return false;
+        this.#cycleDigitalArtFramePlacementImage(1);
+        return true;
+      case "placementToggleFit":
+        if (!this.#artFramePlacement) return false;
+        this.#artFramePlacement.fit =
+          this.#artFramePlacement.fit === "contain" ? "cover" : "contain";
+        this.#artFramePreview?.setFit(this.#artFramePlacement.fit);
+        this.#emitGameState();
+        return true;
+      case "placementToggleInterval": {
+        if (!this.#artFramePlacement) return false;
+        const intervalIndex = DIGITAL_ART_FRAME_INTERVALS.indexOf(
+          this.#artFramePlacement
+            .intervalSeconds as (typeof DIGITAL_ART_FRAME_INTERVALS)[number],
+        );
+        const interval =
+          DIGITAL_ART_FRAME_INTERVALS[
+            (Math.max(0, intervalIndex) + 1) %
+              DIGITAL_ART_FRAME_INTERVALS.length
+          ];
+        if (interval !== undefined)
+          this.#artFramePlacement.intervalSeconds = interval;
+        this.#emitGameState();
+        return true;
       }
-      return;
-    }
-    if (
-      event.code === "KeyW" ||
-      event.code === "KeyA" ||
-      event.code === "KeyS" ||
-      event.code === "KeyD" ||
-      event.code === "ShiftLeft" ||
-      event.code === "ShiftRight"
-    ) {
-      event.preventDefault();
-      this.#keysDown.add(event.code);
-      return;
-    }
-    if (event.code === "KeyV" && (event.ctrlKey || event.metaKey)) return;
-    if (event.repeat) return;
-    if (this.#inspectionMode === "closing" || this.#shelveAnimation) return;
-    if (event.code === "KeyM" && !this.#televisionTargeted) {
-      event.preventDefault();
-      if (this.#modelPlacement) {
-        this.#cancelModelPlacement();
-        return;
-      }
-      if (
-        !this.#artFramePlacement &&
-        !this.#posterPlacement &&
-        !this.#carriedPublicationId &&
-        !this.#carriedProp
-      )
-        void this.#startModelPlacement(this.#spawnablePropAssetIndex);
-      return;
-    }
-    if (event.code === "KeyV") {
-      event.preventDefault();
-      if (this.#artFramePlacement) {
-        this.#cancelDigitalArtFramePlacement();
-        return;
-      }
-      if (
-        !this.#posterPlacement &&
-        !this.#modelPlacement &&
-        !this.#carriedPublicationId &&
-        !this.#carriedProp
-      ) {
-        if (this.#artFrameAssets.length > 0)
-          this.#startDigitalArtFramePlacement(this.#artFrameAssetIndex);
-        else this.#startEmptyDigitalArtFramePlacement();
-      }
-      return;
-    }
-    if (
-      event.code === "KeyN" &&
-      (this.#artFramePlacement ||
-        this.#targetedDigitalArtFrameId ||
-        this.#televisionTargeted)
-    ) {
-      event.preventDefault();
-      if (!this.#onMediaChannelCreateRequest) return;
-      const kind = this.#televisionTargeted ? "tv" : "art-frame";
-      this.#channelEditorTelevision =
-        kind === "tv" ? this.#targetedTelevision : undefined;
-      this.#channelEditorDigitalArtFrameId =
-        kind === "art-frame" ? this.#targetedDigitalArtFrameId : undefined;
-      this.#releasePointerLock();
-      this.#onMediaChannelCreateRequest(kind);
-      return;
-    }
-    if (event.code === "KeyP") {
-      event.preventDefault();
-      if (this.#posterPlacement) {
-        this.#cancelPosterPlacement();
-        return;
-      }
-      if (
-        !this.#artFramePlacement &&
-        !this.#modelPlacement &&
-        !this.#carriedPublicationId &&
-        !this.#carriedProp
-      ) {
-        if (this.#posterAssets.length > 0)
-          void this.#startPosterPlacement(this.#posterAssetIndex);
-        else this.#startEmptyPosterPlacement();
-      }
-      return;
-    }
-    if (
-      this.#modelPlacement &&
-      (event.code === "KeyQ" || event.code === "KeyE")
-    ) {
-      event.preventDefault();
-      this.#cycleModelPlacement(event.code === "KeyQ" ? -1 : 1);
-      return;
-    }
-    if (
-      this.#artFramePlacement &&
-      (event.code === "KeyQ" || event.code === "KeyE")
-    ) {
-      event.preventDefault();
-      this.#cycleDigitalArtFramePlacementChannel(
-        event.code === "KeyQ" ? -1 : 1,
-      );
-      return;
-    }
-    if (
-      this.#artFramePlacement &&
-      (event.code === "KeyF" || event.code === "KeyG")
-    ) {
-      event.preventDefault();
-      this.#cycleDigitalArtFramePlacementImage(event.code === "KeyF" ? -1 : 1);
-      return;
-    }
-    if (event.code === "KeyR" && this.#artFramePlacement) {
-      event.preventDefault();
-      this.#artFramePlacement.fit =
-        this.#artFramePlacement.fit === "contain" ? "cover" : "contain";
-      this.#artFramePreview?.setFit(this.#artFramePlacement.fit);
-      this.#emitGameState();
-      return;
-    }
-    if (event.code === "KeyI" && this.#artFramePlacement) {
-      event.preventDefault();
-      const intervalIndex = DIGITAL_ART_FRAME_INTERVALS.indexOf(
-        this.#artFramePlacement
-          .intervalSeconds as (typeof DIGITAL_ART_FRAME_INTERVALS)[number],
-      );
-      const interval =
-        DIGITAL_ART_FRAME_INTERVALS[
-          (Math.max(0, intervalIndex) + 1) % DIGITAL_ART_FRAME_INTERVALS.length
-        ];
-      if (interval !== undefined)
-        this.#artFramePlacement.intervalSeconds = interval;
-      this.#emitGameState();
-      return;
-    }
-    if (
-      this.#posterPlacement &&
-      (event.code === "KeyQ" || event.code === "KeyE")
-    ) {
-      event.preventDefault();
-      this.#cyclePoster(event.code === "KeyQ" ? -1 : 1);
-      return;
-    }
-    if (
-      this.#targetedProp?.modelAnimations?.length &&
-      (event.code === "KeyQ" || event.code === "KeyE")
-    ) {
-      event.preventDefault();
-      this.#cycleModelAnimation(
-        this.#targetedProp,
-        event.code === "KeyQ" ? -1 : 1,
-      );
-      return;
-    }
-    if (event.code === "KeyQ" && this.#carriedProp) {
-      event.preventDefault();
-      this.#propPlacementSnapping = !this.#propPlacementSnapping;
-      this.#emitGameState();
-      return;
-    }
-    // Pin or release whatever movable prop is under the reticle: a locked
-    // prop keeps a fixed body that still blocks the player, books, and
-    // other props, but nothing can bump it around.
-    if (event.code === "KeyL") {
-      event.preventDefault();
-      const lockableProp =
-        this.#targetedProp ??
-        (this.#targetedTelevision
-          ? this.#televisionProps.get(this.#targetedTelevision)
-          : undefined) ??
-        (this.#targetedArcadeCabinet
-          ? this.#arcadeProps.get(this.#targetedArcadeCabinet)
-          : undefined);
-      if (!lockableProp || this.#carriedProp === lockableProp) return;
-      const locked = !lockableProp.locked;
-      lockableProp.locked = locked;
-      this.#physicsWorld.setPropLocked(lockableProp.id, locked);
-      this.#worldStateDirty = true;
-      this.#emitGameState();
-      return;
-    }
-    if (event.code === "Delete" || event.code === "Backspace") {
-      const targetedTelevisionProp = this.#targetedTelevision
-        ? this.#televisionProps.get(this.#targetedTelevision)
-        : undefined;
-      if (targetedTelevisionProp?.spawned) {
-        event.preventDefault();
-        this.#removeSpawnedProp(targetedTelevisionProp);
-        return;
-      }
-      const targetedArcadeProp = this.#targetedArcadeCabinet
-        ? this.#arcadeProps.get(this.#targetedArcadeCabinet)
-        : undefined;
-      if (targetedArcadeProp?.spawned) {
-        event.preventDefault();
-        this.#removeSpawnedProp(targetedArcadeProp);
-        return;
-      }
-      if (this.#targetedProp?.spawned) {
-        event.preventDefault();
-        this.#removeSpawnedProp(this.#targetedProp);
-        return;
-      }
-      if (this.#targetedDigitalArtFrameId) {
-        event.preventDefault();
-        this.#removeTargetedDigitalArtFrame();
-        return;
-      }
-      if (this.#targetedPosterId) {
-        event.preventDefault();
-        this.#removeTargetedPoster();
-        return;
-      }
-    }
-    if (
-      event.code === "KeyX" &&
-      (this.#artFramePlacement || this.#posterPlacement)
-    ) {
-      event.preventDefault();
-      const placement = this.#artFramePlacement ?? this.#posterPlacement;
-      if (placement) placement.gridSnap = !placement.gridSnap;
-      this.#updateDigitalArtFramePlacementTarget();
-      this.#updatePosterPlacementTarget();
-      this.#emitGameState();
-      return;
-    }
-    if (event.code === "KeyT") {
-      if (this.#modelPlacement) {
-        event.preventDefault();
-        this.#cancelModelPlacement();
-        return;
-      }
-      if (this.#artFramePlacement) {
-        event.preventDefault();
-        this.#cancelDigitalArtFramePlacement();
-        return;
-      }
-      if (this.#posterPlacement) {
-        event.preventDefault();
-        this.#cancelPosterPlacement();
-        return;
-      }
-      if (this.#carriedProp) {
-        event.preventDefault();
-        this.#cancelCarriedProp();
-        return;
-      }
-      if (this.#targetedArcadeCabinet) {
-        event.preventDefault();
-        const cabinetProp = this.#arcadeProps.get(this.#targetedArcadeCabinet);
-        if (cabinetProp) this.#pickUpProp(cabinetProp);
-        return;
-      }
-      if (this.#televisionTargeted) {
-        event.preventDefault();
-        const televisionProp = this.#targetedTelevision
+      case "propToggleSnap":
+        if (!this.#carriedProp) return false;
+        this.#propPlacementSnapping = !this.#propPlacementSnapping;
+        this.#emitGameState();
+        return true;
+      case "propCycleAnimationLeft":
+        if (!this.#targetedProp?.modelAnimations?.length) return false;
+        this.#cycleModelAnimation(this.#targetedProp, -1);
+        return true;
+      case "propCycleAnimationRight":
+        if (!this.#targetedProp?.modelAnimations?.length) return false;
+        this.#cycleModelAnimation(this.#targetedProp, 1);
+        return true;
+      case "removeTargeted": {
+        const targetedTelevisionProp = this.#targetedTelevision
           ? this.#televisionProps.get(this.#targetedTelevision)
           : undefined;
-        if (televisionProp) this.#pickUpProp(televisionProp);
-        return;
+        const targetedArcadeProp = this.#targetedArcadeCabinet
+          ? this.#arcadeProps.get(this.#targetedArcadeCabinet)
+          : undefined;
+        if (targetedTelevisionProp?.spawned) {
+          this.#removeSpawnedProp(targetedTelevisionProp);
+          return true;
+        }
+        if (targetedArcadeProp?.spawned) {
+          this.#removeSpawnedProp(targetedArcadeProp);
+          return true;
+        }
+        if (this.#targetedProp?.spawned) {
+          this.#removeSpawnedProp(this.#targetedProp);
+          return true;
+        }
+        if (this.#targetedDigitalArtFrameId) {
+          this.#removeTargetedDigitalArtFrame();
+          return true;
+        }
+        if (this.#targetedPosterId) {
+          this.#removeTargetedPoster();
+          return true;
+        }
+        // Nothing targeted: let later candidates use the same binding.
+        return false;
       }
-      if (this.#targetedProp) {
-        event.preventDefault();
-        this.#pickUpProp(this.#targetedProp);
-        return;
+      case "placementToggleGridSnap": {
+        if (!this.#artFramePlacement && !this.#posterPlacement) return false;
+        const placement = this.#artFramePlacement ?? this.#posterPlacement;
+        if (placement) placement.gridSnap = !placement.gridSnap;
+        this.#updateDigitalArtFramePlacementTarget();
+        this.#updatePosterPlacementTarget();
+        this.#emitGameState();
+        return true;
       }
-      if (this.#targetedDigitalArtFrameId || this.#targetedPosterId) {
-        event.preventDefault();
-        this.#interact();
-        return;
-      }
-    }
-    if (
-      this.#targetedDigitalArtFrameId &&
-      (event.code === "KeyQ" || event.code === "KeyE")
-    ) {
-      event.preventDefault();
-      this.#digitalArtFrameRecords
-        .get(this.#targetedDigitalArtFrameId)
-        ?.frame.changeChannel(event.code === "KeyQ" ? -1 : 1);
-      this.#worldStateDirty = true;
-      this.#emitGameState();
-      return;
-    }
-    if (event.code === "KeyQ" && this.#televisionTargeted) {
-      event.preventDefault();
-      this.#targetedTelevision?.previousChannel();
-      return;
-    }
-    if (event.code === "KeyQ" && this.#carriedPublicationId) {
-      event.preventDefault();
-      this.#shelfPresentation =
-        this.#shelfPresentation === "spine" ? "face" : "spine";
-      this.#updateInteractionTarget();
-      return;
-    }
-    if (event.code === "KeyE") {
-      event.preventDefault();
-      if (this.#televisionTargeted) {
-        if (this.#targetedTelevision?.powered())
-          this.#targetedTelevision.nextChannel();
-        else this.#targetedTelevision?.togglePower();
-        return;
-      }
-      if (this.#carriedProp) {
-        this.#dropCarriedProp();
-        return;
-      }
-      if (this.#targetedProp || this.#targetedPosterId) return;
-      this.#interact();
-      return;
-    }
-    if (event.code === "KeyF") {
-      event.preventDefault();
-      if (this.#televisionTargeted) this.#targetedTelevision?.skip();
-      else if (this.#targetedDigitalArtFrameId)
+      case "pickUpCancel":
+        if (this.#modelPlacement) {
+          this.#cancelModelPlacement();
+          return true;
+        }
+        if (this.#artFramePlacement) {
+          this.#cancelDigitalArtFramePlacement();
+          return true;
+        }
+        if (this.#posterPlacement) {
+          this.#cancelPosterPlacement();
+          return true;
+        }
+        if (this.#carriedProp) {
+          this.#cancelCarriedProp();
+          return true;
+        }
+        if (this.#targetedArcadeCabinet) {
+          const cabinetProp = this.#arcadeProps.get(
+            this.#targetedArcadeCabinet,
+          );
+          if (cabinetProp) this.#pickUpProp(cabinetProp);
+          return true;
+        }
+        if (this.#televisionTargeted) {
+          const televisionProp = this.#targetedTelevision
+            ? this.#televisionProps.get(this.#targetedTelevision)
+            : undefined;
+          if (televisionProp) this.#pickUpProp(televisionProp);
+          return true;
+        }
+        if (this.#targetedProp) {
+          this.#pickUpProp(this.#targetedProp);
+          return true;
+        }
+        if (this.#targetedDigitalArtFrameId || this.#targetedPosterId) {
+          this.#interact();
+          return true;
+        }
+        return false;
+      case "artFramePreviousChannel":
+        if (!this.#targetedDigitalArtFrameId) return false;
         this.#digitalArtFrameRecords
           .get(this.#targetedDigitalArtFrameId)
-          ?.frame.skip();
-      else if (this.#carriedProp) this.#dropCarriedProp(true);
-      else if (this.#carriedPublicationId) this.#startThrowCharge();
-      else this.#keysDown.add(event.code);
-      return;
+          ?.frame.changeChannel(-1);
+        this.#worldStateDirty = true;
+        this.#emitGameState();
+        return true;
+      case "artFrameNextChannel":
+        if (!this.#targetedDigitalArtFrameId) return false;
+        this.#digitalArtFrameRecords
+          .get(this.#targetedDigitalArtFrameId)
+          ?.frame.changeChannel(1);
+        this.#worldStateDirty = true;
+        this.#emitGameState();
+        return true;
+      case "artFrameInterval":
+        if (!this.#targetedDigitalArtFrameId) return false;
+        this.#cycleTargetedDigitalArtFrameInterval();
+        return true;
+      case "artFrameFit":
+        if (!this.#targetedDigitalArtFrameId) return false;
+        this.#cycleTargetedDigitalArtFrameFit();
+        return true;
+      case "tvPreviousChannel":
+        if (!this.#televisionTargeted) return false;
+        this.#targetedTelevision?.previousChannel();
+        return true;
+      case "tvMute":
+        if (!this.#televisionTargeted) return false;
+        this.#targetedTelevision?.toggleMuted();
+        return true;
+      case "toggleShelfPresentation":
+        if (!this.#carriedPublicationId) return false;
+        this.#shelfPresentation =
+          this.#shelfPresentation === "spine" ? "face" : "spine";
+        this.#updateInteractionTarget();
+        return true;
+      case "propPinToggle": {
+        // Pin or release whatever movable prop is under the reticle: a
+        // locked prop keeps a fixed body that still blocks the player,
+        // books, and other props, but nothing can bump it around.
+        const lockableProp =
+          this.#targetedProp ??
+          (this.#targetedTelevision
+            ? this.#televisionProps.get(this.#targetedTelevision)
+            : undefined) ??
+          (this.#targetedArcadeCabinet
+            ? this.#arcadeProps.get(this.#targetedArcadeCabinet)
+            : undefined);
+        if (!lockableProp || this.#carriedProp === lockableProp) return false;
+        const locked = !lockableProp.locked;
+        lockableProp.locked = locked;
+        this.#physicsWorld.setPropLocked(lockableProp.id, locked);
+        this.#worldStateDirty = true;
+        this.#emitGameState();
+        return true;
+      }
+      case "interact":
+        this.#triggerInteraction();
+        return true;
+      case "throw":
+        if (this.#televisionTargeted) this.#targetedTelevision?.skip();
+        else if (this.#targetedDigitalArtFrameId)
+          this.#digitalArtFrameRecords
+            .get(this.#targetedDigitalArtFrameId)
+            ?.frame.skip();
+        else if (this.#carriedProp) this.#dropCarriedProp(true);
+        else if (this.#carriedPublicationId) this.#startThrowCharge();
+        // Held throw state drives shelf browsing; isActionDown covers it.
+        return true;
+      case "drop":
+        if (this.#artFramePlacement || this.#posterPlacement) return true;
+        if (this.#targetedDigitalArtFrameId)
+          this.#removeTargetedDigitalArtFrame();
+        else if (this.#targetedPosterId) this.#removeTargetedPoster();
+        else if (this.#carriedProp) this.#dropCarriedProp();
+        else this.#dropCarriedBook();
+        return true;
+      case "inspectionReturn": {
+        const hoveredRecord = this.#hoveredPublicationId
+          ? this.#booksById.get(this.#hoveredPublicationId)
+          : undefined;
+        if (this.#carriedPublicationId)
+          this.#advanceInspectionMode(this.#carriedPublicationId);
+        else if (hoveredRecord?.state.status === "shelved")
+          this.#advanceInspectionMode(this.#hoveredPublicationId);
+        return true;
+      }
+      default:
+        return false;
     }
-    if (event.code === "KeyM" && this.#televisionTargeted) {
-      event.preventDefault();
-      this.#targetedTelevision?.toggleMuted();
-      return;
-    }
-    if (event.code === "KeyG") {
-      event.preventDefault();
-      if (this.#artFramePlacement || this.#posterPlacement) return;
-      if (this.#targetedDigitalArtFrameId)
-        this.#removeTargetedDigitalArtFrame();
-      else if (this.#targetedPosterId) this.#removeTargetedPoster();
-      else if (this.#carriedProp) this.#dropCarriedProp();
-      else this.#dropCarriedBook();
-      return;
-    }
-    if (event.code === "KeyI" && this.#targetedDigitalArtFrameId) {
-      event.preventDefault();
-      this.#cycleTargetedDigitalArtFrameInterval();
-      return;
-    }
-    if (event.code === "KeyR" && this.#targetedDigitalArtFrameId) {
-      event.preventDefault();
-      this.#cycleTargetedDigitalArtFrameFit();
-      return;
-    }
-    if (event.code !== "KeyR") return;
-    event.preventDefault();
-    const hoveredRecord = this.#hoveredPublicationId
-      ? this.#booksById.get(this.#hoveredPublicationId)
-      : undefined;
-    if (this.#carriedPublicationId)
-      this.#advanceInspectionMode(this.#carriedPublicationId);
-    else if (hoveredRecord?.state.status === "shelved")
-      this.#advanceInspectionMode(this.#hoveredPublicationId);
   };
 
-  readonly #handleKeyUp = (event: KeyboardEvent) => {
-    this.#keysDown.delete(event.code);
-    if (this.#activeArcadeCabinet?.sessionStatus === "playing") {
-      event.preventDefault();
-      this.#activeArcadeCabinet.forwardKey(false, describeKeyboardEvent(event));
-      return;
+  readonly #handleActionUp = (action: ShortcutAction): boolean => {
+    if (this.#paused()) return true;
+    switch (action) {
+      case "throw":
+        if (this.#throwChargeActive) this.#releaseThrowCharge();
+        else if (this.#inspectionMode === "none") {
+          this.#shelfBrowsePublicationId = undefined;
+          this.#updateInteractionTarget();
+        }
+        return true;
+      case "inspectionTurnLeft":
+      case "inspectionTurnRight": {
+        const direction = this.#inspectionPublication()?.direction ?? "LTR";
+        const navigation = getArrowNavigation(
+          action === "inspectionTurnLeft" ? "ArrowLeft" : "ArrowRight",
+          direction,
+        );
+        if (this.#inspectionHeldNavigation === navigation)
+          this.#inspectionHeldNavigation = undefined;
+        return true;
+      }
+      default:
+        return true;
     }
-    if (event.code === "KeyF" && this.#throwChargeActive) {
-      event.preventDefault();
-      this.#releaseThrowCharge();
-      return;
-    }
-    if (event.code === "KeyA" || event.code === "KeyD") {
-      const direction = this.#inspectionPublication()?.direction ?? "LTR";
-      const navigation = getArrowNavigation(
-        event.code === "KeyA" ? "ArrowLeft" : "ArrowRight",
-        direction,
-      );
-      if (this.#inspectionHeldNavigation === navigation)
-        this.#inspectionHeldNavigation = undefined;
-    }
-    if (event.code !== "KeyF" || this.#inspectionMode !== "none") return;
-    this.#shelfBrowsePublicationId = undefined;
-    this.#updateInteractionTarget();
   };
+
+  #triggerInteraction() {
+    if (this.#televisionTargeted) {
+      if (this.#targetedTelevision?.powered())
+        this.#targetedTelevision.nextChannel();
+      else this.#targetedTelevision?.togglePower();
+      return;
+    }
+    if (this.#carriedProp) {
+      this.#dropCarriedProp();
+      return;
+    }
+    if (this.#targetedProp || this.#targetedPosterId) return;
+    this.#interact();
+  }
+
+  /** Raw-key interceptor: while an arcade session plays, keys feed it. */
+  #forwardArcadeKey(event: KeyboardEvent): boolean {
+    if (this.#paused()) return false;
+    if (this.#activeArcadeCabinet?.sessionStatus !== "playing") return false;
+    if (event.type === "keydown" && event.code === "Escape") return true;
+    if (event.type === "keydown" && event.code === "KeyR") {
+      event.preventDefault();
+      this.stepAwayFromArcade();
+      return true;
+    }
+    if (event.type === "keydown" && event.code === "KeyP") {
+      event.preventDefault();
+      this.quitActiveArcadeGame();
+      return true;
+    }
+    event.preventDefault();
+    this.#activeArcadeCabinet.forwardKey(
+      event.type === "keydown",
+      describeKeyboardEvent(event),
+    );
+    return true;
+  }
 
   readonly #handleWindowBlur = () => {
-    this.#keysDown.clear();
+    this.#input.suspend();
     this.#inspectionHeldNavigation = undefined;
     this.#cancelThrowCharge();
     this.#jumpQueued = false;
@@ -8969,7 +9027,7 @@ export class ShopScene {
   }
 
   #suspendInput() {
-    this.#keysDown.clear();
+    this.#input.suspend();
     this.#cancelThrowCharge();
     this.#jumpQueued = false;
     this.#resetPointerMovement();
@@ -10516,12 +10574,19 @@ export class ShopScene {
       this.#jumpQueued = false;
       return;
     }
-    this.#movementInput.forward =
-      Number(this.#keysDown.has("KeyW")) - Number(this.#keysDown.has("KeyS"));
-    this.#movementInput.right =
-      Number(this.#keysDown.has("KeyD")) - Number(this.#keysDown.has("KeyA"));
-    const sprinting =
-      this.#keysDown.has("ShiftLeft") || this.#keysDown.has("ShiftRight");
+    // Digital keyboard input and analog stick input combine, then clamp.
+    const padMovement = this.#input.gamepad.movement;
+    this.#movementInput.forward = clampUnit(
+      Number(this.#input.isActionDown("moveForward")) -
+        Number(this.#input.isActionDown("moveBackward")) +
+        padMovement.forward,
+    );
+    this.#movementInput.right = clampUnit(
+      Number(this.#input.isActionDown("moveRight")) -
+        Number(this.#input.isActionDown("moveLeft")) +
+        padMovement.right,
+    );
+    const sprinting = this.#input.isActionDown("sprint");
     getPlanarMovement(
       this.#movementInput,
       this.#lookAngles.yaw,
@@ -13808,46 +13873,91 @@ export class ShopScene {
       const shelfInspection =
         inspectionPublication?.id !== this.#carriedPublicationId;
       interactions = [
-        {key: "A / D", label: "Turn page"},
+        {
+          key: "A / D",
+          label: "Turn page",
+          actions: ["inspectionTurnLeft", "inspectionTurnRight"] as const,
+        },
         {key: "Wheel", label: "Zoom"},
         ...(shelfInspection
-          ? [{key: "R", label: "Return to shelf"}]
+          ? [
+              {
+                key: "R",
+                label: "Return to shelf",
+                actions: ["inspectionReturn"] as const,
+              },
+            ]
           : [
-              {key: "F", label: "Throw book"},
-              {key: "G", label: "Drop book"},
-              {key: "R", label: "Return to hand"},
+              {
+                key: "F",
+                label: "Throw book",
+                actions: ["inspectionThrow"] as const,
+              },
+              {
+                key: "G",
+                label: "Drop book",
+                actions: ["inspectionDrop"] as const,
+              },
+              {
+                key: "R",
+                label: "Return to hand",
+                actions: ["inspectionReturn"] as const,
+              },
             ]),
       ];
     } else if (this.#shelveAnimation) interactions = [];
     else if (this.#artFramePlacement) {
       interactionContext = this.#artFramePlacement.channelId;
       interactions = [
-        {key: "Click", label: "Place frame"},
-        {key: "Q / E", label: "Previous / next channel"},
-        {key: "F / G", label: "Previous / next image"},
-        {key: "R", label: `Fit: ${this.#artFramePlacement.fit}`},
+        {key: "Click", label: "Place frame", actions: ["interact"]},
+        {
+          key: "Q / E",
+          label: "Previous / next channel",
+          actions: ["placementCycleChannelLeft", "placementCycleChannelRight"],
+        },
+        {
+          key: "F / G",
+          label: "Previous / next image",
+          actions: ["placementCycleImageLeft", "placementCycleImageRight"],
+        },
+        {
+          key: "R",
+          label: `Fit: ${this.#artFramePlacement.fit}`,
+          actions: ["placementToggleFit"],
+        },
         {
           key: "I",
           label: `Timing: ${this.#artFramePlacement.intervalSeconds === 0 ? "Off" : `${this.#artFramePlacement.intervalSeconds}s`}`,
+          actions: ["placementToggleInterval"],
         },
-        {key: "N", label: "New channel"},
-        {key: "T", label: "Cancel placement"},
-        {key: "V", label: "Cancel placement"},
+        {key: "N", label: "New channel", actions: ["channelEditorOpen"]},
+        {key: "T", label: "Cancel placement", actions: ["pickUpCancel"]},
+        {
+          key: "V",
+          label: "Cancel placement",
+          actions: ["toggleArtFramePlacement"],
+        },
         {
           key: "X",
           label: `Grid snap: ${this.#artFramePlacement.gridSnap ? "On" : "Off"}`,
+          actions: ["placementToggleGridSnap"],
         },
         {key: "Wheel", label: "Resize"},
         {key: "Shift + Wheel", label: "Rotate"},
       ];
     } else if (this.#posterPlacement)
       interactions = [
-        {key: "Click", label: "Place poster"},
-        {key: "Q / E", label: "Change image"},
-        {key: "T", label: "Cancel placement"},
+        {key: "Click", label: "Place poster", actions: ["interact"]},
+        {
+          key: "Q / E",
+          label: "Change image",
+          actions: ["placementCycleLeft", "placementCycleRight"],
+        },
+        {key: "T", label: "Cancel placement", actions: ["pickUpCancel"]},
         {
           key: "X",
           label: `Grid snap: ${this.#posterPlacement.gridSnap ? "On" : "Off"}`,
+          actions: ["placementToggleGridSnap"],
         },
         {key: "Wheel", label: "Resize"},
         {key: "Shift + Wheel", label: "Rotate"},
@@ -13856,24 +13966,46 @@ export class ShopScene {
       interactionContext =
         this.#spawnablePropAssets[this.#modelPlacement.assetIndex]?.label;
       interactions = [
-        {key: "Q / E", label: "Previous / next prop"},
-        {key: "T", label: "Cancel placement"},
+        {
+          key: "Q / E",
+          label: "Previous / next prop",
+          actions: ["placementCycleLeft", "placementCycleRight"],
+        },
+        {key: "T", label: "Cancel placement", actions: ["pickUpCancel"]},
       ];
     } else if (this.#carriedProp) {
       interactionContext = this.#carriedProp.spawned
         ? this.#carriedProp.label
         : undefined;
       interactions = [
-        {key: "Click / E", label: "Place prop"},
-        {key: "G", label: "Drop prop"},
-        {key: "T", label: "Cancel placement"},
-        {key: "F", label: "Throw prop"},
+        {
+          key: "Click / E",
+          label: "Place prop",
+          actions: ["interact", "interact"] as const,
+        },
+        {key: "G", label: "Drop prop", actions: ["drop"] as const},
+        {
+          key: "T",
+          label: "Cancel placement",
+          actions: ["pickUpCancel"] as const,
+        },
+        {key: "F", label: "Throw prop", actions: ["throw"] as const},
         ...(this.#modelPlacement
-          ? [{key: "Q / E", label: "Previous / next prop"}]
+          ? [
+              {
+                key: "Q / E",
+                label: "Previous / next prop",
+                actions: [
+                  "propCycleAnimationLeft",
+                  "propCycleAnimationRight",
+                ] as const,
+              },
+            ]
           : [
               {
                 key: "Q",
                 label: `Grid snap: ${this.#propPlacementSnapping ? "On" : "Off"}`,
+                actions: ["propToggleSnap"] as const,
               },
             ]),
         {key: "Wheel", label: "Adjust distance"},
@@ -13884,20 +14016,38 @@ export class ShopScene {
       ];
     } else if (carriedRecord) {
       interactions = [
-        ...(hoveredRecord ? [{key: "E", label: "Pick up book"}] : []),
-        {key: "F", label: "Throw book"},
-        {key: "G", label: "Drop book"},
-        {key: "R", label: "Inspect book"},
-        {key: "Q", label: "Switch shelf presentation"},
+        ...(hoveredRecord
+          ? [{key: "E", label: "Pick up book", actions: ["interact"] as const}]
+          : []),
+        {key: "F", label: "Throw book", actions: ["throw"] as const},
+        {key: "G", label: "Drop book", actions: ["drop"] as const},
+        {
+          key: "R",
+          label: "Inspect book",
+          actions: ["inspectionReturn"] as const,
+        },
+        {
+          key: "Q",
+          label: "Switch shelf presentation",
+          actions: ["toggleShelfPresentation"],
+        },
       ];
       if (this.#carriedPublicationIds.length > 1)
         interactions.push({key: "Wheel", label: "Cycle carried books"});
       if (this.#shelfTargeted)
         interactions.push({key: "Hold F + Wheel", label: "Browse shelf"});
       if (this.#shelfTargeted)
-        interactions.unshift({key: "E", label: "Shelve book"});
+        interactions.unshift({
+          key: "E",
+          label: "Shelve book",
+          actions: ["interact"],
+        });
       if (this.#trashTargeted)
-        interactions.unshift({key: "E", label: "Discard book"});
+        interactions.unshift({
+          key: "E",
+          label: "Discard book",
+          actions: ["interact"],
+        });
     } else if (this.#arcadeStatusForUi() === "playing") {
       // The emulator owns the keyboard; surface its control layout in the
       // standard interactions panel. Checked before targeting rows so an
@@ -13923,13 +14073,22 @@ export class ShopScene {
     } else if (this.#targetedArcadeCabinet) {
       const cabinet = this.#targetedArcadeCabinet;
       const cabinetProp = this.#arcadeProps.get(cabinet);
-      const propRows = [
-        {key: "T", label: "Move cabinet"},
+      const propRows: ShopInteraction[] = [
+        {key: "T", label: "Move cabinet", actions: ["pickUpCancel"]},
         {
           key: "L",
           label: cabinetProp?.locked ? "Unlock cabinet" : "Lock cabinet",
+          actions: ["propPinToggle"],
         },
-        ...(cabinetProp?.spawned ? [{key: "Del", label: "Remove"}] : []),
+        ...(cabinetProp?.spawned
+          ? [
+              {
+                key: "Del",
+                label: "Remove",
+                actions: ["removeTargeted"] as const,
+              },
+            ]
+          : []),
       ];
       if (cabinet.sessionStatus === "playing") {
         // A stepped-away game keeps emulating; targeting its cabinet offers
@@ -13937,7 +14096,11 @@ export class ShopScene {
         // positional audio keeps playing while stepped away.
         interactionContext = `Arcade · ${cabinet.sessionRomName ?? "cabinet"}`;
         interactions = [
-          {key: "E", label: "Resume the game"},
+          {
+            key: "E",
+            label: "Resume the game",
+            actions: ["interact"] as const,
+          },
           {
             key: "Ctrl + Wheel",
             label: `Volume: ${cabinet.arcadeVolumePercent}%`,
@@ -13950,7 +14113,14 @@ export class ShopScene {
           : "Arcade cabinet";
         interactions = cabinet.sessionStatus
           ? [{key: "Esc", label: "Back out"}]
-          : [{key: "E", label: "Play the arcade"}, ...propRows];
+          : [
+              {
+                key: "E",
+                label: "Play the arcade",
+                actions: ["interact"] as const,
+              },
+              ...propRows,
+            ];
       }
     } else if (this.#televisionTargeted) {
       const televisionProp = this.#targetedTelevision
@@ -13966,18 +14136,21 @@ export class ShopScene {
           label: this.#targetedTelevision?.powered()
             ? "Next channel"
             : "Turn on",
+          actions: ["interact"],
         },
-        {key: "T", label: "Move TV"},
+        {key: "T", label: "Move TV", actions: ["pickUpCancel"]},
         {
           key: "L",
           label: televisionProp?.locked ? "Unlock TV" : "Lock TV",
+          actions: ["propPinToggle"],
         },
-        {key: "Q", label: "Previous channel"},
-        {key: "F", label: "Skip"},
-        {key: "N", label: "New channel"},
+        {key: "Q", label: "Previous channel", actions: ["tvPreviousChannel"]},
+        {key: "F", label: "Skip", actions: ["throw"]},
+        {key: "N", label: "New channel", actions: ["channelEditorOpen"]},
         {
           key: "M",
           label: `Mute (${this.#targetedTelevision?.volumePercent() ?? 0}%)`,
+          actions: ["tvMute"],
         },
         {key: "Wheel", label: "Scrub video"},
         {
@@ -13985,7 +14158,13 @@ export class ShopScene {
           label: `Volume: ${this.#targetedTelevision?.volumePercent() ?? 0}%`,
         },
         ...(televisionProp?.spawned
-          ? [{key: "Del", label: "Remove prop"}]
+          ? [
+              {
+                key: "Del",
+                label: "Remove prop",
+                actions: ["removeTargeted"] as const,
+              },
+            ]
           : []),
       ];
     } else if (this.#targetedProp) {
@@ -13994,22 +14173,38 @@ export class ShopScene {
         ? `${this.#targetedProp.label} · ${animationLabel}`
         : this.#targetedProp.label;
       interactions = [
-        {key: "T", label: "Move prop"},
+        {key: "T", label: "Move prop", actions: ["pickUpCancel"]},
         {
           key: "L",
           label: this.#targetedProp.locked ? "Unlock prop" : "Lock prop",
+          actions: ["propPinToggle"],
         },
         ...(animationLabel
-          ? [{key: "Q / E", label: "Previous / next animation"}]
+          ? [
+              {
+                key: "Q / E",
+                label: "Previous / next animation",
+                actions: [
+                  "propCycleAnimationLeft",
+                  "propCycleAnimationRight",
+                ] as const,
+              },
+            ]
           : []),
         ...(this.#targetedProp.spawned
-          ? [{key: "Del", label: "Remove prop"}]
+          ? [
+              {
+                key: "Del",
+                label: "Remove prop",
+                actions: ["removeTargeted"] as const,
+              },
+            ]
           : []),
       ];
     } else if (this.#targetedPosterId)
       interactions = [
-        {key: "T", label: "Move poster"},
-        {key: "Del", label: "Remove poster"},
+        {key: "T", label: "Move poster", actions: ["pickUpCancel"]},
+        {key: "Del", label: "Remove poster", actions: ["removeTargeted"]},
       ];
     else if (this.#targetedDigitalArtFrameId) {
       const frame = this.#digitalArtFrameRecords.get(
@@ -14018,16 +14213,30 @@ export class ShopScene {
       const interval = frame?.intervalSeconds() ?? 0;
       interactionContext = frame?.channelLabel();
       interactions = [
-        {key: "T", label: "Move frame"},
-        {key: "Del", label: "Remove frame"},
-        {key: "Q / E", label: "Previous / next channel"},
-        {key: "F", label: "Next image"},
-        {key: "I", label: `Timing: ${interval === 0 ? "Off" : `${interval}s`}`},
-        {key: "R", label: `Fit: ${frame?.fit() ?? "contain"}`},
-        {key: "N", label: "New channel"},
+        {key: "T", label: "Move frame", actions: ["pickUpCancel"]},
+        {key: "Del", label: "Remove frame", actions: ["removeTargeted"]},
+        {
+          key: "Q / E",
+          label: "Previous / next channel",
+          actions: ["artFramePreviousChannel", "artFrameNextChannel"],
+        },
+        {key: "F", label: "Next image", actions: ["throw"]},
+        {
+          key: "I",
+          label: `Timing: ${interval === 0 ? "Off" : `${interval}s`}`,
+          actions: ["artFrameInterval"],
+        },
+        {
+          key: "R",
+          label: `Fit: ${frame?.fit() ?? "contain"}`,
+          actions: ["artFrameFit"],
+        },
+        {key: "N", label: "New channel", actions: ["channelEditorOpen"]},
       ];
     } else if (this.#targetedSignKey !== undefined)
-      interactions = [{key: "E", label: "Customize sign"}];
+      interactions = [
+        {key: "E", label: "Customize sign", actions: ["interact"]},
+      ];
     else if (hoveredRecord)
       interactions =
         hoveredRecord.state.status === "shelved"
@@ -14045,10 +14254,14 @@ export class ShopScene {
       !this.#shelveAnimation
     )
       interactions = [
-        {key: "M", label: "Movable props"},
-        {key: "P", label: "Posters"},
-        {key: "V", label: "Digital art frames"},
-        {key: "Space", label: "Jump"},
+        {key: "M", label: "Movable props", actions: ["toggleModelPlacement"]},
+        {key: "P", label: "Posters", actions: ["togglePosterPlacement"]},
+        {
+          key: "V",
+          label: "Digital art frames",
+          actions: ["toggleArtFramePlacement"],
+        },
+        {key: "Space", label: "Jump", actions: ["jump"]},
       ];
 
     // Interaction affordances exist only while an owning surface holds
@@ -14060,10 +14273,26 @@ export class ShopScene {
       interactions = [];
     }
 
-    const displayedInteractions = interactions.map((interaction) => ({
-      ...interaction,
-      key: formatInteractionKey(interaction.key, this.#keyboardLayout),
-    }));
+    const padStyle = this.#input.gamepad.connected
+      ? this.#input.gamepad.style
+      : undefined;
+    const shortcutsConfig = this.#getShortcuts();
+    const displayedInteractions = interactions.map((interaction) => {
+      const row = {
+        ...interaction,
+        key: formatInteractionKey(interaction.key, this.#keyboardLayout),
+      };
+      // Pad-active rows carry prompt tokens so the viewport can draw real
+      // controller button icons; keyboard rows keep plain keycap strings.
+      if (!padStyle) return row;
+      const prompts = buildInteractionPrompts(
+        row.key,
+        interaction.actions,
+        shortcutsConfig,
+        padStyle,
+      );
+      return prompts ? {...row, prompts} : row;
+    });
     // Read once so the conditional spread below gets a narrowed value.
     const arcadeStatus = this.#arcadeStatusForUi();
     const arcadeSystemId = this.#arcadeSystemIdForUi();
@@ -14280,7 +14509,7 @@ export class ShopScene {
           this.#animateShelfPreview(
             record,
             publicationId === this.#hoveredPublicationId &&
-              this.#keysDown.has("KeyF"),
+              this.#input.isActionDown("throw"),
             deltaSeconds,
           );
         if (positionChanged || rotationChanged) this.#worldStateDirty = true;
@@ -14291,7 +14520,7 @@ export class ShopScene {
         this.#animateShelfPreview(
           record,
           publicationId === this.#hoveredPublicationId &&
-            this.#keysDown.has("KeyF"),
+            this.#input.isActionDown("throw"),
           deltaSeconds,
         );
         continue;

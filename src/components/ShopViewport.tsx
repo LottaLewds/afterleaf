@@ -37,6 +37,8 @@ import {
 } from "~/game/worldSaveBrowserClient";
 import type {WorldSaveV1} from "~/game/worldSave";
 import {createEscapeScope} from "~/game/modalModes";
+import type {ShortcutsConfig} from "~/game/input/bindings";
+import {promptIconUrl} from "~/game/input/prompts";
 import {INTERACTION_ROW_MODES, useUiMode} from "~/game/uiMode";
 import {loadShopMediaCatalog} from "~/game/shopMediaCatalogBrowserClient";
 import {importPoster} from "~/posters/browserClient";
@@ -68,6 +70,8 @@ export type ShopViewportProps = {
   tvScreenLighting?: Accessor<boolean>;
   unstuckRequest?: Accessor<number>;
   onOpenMenu?: () => void;
+  onCloseMenu?: () => void;
+  shortcutsConfig?: Accessor<ShortcutsConfig>;
   onPasteText?: (text: string) => boolean | Promise<boolean>;
   onPageIndexChange?: (publicationId: string, pageIndex: number) => void;
   onDiscardPublication?: (publicationId: string) => Promise<boolean>;
@@ -327,6 +331,15 @@ export const ShopViewport = (props: ShopViewportProps) => {
             error() !== undefined ||
             signEditor() !== undefined ||
             mediaChannelEditor() !== undefined,
+          ...(props.shortcutsConfig === undefined
+            ? {}
+            : {shortcutsConfig: props.shortcutsConfig}),
+          ...(props.onOpenMenu === undefined
+            ? {}
+            : {onPauseRequest: props.onOpenMenu}),
+          ...(props.onCloseMenu === undefined
+            ? {}
+            : {onResumeRequest: props.onCloseMenu}),
           mode: uiMode.mode,
           onReady: () => setReady(true),
         });
@@ -522,13 +535,37 @@ export const ShopViewport = (props: ShopViewportProps) => {
                         class="flex shrink-0 items-center gap-1"
                         aria-label={interaction.key}
                       >
-                        <For each={keycapParts(interaction.key)}>
-                          {(key) => (
-                            <span class="inline-flex min-h-5 min-w-6 items-center justify-center rounded-[3px] border border-b-2 border-[#52605b] bg-gradient-to-b from-[#394742] to-[#18211f] px-1.5 py-0.5 font-mono text-[9px] font-bold tracking-wide text-[#f1eadc] uppercase shadow-[0_1px_2px_rgb(0_0_0_/_0.65),inset_0_1px_0_rgb(255_255_255_/_0.16)]">
-                              {key}
-                            </span>
+                        <Show
+                          when={interaction.prompts}
+                          fallback={
+                            <For each={keycapParts(interaction.key)}>
+                              {(key) => (
+                                <span class="inline-flex min-h-5 min-w-6 items-center justify-center rounded-[3px] border border-b-2 border-[#52605b] bg-gradient-to-b from-[#394742] to-[#18211f] px-1.5 py-0.5 font-mono text-[9px] font-bold tracking-wide text-[#f1eadc] uppercase shadow-[0_1px_2px_rgb(0_0_0_/_0.65),inset_0_1px_0_rgb(255_255_255_/_0.16)]">
+                                  {key}
+                                </span>
+                              )}
+                            </For>
+                          }
+                        >
+                          {(tokens) => (
+                            <For each={tokens()}>
+                              {(token) =>
+                                token.type === "button" ? (
+                                  <img
+                                    src={promptIconUrl(token.icon)}
+                                    alt={token.alt}
+                                    title={token.alt}
+                                    class="size-5 shrink-0 drop-shadow-[0_1px_2px_rgb(0_0_0_/_0.65)]"
+                                  />
+                                ) : (
+                                  <span class="px-0.5 text-[10px] font-bold text-[#c4cec8]">
+                                    {token.text}
+                                  </span>
+                                )
+                              }
+                            </For>
                           )}
-                        </For>
+                        </Show>
                       </span>
                       <span class="text-[11px] text-[#c4cec8]">
                         {interaction.label}
