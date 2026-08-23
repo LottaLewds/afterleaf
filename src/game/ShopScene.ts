@@ -90,6 +90,11 @@ import {
   getInitialModelAnimationIndex,
 } from "~/game/modelTelevision";
 import {
+  applyCeilingShapeUv,
+  createCeilingBoxGeometry,
+  createCeilingMaterial,
+} from "~/game/ceilingMaterials";
+import {
   createWallpaperBoxGeometry,
   createWallpaperMaterial,
 } from "~/game/wallpaperMaterials";
@@ -251,6 +256,7 @@ const FACE_DISPLAY_COLUMNS = 8;
 const FACE_DISPLAY_ROWS = 4;
 const FACE_SHELF_SLOT_COUNT = FACE_DISPLAY_COLUMNS * FACE_DISPLAY_ROWS;
 const FACE_SHELF_ID = "new-arrivals";
+const FACE_DISPLAY_COLUMN_SPACING = 1.12;
 const FACE_DISPLAY_SHELF_HALF_WIDTH = 4.4;
 const FACE_DISPLAY_SHELF_INSET = 0.15;
 const FACE_DISPLAY_SHELF_FRONT_Z = -9.54;
@@ -479,13 +485,16 @@ type SpineShelfDefinition = {
   halfWidth: number;
   id: string;
   normal: Vector3;
+  signKey?: string;
 };
 
 const faceDisplayShelfId = (row: number) => `${FACE_SHELF_ID}:row:${row}`;
 
 const faceDisplayShelfOffset = (slotIndex: number) => {
   const column = slotIndex % FACE_DISPLAY_COLUMNS;
-  return (column - (FACE_DISPLAY_COLUMNS - 1) / 2) * 1.12;
+  return (
+    (column - (FACE_DISPLAY_COLUMNS - 1) / 2) * FACE_DISPLAY_COLUMN_SPACING
+  );
 };
 
 type ShelfTargetSelection = {
@@ -1344,6 +1353,7 @@ export class ShopScene {
   readonly #signSlots = new Map<string, ShopSignSlot>();
   readonly #signTargetMeshes: Mesh[] = [];
   readonly #spineShelfDefinitions = new Map<string, SpineShelfDefinition>();
+  readonly #shelfSignPreviewTargetMeshes: Mesh[] = [];
   readonly #selectedPublicationId: () => string | null | undefined;
   readonly #shelfTargetMeshes: Mesh[] = [];
   readonly #shelfSnapMesh = new Mesh(
@@ -1532,6 +1542,7 @@ export class ShopScene {
   #shelfHoverTargetMeshes: Mesh[] = [];
   #shelfBrowsePublicationId: string | undefined;
   #shelfBrowseReadyAt = 0;
+  #shelfSignPreviewKey: string | undefined;
   #targetedSignKey: string | undefined;
   #targetedPosterId: string | undefined;
   #targetedDigitalArtFrameId: string | undefined;
@@ -2717,6 +2728,29 @@ export class ShopScene {
       parent.add(target);
       this.#shelfTargetMeshes.push(target);
     }
+    const signPreviewTarget = new Mesh(
+      new PlaneGeometry(
+        FACE_DISPLAY_SHELF_HALF_WIDTH * 2,
+        FACE_OUT_DISPLAY.sideSize[1],
+      ),
+      new MeshBasicMaterial({
+        depthWrite: false,
+        opacity: 0,
+        transparent: true,
+      }),
+    );
+    signPreviewTarget.name = "mixed-shelf-sign-preview-target";
+    // Broad raycast-only surface; keep sign previews independent from book
+    // placement rows and the physical shelf boards between them.
+    signPreviewTarget.visible = false;
+    signPreviewTarget.position.set(
+      FACE_OUT_DISPLAY.boardCenterX,
+      FACE_OUT_DISPLAY.sideCenterY,
+      FACE_DISPLAY_SHELF_FRONT_Z,
+    );
+    signPreviewTarget.userData.shelfId = faceDisplayShelfId(0);
+    parent.add(signPreviewTarget);
+    this.#shelfSignPreviewTargetMeshes.push(signPreviewTarget);
     this.#createShelfSignSlots(parent);
   }
 
@@ -2757,7 +2791,9 @@ export class ShopScene {
     for (let column = 0; column < FACE_DISPLAY_COLUMNS; column += 1) {
       const group = new Group();
       group.position.set(
-        -2 + (column - (FACE_DISPLAY_COLUMNS - 1) / 2) * 1.12,
+        -2 +
+          (column - (FACE_DISPLAY_COLUMNS - 1) / 2) *
+            FACE_DISPLAY_COLUMN_SPACING,
         4.18,
         -9.82,
       );
@@ -2765,14 +2801,15 @@ export class ShopScene {
         targetGeometry,
         new MeshBasicMaterial({
           color: "#d9b96f",
+          depthTest: false,
           depthWrite: false,
           opacity: 0.1,
-          side: DoubleSide,
+          side: FrontSide,
           transparent: true,
         }),
       );
       target.name = `shelf-sign-target-${column}`;
-      // Invisible raycast proxy (opacity <= 0.1); keep it out of render.
+      // Hidden raycast proxy; #updateSignTargetVisuals reveals it on demand.
       target.visible = false;
       const id = String(column);
       const key = shopSignKey("shelf", id);
@@ -3397,9 +3434,12 @@ export class ShopScene {
       );
       let targetRotationY = normal > 0 ? Math.PI / 2 : -Math.PI / 2;
       if (alongX) targetRotationY = normal > 0 ? 0 : Math.PI;
+      let face = normal > 0 ? "east" : "west";
+      if (alongX) face = normal > 0 ? "south" : "north";
+      const signKeys = new Map<number, string>();
       for (let bay = 0; bay < bayCount; bay += 1) {
         const bayCenter = -length / 2 + bayWidth * (bay + 0.5);
-        this.#createSpineShelfSignSlot(
+        const signKey = this.#createSpineShelfSignSlot(
           parent,
           `${fixtureId.toUpperCase()} · BAY ${String(bay + 1).padStart(2, "0")}`,
           alongX ? x + bayCenter : x + normal * 0.57,
@@ -3408,11 +3448,31 @@ export class ShopScene {
           targetRotationY,
           elevation,
         );
+        signKeys.set(bay, signKey);
+        const signPreviewTarget = new Mesh(
+          new PlaneGeometry(bayWidth - 0.18, SPINE_SHELF_HEIGHT),
+          new MeshBasicMaterial({
+            depthWrite: false,
+            opacity: 0,
+            transparent: true,
+          }),
+        );
+        signPreviewTarget.name = `spine-shelf-sign-preview-target-${fixtureId}-${face}-${bay}`;
+        // Broad raycast-only surface; keep sign previews independent from
+        // book placement rows and the physical shelf boards between them.
+        signPreviewTarget.visible = false;
+        signPreviewTarget.position.set(
+          alongX ? x + bayCenter : x + normal * SPINE_SHELF_FRONT_OFFSET,
+          elevation + SPINE_SHELF_HEIGHT / 2,
+          alongX ? z + normal * SPINE_SHELF_FRONT_OFFSET : z + bayCenter,
+        );
+        signPreviewTarget.rotation.y = targetRotationY;
+        signPreviewTarget.userData.shelfId = `${fixtureId}:${face}:0:${bay}`;
+        parent.add(signPreviewTarget);
+        this.#shelfSignPreviewTargetMeshes.push(signPreviewTarget);
       }
       for (let row = 0; row < 4; row += 1) {
         for (let bay = 0; bay < bayCount; bay += 1) {
-          let face = normal > 0 ? "east" : "west";
-          if (alongX) face = normal > 0 ? "south" : "north";
           const shelfId = `${fixtureId}:${face}:${row}:${bay}`;
           const bayCenter = -length / 2 + bayWidth * (bay + 0.5);
           const frontCenter = new Vector3(
@@ -3430,6 +3490,8 @@ export class ShopScene {
             id: shelfId,
             normal: shelfNormal,
           };
+          const signKey = signKeys.get(bay);
+          if (signKey) definition.signKey = signKey;
           this.#spineShelfDefinitions.set(shelfId, definition);
           const material = new MeshBasicMaterial({
             color: "#d94c3f",
@@ -3473,14 +3535,15 @@ export class ShopScene {
       new PlaneGeometry(width, 0.5),
       new MeshBasicMaterial({
         color: "#d9b96f",
+        depthTest: false,
         depthWrite: false,
         opacity: 0.1,
-        side: DoubleSide,
+        side: FrontSide,
         transparent: true,
       }),
     );
     target.name = `spine-shelf-sign-target-${column}`;
-    // Invisible raycast proxy (opacity <= 0.1); keep it out of render.
+    // Hidden raycast proxy; #updateSignTargetVisuals reveals it on demand.
     target.visible = false;
     const id = String(column);
     const key = shopSignKey("shelf", id);
@@ -3502,6 +3565,7 @@ export class ShopScene {
       title: "",
       width,
     });
+    return key;
   }
 
   #createAisleSignSlot(
@@ -3519,14 +3583,15 @@ export class ShopScene {
       new PlaneGeometry(2.6, 0.72),
       new MeshBasicMaterial({
         color: "#d9b96f",
+        depthTest: false,
         depthWrite: false,
         opacity: 0.1,
-        side: DoubleSide,
+        side: FrontSide,
         transparent: true,
       }),
     );
     target.name = `aisle-sign-target-${id}`;
-    // Invisible raycast proxy (opacity <= 0.1); keep it out of render.
+    // Hidden raycast proxy; #updateSignTargetVisuals reveals it on demand.
     target.visible = false;
     target.userData.signKey = key;
     group.add(target);
@@ -4040,13 +4105,16 @@ export class ShopScene {
       new PlaneGeometry(2.65, 0.58),
       new MeshBasicMaterial({
         color: "#d9b96f",
+        depthTest: false,
         depthWrite: false,
         opacity: 0.1,
-        side: DoubleSide,
+        side: FrontSide,
         transparent: true,
       }),
     );
     target.name = "special-collection-sign-target";
+    // Invisible raycast proxy; reveal it only while the sign is targeted.
+    target.visible = false;
     target.userData.signKey = key;
     group.add(target);
     parent.add(group);
@@ -4268,21 +4336,26 @@ export class ShopScene {
     return mesh;
   }
 
-  #createFloorUnderside(parent: Group, surface: Mesh<BufferGeometry>) {
-    const underside = new Mesh(
-      surface.geometry,
-      new MeshBasicMaterial({color: "#242a28", side: BackSide}),
-    );
-    underside.name = `${surface.name || "floor"}-underside`;
-    underside.position.copy(surface.position);
-    underside.quaternion.copy(surface.quaternion);
-    parent.add(underside);
-  }
-
-  #createUpperFloorStructures(parent: Group) {
-    const material = new MeshBasicMaterial({color: "#242a28"});
+  #createUpperFloorStructures(
+    parent: Group,
+    ceilingMaterial: MeshStandardMaterial,
+  ) {
+    // Only the underside of each slab is visible from the ground floor; keep
+    // the edges (and the covered top) on the cheap unlit gray material.
+    const edgeMaterial = new MeshBasicMaterial({color: "#242a28"});
+    const slabMaterials = [
+      edgeMaterial,
+      edgeMaterial,
+      edgeMaterial,
+      ceilingMaterial,
+      edgeMaterial,
+      edgeMaterial,
+    ];
     for (const box of SHOP_UPPER_FLOOR_BOXES) {
-      const floorStructure = new Mesh(new BoxGeometry(...box.size), material);
+      const floorStructure = new Mesh(
+        createCeilingBoxGeometry(box.size, box.position),
+        slabMaterials,
+      );
       floorStructure.position.set(...box.position);
       parent.add(floorStructure);
       this.#registerPropPlacementSupport(floorStructure);
@@ -4727,14 +4800,15 @@ export class ShopScene {
       new PlaneGeometry(2.8, 0.64),
       new MeshBasicMaterial({
         color: "#d9b96f",
+        depthTest: false,
         depthWrite: false,
         opacity: 0.1,
-        side: DoubleSide,
+        side: FrontSide,
         transparent: true,
       }),
     );
     target.name = `${id}-sign-target`;
-    // Invisible raycast proxy (opacity <= 0.1); keep it out of render.
+    // Hidden raycast proxy; #updateSignTargetVisuals reveals it on demand.
     target.visible = false;
     target.userData.signKey = key;
     group.add(target);
@@ -5029,7 +5103,11 @@ export class ShopScene {
     shelfEdgeMaterial: MeshStandardMaterial,
     readingFurnitureMaterials: ReadingFurnitureMaterials,
   ) {
-    this.#createUpperFloorStructures(parent);
+    const ceilingMaterial = createCeilingMaterial(
+      this.#textureLoader,
+      this.#renderer.capabilities.getMaxAnisotropy(),
+    );
+    this.#createUpperFloorStructures(parent, ceilingMaterial);
     const stairFloorStructure = new Mesh(
       new BoxGeometry(
         SHOP_STAIR_ROOM.maxX - SHOP_STAIR_ROOM.minX,
@@ -5238,11 +5316,7 @@ export class ShopScene {
       -Math.PI / 2,
     );
 
-    const roofMaterial = new MeshStandardMaterial({
-      color: "#1d2927",
-      metalness: 0.22,
-      roughness: 0.82,
-    });
+    const roofMaterial = ceilingMaterial;
     const skylight = SHOP_ATRIUM;
     const skylightWidth = skylight.maxX - skylight.minX;
     const skylightDepth = skylight.maxZ - skylight.minZ;
@@ -5255,8 +5329,8 @@ export class ShopScene {
       SHOP_UPPER_CEILING_Y,
       roofMaterial,
     );
+    applyCeilingShapeUv(roof.geometry);
     roof.name = "main-roof";
-    this.#createFloorUnderside(parent, roof);
     const stairRoof = this.#createHorizontalShape(
       parent,
       SHOP_STAIR_ROOM,
@@ -5264,8 +5338,8 @@ export class ShopScene {
       SHOP_UPPER_CEILING_Y,
       roofMaterial,
     );
+    applyCeilingShapeUv(stairRoof.geometry);
     stairRoof.name = "stair-tower-roof";
-    this.#createFloorUnderside(parent, stairRoof);
     const skylightGlass = new Mesh(
       new PlaneGeometry(skylightWidth, skylightDepth),
       glassMaterial,
@@ -5401,7 +5475,8 @@ export class ShopScene {
     slot.subtitle = subtitle.trim().slice(0, 72);
     if (!slot.title) {
       slot.subtitle = "";
-      slot.target.material.opacity = 0.1;
+      slot.target.visible = false;
+      slot.target.material.opacity = 0;
       return;
     }
     const sign = this.#createSign(
@@ -5414,6 +5489,7 @@ export class ShopScene {
     );
     sign.position.z = -0.012;
     slot.sign = sign;
+    slot.target.visible = false;
     slot.target.material.opacity = 0;
     slot.group.add(sign);
   }
@@ -5561,6 +5637,8 @@ export class ShopScene {
       geometry = createWallpaperBoxGeometry(size, position);
     else if (material.userData.boxUvMode === "upholstery")
       geometry = createUpholsteryBoxGeometry(size, position);
+    else if (material.userData.boxUvMode === "ceiling")
+      geometry = createCeilingBoxGeometry(size, position);
     else if (material.map) geometry = createWoodBoxGeometry(size, position);
     else geometry = new BoxGeometry(...size);
     const mesh = new Mesh(geometry, material);
@@ -8873,7 +8951,9 @@ export class ShopScene {
     this.#setHoveredPublicationId(undefined);
     this.#shelfTargeted = false;
     this.#shelfTargetSelection = undefined;
+    this.#shelfSignPreviewKey = undefined;
     this.#targetedSignKey = undefined;
+    this.#updateSignTargetVisuals();
     this.#setPropTargeted(undefined);
     this.#setTelevisionTargeted(false);
     this.#setArcadeTargeted(undefined);
@@ -11966,6 +12046,23 @@ export class ShopScene {
     };
   }
 
+  #shelfSignKeyForTarget(shelfId: string, offset?: number) {
+    const shelf = this.#spineShelfDefinitions.get(shelfId);
+    if (!shelf) return undefined;
+    if (shelf.signKey) return shelf.signKey;
+    if (!shelfId.startsWith(`${FACE_SHELF_ID}:`) || offset === undefined)
+      return undefined;
+    const column = MathUtils.clamp(
+      Math.round(
+        offset / FACE_DISPLAY_COLUMN_SPACING + (FACE_DISPLAY_COLUMNS - 1) / 2,
+      ),
+      0,
+      FACE_DISPLAY_COLUMNS - 1,
+    );
+    const key = shopSignKey("shelf", String(column));
+    return this.#signSlots.has(key) ? key : undefined;
+  }
+
   #cycleCarriedBook(direction: number) {
     if (
       direction === 0 ||
@@ -12073,11 +12170,15 @@ export class ShopScene {
 
   #updateInteractionTarget() {
     // An arcade session owns the screen; retargeting would fight its UI.
-    if (this.#arcadeStatusForUi()) return;
+    if (this.#arcadeStatusForUi()) {
+      this.#clearShelfSignPreview();
+      return;
+    }
     if (this.#inspectionMode !== "none") {
       this.#setHoveredPublicationId(undefined);
       this.#shelfTargeted = false;
       this.#shelfTargetSelection = undefined;
+      this.#clearShelfSignPreview();
       this.#targetedSignKey = undefined;
       this.#targetedPosterId = undefined;
       this.#setDigitalArtFrameTargeted();
@@ -12091,6 +12192,7 @@ export class ShopScene {
       this.#setHoveredPublicationId(undefined);
       this.#shelfTargeted = false;
       this.#shelfTargetSelection = undefined;
+      this.#clearShelfSignPreview();
       this.#targetedSignKey = undefined;
       this.#targetedPosterId = undefined;
       this.#setDigitalArtFrameTargeted();
@@ -12102,6 +12204,7 @@ export class ShopScene {
       return;
     }
     if (!this.#pointerLocked) {
+      this.#clearShelfSignPreview();
       this.#updatePosterPlacementTarget();
       this.#updateDigitalArtFramePlacementTarget();
       this.#setHoveredPublicationId(undefined);
@@ -12143,6 +12246,7 @@ export class ShopScene {
       this.#setHoveredPublicationId(undefined);
       this.#shelfTargeted = false;
       this.#shelfTargetSelection = undefined;
+      this.#clearShelfSignPreview();
       this.#targetedSignKey = undefined;
       this.#targetedPosterId = undefined;
       this.#setDigitalArtFrameTargeted();
@@ -12158,6 +12262,7 @@ export class ShopScene {
       this.#setHoveredPublicationId(undefined);
       this.#shelfTargeted = false;
       this.#shelfTargetSelection = undefined;
+      this.#clearShelfSignPreview();
       this.#targetedSignKey = undefined;
       this.#targetedPosterId = undefined;
       this.#setDigitalArtFrameTargeted();
@@ -12174,6 +12279,7 @@ export class ShopScene {
       this.#setHoveredPublicationId(undefined);
       this.#shelfTargeted = false;
       this.#shelfTargetSelection = undefined;
+      this.#clearShelfSignPreview();
       this.#targetedSignKey = undefined;
       this.#targetedPosterId = undefined;
       this.#setDigitalArtFrameTargeted();
@@ -12230,6 +12336,7 @@ export class ShopScene {
         this.#setHoveredPublicationId(pickupPublicationId);
         this.#shelfTargeted = false;
         this.#shelfTargetSelection = undefined;
+        this.#clearShelfSignPreview();
         this.#trashTargeted = false;
         this.#updateShelfTargetVisuals();
         this.#updateSignTargetVisuals();
@@ -12254,6 +12361,9 @@ export class ShopScene {
       }
       this.#shelfTargeted = selection !== undefined;
       this.#shelfTargetSelection = selection;
+      this.#shelfSignPreviewKey = selection
+        ? this.#shelfSignKeyForTarget(selection.shelfId, selection.offset)
+        : undefined;
       this.#trashTargeted = trashTargeted;
       this.#updateShelfTargetVisuals();
       this.#updateSignTargetVisuals();
@@ -12310,6 +12420,7 @@ export class ShopScene {
       arcadeIntersection.distance <= ARCADE_INTERACTION_DISTANCE;
     this.#setArcadeTargeted(arcadeTargeted ? arcadeCabinet : undefined);
     if (arcadeTargeted) {
+      this.#clearShelfSignPreview();
       this.#setTelevisionTargeted(false);
       this.#setPropTargeted(undefined);
       this.#setTrashTargeted(false);
@@ -12369,6 +12480,7 @@ export class ShopScene {
       television,
     );
     if (televisionTargeted) {
+      this.#clearShelfSignPreview();
       this.#setPropTargeted(undefined);
       this.#setTrashTargeted(false);
       this.#targetedSignKey = undefined;
@@ -12398,6 +12510,7 @@ export class ShopScene {
         : undefined;
     this.#setPropTargeted(targetedProp);
     if (targetedProp) {
+      this.#clearShelfSignPreview();
       this.#setTrashTargeted(false);
       this.#targetedSignKey = undefined;
       this.#targetedPosterId = undefined;
@@ -12407,15 +12520,40 @@ export class ShopScene {
       return;
     }
     this.#setTrashTargeted(false);
+    const shelfIntersection = this.#raycaster
+      .intersectObjects(this.#shelfSignPreviewTargetMeshes, false)
+      .find((candidate) => candidate.distance <= SHELF_INTERACTION_DISTANCE);
+    const shelfId = shelfIntersection?.object.userData.shelfId;
+    const shelf =
+      typeof shelfId === "string"
+        ? this.#spineShelfDefinitions.get(shelfId)
+        : undefined;
+    const shelfOffset =
+      shelf && shelfIntersection
+        ? this.#shelfTargetOffset
+            .copy(shelfIntersection.point)
+            .sub(shelf.frontCenter)
+            .dot(shelf.axis)
+        : undefined;
+    const shelfSignPreviewKey =
+      typeof shelfId === "string"
+        ? this.#shelfSignKeyForTarget(shelfId, shelfOffset)
+        : undefined;
     const signIntersection = this.#raycaster
       .intersectObjects(this.#signTargetMeshes, false)
       .find((candidate) => candidate.distance <= SIGN_INTERACTION_DISTANCE);
     const signKey = signIntersection?.object.userData.signKey;
     const targetedSignKey = typeof signKey === "string" ? signKey : undefined;
-    if (targetedSignKey !== this.#targetedSignKey) {
+    const nextShelfSignPreviewKey =
+      signIntersection === undefined ? shelfSignPreviewKey : undefined;
+    const shelfSignPreviewChanged =
+      nextShelfSignPreviewKey !== this.#shelfSignPreviewKey;
+    this.#shelfSignPreviewKey = nextShelfSignPreviewKey;
+    const targetedSignChanged = targetedSignKey !== this.#targetedSignKey;
+    if (targetedSignChanged || shelfSignPreviewChanged) {
       this.#targetedSignKey = targetedSignKey;
       this.#updateSignTargetVisuals();
-      this.#emitGameState();
+      if (targetedSignChanged) this.#emitGameState();
     }
     if (targetedSignKey !== undefined) {
       this.#targetedPosterId = undefined;
@@ -13390,9 +13528,18 @@ export class ShopScene {
 
   #updateSignTargetVisuals() {
     for (const [key, slot] of this.#signSlots) {
-      slot.target.material.opacity =
-        key === this.#targetedSignKey ? 0.32 : slot.sign ? 0 : 0.1;
+      const targeted = key === this.#targetedSignKey;
+      const shelfPreview =
+        key === this.#shelfSignPreviewKey && slot.sign === undefined;
+      slot.target.visible = targeted || shelfPreview;
+      slot.target.material.opacity = targeted ? 0.32 : shelfPreview ? 0.2 : 0;
     }
+  }
+
+  #clearShelfSignPreview() {
+    if (this.#shelfSignPreviewKey === undefined) return;
+    this.#shelfSignPreviewKey = undefined;
+    this.#updateSignTargetVisuals();
   }
 
   #emitGameState() {
