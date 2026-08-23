@@ -1,3 +1,4 @@
+import {randomUUID} from "node:crypto";
 import {
   copyFile,
   mkdir,
@@ -35,6 +36,13 @@ export interface LayoutMigrationMove {
   from: string;
   /** Absolute destination path in the unified data-root layout. */
   to: string;
+  /**
+   * When both sides exist, the file is merged instead of moved:
+   * - "library-roots": union of enrolled book roots (destination wins
+   *   per path; legacy entries fill paths the destination lacks);
+   * - "append": the legacy text is appended to the destination log.
+   */
+  merge?: "library-roots" | "append";
 }
 
 export interface LayoutMigrationPlan {
@@ -126,7 +134,21 @@ const directoryIsPlaceholderOnly = async (
  * use a plain atomic rename; cross-volume moves copy recursively, verify
  * the byte count, then remove the source.
  */
-const performMove = async ({from, to}: LayoutMigrationMove) => {
+const performMove = async (move: LayoutMigrationMove) => {
+  const {from, to} = move;
+  if (move.merge === "library-roots" && (await pathExists(to))) {
+    // Destination absent falls through to the regular move below.
+    const merged = await mergeLibraryRootRegistries(move);
+    if (!merged)
+      throw new Error(
+        `Could not merge the library root registries (${from} and ${to}); both files are left unchanged`,
+      );
+    return;
+  }
+  if (move.merge === "append") {
+    await appendFailureLog(move);
+    return;
+  }
   await mkdir(dirname(to), {recursive: true});
   try {
     await rename(from, to);
@@ -201,6 +223,79 @@ const copyDirectory = async (
   return totalBytes;
 };
 
+/**
+ * Merges two library-root registries. The destination's per-path
+ * enrollment wins (it was written against the currently mounted roots);
+ * legacy-only paths are carried over so no enrollment is lost. Returns
+ * undefined when either side is not a parseable registry, in which case
+ * the caller falls back to a blocking conflict rather than guessing.
+ */
+const mergeLibraryRootRegistries = async (
+  move: LayoutMigrationMove,
+): Promise<{mergedCount: number} | undefined> => {
+  const readRoots = async (path: string) => {
+    try {
+      const parsed = JSON.parse(await readFile(path, "utf8")) as {
+        roots?: unknown;
+      };
+      if (!parsed || typeof parsed !== "object") return undefined;
+      const roots = parsed.roots;
+      if (!roots || typeof roots !== "object" || Array.isArray(roots))
+        return undefined;
+      return Object.fromEntries(
+        Object.entries(roots as Record<string, unknown>)
+          .filter(([, rootId]) => typeof rootId === "string")
+          .map(([pathKey, rootId]) => [pathKey, rootId as string]),
+      );
+    } catch {
+      return undefined;
+    }
+  };
+  const [legacyRoots, destinationRoots] = [
+    await readRoots(move.from),
+    await readRoots(move.to),
+  ];
+  if (legacyRoots === undefined || destinationRoots === undefined)
+    return undefined;
+  const merged = {...destinationRoots};
+  let carriedOver = 0;
+  for (const [rootPath, rootId] of Object.entries(legacyRoots)) {
+    if (merged[rootPath] !== undefined) continue;
+    merged[rootPath] = rootId;
+    carriedOver += 1;
+  }
+  await mkdir(dirname(move.to), {recursive: true});
+  const temporaryPath = `${move.to}.staging-${randomUUID()}`;
+  await writeFile(
+    temporaryPath,
+    `${JSON.stringify({roots: merged, schemaVersion: 1}, null, 2)}\n`,
+  );
+  // Windows does not replace an existing file with rename().
+  await rm(move.to, {force: true});
+  await rename(temporaryPath, move.to);
+  await rm(move.from, {force: true});
+  return {mergedCount: carriedOver};
+};
+
+const appendFailureLog = async (move: LayoutMigrationMove) => {
+  const legacyText = await readFile(move.from, "utf8");
+  if (!(await pathExists(move.to))) {
+    await copyFile(move.from, move.to);
+    await rm(move.from, {force: true});
+    return;
+  }
+  const existingText = await readFile(move.to, "utf8");
+  const separator =
+    existingText.length === 0 || existingText.endsWith("\n") ? "" : "\n";
+  await writeFile(
+    move.to,
+    `${existingText}${separator}${legacyText}${
+      legacyText.endsWith("\n") || legacyText.length === 0 ? "" : "\n"
+    }`,
+  );
+  await rm(move.from, {force: true});
+};
+
 /** Collects every legacy-layout artifact present on disk and its destination. */
 export const planLibraryLayoutMigration = async (
   workingDirectory: string,
@@ -237,6 +332,9 @@ export const planLibraryLayoutMigration = async (
   if (await pathExists(legacyRegistry))
     moves.push({
       from: legacyRegistry,
+      // Pre-gate boots could already enroll roots into the new-location
+      // registry, so both sides may legitimately hold enrollments.
+      merge: "library-roots",
       to: resolve(dataRoot, "game", ".cache", "library-roots.json"),
     });
   const legacyFailureLog = resolve(
@@ -247,6 +345,7 @@ export const planLibraryLayoutMigration = async (
   if (await pathExists(legacyFailureLog))
     moves.push({
       from: legacyFailureLog,
+      merge: "append",
       to: resolve(dataRoot, "game", ".cache", "scan-failures.log"),
     });
 
@@ -287,6 +386,8 @@ export const planLibraryLayoutMigration = async (
   const conflicts: LayoutMigrationPlan["conflicts"] = [];
   for (const move of moves) {
     if (!(await pathExists(move.to))) continue;
+    // Mergeable files combine both sides instead of blocking.
+    if (move.merge) continue;
     const destinationStat = await stat(move.to);
     if (
       destinationStat.isDirectory() &&

@@ -56,8 +56,14 @@ const createLegacyLayout = async (root: string) => {
     write("content-sources/catalog/Some Book/publication.json", "{}"),
     write("content-packs/library/index.json", "{}"),
     write("content-packs/library/assets/x.webp", "x"),
-    write("content-sources/library-roots.json", "{}"),
-    write("content-sources/scan-failures.log", ""),
+    write(
+      "content-sources/library-roots.json",
+      '{"roots":{"Z:\\\\Books":"33333333-3333-4333-8333-333333333333"},"schemaVersion":1}',
+    ),
+    write(
+      "content-sources/scan-failures.log",
+      "[2026-08-01T00:00:00.000Z] legacy failure\n",
+    ),
     write("content-sources/nhentai/nhentai-1/pages/001.jpg", "jpg"),
     write("content-sources/mangadex/mangadex-a/page.webp", "webp"),
     write("content-sources/source-garbage/junk.bin", "junk"),
@@ -291,6 +297,95 @@ describe("library layout migration", () => {
     await expect(
       access(resolve(root, "afterleaf-data/content/comics/.gitkeep")),
     ).rejects.toThrow();
+  });
+
+  test("merges a pre-existing registry and appends a pre-existing failure log", async () => {
+    const root = await mkdtemp(join(tmpdir(), "afterleaf-migrate-merge-"));
+    temporaryDirectories.push(root);
+    await createLegacyLayout(root);
+    // Simulate the pre-gate boot window: the server already enrolled roots
+    // into the new-location registry (destination wins per path) and
+    // already logged scan failures.
+    const destinationRegistry = resolve(
+      root,
+      "afterleaf-data/game/.cache/library-roots.json",
+    );
+    await mkdir(resolve(destinationRegistry, ".."), {recursive: true});
+    await writeFile(
+      destinationRegistry,
+      `${JSON.stringify(
+        {
+          roots: {
+            "X:\\media\\Comics": "11111111-1111-4111-8111-111111111111",
+            "X:\\media\\Manga": "22222222-2222-4222-8222-222222222222",
+          },
+          schemaVersion: 1,
+        },
+        null,
+        2,
+      )}\n`,
+    );
+    await writeFile(
+      resolve(root, "afterleaf-data/game/.cache/scan-failures.log"),
+      "[2026-08-23T00:00:00.000Z] existing\n",
+    );
+
+    const result = await migrateLibraryLayout(root, {write: true});
+
+    expect(result.conflicts).toEqual([]);
+    expect(
+      JSON.parse(await readFile(destinationRegistry, "utf8")) as unknown,
+    ).toEqual({
+      roots: {
+        // Destination enrollment preserved...
+        "X:\\media\\Comics": "11111111-1111-4111-8111-111111111111",
+        "X:\\media\\Manga": "22222222-2222-4222-8222-222222222222",
+        // ...legacy-only enrollment carried over.
+        "Z:\\Books": "33333333-3333-4333-8333-333333333333",
+      },
+      schemaVersion: 1,
+    });
+    const logText = await readFile(
+      resolve(root, "afterleaf-data/game/.cache/scan-failures.log"),
+      "utf8",
+    );
+    expect(logText).toContain("[2026-08-23T00:00:00.000Z] existing");
+    expect(logText).toContain("[2026-08-01T00:00:00.000Z]");
+    await expect(
+      access(resolve(root, "content-sources/library-roots.json")),
+    ).rejects.toThrow();
+  });
+
+  test("unparseable registries on either side still block with a conflict", async () => {
+    const root = await mkdtemp(join(tmpdir(), "afterleaf-migrate-badreg-"));
+    temporaryDirectories.push(root);
+    await createLegacyLayout(root);
+    await mkdir(resolve(root, "afterleaf-data/game/.cache"), {
+      recursive: true,
+    });
+    await writeFile(
+      resolve(root, "afterleaf-data/game/.cache/library-roots.json"),
+      "{oops",
+    );
+
+    await expect(migrateLibraryLayout(root, {write: true})).rejects.toThrow(
+      /Could not merge the library root registries/,
+    );
+    // Nothing was lost: both files remain untouched.
+    expect(
+      await readFile(
+        resolve(root, "afterleaf-data/game/.cache/library-roots.json"),
+        "utf8",
+      ),
+    ).toBe("{oops");
+    expect(
+      await readFile(
+        resolve(root, "content-sources/library-roots.json"),
+        "utf8",
+      ),
+    ).toBe(
+      '{"roots":{"Z:\\\\Books":"33333333-3333-4333-8333-333333333333"},"schemaVersion":1}',
+    );
   });
 
   test("rerunning after a successful migration finds nothing to do", async () => {

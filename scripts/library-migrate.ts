@@ -31,10 +31,17 @@ content-packs/demo-v1 is left in place; it is safe to delete.`);
     if (result.moves.length === 0) {
       console.log("Nothing to migrate: no legacy-layout folders were found.");
     } else {
-      for (const move of result.moves)
-        console.log(
-          `${write && result.performedMoves.includes(move) ? "moved" : "would move"}: ${move.from}\n       -> ${move.to}`,
-        );
+      for (const move of result.moves) {
+        const verb =
+          move.merge === "library-roots"
+            ? "would merge"
+            : move.merge === "append"
+              ? "would append"
+              : write && result.performedMoves.includes(move)
+                ? "moved"
+                : "would move";
+        console.log(`${verb}: ${move.from}\n           -> ${move.to}`);
+      }
     }
     for (const note of result.notes) console.log(`note: ${note}`);
     if (result.conflicts.length > 0) {
