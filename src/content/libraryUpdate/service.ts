@@ -38,11 +38,7 @@ import type {
   LibraryProviderSyncReport,
 } from "~/content/providers/types";
 import {PublicationBlacklistStore} from "~/content/libraryUpdate/publicationBlacklist";
-import {
-  discardLibraryAssetSet,
-  promoteLibraryAssetSet,
-  retireUnreferencedLibraryAssetSets,
-} from "~/content/libraryUpdate/libraryAssetPool";
+import {retireUnreferencedLibraryAssets} from "~/content/libraryUpdate/libraryAssetPool";
 import type {
   ContentPackCatalog,
   SeedContentPackOptions,
@@ -163,19 +159,14 @@ export interface LibraryUpdateServiceDependencies {
   ): Promise<LibrarySnapshotIndex>;
   createRequestId?: () => string;
   createSnapshotId?: (now: Date) => string;
-  discardSnapshot?: (snapshotDirectory: string) => Promise<void>;
-  discardAssetSet?: (revisionId: string) => Promise<void>;
   now?: () => Date;
   readBlacklist(): Promise<readonly string[]>;
   readIndex(): Promise<LibrarySnapshotIndex>;
   readSnapshotCatalog(
     snapshot: LibrarySnapshotDescriptor,
   ): Promise<SnapshotCatalogSummary>;
-  promoteAssetSet?: (
-    revisionDirectory: string,
-    revisionId: string,
-  ) => Promise<void>;
-  retireUnreferencedAssetSets?: (catalog: ContentPackCatalog) => Promise<void>;
+  discardRevision?: (revisionDirectory: string) => Promise<void>;
+  retireUnreferencedAssets?: (catalog: ContentPackCatalog) => Promise<void>;
   runMigrations?: (
     sourceDirectory: string,
     onProgress?: (message: string) => void,
@@ -496,7 +487,6 @@ export class LibraryUpdateService implements LibraryUpdateClient {
           allowEmpty: true,
           dryRun: false,
           excludedTags: [],
-          force: false,
           forceRebuild:
             mode === "scan" && (request as LibraryScanRequest).repair === true,
           languages: [...catalogLanguages],
@@ -513,7 +503,6 @@ export class LibraryUpdateService implements LibraryUpdateClient {
             ),
           outputDirectory: snapshotDirectory,
           packId: this.#packId,
-          assetPathPrefix: `assets/${snapshotId}`,
           persistentAssetDirectory: this.#libraryDirectory,
           seed: request.seed ?? "afterleaf-library",
           tags: normalizeTags(request.tags ?? []),
@@ -575,10 +564,7 @@ export class LibraryUpdateService implements LibraryUpdateClient {
         publicationDiff.removedPublicationIds.length > 0 &&
         removalAffectedByScanErrors
       ) {
-        await Promise.allSettled([
-          this.#dependencies.discardSnapshot?.(snapshotDirectory),
-          this.#dependencies.discardAssetSet?.(snapshotId),
-        ]);
+        await this.#dependencies.discardRevision?.(snapshotDirectory);
         throw new Error(
           `Library scan kept the current catalog because ${publicationDiff.removedPublicationIds.length} existing ${publicationDiff.removedPublicationIds.length === 1 ? "publication was" : "publications were"} missing after scan errors`,
         );
@@ -633,16 +619,13 @@ export class LibraryUpdateService implements LibraryUpdateClient {
           startedAt,
           previousSnapshot,
         );
-        await Promise.allSettled([
-          this.#dependencies.discardSnapshot?.(snapshotDirectory),
-          this.#dependencies.discardAssetSet?.(snapshotId),
-        ]);
+        await this.#dependencies.discardRevision?.(snapshotDirectory);
         snapshot = previousSnapshot;
       } else {
         failurePhase = "activating";
         this.#setRunningState(
           "activating",
-          "Promoting new derived library assets",
+          "Activating the completed library catalog revision",
           completedSteps,
           requestId,
           startedAt,
@@ -658,35 +641,20 @@ export class LibraryUpdateService implements LibraryUpdateClient {
           snapshotId,
         };
         try {
-          await this.#dependencies.promoteAssetSet?.(
-            snapshotDirectory,
-            snapshotId,
-          );
-          this.#setRunningState(
-            "activating",
-            "Activating the completed library catalog revision",
-            completedSteps,
-            requestId,
-            startedAt,
-            previousSnapshot,
-          );
           await this.#dependencies.activateSnapshot(snapshot);
           this.#setRunningState(
             "activating",
-            "Scheduling retired library assets for cleanup",
+            "Scheduling unreferenced pooled assets for cleanup",
             completedSteps,
             requestId,
             startedAt,
             snapshot,
           );
           await this.#dependencies
-            .retireUnreferencedAssetSets?.(seedResult.catalog)
+            .retireUnreferencedAssets?.(seedResult.catalog)
             .catch(() => {});
         } catch (error) {
-          await Promise.allSettled([
-            this.#dependencies.discardSnapshot?.(snapshotDirectory),
-            this.#dependencies.discardAssetSet?.(snapshotId),
-          ]);
+          await this.#dependencies.discardRevision?.(snapshotDirectory);
           throw error;
         }
       }
@@ -818,16 +786,8 @@ export const createLibraryUpdateService = (
     },
     {
       activateSnapshot: (snapshot) => indexStore.activate(snapshot),
-      discardAssetSet: (revisionId) =>
-        discardLibraryAssetSet(libraryDirectory, revisionId),
-      discardSnapshot: (snapshotDirectory) =>
-        rm(snapshotDirectory, {force: true, recursive: true}),
-      promoteAssetSet: (revisionDirectory, revisionId) =>
-        promoteLibraryAssetSet(
-          libraryDirectory,
-          revisionDirectory,
-          revisionId,
-        ).then(() => {}),
+      discardRevision: (revisionDirectory) =>
+        rm(revisionDirectory, {force: true, recursive: true}),
       readBlacklist: () => blacklistStore.list(),
       readIndex: () => indexStore.read(),
       readSnapshotCatalog: async (snapshot) => {
@@ -840,8 +800,8 @@ export const createLibraryUpdateService = (
           snapshot.catalogPath,
         );
       },
-      retireUnreferencedAssetSets: (catalog) =>
-        retireUnreferencedLibraryAssetSets(libraryDirectory, catalog).then(
+      retireUnreferencedAssets: (catalog) =>
+        retireUnreferencedLibraryAssets(libraryDirectory, catalog).then(
           () => {},
         ),
       runSeed: async (
@@ -864,7 +824,7 @@ export const createLibraryUpdateService = (
             !Array.isArray(parsed.atlases.spine)
           )
             throw new Error("Active snapshot catalog cannot be reused");
-          reuse = {catalog: parsed, directory};
+          reuse = {catalog: parsed};
         }
         return seedContentPack(
           new LocalCatalogSource(

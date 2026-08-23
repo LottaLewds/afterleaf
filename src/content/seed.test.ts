@@ -14,7 +14,6 @@ import {join, resolve} from "node:path";
 import sharp from "sharp";
 import {BOOK_ASPECT_RATIO_INFERENCE_VERSION} from "~/content/bookAspectRatio";
 import {LocalCatalogSource} from "~/content/localCatalogSource";
-import {promoteLibraryAssetSet} from "~/content/libraryUpdate/libraryAssetPool";
 import {planShelfAtlasRanges, seedContentPack} from "~/content/seed";
 import type {
   LocalPublicationDocument,
@@ -22,8 +21,6 @@ import type {
 } from "~/content/schema";
 
 const temporaryDirectories: string[] = [];
-
-type ReusableSeedOptions = Omit<SeedContentPackOptions, "outputDirectory">;
 
 interface PublicationFixtureOptions {
   format?: "png" | "webp";
@@ -103,12 +100,37 @@ const createPublication = async (
   );
 };
 
+/**
+ * Builds pool-mode seed options rooted at a temporary directory. The pool
+ * and the revision directories are siblings under the root, mirroring the
+ * library layout.
+ */
+const poolOptions = (
+  root: string,
+  overrides: Omit<Partial<SeedContentPackOptions>, "outputDirectory"> & {
+    packId: string;
+    outputDirectory: string;
+  },
+): SeedContentPackOptions => ({
+  dryRun: false,
+  excludedTags: [],
+  languages: ["english"],
+  limit: 10,
+  match: "all",
+  persistentAssetDirectory: root,
+  seed: overrides.packId,
+  tags: [],
+  ...overrides,
+});
+
+/** Resolves a pooled asset path against its library root. */
+const pooled = (root: string, assetPath: string) => resolve(root, assetPath);
+
 describe("seedContentPack", () => {
   test("packs alternate page zero and preserves per-edition tags", async () => {
     const root = await mkdtemp(join(tmpdir(), "afterleaf-alternates-"));
     temporaryDirectories.push(root);
     const catalogDirectory = resolve(root, "catalog");
-    const outputDirectory = resolve(root, "pack");
     await Promise.all([
       createPublication(
         catalogDirectory,
@@ -136,18 +158,11 @@ describe("seedContentPack", () => {
 
     const result = await seedContentPack(
       new LocalCatalogSource(catalogDirectory),
-      {
-        dryRun: false,
-        excludedTags: [],
-        force: false,
-        languages: ["english"],
-        limit: 2,
-        match: "all",
-        outputDirectory,
+      poolOptions(root, {
         packId: "alternate-test",
-        seed: "alternate-test",
-        tags: [],
-      },
+        limit: 2,
+        outputDirectory: resolve(root, "revisions/rev-1"),
+      }),
     );
 
     const publication = result.catalog?.publications[0];
@@ -166,21 +181,23 @@ describe("seedContentPack", () => {
       ],
     });
     const alternatePage0 = publication?.alternates[0]?.page0;
-    expect(alternatePage0).toBe(
-      "publications/nhentai-666822/alternates/nhentai-666192/page-000.webp",
+    expect(alternatePage0).toMatch(
+      /^assets\/publications\/nhentai-666822\/alternates\/nhentai-666192\/page-000-[0-9a-f]{16}\.webp$/u,
     );
     if (!alternatePage0)
       throw new Error("Expected a packed alternate page zero");
-    expect(
-      await sharp(resolve(outputDirectory, alternatePage0)).metadata(),
-    ).toMatchObject({format: "webp", height: 180, width: 120});
+    expect(await sharp(pooled(root, alternatePage0)).metadata()).toMatchObject({
+      format: "webp",
+      height: 180,
+      width: 120,
+    });
   });
 
   test("prefers English, allows Japanese, skips other languages, and writes deterministic derivatives", async () => {
     const root = await mkdtemp(join(tmpdir(), "afterleaf-seed-"));
     temporaryDirectories.push(root);
     const catalogDirectory = resolve(root, "catalog");
-    const outputDirectory = resolve(root, "pack");
+    const revisionDirectory = resolve(root, "revisions/rev-1");
     await Promise.all([
       createPublication(catalogDirectory, "english-book", "english", "#b03052"),
       createPublication(
@@ -193,22 +210,18 @@ describe("seedContentPack", () => {
       createPublication(catalogDirectory, "invalid-book", "english", "#303030"),
     ]);
     await rm(resolve(catalogDirectory, "invalid-book/pages/001.png"));
-    const options = {
-      tags: ["big-breasts"],
-      excludedTags: [],
-      languages: ["english", "japanese"] as const,
-      limit: 2,
-      match: "all" as const,
-      seed: "seed-0",
-      dryRun: false,
-      force: false,
-      outputDirectory,
+    const options = poolOptions(root, {
       packId: "visual-v1",
-    };
+      languages: ["english", "japanese"],
+      limit: 2,
+      outputDirectory: revisionDirectory,
+      seed: "seed-0",
+      tags: ["big-breasts"],
+    });
 
     const result = await seedContentPack(
       new LocalCatalogSource(catalogDirectory),
-      {...options, languages: [...options.languages]},
+      options,
     );
     const catalog = result.catalog;
     expect(catalog).toBeDefined();
@@ -222,42 +235,50 @@ describe("seedContentPack", () => {
     expect(
       result.report.diagnostics.map((diagnostic) => diagnostic.code),
     ).toEqual(["unsupported-language", "invalid-assets"]);
-    expect(
-      await sharp(
-        resolve(outputDirectory, "atlases/front-001.webp"),
-      ).metadata(),
-    ).toMatchObject({width: 768, height: 576});
-    expect(catalog.atlases.front).toEqual([
-      expect.objectContaining({
-        firstPublicationIndex: 0,
-        path: "atlases/front-001.webp",
-        publicationCount: 2,
-      }),
-    ]);
-    expect(
-      await sharp(
-        resolve(outputDirectory, "publications/english-book/front.webp"),
-      ).metadata(),
-    ).toMatchObject({width: 256, height: 384});
+    const frontAtlas = catalog.atlases.front[0];
+    expect(frontAtlas).toMatchObject({
+      firstPublicationIndex: 0,
+      publicationCount: 2,
+      width: 768,
+      height: 576,
+    });
+    if (!frontAtlas) throw new Error("Expected a front shelf atlas");
+    expect(frontAtlas.path).toStartWith("assets/atlases/front-");
+    expect(await sharp(pooled(root, frontAtlas.path)).metadata()).toMatchObject(
+      {
+        width: 768,
+        height: 576,
+      },
+    );
+    const englishFront = catalog.publications[0]?.assets.front;
+    if (!englishFront) throw new Error("Expected an english front cover");
+    expect(englishFront).toStartWith("assets/publications/english-book/");
+    expect(await sharp(pooled(root, englishFront)).metadata()).toMatchObject({
+      width: 256,
+      height: 384,
+    });
     const writtenCatalog = JSON.parse(
-      await readFile(resolve(outputDirectory, "catalog.json"), "utf8"),
+      await readFile(resolve(revisionDirectory, "catalog.json"), "utf8"),
     ) as {contentHash?: string};
     expect(writtenCatalog.contentHash).toBe(catalog.contentHash);
     const preview = await readFile(
-      resolve(outputDirectory, "preview.html"),
+      resolve(revisionDirectory, "preview.html"),
       "utf8",
     );
     expect(preview).toContain("visual-v1");
     expect(preview).toContain("Publication english-book");
-    expect(preview).toContain("publications/english-book/front.webp");
+    expect(preview).toContain(encodeURI(englishFront));
 
     const repeated = await seedContentPack(
       new LocalCatalogSource(catalogDirectory),
-      {
-        ...options,
-        languages: [...options.languages],
-        force: true,
-      },
+      poolOptions(root, {
+        packId: "visual-v1",
+        languages: ["english", "japanese"],
+        limit: 2,
+        outputDirectory: resolve(root, "revisions/rev-2"),
+        seed: "seed-0",
+        tags: ["big-breasts"],
+      }),
     );
     expect(repeated.catalog?.contentHash).toBe(catalog.contentHash);
   });
@@ -266,8 +287,6 @@ describe("seedContentPack", () => {
     const root = await mkdtemp(join(tmpdir(), "afterleaf-seed-"));
     temporaryDirectories.push(root);
     const catalogDirectory = resolve(root, "catalog");
-    const firstOutputDirectory = resolve(root, "pack-first");
-    const secondOutputDirectory = resolve(root, "pack-second");
     await createPublication(
       catalogDirectory,
       "webp-book",
@@ -278,33 +297,22 @@ describe("seedContentPack", () => {
     const sourcePage = await readFile(
       resolve(catalogDirectory, "webp-book/pages/001.webp"),
     );
-    const options = {
-      tags: ["big-breasts"],
-      excludedTags: [],
-      languages: ["english"] as const,
-      limit: 1,
-      match: "all" as const,
-      seed: "webp-passthrough",
-      dryRun: false,
-      force: false,
-      packId: "webp-passthrough",
-    };
 
-    await seedContentPack(new LocalCatalogSource(catalogDirectory), {
-      ...options,
-      languages: [...options.languages],
-      outputDirectory: firstOutputDirectory,
-    });
-    expect(
-      await readFile(
-        resolve(firstOutputDirectory, "publications/webp-book/pages/001.webp"),
-      ),
-    ).toEqual(sourcePage);
-    const firstSpinePath = resolve(
-      firstOutputDirectory,
-      "publications/webp-book/spine.webp",
+    const first = await seedContentPack(
+      new LocalCatalogSource(catalogDirectory),
+      poolOptions(root, {
+        packId: "webp-passthrough",
+        limit: 1,
+        outputDirectory: resolve(root, "revisions/rev-1"),
+      }),
     );
-    expect(await sharp(firstSpinePath).metadata()).toMatchObject({
+    if (!first.catalog) throw new Error("First catalog is missing");
+    const firstPagePath = first.catalog.publications[0]?.assets.pages[0];
+    const firstSpinePath = first.catalog.publications[0]?.assets.spine;
+    if (!firstPagePath || !firstSpinePath)
+      throw new Error("First publication assets are missing");
+    expect(await readFile(pooled(root, firstPagePath))).toEqual(sourcePage);
+    expect(await sharp(pooled(root, firstSpinePath)).metadata()).toMatchObject({
       format: "webp",
       height: 1024,
       width: 32,
@@ -320,21 +328,26 @@ describe("seedContentPack", () => {
     document.title = "[XBOY] 엄마와 이세계 모험";
     document.physical = {readingDirection: "ltr", thicknessMm: 24};
     await writeFile(manifestPath, JSON.stringify(document));
-    await seedContentPack(new LocalCatalogSource(catalogDirectory), {
-      ...options,
-      languages: [...options.languages],
-      outputDirectory: secondOutputDirectory,
-    });
-    const secondSpinePath = resolve(
-      secondOutputDirectory,
-      "publications/webp-book/spine.webp",
+    const second = await seedContentPack(
+      new LocalCatalogSource(catalogDirectory),
+      poolOptions(root, {
+        packId: "webp-passthrough",
+        limit: 1,
+        outputDirectory: resolve(root, "revisions/rev-2"),
+      }),
     );
-    expect(await sharp(secondSpinePath).metadata()).toMatchObject({
-      format: "webp",
-      height: 1024,
-      width: 96,
-    });
-    const renderedSpine = await sharp(secondSpinePath)
+    if (!second.catalog) throw new Error("Second catalog is missing");
+    const secondSpinePath = second.catalog.publications[0]?.assets.spine;
+    if (!secondSpinePath) throw new Error("Second spine is missing");
+    expect(secondSpinePath).not.toBe(firstSpinePath);
+    expect(await sharp(pooled(root, secondSpinePath)).metadata()).toMatchObject(
+      {
+        format: "webp",
+        height: 1024,
+        width: 96,
+      },
+    );
+    const renderedSpine = await sharp(pooled(root, secondSpinePath))
       .raw()
       .toBuffer({resolveWithObject: true});
     let minTitleX = Number.POSITIVE_INFINITY;
@@ -365,18 +378,18 @@ describe("seedContentPack", () => {
     expect(
       Math.abs((minTitleY + maxTitleY) / 2 - (395 * 1024) / 768),
     ).toBeLessThanOrEqual(2);
-    expect(await readFile(secondSpinePath)).not.toEqual(
-      await readFile(firstSpinePath),
+    // The old spine keeps its content-keyed name; both spines coexist in
+    // the pool until garbage collection retires the unreferenced one.
+    expect(await readFile(pooled(root, firstSpinePath))).toBeDefined();
+    expect(await readFile(pooled(root, secondSpinePath))).not.toEqual(
+      await readFile(pooled(root, firstSpinePath)),
     );
   });
 
-  test("reuses unchanged assets while upgrading legacy shelf atlases and rebuilding membership", async () => {
+  test("regenerates superseded derivative formats while keeping stable pooled assets", async () => {
     const root = await mkdtemp(join(tmpdir(), "afterleaf-seed-reuse-"));
     temporaryDirectories.push(root);
     const catalogDirectory = resolve(root, "catalog");
-    const firstOutput = resolve(root, "pack-first");
-    const secondOutput = resolve(root, "pack-second");
-    const thirdOutput = resolve(root, "pack-third");
     await Promise.all([
       createPublication(catalogDirectory, "book-a", "english", "#703050", {
         provenance: true,
@@ -385,24 +398,12 @@ describe("seedContentPack", () => {
         provenance: true,
       }),
     ]);
-    const options = {
-      dryRun: false,
-      excludedTags: [],
-      force: false,
-      languages: ["english"] as const,
-      limit: 10,
-      match: "all" as const,
-      packId: "reuse-test",
-      seed: "reuse-test",
-      tags: [],
-    };
     const first = await seedContentPack(
       new LocalCatalogSource(catalogDirectory),
-      {
-        ...options,
-        languages: [...options.languages],
-        outputDirectory: firstOutput,
-      },
+      poolOptions(root, {
+        packId: "reuse-test",
+        outputDirectory: resolve(root, "revisions/rev-1"),
+      }),
     );
     if (!first.catalog) throw new Error("First reuse catalog is missing");
     const legacyCatalog = structuredClone(first.catalog);
@@ -417,56 +418,39 @@ describe("seedContentPack", () => {
 
     const second = await seedContentPack(
       new LocalCatalogSource(catalogDirectory),
-      {
-        ...options,
-        languages: [...options.languages],
-        outputDirectory: secondOutput,
-        reuse: {catalog: legacyCatalog, directory: firstOutput},
-      },
+      poolOptions(root, {
+        packId: "reuse-test",
+        outputDirectory: resolve(root, "revisions/rev-2"),
+        reuse: {catalog: legacyCatalog},
+      }),
     );
     if (!second.catalog) throw new Error("Second reuse catalog is missing");
-    const firstBookA = resolve(firstOutput, "publications/book-a/front.webp");
-    const secondBookA = resolve(secondOutput, "publications/book-a/front.webp");
-    const firstBookASpine = resolve(
-      firstOutput,
-      "publications/book-a/spine.webp",
+    const upgradedBookA = second.catalog.publications.find(
+      ({id}) => id === "book-a",
     );
-    const secondBookASpine = resolve(
-      secondOutput,
-      "publications/book-a/spine.webp",
+    const previousBookA = first.catalog.publications.find(
+      ({id}) => id === "book-a",
     );
-    const firstAtlas = resolve(firstOutput, "atlases/front-001.webp");
-    const secondAtlas = resolve(secondOutput, "atlases/front-001.webp");
-    const firstBackAtlas = resolve(firstOutput, "atlases/back-001.webp");
-    const secondBackAtlas = resolve(secondOutput, "atlases/back-001.webp");
-    const firstSpineAtlas = resolve(firstOutput, "atlases/spine-001.webp");
-    const secondSpineAtlas = resolve(secondOutput, "atlases/spine-001.webp");
-    expect((await stat(secondBookA)).ino).toBe((await stat(firstBookA)).ino);
-    expect((await stat(secondBookASpine)).ino).not.toBe(
-      (await stat(firstBookASpine)).ino,
+    if (!upgradedBookA || !previousBookA)
+      throw new Error("Expected book-a in both catalogs");
+    // Stable derivatives keep their content-keyed pool paths. Regenerating
+    // a superseded format is deterministic, so even migrated derivatives
+    // land on their original content-keyed names.
+    expect(upgradedBookA.assets.front).toBe(previousBookA.assets.front);
+    expect(upgradedBookA.assets.backDetail).toBe(
+      previousBookA.assets.backDetail,
     );
-    expect((await stat(secondAtlas)).ino).not.toBe(
-      (await stat(firstAtlas)).ino,
-    );
-    expect((await stat(secondBackAtlas)).ino).not.toBe(
-      (await stat(firstBackAtlas)).ino,
-    );
-    expect((await stat(secondSpineAtlas)).ino).not.toBe(
-      (await stat(firstSpineAtlas)).ino,
-    );
+    expect(upgradedBookA.assets.spine).toBe(previousBookA.assets.spine);
+    await access(pooled(root, upgradedBookA.assets.backDetail ?? "missing"));
+    await access(pooled(root, upgradedBookA.assets.spine));
+    expect(upgradedBookA.backFormatVersion).toBe(1);
+    expect(second.catalog.publications[0]?.spineFormatVersion).toBe(4);
+
     const upgradedSpineAtlas = second.catalog.atlases.spine[0];
     expect(second.catalog.atlases.front[0]?.formatVersion).toBe(4);
     expect(second.catalog.atlases.back[0]?.formatVersion).toBe(1);
     expect(second.catalog.atlases.back[0]?.height).toBe(576);
-    const upgradedBookA = second.catalog.publications.find(
-      ({id}) => id === "book-a",
-    );
-    expect(upgradedBookA?.assets.backDetail).toBe(
-      "publications/book-a/back-detail.webp",
-    );
-    expect(upgradedBookA?.backFormatVersion).toBe(1);
     expect(upgradedSpineAtlas?.formatVersion).toBe(4);
-    expect(second.catalog.publications[0]?.spineFormatVersion).toBe(4);
     expect(upgradedSpineAtlas?.height).toBe(1024);
     expect(upgradedSpineAtlas?.regions).toHaveLength(2);
     expect(upgradedSpineAtlas?.width).toBe(
@@ -482,29 +466,26 @@ describe("seedContentPack", () => {
     });
     const third = await seedContentPack(
       new LocalCatalogSource(catalogDirectory),
-      {
-        ...options,
-        languages: [...options.languages],
-        outputDirectory: thirdOutput,
-        reuse: {catalog: second.catalog, directory: secondOutput},
-      },
+      poolOptions(root, {
+        packId: "reuse-test",
+        outputDirectory: resolve(root, "revisions/rev-3"),
+        reuse: {catalog: second.catalog},
+      }),
     );
     expect(third.catalog?.publications.map(({id}) => id)).toEqual(["book-a"]);
-    expect(
-      (await stat(resolve(thirdOutput, "publications/book-a/front.webp"))).ino,
-    ).toBe((await stat(secondBookA)).ino);
-    expect(
-      (await stat(resolve(thirdOutput, "atlases/front-001.webp"))).ino,
-    ).not.toBe((await stat(secondAtlas)).ino);
+    const thirdBookA = third.catalog?.publications[0];
+    expect(thirdBookA?.assets).toEqual(upgradedBookA.assets);
+    // The front atlas membership changed, so it re-keys to a new file even
+    // though book-a itself was reused untouched.
+    expect(third.catalog?.atlases.front[0]?.path).not.toBe(
+      second.catalog.atlases.front[0]?.path,
+    );
   });
 
   test("rebuilds a legacy inferred aspect ratio once, then reuses the versioned result", async () => {
     const root = await mkdtemp(join(tmpdir(), "afterleaf-aspect-version-"));
     temporaryDirectories.push(root);
     const catalogDirectory = resolve(root, "catalog");
-    const firstOutput = resolve(root, "pack-first");
-    const secondOutput = resolve(root, "pack-second");
-    const thirdOutput = resolve(root, "pack-third");
     await createPublication(
       catalogDirectory,
       "versioned-aspect",
@@ -520,20 +501,13 @@ describe("seedContentPack", () => {
         provenance: true,
       },
     );
-    const options: ReusableSeedOptions = {
-      dryRun: false,
-      excludedTags: [],
-      force: false,
-      languages: ["english"],
-      limit: 1,
-      match: "all",
-      packId: "aspect-version-test",
-      seed: "aspect-version-test",
-      tags: [],
-    };
     const first = await seedContentPack(
       new LocalCatalogSource(catalogDirectory),
-      {...options, outputDirectory: firstOutput},
+      poolOptions(root, {
+        packId: "aspect-version-test",
+        limit: 1,
+        outputDirectory: resolve(root, "revisions/rev-1"),
+      }),
     );
     if (!first.catalog) throw new Error("First aspect catalog is missing");
     const legacyCatalog = structuredClone(first.catalog);
@@ -544,51 +518,43 @@ describe("seedContentPack", () => {
 
     const second = await seedContentPack(
       new LocalCatalogSource(catalogDirectory),
-      {
-        ...options,
-        outputDirectory: secondOutput,
-        reuse: {catalog: legacyCatalog, directory: firstOutput},
-      },
+      poolOptions(root, {
+        packId: "aspect-version-test",
+        limit: 1,
+        outputDirectory: resolve(root, "revisions/rev-2"),
+        reuse: {catalog: legacyCatalog},
+      }),
     );
     if (!second.catalog) throw new Error("Second aspect catalog is missing");
-    const firstFront = resolve(
-      firstOutput,
-      "publications/versioned-aspect/front.webp",
+    const rebuilt = second.catalog.publications[0];
+    expect(rebuilt?.physical.aspectRatio).toBeCloseTo(
+      first.catalog.publications[0]?.physical.aspectRatio ?? 0,
     );
-    const secondFront = resolve(
-      secondOutput,
-      "publications/versioned-aspect/front.webp",
-    );
-    expect((await stat(secondFront)).ino).not.toBe(
-      (await stat(firstFront)).ino,
-    );
-    expect(second.catalog.publications[0]?.physical.aspectRatio).toBeCloseTo(
-      2 / 3,
-    );
-    expect(second.catalog.publications[0]?.aspectRatioInferenceVersion).toBe(
+    expect(rebuilt?.aspectRatioInferenceVersion).toBe(
       BOOK_ASPECT_RATIO_INFERENCE_VERSION,
     );
 
-    await seedContentPack(new LocalCatalogSource(catalogDirectory), {
-      ...options,
-      outputDirectory: thirdOutput,
-      reuse: {catalog: second.catalog, directory: secondOutput},
-    });
-    expect(
-      (
-        await stat(
-          resolve(thirdOutput, "publications/versioned-aspect/front.webp"),
-        )
-      ).ino,
-    ).toBe((await stat(secondFront)).ino);
+    const third = await seedContentPack(
+      new LocalCatalogSource(catalogDirectory),
+      poolOptions(root, {
+        packId: "aspect-version-test",
+        limit: 1,
+        outputDirectory: resolve(root, "revisions/rev-3"),
+        reuse: {catalog: second.catalog},
+      }),
+    );
+    // The versioned inference result is reusable again, and because pool
+    // paths are content-keyed the rebuild landed on identical paths.
+    expect(third.catalog?.publications[0]?.assets).toEqual(rebuilt?.assets);
+    expect(third.catalog?.publications[0]?.physical.aspectRatio).toBeCloseTo(
+      2 / 3,
+    );
   });
 
-  test("keeps unchanged publications in a persistent asset pool across catalog revisions", async () => {
+  test("keeps unchanged publications stable across revisions without linking or copying", async () => {
     const root = await mkdtemp(join(tmpdir(), "afterleaf-seed-pool-"));
     temporaryDirectories.push(root);
     const catalogDirectory = resolve(root, "catalog");
-    const libraryDirectory = resolve(root, "library");
-    const legacyDirectory = resolve(root, "legacy");
     await Promise.all([
       createPublication(catalogDirectory, "book-a", "english", "#703050", {
         provenance: true,
@@ -597,64 +563,26 @@ describe("seedContentPack", () => {
         provenance: true,
       }),
     ]);
-    const options: ReusableSeedOptions = {
-      dryRun: false,
-      excludedTags: [],
-      force: false,
-      languages: ["english"],
-      limit: 10,
-      match: "all",
-      packId: "pool-test",
-      seed: "pool-test",
-      tags: [],
-    };
-    const legacy = await seedContentPack(
-      new LocalCatalogSource(catalogDirectory),
-      {...options, outputDirectory: legacyDirectory},
-    );
-    if (!legacy.catalog) throw new Error("Legacy catalog is missing");
-
-    const firstRevisionDirectory = resolve(
-      libraryDirectory,
-      "revisions/revision-1",
-    );
     const firstRevision = await seedContentPack(
       new LocalCatalogSource(catalogDirectory),
-      {
-        ...options,
-        assetPathPrefix: "assets/revision-1",
-        outputDirectory: firstRevisionDirectory,
-        persistentAssetDirectory: libraryDirectory,
-        reuse: {catalog: legacy.catalog, directory: legacyDirectory},
-      },
+      poolOptions(root, {
+        packId: "pool-test",
+        outputDirectory: resolve(root, "revisions/revision-1"),
+      }),
     );
     if (!firstRevision.catalog)
       throw new Error("First pooled catalog is missing");
-    await promoteLibraryAssetSet(
-      libraryDirectory,
-      firstRevisionDirectory,
-      "revision-1",
-    );
 
     await createPublication(catalogDirectory, "book-c", "english", "#507030", {
       provenance: true,
     });
-    const secondRevisionDirectory = resolve(
-      libraryDirectory,
-      "revisions/revision-2",
-    );
     const secondRevision = await seedContentPack(
       new LocalCatalogSource(catalogDirectory),
-      {
-        ...options,
-        assetPathPrefix: "assets/revision-2",
-        outputDirectory: secondRevisionDirectory,
-        persistentAssetDirectory: libraryDirectory,
-        reuse: {
-          catalog: firstRevision.catalog,
-          directory: firstRevisionDirectory,
-        },
-      },
+      poolOptions(root, {
+        packId: "pool-test",
+        outputDirectory: resolve(root, "revisions/revision-2"),
+        reuse: {catalog: firstRevision.catalog},
+      }),
     );
     if (!secondRevision.catalog)
       throw new Error("Second pooled catalog is missing");
@@ -674,77 +602,60 @@ describe("seedContentPack", () => {
       ({id}) => id === "book-c",
     );
     expect(addedPublication?.assets.front).toStartWith(
-      "assets/revision-2/publications/book-c/",
+      "assets/publications/book-c/",
     );
+    // Revision directories hold only JSON; assets live solely in the pool.
     await expect(
-      access(
-        resolve(
-          secondRevisionDirectory,
-          "assets/revision-2/publications/book-a",
-        ),
-      ),
+      access(resolve(root, "revisions/revision-2/assets")),
     ).rejects.toThrow();
     await access(
-      resolve(
-        libraryDirectory,
+      pooled(
+        root,
         firstRevision.catalog.publications[0]?.assets.front ?? "missing",
       ),
     );
+    // Reused files were never hard-linked into a per-revision tree, so
+    // their link count stayed at one.
+    const reusedFront = await stat(
+      pooled(
+        root,
+        firstRevision.catalog.publications[0]?.assets.front ?? "missing",
+      ),
+    );
+    expect(reusedFront.nlink).toBe(1);
   });
 
   test("quick scans reuse stat-identical local books and rebuild changed local assets", async () => {
     const root = await mkdtemp(join(tmpdir(), "afterleaf-seed-local-reuse-"));
     temporaryDirectories.push(root);
     const catalogDirectory = resolve(root, "catalog");
-    const libraryDirectory = resolve(root, "library");
     await createPublication(
       catalogDirectory,
       "local-book",
       "english",
       "#703050",
     );
-    const options: SeedContentPackOptions = {
-      assetPathPrefix: "assets/revision-1",
-      dryRun: false,
-      excludedTags: [],
-      force: false,
-      languages: ["english"],
-      limit: 10,
-      match: "all",
-      outputDirectory: resolve(libraryDirectory, "revisions/revision-1"),
-      packId: "local-reuse",
-      persistentAssetDirectory: libraryDirectory,
-      seed: "local-reuse",
-      tags: [],
-    };
     const first = await seedContentPack(
       new LocalCatalogSource(catalogDirectory),
-      options,
+      poolOptions(root, {
+        packId: "local-reuse",
+        outputDirectory: resolve(root, "revisions/revision-1"),
+      }),
     );
     if (!first.catalog) throw new Error("First local catalog is missing");
-    await promoteLibraryAssetSet(
-      libraryDirectory,
-      options.outputDirectory,
-      "revision-1",
-    );
 
-    const secondDirectory = resolve(libraryDirectory, "revisions/revision-2");
     const second = await seedContentPack(
       new LocalCatalogSource(catalogDirectory),
-      {
-        ...options,
-        assetPathPrefix: "assets/revision-2",
-        outputDirectory: secondDirectory,
-        reuse: {catalog: first.catalog, directory: options.outputDirectory},
-      },
+      poolOptions(root, {
+        packId: "local-reuse",
+        outputDirectory: resolve(root, "revisions/revision-2"),
+        reuse: {catalog: first.catalog},
+      }),
     );
     if (!second.catalog) throw new Error("Second local catalog is missing");
     expect(second.catalog.publications[0]?.assets).toEqual(
       first.catalog.publications[0]?.assets,
     );
-    await expect(
-      access(resolve(secondDirectory, "assets/revision-2/publications")),
-    ).rejects.toThrow();
 
     const changedPage = resolve(catalogDirectory, "local-book/pages/001.png");
     await sharp({
@@ -759,19 +670,17 @@ describe("seedContentPack", () => {
       .toFile(changedPage);
     const changedTime = new Date(Date.now() + 2_000);
     await utimes(changedPage, changedTime, changedTime);
-    const thirdDirectory = resolve(libraryDirectory, "revisions/revision-3");
     const third = await seedContentPack(
       new LocalCatalogSource(catalogDirectory),
-      {
-        ...options,
-        assetPathPrefix: "assets/revision-3",
-        outputDirectory: thirdDirectory,
-        reuse: {catalog: second.catalog, directory: secondDirectory},
-      },
+      poolOptions(root, {
+        packId: "local-reuse",
+        outputDirectory: resolve(root, "revisions/revision-3"),
+        reuse: {catalog: second.catalog},
+      }),
     );
     if (!third.catalog) throw new Error("Third local catalog is missing");
-    expect(third.catalog.publications[0]?.assets.front).toStartWith(
-      "assets/revision-3/",
+    expect(third.catalog.publications[0]?.assets.front).not.toBe(
+      second.catalog.publications[0]?.assets.front,
     );
     expect(third.catalog.publications[0]?.materialFingerprint).not.toBe(
       second.catalog.publications[0]?.materialFingerprint,
@@ -779,16 +688,17 @@ describe("seedContentPack", () => {
 
     const repaired = await seedContentPack(
       new LocalCatalogSource(catalogDirectory),
-      {
-        ...options,
-        assetPathPrefix: "assets/revision-4",
+      poolOptions(root, {
+        packId: "local-reuse",
         forceRebuild: true,
-        outputDirectory: resolve(libraryDirectory, "revisions/revision-4"),
-        reuse: {catalog: third.catalog, directory: thirdDirectory},
-      },
+        outputDirectory: resolve(root, "revisions/revision-4"),
+        reuse: {catalog: third.catalog},
+      }),
     );
-    expect(repaired.catalog?.publications[0]?.assets.front).toStartWith(
-      "assets/revision-4/",
+    // A forced rebuild is deterministic, so it reproduces byte-identical
+    // derivatives that land on the very same content-keyed pool paths.
+    expect(repaired.catalog?.publications[0]?.assets).toEqual(
+      third.catalog.publications[0]?.assets,
     );
     expect(repaired.catalog?.publications[0]?.contentHash).toBe(
       third.catalog.publications[0]?.contentHash,
@@ -799,38 +709,20 @@ describe("seedContentPack", () => {
     const root = await mkdtemp(join(tmpdir(), "afterleaf-seed-corrupt-local-"));
     temporaryDirectories.push(root);
     const catalogDirectory = resolve(root, "catalog");
-    const libraryDirectory = resolve(root, "library");
-    const firstDirectory = resolve(libraryDirectory, "revisions/revision-1");
     await createPublication(
       catalogDirectory,
       "local-book",
       "english",
       "#703050",
     );
-    const baseOptions: SeedContentPackOptions = {
-      assetPathPrefix: "assets/revision-1",
-      dryRun: false,
-      excludedTags: [],
-      force: false,
-      languages: ["english"],
-      limit: 10,
-      match: "all",
-      outputDirectory: firstDirectory,
-      packId: "corrupt-local",
-      persistentAssetDirectory: libraryDirectory,
-      seed: "corrupt-local",
-      tags: [],
-    };
     const first = await seedContentPack(
       new LocalCatalogSource(catalogDirectory),
-      baseOptions,
+      poolOptions(root, {
+        packId: "corrupt-local",
+        outputDirectory: resolve(root, "revisions/revision-1"),
+      }),
     );
     if (!first.catalog) throw new Error("First local catalog is missing");
-    await promoteLibraryAssetSet(
-      libraryDirectory,
-      firstDirectory,
-      "revision-1",
-    );
     await writeFile(
       resolve(catalogDirectory, "local-book/pages/001.png"),
       "corrupt image",
@@ -838,13 +730,12 @@ describe("seedContentPack", () => {
 
     const second = await seedContentPack(
       new LocalCatalogSource(catalogDirectory),
-      {
-        ...baseOptions,
-        assetPathPrefix: "assets/revision-2",
+      poolOptions(root, {
+        packId: "corrupt-local",
         forceRebuild: true,
-        outputDirectory: resolve(libraryDirectory, "revisions/revision-2"),
-        reuse: {catalog: first.catalog, directory: firstDirectory},
-      },
+        outputDirectory: resolve(root, "revisions/revision-2"),
+        reuse: {catalog: first.catalog},
+      }),
     );
 
     expect(second.catalog?.publications).toHaveLength(1);
@@ -862,7 +753,6 @@ describe("seedContentPack", () => {
     const root = await mkdtemp(join(tmpdir(), "afterleaf-seed-"));
     temporaryDirectories.push(root);
     const catalogDirectory = resolve(root, "catalog");
-    const outputDirectory = resolve(root, "pack");
     await createPublication(
       catalogDirectory,
       "oversized-webp-book",
@@ -873,24 +763,21 @@ describe("seedContentPack", () => {
     const sourcePage = await readFile(
       resolve(catalogDirectory, "oversized-webp-book/pages/001.webp"),
     );
-    await seedContentPack(new LocalCatalogSource(catalogDirectory), {
-      tags: ["big-breasts"],
-      excludedTags: [],
-      languages: ["english"],
-      limit: 1,
-      match: "all",
-      seed: "webp-resize",
-      dryRun: false,
-      force: false,
-      outputDirectory,
-      packId: "webp-resize",
-    });
-    const readerPath = resolve(
-      outputDirectory,
-      "publications/oversized-webp-book/pages/001.webp",
+    const result = await seedContentPack(
+      new LocalCatalogSource(catalogDirectory),
+      {
+        ...poolOptions(root, {
+          packId: "webp-resize",
+          limit: 1,
+          outputDirectory: resolve(root, "revisions/rev-1"),
+        }),
+        tags: ["big-breasts"],
+      },
     );
-    expect(await readFile(readerPath)).not.toEqual(sourcePage);
-    expect(await sharp(readerPath).metadata()).toMatchObject({
+    const readerPath = result.catalog?.publications[0]?.assets.pages[0];
+    if (!readerPath) throw new Error("Expected a resized reader page");
+    expect(await readFile(pooled(root, readerPath))).not.toEqual(sourcePage);
+    expect(await sharp(pooled(root, readerPath)).metadata()).toMatchObject({
       format: "webp",
       height: 2048,
       width: 2048,
@@ -901,7 +788,6 @@ describe("seedContentPack", () => {
     const root = await mkdtemp(join(tmpdir(), "afterleaf-seed-"));
     temporaryDirectories.push(root);
     const catalogDirectory = resolve(root, "catalog");
-    const outputDirectory = resolve(root, "pack");
     await createPublication(
       catalogDirectory,
       "gravure-book",
@@ -912,45 +798,34 @@ describe("seedContentPack", () => {
 
     const result = await seedContentPack(
       new LocalCatalogSource(catalogDirectory),
-      {
-        tags: ["big-breasts"],
-        excludedTags: [],
-        languages: ["english"],
-        limit: 1,
-        match: "all",
-        seed: "non-standard-aspect",
-        dryRun: false,
-        force: false,
-        outputDirectory,
+      poolOptions(root, {
         packId: "non-standard-aspect",
-      },
+        limit: 1,
+        outputDirectory: resolve(root, "revisions/rev-1"),
+        tags: ["big-breasts"],
+      }),
     );
 
-    expect(result.catalog?.publications[0]?.physical.aspectRatio).toBeCloseTo(
-      1280 / 1766,
-    );
+    const publication = result.catalog?.publications[0];
+    expect(publication?.physical.aspectRatio).toBeCloseTo(1280 / 1766);
+    if (!publication) throw new Error("Seeded publication is missing");
     expect(
-      await sharp(
-        resolve(outputDirectory, "publications/gravure-book/front.webp"),
-      ).metadata(),
+      await sharp(pooled(root, publication.assets.front)).metadata(),
     ).toMatchObject({height: 384, width: 278});
     expect(
-      await sharp(
-        resolve(outputDirectory, "publications/gravure-book/front-detail.webp"),
-      ).metadata(),
+      await sharp(pooled(root, publication.assets.frontDetail)).metadata(),
     ).toMatchObject({height: 1536, width: 1113});
-    expect(
-      await sharp(
-        resolve(outputDirectory, "atlases/front-001.webp"),
-      ).metadata(),
-    ).toMatchObject({height: 576, width: 384});
+    const frontAtlas = result.catalog?.atlases.front[0];
+    if (!frontAtlas) throw new Error("Expected a front shelf atlas");
+    expect(await sharp(pooled(root, frontAtlas.path)).metadata()).toMatchObject(
+      {height: 576, width: 384},
+    );
   });
 
   test("infers a landscape book from interior pages despite wide covers and early spreads", async () => {
     const root = await mkdtemp(join(tmpdir(), "afterleaf-seed-"));
     temporaryDirectories.push(root);
     const catalogDirectory = resolve(root, "catalog");
-    const outputDirectory = resolve(root, "pack");
     await createPublication(
       catalogDirectory,
       "wide-cover-book",
@@ -973,18 +848,11 @@ describe("seedContentPack", () => {
 
     const result = await seedContentPack(
       new LocalCatalogSource(catalogDirectory),
-      {
-        tags: [],
-        excludedTags: [],
-        languages: ["english"],
-        limit: 1,
-        match: "all",
-        seed: "wide-cover-aspect",
-        dryRun: false,
-        force: false,
-        outputDirectory,
+      poolOptions(root, {
         packId: "wide-cover-aspect",
-      },
+        limit: 1,
+        outputDirectory: resolve(root, "revisions/rev-1"),
+      }),
     );
 
     expect(result.catalog?.publications[0]?.physical.aspectRatio).toBeCloseTo(
@@ -996,7 +864,6 @@ describe("seedContentPack", () => {
     const root = await mkdtemp(join(tmpdir(), "afterleaf-seed-"));
     temporaryDirectories.push(root);
     const catalogDirectory = resolve(root, "catalog");
-    const outputDirectory = resolve(root, "pack");
     const publicationId = "sparse-wide-cover-book";
     await createPublication(
       catalogDirectory,
@@ -1030,18 +897,11 @@ describe("seedContentPack", () => {
 
     const result = await seedContentPack(
       new LocalCatalogSource(catalogDirectory),
-      {
-        tags: [],
-        excludedTags: [],
-        languages: ["english"],
-        limit: 1,
-        match: "all",
-        seed: "sparse-wide-cover-aspect",
-        dryRun: false,
-        force: false,
-        outputDirectory,
+      poolOptions(root, {
         packId: "sparse-wide-cover-aspect",
-      },
+        limit: 1,
+        outputDirectory: resolve(root, "revisions/rev-1"),
+      }),
     );
 
     expect(result.catalog?.publications[0]?.physical.aspectRatio).toBeCloseTo(
@@ -1055,7 +915,6 @@ describe("seedContentPack", () => {
     const catalogDirectory = resolve(root, "catalog");
     const publicationDirectory = resolve(catalogDirectory, "wrapped-book");
     const pagesDirectory = resolve(publicationDirectory, "pages");
-    const outputDirectory = resolve(root, "pack");
     await mkdir(pagesDirectory, {recursive: true});
     const barcode = Buffer.from(
       `<svg width="170" height="100" xmlns="http://www.w3.org/2000/svg">
@@ -1141,28 +1000,25 @@ describe("seedContentPack", () => {
       JSON.stringify(document),
     );
 
-    await seedContentPack(new LocalCatalogSource(catalogDirectory), {
-      tags: ["big-breasts"],
-      excludedTags: [],
-      languages: ["english"],
-      limit: 1,
-      match: "all",
-      seed: "wraparound",
-      dryRun: false,
-      force: false,
-      outputDirectory,
-      packId: "wraparound",
-    });
+    const result = await seedContentPack(
+      new LocalCatalogSource(catalogDirectory),
+      poolOptions(root, {
+        packId: "wraparound",
+        limit: 1,
+        outputDirectory: resolve(root, "revisions/rev-1"),
+        tags: ["big-breasts"],
+      }),
+    );
+    const publication = result.catalog?.publications[0];
+    if (!publication) throw new Error("Wrapped publication is missing");
     const frontStats = await sharp(
-      resolve(outputDirectory, "publications/wrapped-book/front.webp"),
+      pooled(root, publication.assets.front),
     ).stats();
     const backStats = await sharp(
-      resolve(outputDirectory, "publications/wrapped-book/back.webp"),
+      pooled(root, publication.assets.back),
     ).stats();
     expect(
-      await sharp(
-        resolve(outputDirectory, "publications/wrapped-book/front-detail.webp"),
-      ).metadata(),
+      await sharp(pooled(root, publication.assets.frontDetail)).metadata(),
     ).toMatchObject({height: 600, width: 400});
     expect(frontStats.channels[0]?.mean).toBeGreaterThan(
       (frontStats.channels[2]?.mean ?? 0) * 2,
@@ -1192,16 +1048,13 @@ describe("seedContentPack", () => {
 
     await expect(
       seedContentPack(new LocalCatalogSource(catalogDirectory), {
+        ...poolOptions(root, {
+          packId: "visual-v1",
+          dryRun: true,
+          limit: 1,
+          outputDirectory: resolve(root, "revisions/rev-1"),
+        }),
         tags: ["big-breasts"],
-        excludedTags: [],
-        languages: ["english"],
-        limit: 1,
-        match: "all",
-        seed: "visual-v1",
-        dryRun: true,
-        force: false,
-        outputDirectory: resolve(root, "pack"),
-        packId: "visual-v1",
       }),
     ).rejects.toThrow("No valid publications matched");
   });

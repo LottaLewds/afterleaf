@@ -9,14 +9,14 @@
 
 ## Decisions
 
-| Decision | Choice |
-| --- | --- |
-| Migration | Manual/scripted only (CLI migrate command) |
-| Asset pool | Content-keyed paths; no linking required |
-| Snapshot history | None; last-only, transactional as today |
-| Config file | Moves into the data root |
+| Decision              | Choice                                       |
+| --------------------- | -------------------------------------------- |
+| Migration             | Manual/scripted only (CLI migrate command)   |
+| Asset pool            | Content-keyed paths; no linking required     |
+| Snapshot history      | None; last-only, transactional as today      |
+| Config file           | Moves into the data root                     |
 | Don't-touch signaling | Plain directory names + generated README.txt |
-| demo-v1 pack | Deleted (verified: zero code references) |
+| demo-v1 pack          | Deleted (verified: zero code references)     |
 
 ## Final layout
 

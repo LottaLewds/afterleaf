@@ -1,8 +1,6 @@
 import {createHash, randomUUID} from "node:crypto";
 import {
   access,
-  copyFile,
-  link,
   mkdir,
   readFile,
   realpath,
@@ -22,7 +20,6 @@ import {
 } from "node:path";
 import sharp, {type FitEnum} from "~/media/sharpRuntime";
 import {normalizeTags} from "~/content/normalize";
-import {replaceDirectory} from "~/content/replaceDirectory";
 import {
   CONTENT_SCHEMA_VERSION,
   type ContentPackCatalog,
@@ -45,6 +42,14 @@ import {
 import {generateContentPackPreview} from "~/content/preview";
 import {physicalBookDepth} from "~/game/bookDimensions";
 import {ARCHIVE_SOURCE_PROVIDER} from "~/content/archiveReader";
+
+/**
+ * Catalog asset paths in the persistent library pool are rooted at this
+ * prefix, which resolves against the library directory at serve time.
+ */
+export const LIBRARY_ASSET_PREFIX = "assets";
+/** Length of the content-derived suffix embedded in pooled asset filenames. */
+const POOL_ASSET_HASH_LENGTH = 16;
 
 const COVER_WIDTH = 256;
 const COVER_HEIGHT = 384;
@@ -636,27 +641,6 @@ const spineDerivative = async (
     .toBuffer();
 };
 
-const writeAsset = async (
-  stagingDirectory: string,
-  path: string,
-  buffer: Buffer,
-) => {
-  const outputPath = resolve(stagingDirectory, path);
-  await mkdir(dirname(outputPath), {recursive: true});
-  await writeFile(outputPath, buffer);
-};
-
-const writeHashedAsset = async (
-  stagingDirectory: string,
-  path: string,
-  buffer: Buffer,
-  hash: ReturnType<typeof createHash>,
-  assetPathPrefix?: string,
-) => {
-  updateAssetHash(hash, stableAssetPath(path, assetPathPrefix), buffer);
-  await writeAsset(stagingDirectory, path, buffer);
-};
-
 const reusablePublicationMetadata = (
   candidate: PublicationCandidate,
   material: PublicationMaterial,
@@ -810,32 +794,8 @@ const resolveReusableAsset = (root: string, assetPath: string) => {
     relativePath.startsWith(`..${sep}`) ||
     isAbsolute(relativePath)
   )
-    throw new Error(`Reusable asset escapes its snapshot: ${assetPath}`);
+    throw new Error(`Pooled asset escapes the library directory: ${assetPath}`);
   return resolvedPath;
-};
-
-const hardLinkUnavailable = (error: unknown) => {
-  if (!(error instanceof Error) || !("code" in error)) return false;
-  return ["EACCES", "EMLINK", "ENOTSUP", "EPERM", "EXDEV"].includes(
-    String(error.code),
-  );
-};
-
-const reuseAsset = async (
-  previousDirectory: string,
-  stagingDirectory: string,
-  assetPath: string,
-  nextAssetPath = assetPath,
-) => {
-  const previousPath = resolveReusableAsset(previousDirectory, assetPath);
-  const nextPath = resolveReusableAsset(stagingDirectory, nextAssetPath);
-  await mkdir(dirname(nextPath), {recursive: true});
-  try {
-    await link(previousPath, nextPath);
-  } catch (error) {
-    if (!hardLinkUnavailable(error)) throw error;
-    await copyFile(previousPath, nextPath);
-  }
 };
 
 const publicationAssetPaths = (publication: PackedPublication) => [
@@ -851,25 +811,58 @@ const publicationAssetPaths = (publication: PackedPublication) => [
 const prefixedAssetPath = (prefix: string | undefined, assetPath: string) =>
   prefix ? `${prefix}/${assetPath}` : assetPath;
 
+const poolAssetPath = (stablePath: string) =>
+  prefixedAssetPath(LIBRARY_ASSET_PREFIX, stablePath);
+
+const shortBufferHash = (buffer: Buffer) =>
+  createHash("sha256")
+    .update(buffer)
+    .digest("hex")
+    .slice(0, POOL_ASSET_HASH_LENGTH);
+
+/** Injects a content-derived suffix before a pooled asset's extension. */
+const keyedPoolAssetPath = (stablePath: string, buffer: Buffer) =>
+  stablePath.replace(/\.[a-z0-9]+$/iu, `-${shortBufferHash(buffer)}$&`);
+
+/**
+ * Writes an immutable content-addressed asset into the persistent pool.
+ * The write is atomic so a partial write can never alias the hashed name.
+ * Existing files are trusted as-is because their name encodes their bytes.
+ */
+const writePoolAsset = async (
+  poolDirectory: string,
+  assetPath: string,
+  buffer: Buffer,
+) => {
+  const outputPath = resolve(poolDirectory, assetPath);
+  if (await fileExists(outputPath)) return;
+  await mkdir(dirname(outputPath), {recursive: true});
+  const temporaryPath = `${outputPath}.staging-${randomUUID()}`;
+  await writeFile(temporaryPath, buffer);
+  try {
+    await rename(temporaryPath, outputPath);
+  } catch (error) {
+    await rm(temporaryPath, {force: true}).catch(() => {});
+    if (!(await fileExists(outputPath))) throw error;
+  }
+};
+
 const persistentPublicationExists = async (
   publication: PackedPublication,
-  persistentAssetDirectory: string | undefined,
+  poolDirectory: string,
 ) => {
-  if (!persistentAssetDirectory) return false;
   const assets = publicationAssetPaths(publication).map((assetPath) =>
-    resolveReusableAsset(persistentAssetDirectory, assetPath),
+    resolveReusableAsset(poolDirectory, assetPath),
   );
   return (await Promise.all(assets.map(fileExists))).every(Boolean);
 };
 
 const materializeReusedPublication = async (
   selection: ValidatedSelection,
-  previousDirectory: string,
-  stagingDirectory: string,
+  poolDirectory: string,
   shelfAtlasIndex: number,
-  assetPathPrefix?: string,
-  persistentAssetDirectory?: string,
-) => {
+  onDiagnostic?: (diagnostic: ContentSeedDiagnostic) => void,
+): Promise<PackedPublication> => {
   const previous = selection.previous;
   if (!previous)
     throw new Error("A reused publication requires its previous catalog entry");
@@ -897,213 +890,172 @@ const materializeReusedPublication = async (
     previous.assets.backDetail === undefined;
   const migrateSpine =
     previous.spineFormatVersion !== SPINE_DERIVATIVE_FORMAT_VERSION;
-  if (migrateBack || migrateSpine) {
-    const publicationDirectory = prefixedAssetPath(
-      assetPathPrefix,
-      `publications/${selection.candidate.document.id}`,
+  // The reused publication's existing derivatives already live in the
+  // content-keyed pool under stable paths, so nothing is linked or copied.
+  // Only superseded derivative formats are regenerated, and they land in
+  // the pool under fresh content-keyed names.
+  const regenerateIntoPool = async (
+    relativeName: string,
+    derivative: () => Promise<Buffer>,
+  ) => {
+    const buffer = await derivative();
+    const catalogPath = poolAssetPath(
+      keyedPoolAssetPath(`publications/${previous.id}/${relativeName}`, buffer),
     );
-    const frontSource = selection.material.front ?? selection.material.pages[0];
-    const fallbackBackSource =
-      selection.material.back ??
-      selection.material.pages[selection.material.pages.length - 1];
-    if (!frontSource || !fallbackBackSource)
-      throw new Error(
-        `${selection.candidate.document.id} has no usable front/back source`,
-      );
-    const canDetectWraparound =
-      frontSource === selection.material.pages[0] &&
-      selection.material.back === undefined &&
-      selection.material.spine === undefined;
-    let wraparoundLayout: WraparoundLayout | undefined;
-    if (canDetectWraparound && frontSource) {
-      await validateRealAssetPath(
-        selection.candidate.sourceDirectory,
-        frontSource,
-      );
-      wraparoundLayout = await detectWraparoundLayout(
-        frontSource,
-        await validateImage(frontSource),
-        previous.physical.aspectRatio,
-        selection.candidate.document.physical?.readingDirection,
-      );
-    }
-    let spineBuffer: Buffer | undefined;
-    const spinePath = `${publicationDirectory}/spine.webp`;
-    if (migrateSpine) {
-      const spineWidth = spineTextureWidth(previous.physical.thicknessMm);
-      const spineSource =
-        selection.material.spine ??
-        (wraparoundLayout ? frontSource : undefined);
-      if (spineSource)
+    await writePoolAsset(poolDirectory, catalogPath, buffer);
+    return {
+      assetHash: hashAsset(
+        stableAssetPath(catalogPath, LIBRARY_ASSET_PREFIX),
+        buffer,
+      ),
+      catalogPath,
+    };
+  };
+  try {
+    let next = reusedPrevious;
+    if (migrateSpine || migrateBack) {
+      const frontSource =
+        selection.material.front ?? selection.material.pages[0];
+      const fallbackBackSource =
+        selection.material.back ??
+        selection.material.pages[selection.material.pages.length - 1];
+      if (!frontSource || !fallbackBackSource)
+        throw new Error(
+          `${selection.candidate.document.id} has no usable front/back source`,
+        );
+      const canDetectWraparound =
+        frontSource === selection.material.pages[0] &&
+        selection.material.back === undefined &&
+        selection.material.spine === undefined;
+      let wraparoundLayout: WraparoundLayout | undefined;
+      if (canDetectWraparound) {
         await validateRealAssetPath(
           selection.candidate.sourceDirectory,
-          spineSource,
+          frontSource,
         );
-      spineBuffer = spineSource
-        ? await webpDerivative(
+        wraparoundLayout = await detectWraparoundLayout(
+          frontSource,
+          await validateImage(frontSource),
+          previous.physical.aspectRatio,
+          selection.candidate.document.physical?.readingDirection,
+        );
+      }
+      if (migrateSpine) {
+        const spineWidth = spineTextureWidth(previous.physical.thicknessMm);
+        const spineSource =
+          selection.material.spine ??
+          (wraparoundLayout ? frontSource : undefined);
+        if (spineSource)
+          await validateRealAssetPath(
+            selection.candidate.sourceDirectory,
             spineSource,
-            spineWidth,
-            SPINE_TEXTURE_HEIGHT,
-            "cover",
-            "centre",
-            wraparoundLayout?.spine,
-          )
-        : await spineDerivative(selection.candidate, spineWidth);
-      await writeAsset(stagingDirectory, spinePath, spineBuffer);
-    }
-    let backDetailBuffer: Buffer | undefined;
-    const backDetailPath = `${publicationDirectory}/back-detail.webp`;
-    if (migrateBack) {
-      const backSource = wraparoundLayout ? frontSource : fallbackBackSource;
-      await validateRealAssetPath(
-        selection.candidate.sourceDirectory,
-        backSource,
-      );
-      const backImage = await validateImage(backSource);
-      const backDetailHeight = Math.min(
-        DETAIL_COVER_MAX_HEIGHT,
-        wraparoundLayout?.back.height ??
-          orientedImageDimensions(backImage).height,
-      );
-      backDetailBuffer = await detailCoverDerivative(
-        backSource,
-        Math.max(
-          1,
-          Math.round(backDetailHeight * previous.physical.aspectRatio),
-        ),
-        backDetailHeight,
-        "centre",
-        wraparoundLayout?.back,
-      );
-      await writeAsset(stagingDirectory, backDetailPath, backDetailBuffer);
-    }
-    const replacedAssets = new Set<string>();
-    if (migrateSpine) replacedAssets.add(previous.assets.spine);
-    if (migrateBack && previous.assets.backDetail)
-      replacedAssets.add(previous.assets.backDetail);
-    const reusableAssets = publicationAssetPaths(previous).filter(
-      (assetPath) => !replacedAssets.has(assetPath),
-    );
-    const persistentAssetsAvailable =
-      persistentAssetDirectory !== undefined &&
-      (
-        await Promise.all(
-          reusableAssets.map((assetPath) =>
-            fileExists(
-              resolveReusableAsset(persistentAssetDirectory, assetPath),
+          );
+        const spine = await regenerateIntoPool("spine.webp", () =>
+          spineSource
+            ? webpDerivative(
+                spineSource,
+                spineWidth,
+                SPINE_TEXTURE_HEIGHT,
+                "cover",
+                "centre",
+                wraparoundLayout?.spine,
+              )
+            : spineDerivative(selection.candidate, spineWidth),
+        );
+        next = {
+          ...next,
+          assets: {...next.assets, spine: spine.catalogPath},
+          contentHash: hashJson({
+            previousContentHash: next.contentHash,
+            spineAssetHash: spine.assetHash,
+            spineFormatVersion: SPINE_DERIVATIVE_FORMAT_VERSION,
+          }),
+          spineFormatVersion: SPINE_DERIVATIVE_FORMAT_VERSION,
+        };
+      }
+      if (migrateBack) {
+        const backSource = wraparoundLayout ? frontSource : fallbackBackSource;
+        await validateRealAssetPath(
+          selection.candidate.sourceDirectory,
+          backSource,
+        );
+        const backImage = await validateImage(backSource);
+        const backDetailHeight = Math.min(
+          DETAIL_COVER_MAX_HEIGHT,
+          wraparoundLayout?.back.height ??
+            orientedImageDimensions(backImage).height,
+        );
+        const backDetail = await regenerateIntoPool("back-detail.webp", () =>
+          detailCoverDerivative(
+            backSource,
+            Math.max(
+              1,
+              Math.round(backDetailHeight * previous.physical.aspectRatio),
             ),
+            backDetailHeight,
+            "centre",
+            wraparoundLayout?.back,
           ),
-        )
-      ).every(Boolean);
-    const migratedPath = (assetPath: string) =>
-      persistentAssetsAvailable
-        ? assetPath
-        : prefixedAssetPath(assetPathPrefix, assetPath);
-    if (!persistentAssetsAvailable)
-      await Promise.all(
-        reusableAssets.map((assetPath) =>
-          reuseAsset(
-            previousDirectory,
-            stagingDirectory,
-            assetPath,
-            migratedPath(assetPath),
-          ),
-        ),
-      );
-    const nextSpinePath = migrateSpine
-      ? spinePath
-      : migratedPath(previous.assets.spine);
-    let nextBackDetailPath: string | undefined;
-    if (migrateBack) nextBackDetailPath = backDetailPath;
-    else if (previous.assets.backDetail)
-      nextBackDetailPath = migratedPath(previous.assets.backDetail);
-    return {
-      ...reusedPrevious,
-      alternates: previous.alternates.map((alternate) => ({
-        ...alternate,
-        page0: migratedPath(alternate.page0),
-      })),
-      assets: {
-        back: migratedPath(previous.assets.back),
-        ...(nextBackDetailPath ? {backDetail: nextBackDetailPath} : {}),
-        front: migratedPath(previous.assets.front),
-        frontDetail: migratedPath(previous.assets.frontDetail),
-        pages: previous.assets.pages.map(migratedPath),
-        spine: nextSpinePath,
-      },
-      shelfAtlasIndex,
-      backFormatVersion: BACK_DERIVATIVE_FORMAT_VERSION,
-      spineFormatVersion: SPINE_DERIVATIVE_FORMAT_VERSION,
-      contentHash: hashJson({
-        ...(backDetailBuffer
-          ? {
-              backDetailAssetHash: hashAsset(
-                stableAssetPath(backDetailPath, assetPathPrefix),
-                backDetailBuffer,
-              ),
-            }
-          : {}),
-        previousContentHash: reusedPrevious.contentHash,
-        ...(spineBuffer
-          ? {
-              spineAssetHash: hashAsset(
-                stableAssetPath(spinePath, assetPathPrefix),
-                spineBuffer,
-              ),
-            }
-          : {}),
-        backFormatVersion: BACK_DERIVATIVE_FORMAT_VERSION,
-        spineFormatVersion: SPINE_DERIVATIVE_FORMAT_VERSION,
-      }),
-    };
-  }
-  if (await persistentPublicationExists(previous, persistentAssetDirectory))
+        );
+        next = {
+          ...next,
+          assets: {...next.assets, backDetail: backDetail.catalogPath},
+          backFormatVersion: BACK_DERIVATIVE_FORMAT_VERSION,
+          contentHash: hashJson({
+            backDetailAssetHash: backDetail.assetHash,
+            backFormatVersion: BACK_DERIVATIVE_FORMAT_VERSION,
+            previousContentHash: next.contentHash,
+          }),
+        };
+      }
+    }
+    return {...next, shelfAtlasIndex};
+  } catch (error) {
+    // A failed regeneration (for example a corrupt source image) keeps the
+    // previous entry working as-is; a later repair scan can retry.
+    onDiagnostic?.({
+      code: "invalid-assets",
+      sourceId:
+        selection.candidate.localSourceId ?? selection.candidate.document.id,
+      message: `Kept the previous derivatives of ${selection.candidate.document.id} because format migration failed: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    });
     return {...reusedPrevious, shelfAtlasIndex};
-
-  const migratedPath = (assetPath: string) =>
-    prefixedAssetPath(assetPathPrefix, assetPath);
-  await Promise.all(
-    publicationAssetPaths(previous).map((assetPath) =>
-      reuseAsset(
-        previousDirectory,
-        stagingDirectory,
-        assetPath,
-        migratedPath(assetPath),
-      ),
-    ),
-  );
-  return {
-    ...reusedPrevious,
-    alternates: previous.alternates.map((alternate) => ({
-      ...alternate,
-      page0: migratedPath(alternate.page0),
-    })),
-    assets: {
-      back: migratedPath(previous.assets.back),
-      ...(previous.assets.backDetail
-        ? {backDetail: migratedPath(previous.assets.backDetail)}
-        : {}),
-      front: migratedPath(previous.assets.front),
-      frontDetail: migratedPath(previous.assets.frontDetail),
-      pages: previous.assets.pages.map(migratedPath),
-      spine: migratedPath(previous.assets.spine),
-    },
-    shelfAtlasIndex,
-    backFormatVersion: BACK_DERIVATIVE_FORMAT_VERSION,
-    spineFormatVersion: SPINE_DERIVATIVE_FORMAT_VERSION,
-  };
+  }
 };
 
 const materializePublication = async (
   selection: ValidatedSelection,
-  stagingDirectory: string,
+  poolDirectory: string,
   shelfAtlasIndex: number,
-  assetPathPrefix?: string,
 ): Promise<PackedPublication> => {
-  const publicationDirectory = prefixedAssetPath(
-    assetPathPrefix,
+  const publicationDirectory = poolAssetPath(
     `publications/${selection.candidate.document.id}`,
   );
+  // Derivatives are content-addressed and written straight into the
+  // persistent library pool, so their catalog paths are stable across
+  // revisions and unchanged publications never need rewriting.
+  const publicationHash = createHash("sha256");
+  const prepareAsset = (relativeName: string, buffer: Buffer) => {
+    const catalogPath = keyedPoolAssetPath(
+      `${publicationDirectory}/${relativeName}`,
+      buffer,
+    );
+    updateAssetHash(
+      publicationHash,
+      stableAssetPath(catalogPath, LIBRARY_ASSET_PREFIX),
+      buffer,
+    );
+    return {buffer, catalogPath};
+  };
+  const commitAsset = async ({
+    buffer,
+    catalogPath,
+  }: ReturnType<typeof prepareAsset>) => {
+    await writePoolAsset(poolDirectory, catalogPath, buffer);
+    return catalogPath;
+  };
   const frontSource = selection.material.front ?? selection.material.pages[0];
   const fallbackBackSource =
     selection.material.back ??
@@ -1154,55 +1106,53 @@ const materializePublication = async (
   );
   const surfaceSources = [
     {
-      path: `${publicationDirectory}/front.webp`,
+      name: "front.webp",
       source: frontSource,
       width: coverWidth,
       position: frontPosition,
       region: wraparoundLayout?.front,
     },
     {
-      path: `${publicationDirectory}/back.webp`,
+      name: "back.webp",
       source: wraparoundLayout ? frontSource : fallbackBackSource,
       width: coverWidth,
       position: "centre",
       region: wraparoundLayout?.back,
     },
   ];
-  const publicationHash = createHash("sha256");
+  const surfacePaths: string[] = [];
   for (const surface of surfaceSources) {
-    const buffer = await webpDerivative(
-      surface.source,
-      surface.width,
-      COVER_HEIGHT,
-      "cover",
-      surface.position,
-      surface.region,
-    );
-    await writeHashedAsset(
-      stagingDirectory,
-      surface.path,
-      buffer,
-      publicationHash,
-      assetPathPrefix,
+    surfacePaths.push(
+      await commitAsset(
+        prepareAsset(
+          surface.name,
+          await webpDerivative(
+            surface.source,
+            surface.width,
+            COVER_HEIGHT,
+            "cover",
+            surface.position,
+            surface.region,
+          ),
+        ),
+      ),
     );
   }
   const detailCoverHeight = Math.min(
     DETAIL_COVER_MAX_HEIGHT,
     wraparoundLayout?.front.height ?? frontDimensions.height,
   );
-  const detailCoverPath = `${publicationDirectory}/front-detail.webp`;
-  await writeHashedAsset(
-    stagingDirectory,
-    detailCoverPath,
-    await detailCoverDerivative(
-      frontSource,
-      Math.max(1, Math.round(detailCoverHeight * aspectRatio)),
-      detailCoverHeight,
-      frontPosition,
-      wraparoundLayout?.front,
+  const detailCoverPath = await commitAsset(
+    prepareAsset(
+      "front-detail.webp",
+      await detailCoverDerivative(
+        frontSource,
+        Math.max(1, Math.round(detailCoverHeight * aspectRatio)),
+        detailCoverHeight,
+        frontPosition,
+        wraparoundLayout?.front,
+      ),
     ),
-    publicationHash,
-    assetPathPrefix,
   );
   const backSource = wraparoundLayout ? frontSource : fallbackBackSource;
   const backImage = selection.images.get(backSource);
@@ -1212,39 +1162,35 @@ const materializePublication = async (
     DETAIL_COVER_MAX_HEIGHT,
     wraparoundLayout?.back.height ?? orientedImageDimensions(backImage).height,
   );
-  const backDetailPath = `${publicationDirectory}/back-detail.webp`;
-  await writeHashedAsset(
-    stagingDirectory,
-    backDetailPath,
-    await detailCoverDerivative(
-      backSource,
-      Math.max(1, Math.round(backDetailHeight * aspectRatio)),
-      backDetailHeight,
-      "centre",
-      wraparoundLayout?.back,
+  const backDetailPath = await commitAsset(
+    prepareAsset(
+      "back-detail.webp",
+      await detailCoverDerivative(
+        backSource,
+        Math.max(1, Math.round(backDetailHeight * aspectRatio)),
+        backDetailHeight,
+        "centre",
+        wraparoundLayout?.back,
+      ),
     ),
-    publicationHash,
-    assetPathPrefix,
   );
-  const spinePath = `${publicationDirectory}/spine.webp`;
   const spineWidth = spineTextureWidth(document.physical?.thicknessMm);
   const spineSource =
     selection.material.spine ?? (wraparoundLayout ? frontSource : undefined);
-  await writeHashedAsset(
-    stagingDirectory,
-    spinePath,
-    spineSource
-      ? await webpDerivative(
-          spineSource,
-          spineWidth,
-          SPINE_TEXTURE_HEIGHT,
-          "cover",
-          "centre",
-          wraparoundLayout?.spine,
-        )
-      : await spineDerivative(selection.candidate, spineWidth),
-    publicationHash,
-    assetPathPrefix,
+  const spinePath = await commitAsset(
+    prepareAsset(
+      "spine.webp",
+      spineSource
+        ? await webpDerivative(
+            spineSource,
+            spineWidth,
+            SPINE_TEXTURE_HEIGHT,
+            "cover",
+            "centre",
+            wraparoundLayout?.spine,
+          )
+        : await spineDerivative(selection.candidate, spineWidth),
+    ),
   );
   const pagePaths: string[] = [];
   for (
@@ -1256,31 +1202,27 @@ const materializePublication = async (
       batchStart,
       batchStart + PAGE_MATERIALIZATION_CONCURRENCY,
     );
-    const assets = await Promise.all(
+    const buffers = await Promise.all(
       sources.map(async (source, batchIndex) => {
         const image = selection.images.get(source);
         if (!image)
           throw new Error(`Missing validated image metadata for ${source}`);
-        const index = batchStart + batchIndex;
         return {
           buffer: await readerDerivative(source, image),
-          path: `${publicationDirectory}/pages/${String(index + 1).padStart(pageDigits, "0")}.webp`,
+          index: batchStart + batchIndex,
         };
       }),
     );
-    for (const asset of assets) {
-      updateAssetHash(
-        publicationHash,
-        stableAssetPath(asset.path, assetPathPrefix),
-        asset.buffer,
-      );
-      pagePaths.push(asset.path);
-    }
-    await Promise.all(
-      assets.map((asset) =>
-        writeAsset(stagingDirectory, asset.path, asset.buffer),
+    // Hashing must happen in page order before any writes so the
+    // publication content hash stays deterministic.
+    const assets = buffers.map(({buffer, index}) =>
+      prepareAsset(
+        `pages/${String(index + 1).padStart(pageDigits, "0")}.webp`,
+        buffer,
       ),
     );
+    pagePaths.push(...assets.map(({catalogPath}) => catalogPath));
+    await Promise.all(assets.map(commitAsset));
   }
 
   const alternateMaterialById = new Map(
@@ -1299,12 +1241,13 @@ const materializePublication = async (
         throw new Error(
           `Missing validated image metadata for alternate ${alternate.id}`,
         );
-      const page0 = `${publicationDirectory}/alternates/${alternate.id}/page-000.webp`;
       return {
-        buffer: await readerDerivative(material.page0, image),
+        asset: prepareAsset(
+          `alternates/${alternate.id}/page-000.webp`,
+          await readerDerivative(material.page0, image),
+        ),
         id: alternate.id,
         originalTags: alternate.originalTags,
-        page0,
         ...(alternate.source === undefined ? {} : {source: alternate.source}),
         title: alternate.title,
       };
@@ -1312,33 +1255,21 @@ const materializePublication = async (
   );
   if (alternateMaterialById.size !== alternateAssets.length)
     throw new Error(`Alternate metadata and page-zero assets do not match`);
-  for (const alternate of alternateAssets)
-    updateAssetHash(
-      publicationHash,
-      stableAssetPath(alternate.page0, assetPathPrefix),
-      alternate.buffer,
-    );
-  await Promise.all(
-    alternateAssets.map(({buffer, page0}) =>
-      writeAsset(stagingDirectory, page0, buffer),
-    ),
-  );
-  const alternates = alternateAssets.map(
-    ({id, originalTags, page0, source, title}) => ({
-      id,
-      originalTags,
-      page0,
-      ...(source === undefined ? {} : {source}),
-      title,
-    }),
+  // Hashing happened in prepareAsset during the ordered map above; flush
+  // the prepared buffers to disk concurrently here.
+  const alternates = await Promise.all(
+    alternateAssets.map(async ({asset, ...alternate}) => ({
+      ...alternate,
+      page0: await commitAsset(asset),
+    })),
   );
 
   const physical = {
     ...(document.physical ?? {}),
     aspectRatio,
   };
-  const frontPath = surfaceSources[0]?.path;
-  const backPath = surfaceSources[1]?.path;
+  const frontPath = surfacePaths[0];
+  const backPath = surfacePaths[1];
   if (!frontPath || !backPath)
     throw new Error(`Failed to define surfaces for ${document.id}`);
   const publication = {
@@ -1380,47 +1311,13 @@ const materializePublication = async (
   };
   const {shelfAtlasIndex: _shelfAtlasIndex, ...publicationContent} =
     publication;
+  // Catalog paths are already pool-stable, so the content hash needs no
+  // prefix stripping.
   return {
     ...publication,
     contentHash: hashJson({
       assetContentHash: publicationHash.digest("hex"),
-      publication: {
-        ...publicationContent,
-        alternates: publicationContent.alternates.map((alternate) => ({
-          ...alternate,
-          page0: stableAssetPath(alternate.page0, assetPathPrefix),
-        })),
-        assets: {
-          ...publicationContent.assets,
-          back: stableAssetPath(
-            publicationContent.assets.back,
-            assetPathPrefix,
-          ),
-          ...(publicationContent.assets.backDetail === undefined
-            ? {}
-            : {
-                backDetail: stableAssetPath(
-                  publicationContent.assets.backDetail,
-                  assetPathPrefix,
-                ),
-              }),
-          front: stableAssetPath(
-            publicationContent.assets.front,
-            assetPathPrefix,
-          ),
-          frontDetail: stableAssetPath(
-            publicationContent.assets.frontDetail,
-            assetPathPrefix,
-          ),
-          pages: publicationContent.assets.pages.map((path) =>
-            stableAssetPath(path, assetPathPrefix),
-          ),
-          spine: stableAssetPath(
-            publicationContent.assets.spine,
-            assetPathPrefix,
-          ),
-        },
-      },
+      publication: publicationContent,
     }),
   };
 };
@@ -1437,12 +1334,10 @@ const shelfAtlasAssetPath = (
 
 const createAtlas = async (
   publications: readonly PackedPublication[],
-  stagingDirectory: string,
+  poolDirectory: string,
   surface: ShelfSurface,
-  atlasIndex: number,
   firstPublicationIndex: number,
-  assetPathPrefix?: string,
-  persistentAssetDirectory?: string,
+  atlasKey: string,
 ): Promise<ShelfAtlasDescriptor> => {
   const {height: cellHeight, width: cellWidth} = SHELF_ATLAS_CELLS[surface];
   const formatVersion = SHELF_ATLAS_FORMAT_VERSIONS[surface];
@@ -1456,19 +1351,42 @@ const createAtlas = async (
     ? regions.reduce((total, region) => total + region.width, 0)
     : columns * cellWidth;
   const height = regions ? SPINE_TEXTURE_HEIGHT : rows * cellHeight;
-  const path = prefixedAssetPath(
-    assetPathPrefix,
-    `atlases/${surface}-${String(atlasIndex + 1).padStart(3, "0")}.webp`,
-  );
+  // The atlas path is derived from the identity of its member publications
+  // and the surface geometry, so an unchanged shelf never re-encodes.
+  const path = poolAssetPath(`atlases/${surface}-${atlasKey}.webp`);
+  const descriptor: ShelfAtlasDescriptor = {
+    path,
+    ...(formatVersion === undefined ? {} : {formatVersion}),
+    cellWidth,
+    cellHeight,
+    columns,
+    rows,
+    width,
+    height,
+    contentHash: hashJson({
+      atlasKey,
+      path,
+      surface,
+      width,
+      height,
+      columns,
+      rows,
+      cellWidth,
+      cellHeight,
+      members: publications.map(({id, contentHash}) => ({id, contentHash})),
+    }),
+    firstPublicationIndex,
+    publicationCount: publications.length,
+    ...(regions ? {regions} : {}),
+  };
+  if (await fileExists(resolveReusableAsset(poolDirectory, path)))
+    return descriptor;
   const cellBuffers = await Promise.all(
     publications.map(async (publication) => {
-      const assetPath = shelfAtlasAssetPath(publication, surface);
-      const stagedPath = resolveReusableAsset(stagingDirectory, assetPath);
-      const sourcePath = (await fileExists(stagedPath))
-        ? stagedPath
-        : persistentAssetDirectory
-          ? resolveReusableAsset(persistentAssetDirectory, assetPath)
-          : stagedPath;
+      const sourcePath = resolveReusableAsset(
+        poolDirectory,
+        shelfAtlasAssetPath(publication, surface),
+      );
       const source = await readFile(sourcePath);
       if (surface === "spine") return source;
       return sharp(source)
@@ -1505,82 +1423,53 @@ const createAtlas = async (
         : {quality: 86, effort: 5, smartSubsample: true},
     )
     .toBuffer();
-  await writeAsset(stagingDirectory, path, buffer);
-  return {
-    path,
-    ...(formatVersion === undefined ? {} : {formatVersion}),
-    cellWidth,
-    cellHeight,
-    columns,
-    rows,
-    width,
-    height,
-    contentHash: hashAsset(stableAssetPath(path, assetPathPrefix), buffer),
-    firstPublicationIndex,
-    publicationCount: publications.length,
-    ...(regions ? {regions} : {}),
-  };
+  await writePoolAsset(poolDirectory, path, buffer);
+  return descriptor;
 };
+
+/**
+ * Derives the content-keyed stem for a shelf atlas from the ordered member
+ * publications, the surface, and its format version. Members are captured
+ * by id plus publication contentHash, which covers every input that can
+ * change the encoded pixels or the cell geometry.
+ */
+const shelfAtlasKey = (
+  publications: readonly PackedPublication[],
+  surface: ShelfSurface,
+) =>
+  shortBufferHash(
+    Buffer.from(
+      JSON.stringify({
+        surface,
+        formatVersion: SHELF_ATLAS_FORMAT_VERSIONS[surface],
+        members: publications.map(({id, contentHash}) => ({
+          id,
+          contentHash,
+        })),
+      }),
+    ),
+  );
 
 const createAtlases = async (
   publications: readonly PackedPublication[],
-  stagingDirectory: string,
+  poolDirectory: string,
   surface: ShelfSurface,
-  reuse?: NonNullable<SeedContentPackOptions["reuse"]>,
-  assetPathPrefix?: string,
-  persistentAssetDirectory?: string,
 ) => {
   const atlases: ShelfAtlasDescriptor[] = [];
   for (const {firstPublicationIndex, publicationCount} of planShelfAtlasRanges(
     publications.length,
   )) {
-    const atlasIndex = atlases.length;
     const publicationSlice = publications.slice(
       firstPublicationIndex,
       firstPublicationIndex + publicationCount,
     );
-    const previousAtlas = reuse?.catalog.atlases[surface][atlasIndex];
-    const previousPublications = reuse?.catalog.publications.slice(
-      firstPublicationIndex,
-      firstPublicationIndex + publicationCount,
-    );
-    const previousAtlasIsPersistent =
-      previousAtlas !== undefined &&
-      persistentAssetDirectory !== undefined &&
-      (await fileExists(
-        resolveReusableAsset(persistentAssetDirectory, previousAtlas.path),
-      ));
-    const formatVersion = SHELF_ATLAS_FORMAT_VERSIONS[surface];
-    const canReuseAtlas =
-      previousAtlas !== undefined &&
-      (formatVersion === undefined ||
-        previousAtlas.formatVersion === formatVersion) &&
-      (assetPathPrefix === undefined || previousAtlasIsPersistent) &&
-      previousAtlas.firstPublicationIndex === firstPublicationIndex &&
-      previousAtlas.publicationCount === publicationCount &&
-      previousPublications?.length === publicationSlice.length &&
-      publicationSlice.every((publication, index) => {
-        const previous = previousPublications[index];
-        return (
-          previous?.id === publication.id &&
-          previous.contentHash === publication.contentHash
-        );
-      });
-    if (canReuseAtlas && previousAtlas && reuse) {
-      if (!previousAtlasIsPersistent)
-        await reuseAsset(reuse.directory, stagingDirectory, previousAtlas.path);
-      atlases.push(previousAtlas);
-      continue;
-    }
     atlases.push(
       await createAtlas(
         publicationSlice,
-        stagingDirectory,
+        poolDirectory,
         surface,
-        atlasIndex,
         firstPublicationIndex,
-        assetPathPrefix,
-        persistentAssetDirectory,
+        shelfAtlasKey(publicationSlice, surface),
       ),
     );
   }
@@ -1617,33 +1506,6 @@ const assertSafeOutputDirectory = (outputDirectory: string) => {
   if (basename(resolvedOutput) === ".." || basename(resolvedOutput) === ".")
     throw new Error("The content-pack output must be a named directory");
   return resolvedOutput;
-};
-
-const commitStagingDirectory = async (
-  stagingDirectory: string,
-  outputDirectory: string,
-  force: boolean,
-) => {
-  const outputExists = await fileExists(outputDirectory);
-  if (outputExists && !force)
-    throw new Error(
-      `Output directory already exists: ${outputDirectory}. Pass --force to replace it.`,
-    );
-  if (!outputExists) {
-    await replaceDirectory(stagingDirectory, outputDirectory);
-    return;
-  }
-
-  const backupDirectory = `${outputDirectory}.backup-${randomUUID()}`;
-  await rename(outputDirectory, backupDirectory);
-  try {
-    await replaceDirectory(stagingDirectory, outputDirectory);
-    await rm(backupDirectory, {recursive: true, force: true}).catch(() => {});
-  } catch (error) {
-    if (!(await fileExists(outputDirectory)))
-      await rename(backupDirectory, outputDirectory);
-    throw error;
-  }
 };
 
 const createReport = (
@@ -1725,7 +1587,13 @@ export const seedContentPack = async (
       if (
         previous &&
         !options.forceRebuild &&
-        canReusePublication(candidate, material, previous)
+        canReusePublication(candidate, material, previous) &&
+        // The catalog entry can only be reused when its pooled derivatives
+        // are actually present; a wiped pool falls back to a full rebuild.
+        (await persistentPublicationExists(
+          previous,
+          options.persistentAssetDirectory,
+        ))
       ) {
         selections.push({
           candidate,
@@ -1802,13 +1670,10 @@ export const seedContentPack = async (
       ),
     };
 
-  await mkdir(dirname(outputDirectory), {recursive: true});
-  const stagingDirectory = resolve(
-    dirname(outputDirectory),
-    `.${basename(outputDirectory)}.staging-${randomUUID()}`,
-  );
-  await mkdir(stagingDirectory, {recursive: true});
-
+  await mkdir(outputDirectory, {recursive: true});
+  // Assets are written straight into the persistent content-keyed pool and
+  // the revision JSON is written straight into its final directory, which
+  // nothing reads until the snapshot index activates it after this returns.
   try {
     const publications: PackedPublication[] = [];
     let failedMaterializationCount = 0;
@@ -1817,11 +1682,9 @@ export const seedContentPack = async (
         publications.push(
           await materializeReusedPublication(
             selection,
-            reuse.directory,
-            stagingDirectory,
-            publications.length,
-            options.assetPathPrefix,
             options.persistentAssetDirectory,
+            publications.length,
+            options.onDiagnostic,
           ),
         );
         continue;
@@ -1830,22 +1693,13 @@ export const seedContentPack = async (
         publications.push(
           await materializePublication(
             selection,
-            stagingDirectory,
+            options.persistentAssetDirectory,
             publications.length,
-            options.assetPathPrefix,
           ),
         );
       } catch (error) {
         failedMaterializationCount += 1;
-        const publicationDirectory = prefixedAssetPath(
-          options.assetPathPrefix,
-          `publications/${selection.candidate.document.id}`,
-        );
-        await rm(resolveReusableAsset(stagingDirectory, publicationDirectory), {
-          force: true,
-          recursive: true,
-        }).catch(() => {});
-        const diagnostic: ContentSeedDiagnostic = {
+        reportDiagnostic({
           code: "invalid-assets",
           sourceId:
             selection.candidate.localSourceId ??
@@ -1853,17 +1707,14 @@ export const seedContentPack = async (
           message: `Failed to materialize ${selection.candidate.document.id}: ${
             error instanceof Error ? error.message : String(error)
           }`,
-        };
-        reportDiagnostic(diagnostic);
+        });
         if (selection.previous && reuse)
           publications.push(
             await materializeReusedPublication(
               {...selection, images: new Map(), reusePrevious: true},
-              reuse.directory,
-              stagingDirectory,
-              publications.length,
-              options.assetPathPrefix,
               options.persistentAssetDirectory,
+              publications.length,
+              options.onDiagnostic,
             ),
           );
       }
@@ -1878,27 +1729,18 @@ export const seedContentPack = async (
     const atlases = {
       front: await createAtlases(
         publications,
-        stagingDirectory,
-        "front",
-        reuse,
-        options.assetPathPrefix,
         options.persistentAssetDirectory,
+        "front",
       ),
       back: await createAtlases(
         publications,
-        stagingDirectory,
-        "back",
-        reuse,
-        options.assetPathPrefix,
         options.persistentAssetDirectory,
+        "back",
       ),
       spine: await createAtlases(
         publications,
-        stagingDirectory,
-        "spine",
-        reuse,
-        options.assetPathPrefix,
         options.persistentAssetDirectory,
+        "spine",
       ),
     };
     const catalogWithoutHash = {
@@ -1929,26 +1771,24 @@ export const seedContentPack = async (
     );
     await Promise.all([
       writeFile(
-        resolve(stagingDirectory, "catalog.json"),
+        resolve(outputDirectory, "catalog.json"),
         `${JSON.stringify(catalog, null, 2)}\n`,
       ),
       writeFile(
-        resolve(stagingDirectory, "seed-report.json"),
+        resolve(outputDirectory, "seed-report.json"),
         `${JSON.stringify(report, null, 2)}\n`,
       ),
       writeFile(
-        resolve(stagingDirectory, "preview.html"),
+        resolve(outputDirectory, "preview.html"),
         generateContentPackPreview(catalog),
       ),
     ]);
-    await commitStagingDirectory(
-      stagingDirectory,
-      outputDirectory,
-      options.force,
-    );
     return {catalog, report};
   } catch (error) {
-    await rm(stagingDirectory, {recursive: true, force: true}).catch(() => {});
+    // The revision directory was never activated, so it is garbage. Pooled
+    // assets are content-addressed and harmless; the next successful
+    // activation retires anything unreferenced.
+    await rm(outputDirectory, {recursive: true, force: true}).catch(() => {});
     throw error;
   }
 };

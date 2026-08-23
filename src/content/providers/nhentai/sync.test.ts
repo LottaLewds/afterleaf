@@ -644,7 +644,6 @@ describe("syncNhentaiCatalog", () => {
     const root = await mkdtemp(join(tmpdir(), "afterleaf-nhentai-sparse-"));
     temporaryDirectories.push(root);
     const sourceDirectory = resolve(root, "source");
-    const packDirectory = resolve(root, "pack");
     const sparseGallery = gallery(9, "english");
     sparseGallery.images.pages.push(
       {t: "w", w: 800, h: 1_200},
@@ -678,12 +677,12 @@ describe("syncNhentaiCatalog", () => {
       {
         dryRun: false,
         excludedTags: [],
-        force: false,
         languages: ["english"],
         limit: 1,
         match: "all",
-        outputDirectory: packDirectory,
+        outputDirectory: resolve(root, "revision"),
         packId: "sparse-test",
+        persistentAssetDirectory: root,
         seed: "sparse-test",
         tags: [],
       },
@@ -702,14 +701,18 @@ describe("syncNhentaiCatalog", () => {
         resolve(sourceDirectory, "nhentai-9/pages/005.png"),
       ).metadata(),
     ).toMatchObject({format: "png"});
-    expect(seeded.catalog?.publications[0]).toMatchObject({
+    const sparsePublication = seeded.catalog?.publications[0];
+    expect(sparsePublication).toMatchObject({
       id: "nhentai-9",
       pageCount: 5,
-      assets: {back: "publications/nhentai-9/back.webp"},
     });
-    expect(seeded.catalog?.publications[0]?.assets.pages).toHaveLength(3);
+    expect(sparsePublication?.assets.back).toStartWith(
+      "assets/publications/nhentai-9/back-",
+    );
+    expect(sparsePublication?.assets.pages).toHaveLength(3);
+    if (!sparsePublication) throw new Error("Sparse publication is missing");
     const packedBackStats = await sharp(
-      resolve(packDirectory, "publications/nhentai-9/back.webp"),
+      resolve(root, sparsePublication.assets.back),
     ).stats();
     expect(packedBackStats.channels[2]?.mean).toBeGreaterThan(
       (packedBackStats.channels[0]?.mean ?? 0) * 1.5,
@@ -720,7 +723,6 @@ describe("syncNhentaiCatalog", () => {
     const root = await mkdtemp(join(tmpdir(), "afterleaf-nhentai-pack-"));
     temporaryDirectories.push(root);
     const sourceDirectory = resolve(root, "source");
-    const packDirectory = resolve(root, "pack");
     const remote = await createFetcher([
       gallery(11, "chinese"),
       gallery(12, "japanese"),
@@ -739,12 +741,12 @@ describe("syncNhentaiCatalog", () => {
       {
         dryRun: false,
         excludedTags: [],
-        force: false,
         languages: ["english", "japanese"],
         limit: 20,
         match: "all",
-        outputDirectory: packDirectory,
+        outputDirectory: resolve(root, "revision"),
         packId: "afterleaf-integration",
+        persistentAssetDirectory: root,
         seed: "afterleaf-integration-v1",
         tags: ["big-breasts"],
       },
@@ -755,14 +757,20 @@ describe("syncNhentaiCatalog", () => {
       "nhentai-12",
     ]);
     expect(await readdir(sourceDirectory)).not.toContain("nhentai-11");
+    const englishPublication = result.catalog?.publications.find(
+      ({id}) => id === "nhentai-13",
+    );
+    const japanesePublication = result.catalog?.publications.find(
+      ({id}) => id === "nhentai-12",
+    );
+    if (!englishPublication || !japanesePublication)
+      throw new Error("Seeded publications are missing");
     await expect(
-      sharp(
-        resolve(packDirectory, "publications/nhentai-13/front.webp"),
-      ).metadata(),
+      sharp(resolve(root, englishPublication.assets.front)).metadata(),
     ).resolves.toMatchObject({format: "webp", height: 384, width: 256});
     await expect(
       sharp(
-        resolve(packDirectory, "publications/nhentai-12/pages/001.webp"),
+        resolve(root, japanesePublication.assets.pages[0] ?? ""),
       ).metadata(),
     ).resolves.toMatchObject({format: "webp"});
   });

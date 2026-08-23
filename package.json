@@ -9,7 +9,6 @@
     "preview": "vite preview",
     "content:import-cbz": "bun scripts/content-import-cbz.ts",
     "content:prepare": "bun scripts/content-prepare.ts",
-    "content:seed": "bun scripts/content-seed.ts",
     "content:sync:nhentai": "bun scripts/content-sync-nhentai.ts",
     "library:scan": "bun scripts/library-scan.ts",
     "library:fetch-more": "bun scripts/library-fetch-more.ts",
