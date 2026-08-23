@@ -2427,8 +2427,14 @@ export class ShopScene {
       return buckets;
     };
 
-    const visit = (object: Object3D, scopeContainer: Object3D | null): void => {
+    const visit = (
+      object: Object3D,
+      scopeContainer: Object3D | null,
+      excludedFromBatch = false,
+    ): void => {
       if (!object.visible) return;
+      const nextExcludedFromBatch =
+        excludedFromBatch || object.userData.excludeFromStaticBatch === true;
       // Topmost soft match owns the scope; everything under it batches
       // into the container just above that match so the fixture stays
       // movable as a unit.
@@ -2440,6 +2446,7 @@ export class ShopScene {
         scope === null ? parent : container === parent ? parent : container;
 
       if (
+        !nextExcludedFromBatch &&
         object instanceof Mesh &&
         !(object instanceof BatchedMesh) &&
         !ShopScene.#interiorBatchHard.test(object.name)
@@ -2515,7 +2522,11 @@ export class ShopScene {
       }
 
       for (const child of object.children)
-        visit(child, scope ?? (effectiveContainer === parent ? null : scope));
+        visit(
+          child,
+          scope ?? (effectiveContainer === parent ? null : scope),
+          nextExcludedFromBatch,
+        );
     };
     for (const child of [...parent.children]) visit(child, null);
 
@@ -3985,6 +3996,9 @@ export class ShopScene {
 
     const door = this.#rareRoomDoorPivot;
     door.name = "special-collection-door";
+    // The door pivot animates at runtime; keep the entire subtree out of the
+    // static interior batch so its leaf meshes follow the pivot rotation.
+    door.userData.excludeFromStaticBatch = true;
     door.position.set(7.52, 0, RARE_ROOM_DOOR_Z);
     parent.add(door);
     const doorMaterial = woodMaterial.clone();
@@ -4764,6 +4778,9 @@ export class ShopScene {
     const frameCenterY = SHOP_UPPER_FLOOR_Y + 1.3;
     const doorGroup = new Group();
     doorGroup.name = `upper-hallway-door-${id}`;
+    // Door leaves rotate with their pivots during play; they are not static
+    // architecture even though their materials match nearby trim.
+    doorGroup.userData.excludeFromStaticBatch = true;
     doorGroup.position.set(centerX, 0, centerZ);
     if (wallAxis === "z") doorGroup.rotation.y = Math.PI / 2;
     parent.add(doorGroup);
@@ -5307,6 +5324,10 @@ export class ShopScene {
     backgroundColor: string,
   ) {
     const sign = new Group();
+    // Signs are replaced when users customize their content. Keeping the
+    // visual subtree out of static batching prevents the old canvas texture
+    // from surviving in a permanent batch beside the replacement sign.
+    sign.userData.excludeFromStaticBatch = true;
     const canvas = document.createElement("canvas");
     canvas.width = 1024;
     canvas.height = Math.max(128, Math.round(canvas.width * (height / width)));
