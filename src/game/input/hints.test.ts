@@ -1,9 +1,15 @@
 import {describe, expect, test} from "bun:test";
 
-import {DEFAULT_SHORTCUTS} from "~/game/input/bindings";
-import {buildInteractionPrompts} from "~/game/input/hints";
+import {DEFAULT_SHORTCUTS, type ShortcutsConfig} from "~/game/input/bindings";
+import {
+  buildInteractionPrompts,
+  formatInteractionRowKey,
+} from "~/game/input/hints";
 
 const style = "xbox" as const;
+/** Mirrors the scene's resolver: physical codes to display labels. */
+const resolveLabel = (code: string) =>
+  code.startsWith("Key") ? code.slice(3) : code;
 
 describe("interaction prompt translation", () => {
   test("translates alternatives via their declared actions", () => {
@@ -90,5 +96,50 @@ describe("interaction prompt translation", () => {
     expect(playstation).toEqual([
       {type: "button", icon: "playstation-circle", alt: "Circle"},
     ]);
+  });
+});
+
+describe("interaction row keyboard labels", () => {
+  test("derives labels from live bindings", () => {
+    expect(
+      formatInteractionRowKey(
+        ["propCycleAnimationLeft", "propCycleAnimationRight"],
+        DEFAULT_SHORTCUTS,
+        resolveLabel,
+      ),
+    ).toBe("Q / E");
+  });
+
+  test("collapses repeated actions into a single alternative", () => {
+    expect(
+      formatInteractionRowKey(
+        ["interact", "interact"],
+        DEFAULT_SHORTCUTS,
+        resolveLabel,
+      ),
+    ).toBe("E");
+  });
+
+  test("returns undefined when any alternative lacks an action ref", () => {
+    expect(
+      formatInteractionRowKey(undefined, DEFAULT_SHORTCUTS, resolveLabel),
+    ).toBeUndefined();
+    expect(
+      formatInteractionRowKey(
+        ["interact", undefined],
+        DEFAULT_SHORTCUTS,
+        resolveLabel,
+      ),
+    ).toBeUndefined();
+  });
+
+  test("tracks rebinds - the binding table is the source of truth", () => {
+    const rebound: ShortcutsConfig = {
+      ...DEFAULT_SHORTCUTS,
+      interact: [{device: "keyboard", code: "KeyH"}],
+    };
+    expect(formatInteractionRowKey(["interact"], rebound, resolveLabel)).toBe(
+      "H",
+    );
   });
 });

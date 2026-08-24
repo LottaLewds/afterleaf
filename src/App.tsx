@@ -1090,7 +1090,7 @@ const GamepadBindingGlyph = (props: {
           src={resolved().url}
           alt={resolved().alt}
           title={resolved().alt}
-          class="inline-block size-5 align-middle drop-shadow-[0_1px_2px_rgb(0_0_0_/_0.65)]"
+          class="inline-block size-7 align-middle drop-shadow-[0_1px_2px_rgb(0_0_0_/_0.65)]"
         />
       )}
     </Show>
@@ -1224,6 +1224,22 @@ const ShortcutsPanel = (props: {
           Escape while capturing to cancel.
         </p>
 
+        <div class="mt-8 flex items-center justify-between gap-4">
+          <span class="text-[9px] font-bold tracking-[0.2em] text-[#59645f] uppercase">
+            Action
+          </span>
+          <div class="flex items-center gap-2">
+            <span class="min-w-[4.5rem] text-center text-[9px] font-bold tracking-[0.2em] text-[#59645f] uppercase">
+              Keyboard
+            </span>
+            <span
+              class="min-w-[4.5rem] text-center text-sm"
+              title={padStyle() ? `${padStyle()} controller` : "Controller"}
+            >
+              🎮
+            </span>
+          </div>
+        </div>
         <For each={Object.values(SHORTCUT_CATEGORIES)}>
           {(category) => (
             <div class="mt-8">
@@ -1252,7 +1268,7 @@ const ShortcutsPanel = (props: {
                         </span>
                         <div class="flex items-center gap-2">
                           <button
-                            class="min-w-[4.5rem] border border-white/10 bg-[#121918] px-2.5 py-1.5 text-center text-[10px] font-semibold tracking-wider text-[#e2ded4] uppercase transition hover:border-[#d94c3f]/40 hover:text-white"
+                            class="flex h-9 min-w-[4.5rem] items-center justify-center border border-white/10 bg-[#121918] px-2.5 text-center text-[10px] font-semibold tracking-wider text-[#e2ded4] uppercase transition hover:border-[#d94c3f]/40 hover:text-white"
                             classList={{
                               "animate-pulse border-[#d94c3f]/60 text-[#d94c3f]":
                                 isListening("keyboard"),
@@ -1271,7 +1287,7 @@ const ShortcutsPanel = (props: {
                             </Show>
                           </button>
                           <button
-                            class="min-w-[4.5rem] border border-white/10 bg-[#121918] px-2.5 py-1.5 text-center text-[10px] font-semibold tracking-wider text-[#e2ded4] uppercase transition hover:border-[#d94c3f]/40 hover:text-white"
+                            class="flex h-9 min-w-[4.5rem] items-center justify-center border border-white/10 bg-[#121918] px-2.5 text-center text-[10px] font-semibold tracking-wider text-[#e2ded4] uppercase transition hover:border-[#d94c3f]/40 hover:text-white"
                             classList={{
                               "animate-pulse border-[#d94c3f]/60 text-[#d94c3f]":
                                 isListening("gamepad"),

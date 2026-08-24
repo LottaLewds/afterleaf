@@ -84,6 +84,8 @@ export const ESCAPE_FALLBACK_MODES: ReadonlySet<UiMode> = new Set([
  */
 export const INTERACTION_ROW_MODES: ReadonlySet<UiMode> = new Set([
   "walk",
+  /** The spread reader owns input too; its page/return hints are rows. */
+  "book",
   "arcade-live",
 ]);
 

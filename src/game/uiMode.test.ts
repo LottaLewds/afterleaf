@@ -56,6 +56,10 @@ describe("deriveUiMode", () => {
   });
 
   test("only input-owned surfaces present interaction rows", () => {
-    expect([...INTERACTION_ROW_MODES].sort()).toEqual(["arcade-live", "walk"]);
+    expect([...INTERACTION_ROW_MODES].sort()).toEqual([
+      "arcade-live",
+      "book",
+      "walk",
+    ]);
   });
 });

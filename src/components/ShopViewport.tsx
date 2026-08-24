@@ -555,7 +555,7 @@ export const ShopViewport = (props: ShopViewportProps) => {
                                     src={promptIconUrl(token.icon)}
                                     alt={token.alt}
                                     title={token.alt}
-                                    class="size-5 shrink-0 drop-shadow-[0_1px_2px_rgb(0_0_0_/_0.65)]"
+                                    class="size-7 shrink-0 drop-shadow-[0_1px_2px_rgb(0_0_0_/_0.65)]"
                                   />
                                 ) : (
                                   <span class="px-0.5 text-[10px] font-bold text-[#c4cec8]">

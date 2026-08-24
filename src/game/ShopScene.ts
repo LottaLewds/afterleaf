@@ -137,8 +137,10 @@ import {InputManager, type InputMode} from "~/game/input/inputManager";
 import {ARCADE_GAMEPAD_KEYS} from "~/arcade/arcadeGamepadKeys";
 import {
   buildInteractionPrompts,
+  formatInteractionRowKey,
   type InteractionPromptToken,
 } from "~/game/input/hints";
+import {formatKeyboardCode} from "~/game/input/bindings";
 import {
   createStackableStairBoxes,
   SHOP_ATRIUM,
@@ -14241,11 +14243,19 @@ export class ShopScene {
       interactions =
         hoveredRecord.state.status === "shelved"
           ? [
-              {key: "E", label: "Pick up book"},
-              {key: "R", label: "Read book"},
+              {
+                key: "E",
+                label: "Pick up book",
+                actions: ["interact"] as const,
+              },
+              {
+                key: "R",
+                label: "Read book",
+                actions: ["inspectionReturn"] as const,
+              },
               {key: "Hold F + Wheel", label: "Browse shelf"},
             ]
-          : [{key: "E", label: "Pick up book"}];
+          : [{key: "E", label: "Pick up book", actions: ["interact"] as const}];
 
     if (
       interactions.length === 0 &&
@@ -14277,10 +14287,33 @@ export class ShopScene {
       ? this.#input.gamepad.style
       : undefined;
     const shortcutsConfig = this.#getShortcuts();
+    // Keyboard labels come from the live bindings (layout-aware) so hints
+    // track rebinds; rows without action refs keep their literal strings.
+    const resolveKeyboardLabel = (code: string): string => {
+      const layoutLabel = this.#keyboardLayout.get(code);
+      return layoutLabel ? layoutLabel.toUpperCase() : formatKeyboardCode(code);
+    };
     const displayedInteractions = interactions.map((interaction) => {
+      // Dev guard: a plain-key hint without action refs means the row was
+      // never wired to the bindings table and will never show pad glyphs.
+      // Only single capital letters ("R", "Q / E") count - words like
+      // "Wheel" or "Esc" are intentionally literal.
+      if (
+        DEV &&
+        !interaction.actions &&
+        /^[A-Z](?: \/ [A-Z])*$/u.test(interaction.key)
+      )
+        console.warn(
+          `[afterleaf] Interaction row ${JSON.stringify(interaction.key)} (${interaction.label}) has no action refs; controller prompts will not render.`,
+        );
       const row = {
         ...interaction,
-        key: formatInteractionKey(interaction.key, this.#keyboardLayout),
+        key:
+          formatInteractionRowKey(
+            interaction.actions,
+            shortcutsConfig,
+            resolveKeyboardLabel,
+          ) ?? formatInteractionKey(interaction.key, this.#keyboardLayout),
       };
       // Pad-active rows carry prompt tokens so the viewport can draw real
       // controller button icons; keyboard rows keep plain keycap strings.

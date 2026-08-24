@@ -55,6 +55,48 @@ export const buildInteractionPrompts = (
   return collapseDuplicates(tokens);
 };
 
+/** Resolves a physical keyboard code to its display label (layout-aware). */
+export type KeyboardLabelResolver = (code: string) => string;
+
+/**
+ * Derives the keyboard display string of an interaction row from the live
+ * bindings - the single source of truth, so rebound actions update every
+ * hint. Returns undefined when the row cannot be fully derived (missing
+ * action refs, unbound action); callers then fall back to the literal key.
+ */
+export const formatInteractionRowKey = (
+  actions: readonly (ShortcutAction | undefined)[] | undefined,
+  config: ShortcutsConfig,
+  resolveKeyboardLabel: KeyboardLabelResolver,
+): string | undefined => {
+  if (!actions?.length) return undefined;
+  const alternatives: string[] = [];
+  let previous: ShortcutAction | undefined;
+  for (const action of actions) {
+    if (!action) return undefined;
+    // Repeated actions ("Click / E" -> interact twice) collapse to one.
+    if (action !== previous)
+      alternatives.push(
+        keyboardBindingLabel(config, action, resolveKeyboardLabel),
+      );
+    previous = action;
+  }
+  return alternatives.length > 0 ? alternatives.join(" / ") : undefined;
+};
+
+const keyboardBindingLabel = (
+  config: ShortcutsConfig,
+  action: ShortcutAction,
+  resolveKeyboardLabel: KeyboardLabelResolver,
+): string => {
+  const binding = config[action]?.find(
+    (candidate) => candidate.device === "keyboard",
+  );
+  return binding?.device === "keyboard"
+    ? resolveKeyboardLabel(binding.code)
+    : "?";
+};
+
 const padBindingFor = (
   config: ShortcutsConfig,
   action: ShortcutAction,
