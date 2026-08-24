@@ -43,18 +43,22 @@ import {
 } from "solid-js";
 import {
   DEFAULT_SHORTCUTS,
+  detectGamepadStyle,
   formatGamepadButton,
   formatKeyboardCode,
+  gamepadButtonIcon,
   GAMEPAD_BUTTON_NAMES,
   loadShortcuts,
   saveShortcuts,
   SHORTCUT_CATEGORIES,
   SHORTCUT_LABELS,
   type GamepadButtonName,
+  type GamepadStyle,
   type ShortcutAction,
   type ShortcutBinding,
   type ShortcutsConfig,
 } from "~/game/input/bindings";
+import {promptIconUrl} from "~/game/input/prompts";
 
 import {
   emptyLibrary,
@@ -1058,6 +1062,48 @@ const AdditionalLocationsControl = (props: {
   );
 };
 
+const GamepadBindingGlyph = (props: {
+  code: string;
+  style: GamepadStyle | undefined;
+}) => {
+  const info = () => {
+    if (!props.style) return undefined;
+    const icon = gamepadButtonIcon(
+      props.code as GamepadButtonName,
+      props.style,
+    );
+    const url = icon ? promptIconUrl(icon) : undefined;
+    return url
+      ? {
+          url,
+          alt: formatGamepadButton(
+            props.code as GamepadButtonName,
+            props.style,
+          ),
+        }
+      : undefined;
+  };
+  return (
+    <Show when={info()} fallback={formatGamepadButton(props.code)}>
+      {(resolved) => (
+        <img
+          src={resolved().url}
+          alt={resolved().alt}
+          title={resolved().alt}
+          class="inline-block size-5 align-middle drop-shadow-[0_1px_2px_rgb(0_0_0_/_0.65)]"
+        />
+      )}
+    </Show>
+  );
+};
+
+/** First connected pad id, or undefined. */
+const connectedGamepadId = (): string | undefined => {
+  const gamepads = navigator.getGamepads?.() ?? [];
+  for (const gamepad of gamepads) if (gamepad?.connected) return gamepad.id;
+  return undefined;
+};
+
 const ShortcutsPanel = (props: {
   config: ShortcutsConfig;
   onChange: (config: ShortcutsConfig) => void;
@@ -1065,6 +1111,9 @@ const ShortcutsPanel = (props: {
   const [listening, setListening] = createSignal<
     {action: ShortcutAction; device: ShortcutBinding["device"]} | undefined
   >();
+  // Detected controller family for pad glyph display; undefined while no pad
+  // has been seen yet.
+  const [padStyle, setPadStyle] = createSignal<GamepadStyle | undefined>();
 
   const updateBinding = (
     action: ShortcutAction,
@@ -1087,43 +1136,6 @@ const ShortcutsPanel = (props: {
 
   const resetToDefaults = () => props.onChange({...DEFAULT_SHORTCUTS});
 
-  // Capture a gamepad button only while a gamepad slot is listening; no
-  // permanent per-frame polling.
-  createEffect(() => {
-    if (listening()?.device !== "gamepad") return;
-    const abortController = new AbortController();
-    let frameHandle: number | undefined;
-    let previousButtons: Uint8Array | undefined;
-    const poll = () => {
-      const current = listening();
-      if (current?.device !== "gamepad") return;
-      const gamepads = navigator.getGamepads?.() ?? [];
-      for (const gamepad of gamepads) {
-        if (!gamepad?.connected) continue;
-        const pressed = new Uint8Array(gamepad.buttons.length);
-        for (let index = 0; index < gamepad.buttons.length; index++)
-          pressed[index] = gamepad.buttons[index]?.pressed ? 1 : 0;
-        for (let index = 0; index < pressed.length; index++) {
-          const isDown = pressed[index] === 1;
-          const wasDown = previousButtons?.[index] === 1;
-          if (isDown && !wasDown) {
-            const name = GAMEPAD_BUTTON_NAMES[index];
-            if (name) updateBinding(current.action, "gamepad", name);
-            return;
-          }
-        }
-        previousButtons = pressed;
-        break;
-      }
-      frameHandle = requestAnimationFrame(poll);
-    };
-    frameHandle = requestAnimationFrame(poll);
-    onCleanup(() => {
-      if (frameHandle !== undefined) cancelAnimationFrame(frameHandle);
-      abortController.abort();
-    });
-  });
-
   onMount(() => {
     const abortController = new AbortController();
     window.addEventListener(
@@ -1139,7 +1151,63 @@ const ShortcutsPanel = (props: {
       },
       {signal: abortController.signal},
     );
-    onCleanup(() => abortController.abort());
+    // Track the connected controller family so bindings render with its
+    // native button glyphs. Light polling is plenty for a menu screen.
+    const styleInterval = setInterval(() => {
+      const id = connectedGamepadId();
+      setPadStyle(id ? detectGamepadStyle(id) : undefined);
+    }, 500);
+    onCleanup(() => {
+      abortController.abort();
+      clearInterval(styleInterval);
+    });
+  });
+
+  // Capture a gamepad button only while a gamepad slot is listening; the
+  // poll loop lives exactly as long as the capture request.
+  createEffect(() => {
+    if (listening()?.device !== "gamepad") return;
+    let frameHandle: number | undefined;
+    let previousButtons: boolean[] | undefined;
+    let stopped = false;
+    const stop = () => {
+      stopped = true;
+      if (frameHandle !== undefined) cancelAnimationFrame(frameHandle);
+    };
+    const poll = () => {
+      if (stopped) return;
+      frameHandle = requestAnimationFrame(poll);
+      const current = listening();
+      if (current?.device !== "gamepad") return;
+      const gamepads = navigator.getGamepads?.() ?? [];
+      for (const gamepad of gamepads) {
+        if (!gamepad?.connected || gamepad.buttons.length === 0) continue;
+        const pressed = Array.from(gamepad.buttons, (button) =>
+          Boolean(button?.pressed || (button?.value ?? 0) > 0.5),
+        );
+        // The first frame only records a baseline so a held button from
+        // before the click is not mistaken for a fresh press.
+        if (previousButtons !== undefined) {
+          for (let index = 0; index < pressed.length; index++) {
+            if (!pressed[index] || previousButtons[index]) continue;
+            stop();
+            const name = GAMEPAD_BUTTON_NAMES[index];
+            if (name === undefined) {
+              // Non-standard button beyond the mapping: keep listening.
+              previousButtons = pressed;
+              frameHandle = requestAnimationFrame(poll);
+              return;
+            }
+            updateBinding(current.action, "gamepad", name);
+            return;
+          }
+        }
+        previousButtons = pressed;
+        break;
+      }
+    };
+    frameHandle = requestAnimationFrame(poll);
+    onCleanup(stop);
   });
 
   return (
@@ -1218,7 +1286,12 @@ const ShortcutsPanel = (props: {
                             type="button"
                           >
                             <Show when={gamepad()} fallback={"—" as string}>
-                              {(binding) => formatGamepadButton(binding().code)}
+                              {(binding) => (
+                                <GamepadBindingGlyph
+                                  code={binding().code}
+                                  style={padStyle()}
+                                />
+                              )}
                             </Show>
                           </button>
                         </div>
@@ -1230,6 +1303,16 @@ const ShortcutsPanel = (props: {
             </div>
           )}
         </For>
+
+        <p class="mt-6 text-[10px] tracking-[0.08em] text-[#59645f] uppercase">
+          {listening()?.device === "gamepad"
+            ? padStyle() !== undefined
+              ? "Press any controller button to bind it"
+              : "Waiting for a controller — press any button on it once, then press the button you want to bind"
+            : listening()?.device === "keyboard"
+              ? "Press any key to bind it · Escape cancels"
+              : undefined}
+        </p>
 
         <div class="mt-8 flex justify-end">
           <button

@@ -130,6 +130,12 @@ export const gamepadButtonIndex = (name: GamepadButtonName): number =>
 /** Physical controller families with distinct button iconography. */
 export type GamepadStyle = "xbox" | "playstation";
 
+/** Detects a controller family from the Gamepad API id string. */
+export const detectGamepadStyle = (id: string): GamepadStyle =>
+  /dualsense|dualshock|wireless controller|playstation|\bps[345]\b/i.test(id)
+    ? "playstation"
+    : "xbox";
+
 type GamepadButtonPresentation = {label: string; icon: string};
 
 /** Per-style display labels and prompt icon stems for every button. */

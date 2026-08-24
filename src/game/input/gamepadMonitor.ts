@@ -1,15 +1,10 @@
 import type {PlanarMovementInput} from "~/game/shopGameplay";
 import {
+  detectGamepadStyle,
   gamepadButtonIndex,
   type GamepadButtonName,
   type GamepadStyle,
 } from "~/game/input/bindings";
-
-/** Detects a controller family from the Gamepad API id string. */
-const detectGamepadStyle = (id: string): GamepadStyle =>
-  /dualsense|dualshock|wireless controller|playstation|\bps[345]\b/i.test(id)
-    ? "playstation"
-    : "xbox";
 
 /**
  * Zero-allocation per-frame gamepad polling.
