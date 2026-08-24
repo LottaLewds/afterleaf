@@ -149,6 +149,18 @@ const stickAt = (x: number, y: number): DirectionalControls =>
     y,
   );
 
+/**
+ * Digital d-pad fallbacks for joystick-only systems: drawn nowhere (the
+ * stick anchor covers them visually) but kept addressable so gamepads can
+ * use reliable digital inputs alongside the analog stick bindings.
+ */
+const offPadDirections = (): DirectionalControls => [
+  offPad(4, "Joystick Up", dpadUp()),
+  offPad(5, "Joystick Down", dpadDown()),
+  offPad(6, "Joystick Left", dpadLeft()),
+  offPad(7, "Joystick Right", dpadRight()),
+];
+
 const face = (
   id: number,
   label: string,
@@ -216,6 +228,7 @@ export const SYSTEM_CONTROLLER_CONTROLS: Record<
     offPad(10, "Button 5", q()),
     offPad(11, "Button 6", w()),
     ...stickAt(102, 108),
+    ...offPadDirections(),
   ],
   gb: [
     face(8, "A", x(), {shape: "face", x: 250, y: 100}),
@@ -315,6 +328,7 @@ export const SYSTEM_CONTROLLER_CONTROLS: Record<
       "Rst",
     ),
     ...stickAt(110, 108),
+    ...offPadDirections(),
   ],
 };
 
@@ -327,7 +341,16 @@ export const DEFAULT_PAD_MAPPINGS: Record<
   ArcadeSystemId,
   Readonly<Partial<Record<GamepadButtonName, number>>>
 > = {
-  nes: {A: 0, B: 8, Back: 2, Start: 3},
+  nes: {
+    A: 0,
+    B: 8,
+    Back: 2,
+    Start: 3,
+    DpadUp: 4,
+    DpadDown: 5,
+    DpadLeft: 6,
+    DpadRight: 7,
+  },
   snes: {
     A: 0,
     B: 8,
@@ -337,10 +360,48 @@ export const DEFAULT_PAD_MAPPINGS: Record<
     RB: 11,
     Back: 2,
     Start: 3,
+    DpadUp: 4,
+    DpadDown: 5,
+    DpadLeft: 6,
+    DpadRight: 7,
   },
-  arcade: {A: 0, B: 8, X: 1, Y: 9, LB: 10, RB: 11, Back: 2, Start: 3},
-  gb: {A: 0, B: 8, Back: 2, Start: 3},
-  gba: {A: 0, B: 8, LB: 10, RB: 11, Back: 2, Start: 3},
+  arcade: {
+    A: 0,
+    B: 8,
+    X: 1,
+    Y: 9,
+    LB: 10,
+    RB: 11,
+    Back: 2,
+    Start: 3,
+    // The stick hit zones drive the MAME joystick via the d-pad inputs.
+    DpadUp: 4,
+    DpadDown: 5,
+    DpadLeft: 6,
+    DpadRight: 7,
+  },
+  gb: {
+    A: 0,
+    B: 8,
+    Back: 2,
+    Start: 3,
+    DpadUp: 4,
+    DpadDown: 5,
+    DpadLeft: 6,
+    DpadRight: 7,
+  },
+  gba: {
+    A: 0,
+    B: 8,
+    LB: 10,
+    RB: 11,
+    Back: 2,
+    Start: 3,
+    DpadUp: 4,
+    DpadDown: 5,
+    DpadLeft: 6,
+    DpadRight: 7,
+  },
   n64: {
     A: 0,
     B: 1,
@@ -359,8 +420,28 @@ export const DEFAULT_PAD_MAPPINGS: Record<
     DpadLeft: 17,
     DpadRight: 16,
   },
-  vb: {A: 0, B: 8, LB: 10, RB: 11, Back: 2, Start: 3},
-  segaMS: {A: 0, B: 8, Start: 3},
+  vb: {
+    A: 0,
+    B: 8,
+    LB: 10,
+    RB: 11,
+    Back: 2,
+    Start: 3,
+    // Left d-pad only; the right d-pad stays keyboard-exclusive.
+    DpadUp: 4,
+    DpadDown: 5,
+    DpadLeft: 6,
+    DpadRight: 7,
+  },
+  segaMS: {
+    A: 0,
+    B: 8,
+    Start: 3,
+    DpadUp: 4,
+    DpadDown: 5,
+    DpadLeft: 6,
+    DpadRight: 7,
+  },
   segaMD: {
     A: 0,
     B: 8,
@@ -370,10 +451,40 @@ export const DEFAULT_PAD_MAPPINGS: Record<
     RB: 11,
     Back: 2,
     Start: 3,
+    DpadUp: 4,
+    DpadDown: 5,
+    DpadLeft: 6,
+    DpadRight: 7,
   },
-  segaGG: {A: 0, B: 8, Start: 3},
-  pce: {A: 0, B: 8, Back: 2, Start: 3},
-  atari2600: {A: 0, Back: 2, Start: 3},
+  segaGG: {
+    A: 0,
+    B: 8,
+    Start: 3,
+    DpadUp: 4,
+    DpadDown: 5,
+    DpadLeft: 6,
+    DpadRight: 7,
+  },
+  pce: {
+    A: 0,
+    B: 8,
+    Back: 2,
+    Start: 3,
+    DpadUp: 4,
+    DpadDown: 5,
+    DpadLeft: 6,
+    DpadRight: 7,
+  },
+  atari2600: {
+    A: 0,
+    Back: 2,
+    Start: 3,
+    // The stick hit zones drive the joystick via the d-pad inputs.
+    DpadUp: 4,
+    DpadDown: 5,
+    DpadLeft: 6,
+    DpadRight: 7,
+  },
 };
 
 // -- Persistence ---------------------------------------------------------------

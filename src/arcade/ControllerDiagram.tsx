@@ -1,4 +1,4 @@
-import {For, type Accessor} from "solid-js";
+import {For, Show, createMemo, type Accessor} from "solid-js";
 
 import type {
   ArcadeConsoleControl,
@@ -6,11 +6,13 @@ import type {
 } from "~/arcade/controllerMappings";
 
 /**
- * Static diagram of an emulated console's controller.
+ * Clickable diagram of an emulated console's controller.
  *
- * Purely presentational: each console control carries its own placement, so
- * adding a system's layout is data-only. Shapes bound to a gamepad button
- * render with the accent outline so users can see coverage at a glance.
+ * Each console control carries its own placement, so adding a system's
+ * layout is data-only. Shapes bound to a gamepad button render with the
+ * accent outline; clicking any shape starts capture for that control, and
+ * directional groups (d-pad, analog stick) expose one hit zone per
+ * direction so every control stays individually assignable.
  */
 
 const ACCENT = "#d94c3f";
@@ -20,11 +22,16 @@ const LABEL = "#b8c1bc";
 const BODY_FILL = "#121918";
 const BODY_STROKE = "#2a3531";
 
-/** Deduplicated drawable element: directional groups collapse to one anchor. */
+/**
+ * Deduplicated drawable element: directional groups collapse to one anchor.
+ * `controlIds` preserves declaration order (up, down, left, right) so each
+ * hit zone can map back to its exact control.
+ */
 type DiagramElement = {
   key: string;
   controlIds: number[];
   placement: ControlDiagramPlacement;
+  label: string;
   shortLabel: string;
 };
 
@@ -49,6 +56,7 @@ const buildElements = (
       key,
       controlIds: [control.id],
       placement,
+      label: control.label,
       shortLabel: control.shortLabel ?? control.label,
     };
     byKey.set(key, element);
@@ -57,49 +65,137 @@ const buildElements = (
   return elements;
 };
 
-const DiagramShape = (props: {element: DiagramElement; mapped: boolean}) => {
+/** Quadrant triangle corners around an anchor, in up/down/left/right order. */
+const HIT_RADIUS = 27;
+const quadrantPoints = (
+  x: number,
+  y: number,
+): readonly [string, string, string, string] => [
+  `${x - HIT_RADIUS},${y - HIT_RADIUS} ${x + HIT_RADIUS},${y - HIT_RADIUS} ${x},${y}`,
+  `${x - HIT_RADIUS},${y + HIT_RADIUS} ${x + HIT_RADIUS},${y + HIT_RADIUS} ${x},${y}`,
+  `${x - HIT_RADIUS},${y - HIT_RADIUS} ${x - HIT_RADIUS},${y + HIT_RADIUS} ${x},${y}`,
+  `${x + HIT_RADIUS},${y - HIT_RADIUS} ${x + HIT_RADIUS},${y + HIT_RADIUS} ${x},${y}`,
+];
+
+const DirectionHitZones = (props: {
+  element: DiagramElement;
+  capturingId: number | undefined;
+  onSelect: (controlId: number) => void;
+}) => {
   const {placement} = props.element;
-  const stroke = () => (props.mapped ? ACCENT : STROKE_MUTED);
-  const outlineWidth = () => (props.mapped ? "2" : "1.5");
+  const points = quadrantPoints(placement.x, placement.y);
+  return (
+    <g>
+      <For each={props.element.controlIds}>
+        {(controlId, index) => (
+          <polygon
+            points={points[index()]}
+            fill="transparent"
+            class="cursor-pointer"
+            onClick={() => props.onSelect(controlId)}
+          >
+            <title>{`Remap ${props.element.shortLabel}`}</title>
+          </polygon>
+        )}
+      </For>
+      {/* Ring highlight while this group is being captured. */}
+      <Show
+        when={
+          props.capturingId !== undefined &&
+          props.element.controlIds.includes(props.capturingId)
+        }
+      >
+        <circle
+          cx={placement.x}
+          cy={placement.y}
+          r={HIT_RADIUS}
+          fill="none"
+          stroke={ACCENT}
+          stroke-width="2"
+          class="animate-pulse"
+          pointer-events="none"
+        />
+      </Show>
+    </g>
+  );
+};
+
+const DiagramShape = (props: {
+  element: DiagramElement;
+  mapped: boolean;
+  capturingId: number | undefined;
+  onSelect: (controlId: number) => void;
+}) => {
+  const {placement} = props.element;
+  const stroke = () =>
+    props.mapped || props.capturingId !== undefined ? ACCENT : STROKE_MUTED;
+  const outlineWidth = () =>
+    props.capturingId !== undefined ? "2.5" : props.mapped ? "2" : "1.5";
+  const clickable = {
+    class: "cursor-pointer",
+    onClick: () => props.onSelect(props.element.controlIds[0] as number),
+  } as const;
   // Element data is static per instance, so shape selection happens once;
-  // the mapped flag flows through reactive attribute expressions.
+  // state flows through reactive attribute expressions.
   switch (placement.shape) {
     case "dpad":
       return (
-        <g stroke={stroke()} fill={FILL_DARK}>
-          <rect
-            x={placement.x - 21}
-            y={placement.y - 7}
-            width="42"
-            height="14"
-            rx="4"
-          />
-          <rect
-            x={placement.x - 7}
-            y={placement.y - 21}
-            width="14"
-            height="42"
-            rx="4"
-          />
+        <g>
+          <g
+            stroke={stroke()}
+            fill={FILL_DARK}
+            classList={{"animate-pulse": props.capturingId !== undefined}}
+          >
+            <rect
+              x={placement.x - 21}
+              y={placement.y - 7}
+              width="42"
+              height="14"
+              rx="4"
+            />
+            <rect
+              x={placement.x - 7}
+              y={placement.y - 21}
+              width="14"
+              height="42"
+              rx="4"
+            />
+          </g>
+          <DirectionHitZones {...props} />
         </g>
       );
     case "stick":
       return (
-        <g stroke={stroke()}>
-          <circle
-            cx={placement.x}
-            cy={placement.y}
-            r="18"
-            fill={BODY_FILL}
-            stroke-width={outlineWidth()}
-          />
-          <circle cx={placement.x} cy={placement.y} r="10" fill={FILL_DARK} />
+        <g>
+          <g
+            stroke={stroke()}
+            classList={{"animate-pulse": props.capturingId !== undefined}}
+            {...clickable}
+          >
+            <circle
+              cx={placement.x}
+              cy={placement.y}
+              r="18"
+              fill={BODY_FILL}
+              stroke-width={outlineWidth()}
+            />
+            <circle cx={placement.x} cy={placement.y} r="10" fill={FILL_DARK} />
+          </g>
+          <DirectionHitZones {...props} />
         </g>
       );
     case "face": {
       const radius = placement.r ?? 12;
       return (
-        <g stroke={stroke()}>
+        <g
+          stroke={stroke()}
+          classList={{
+            "cursor-pointer": true,
+            "animate-pulse": props.capturingId !== undefined,
+          }}
+          onClick={() => props.onSelect(props.element.controlIds[0] as number)}
+        >
+          <title>{`Remap ${props.element.label}`}</title>
           <circle
             cx={placement.x}
             cy={placement.y}
@@ -117,6 +213,7 @@ const DiagramShape = (props: {element: DiagramElement; mapped: boolean}) => {
               text-anchor="middle"
               dominant-baseline="central"
               stroke="none"
+              pointer-events="none"
             >
               {props.element.shortLabel}
             </text>
@@ -126,7 +223,15 @@ const DiagramShape = (props: {element: DiagramElement; mapped: boolean}) => {
     }
     case "pill":
       return (
-        <g stroke={stroke()}>
+        <g
+          stroke={stroke()}
+          classList={{
+            "cursor-pointer": true,
+            "animate-pulse": props.capturingId !== undefined,
+          }}
+          onClick={() => props.onSelect(props.element.controlIds[0] as number)}
+        >
+          <title>{`Remap ${props.element.label}`}</title>
           <rect
             x={placement.x - placement.w / 2}
             y={placement.y - 8}
@@ -146,6 +251,7 @@ const DiagramShape = (props: {element: DiagramElement; mapped: boolean}) => {
             text-anchor="middle"
             dominant-baseline="central"
             stroke="none"
+            pointer-events="none"
           >
             {props.element.shortLabel.toUpperCase()}
           </text>
@@ -153,7 +259,15 @@ const DiagramShape = (props: {element: DiagramElement; mapped: boolean}) => {
       );
     case "rect":
       return (
-        <g stroke={stroke()}>
+        <g
+          stroke={stroke()}
+          classList={{
+            "cursor-pointer": true,
+            "animate-pulse": props.capturingId !== undefined,
+          }}
+          onClick={() => props.onSelect(props.element.controlIds[0] as number)}
+        >
+          <title>{`Remap ${props.element.label}`}</title>
           <rect
             x={placement.x}
             y={placement.y}
@@ -172,6 +286,7 @@ const DiagramShape = (props: {element: DiagramElement; mapped: boolean}) => {
             text-anchor="middle"
             dominant-baseline="central"
             stroke="none"
+            pointer-events="none"
           >
             {props.element.shortLabel}
           </text>
@@ -181,17 +296,22 @@ const DiagramShape = (props: {element: DiagramElement; mapped: boolean}) => {
 };
 
 export const ControllerDiagram = (props: {
-  controls: readonly ArcadeConsoleControl[];
+  controls: Accessor<readonly ArcadeConsoleControl[]>;
   /** Console-control ids currently bound to a gamepad button. */
   mappedIds: Accessor<ReadonlySet<number>>;
+  /** Control waiting for capture, if any; drawn with a pulsing outline. */
+  capturingControlId?: Accessor<number | undefined>;
+  /** Starts capture for a control when its shape is clicked. */
+  onSelect?: (controlId: number) => void;
 }) => {
-  const elements = buildElements(props.controls);
+  // Rebuilt whenever the selected system's control list changes.
+  const elements = createMemo(() => buildElements(props.controls()));
   return (
     <svg
       viewBox="0 0 340 190"
       class="w-full max-w-md self-center"
-      role="img"
-      aria-label="Controller layout"
+      role="group"
+      aria-label="Controller layout; click a button to remap it"
     >
       {/* Pad body; shoulders intentionally overlap its top edge. */}
       <rect
@@ -203,12 +323,15 @@ export const ControllerDiagram = (props: {
         fill={BODY_FILL}
         stroke={BODY_STROKE}
         stroke-width={2}
+        pointer-events="none"
       />
-      <For each={elements}>
+      <For each={elements()}>
         {(element) => (
           <DiagramShape
             element={element}
             mapped={element.controlIds.some((id) => props.mappedIds().has(id))}
+            capturingId={props.capturingControlId?.()}
+            onSelect={(controlId) => props.onSelect?.(controlId)}
           />
         )}
       </For>

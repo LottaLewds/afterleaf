@@ -1192,6 +1192,12 @@ const ShortcutsPanel = (props: {
       (button) => resolvedPadMapping(systemId)[button] === controlId,
     );
 
+  /** Console control currently waiting for a pad press, if any. */
+  const capturingControlId = () => {
+    const current = listening();
+    return current?.kind === "padControl" ? current.controlId : undefined;
+  };
+
   /**
    * Binds one gamepad button to a console control. Overrides store the
    * complete per-system mapping so unsetting stays expressible; any other
@@ -1489,11 +1495,23 @@ const ShortcutsPanel = (props: {
               {(system) => (
                 <div class="mt-5 flex flex-col gap-6 xl:flex-row xl:items-start">
                   <ControllerDiagram
-                    controls={SYSTEM_CONTROLLER_CONTROLS[system().id]}
-                    mappedIds={() => {
-                      const mapping = resolvedPadMapping(system().id);
-                      return new Set(Object.values(mapping));
-                    }}
+                    controls={() => SYSTEM_CONTROLLER_CONTROLS[system().id]}
+                    mappedIds={() =>
+                      new Set(Object.values(resolvedPadMapping(system().id)))
+                    }
+                    capturingControlId={capturingControlId}
+                    onSelect={(controlId) =>
+                      setListening(
+                        // Clicking the capturing shape again cancels.
+                        capturingControlId() === controlId
+                          ? undefined
+                          : {
+                              kind: "padControl",
+                              systemId: system().id,
+                              controlId,
+                            },
+                      )
+                    }
                   />
                   <div class="min-w-0 flex-1 space-y-2">
                     <For each={SYSTEM_CONTROLLER_CONTROLS[system().id]}>

@@ -89,6 +89,25 @@ describe("SYSTEM_CONTROLLER_CONTROLS", () => {
         expect(validIds.has(controlId as number)).toBe(true);
     }
   });
+
+  test("every system maps the pad directions to movement controls", () => {
+    // Regression guard: without these, pads cannot move in-game at all.
+    const movementIds = new Set([4, 5, 6, 7, 16, 17, 18, 19]);
+    for (const id of systemIds) {
+      const mapping = DEFAULT_PAD_MAPPINGS[id];
+      expect(mapping.DpadUp, `${id} DpadUp`).toBeDefined();
+      expect(mapping.DpadDown, `${id} DpadDown`).toBeDefined();
+      expect(mapping.DpadLeft, `${id} DpadLeft`).toBeDefined();
+      expect(mapping.DpadRight, `${id} DpadRight`).toBeDefined();
+      for (const direction of [
+        mapping.DpadUp,
+        mapping.DpadDown,
+        mapping.DpadLeft,
+        mapping.DpadRight,
+      ])
+        expect(movementIds.has(direction as number), `${id}`).toBe(true);
+    }
+  });
 });
 
 describe("buildDefaultControllers", () => {
