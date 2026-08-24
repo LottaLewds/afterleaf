@@ -299,3 +299,33 @@ describe("InputManager input gating", () => {
     expect(manager.isActionDown("jump")).toBe(false);
   });
 });
+
+describe("InputManager edge dispatch", () => {
+  test("key-up reaches lower-priority candidates when higher ones decline", () => {
+    // Mirrors the throw bug: inspectionThrow shares KeyF with throw and sits
+    // higher in dispatch order; its up-phase declines so throw must still
+    // receive the release.
+    const config: ShortcutsConfig = {
+      ...DEFAULT_SHORTCUTS,
+      inspectionThrow: [{device: "keyboard", code: "KeyF"}],
+      throw: [{device: "keyboard", code: "KeyF"}],
+    };
+    const ups: ShortcutAction[] = [];
+    const manager = new InputManager({
+      getShortcuts: () => config,
+      // Mirror the scene's up-handler: every action declines its release
+      // except throw, even though three actions share KeyF.
+      handleAction: (action, phase) => {
+        if (phase === "down") return action === "throw";
+        if (action !== "throw") return false;
+        ups.push(action);
+        return true;
+      },
+    });
+    manager.attach(new AbortController().signal);
+    manager.update("shop");
+    dispatchKey(fakeKeyEvent("KeyF"));
+    dispatchKey(fakeKeyEvent("KeyF", "keyup"));
+    expect(ups).toEqual(["throw"]);
+  });
+});

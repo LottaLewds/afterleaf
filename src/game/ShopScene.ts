@@ -8949,7 +8949,9 @@ export class ShopScene {
         return true;
       }
       default:
-        return true;
+        // Decline so lower-priority candidates sharing the binding still
+        // receive the release - throwing must see its own key-up.
+        return false;
     }
   };
 

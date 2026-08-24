@@ -211,7 +211,10 @@ export class InputManager {
   /** Releases every held key/pad state (pointer unlock, blur, pause). */
   suspend() {
     this.#keysDown.clear();
-    this.gamepad.pressed.fill(0);
+    // Deliberately leaves the pad snapshot intact: zeroing it while a button
+    // is physically held would fabricate a fresh just-pressed edge on the
+    // next poll (e.g. B re-triggering inspection right after opening it).
+    // Stale analog values self-correct on the next poll().
     this.gamepad.movement.forward = 0;
     this.gamepad.movement.right = 0;
     this.gamepad.look.pitch = 0;
