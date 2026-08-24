@@ -15,6 +15,7 @@ import {
 import {DEV} from "solid-js";
 
 import {arcadeGameId, findArcadeSystem} from "~/arcade/systems";
+import {buildDefaultControllers} from "~/arcade/controllerMappings";
 import {
   launchEmulator,
   type EmulatorSession,
@@ -359,6 +360,7 @@ export class ShopArcadeCabinet {
       romUrl: request.romUrl,
       gameName: request.name,
       gameId: arcadeGameId(system.id, request.name),
+      defaultControllers: buildDefaultControllers(system.id),
       onStart: () => {
         void host.canvasReady
           .then((canvas) => {

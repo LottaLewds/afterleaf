@@ -60,6 +60,12 @@ import {
   type ShortcutsConfig,
 } from "~/game/input/bindings";
 import {promptIconUrl} from "~/game/input/prompts";
+import {
+  formatArcadeKeyBinding,
+  resolvePadMapping,
+  SYSTEM_CONTROLLER_CONTROLS,
+} from "~/arcade/controllerMappings";
+import {ControllerDiagram} from "~/arcade/ControllerDiagram";
 
 import {
   emptyLibrary,
@@ -92,6 +98,12 @@ import {
   findArcadeSystem,
   type ArcadeSystemId,
 } from "~/arcade/systems";
+import {
+  loadPadMappingOverrides,
+  savePadMappingOverrides,
+  resetPadMapping,
+  type ArcadePadMappingOverrides,
+} from "~/arcade/controllerMappings";
 import {findBlacklistedTagMatches} from "~/content/libraryUpdate/tagPurge";
 import {
   loadBootFetchPreference,
@@ -1143,16 +1155,68 @@ const connectedGamepadId = (): string | undefined => {
   return undefined;
 };
 
+/** What a click-to-capture interaction is currently waiting for. */
+type CaptureTarget =
+  | {
+      kind: "shortcut";
+      action: ShortcutAction;
+      device: ShortcutBinding["device"];
+    }
+  | {kind: "padControl"; systemId: ArcadeSystemId; controlId: number};
+
 const ShortcutsPanel = (props: {
   config: ShortcutsConfig;
   onChange: (config: ShortcutsConfig) => void;
+  padMappingOverrides: ArcadePadMappingOverrides;
+  onPadMappingChange: (overrides: ArcadePadMappingOverrides) => void;
 }) => {
-  const [listening, setListening] = createSignal<
-    {action: ShortcutAction; device: ShortcutBinding["device"]} | undefined
-  >();
+  const [listening, setListening] = createSignal<CaptureTarget | undefined>();
+  // Emulated system whose controller layout is being configured.
+  const [selectedSystemId, setSelectedSystemId] =
+    createSignal<ArcadeSystemId>("nes");
+  const selectedSystem = () => findArcadeSystem(selectedSystemId());
   // Detected controller family for pad glyph display; undefined while no pad
   // has been seen yet.
   const [padStyle, setPadStyle] = createSignal<GamepadStyle | undefined>();
+
+  /** Fully-resolved pad mapping (defaults + overrides) for a system. */
+  const resolvedPadMapping = (systemId: ArcadeSystemId) =>
+    resolvePadMapping(systemId, props.padMappingOverrides);
+
+  /** Standard-gamepad button bound to a console control, if any. */
+  const buttonForControl = (
+    systemId: ArcadeSystemId,
+    controlId: number,
+  ): GamepadButtonName | undefined =>
+    GAMEPAD_BUTTON_NAMES.find(
+      (button) => resolvedPadMapping(systemId)[button] === controlId,
+    );
+
+  /**
+   * Binds one gamepad button to a console control. Overrides store the
+   * complete per-system mapping so unsetting stays expressible; any other
+   * button previously bound to the control is released first.
+   */
+  const setPadBinding = (
+    systemId: ArcadeSystemId,
+    controlId: number,
+    button: GamepadButtonName,
+  ) => {
+    const mapping = {...resolvedPadMapping(systemId)};
+    for (const name of GAMEPAD_BUTTON_NAMES)
+      if (mapping[name] === controlId) delete mapping[name];
+    mapping[button] = controlId;
+    props.onPadMappingChange({
+      ...props.padMappingOverrides,
+      [systemId]: mapping,
+    });
+    setListening(undefined);
+  };
+
+  const resetSystemPadMapping = (systemId: ArcadeSystemId) =>
+    props.onPadMappingChange(
+      resetPadMapping(props.padMappingOverrides, systemId),
+    );
 
   const updateBinding = (
     action: ShortcutAction,
@@ -1181,12 +1245,16 @@ const ShortcutsPanel = (props: {
       "keydown",
       (event) => {
         const current = listening();
-        if (!current || current.device !== "keyboard") return;
-        event.preventDefault();
+        if (!current) return;
         // Escape cancels capture rather than binding the modal key.
-        if (event.code !== "Escape")
-          updateBinding(current.action, "keyboard", event.code);
-        else setListening(undefined);
+        if (event.code === "Escape") {
+          setListening(undefined);
+          return;
+        }
+        if (current.kind !== "shortcut" || current.device !== "keyboard")
+          return;
+        event.preventDefault();
+        updateBinding(current.action, "keyboard", event.code);
       },
       {signal: abortController.signal},
     );
@@ -1202,10 +1270,13 @@ const ShortcutsPanel = (props: {
     });
   });
 
-  // Capture a gamepad button only while a gamepad slot is listening; the
-  // poll loop lives exactly as long as the capture request.
+  // Capture a gamepad button while any pad capture is active (shortcut
+  // bindings or emulator controller mappings); the poll loop lives exactly
+  // as long as the capture request.
   createEffect(() => {
-    if (listening()?.device !== "gamepad") return;
+    const target = listening();
+    if (!target) return;
+    if (target.kind === "shortcut" && target.device !== "gamepad") return;
     let frameHandle: number | undefined;
     let previousButtons: boolean[] | undefined;
     let stopped = false;
@@ -1217,7 +1288,8 @@ const ShortcutsPanel = (props: {
       if (stopped) return;
       frameHandle = requestAnimationFrame(poll);
       const current = listening();
-      if (current?.device !== "gamepad") return;
+      if (!current) return;
+      if (current.kind === "shortcut" && current.device !== "gamepad") return;
       const gamepads = navigator.getGamepads?.() ?? [];
       for (const gamepad of gamepads) {
         if (!gamepad?.connected || gamepad.buttons.length === 0) continue;
@@ -1237,7 +1309,9 @@ const ShortcutsPanel = (props: {
               frameHandle = requestAnimationFrame(poll);
               return;
             }
-            updateBinding(current.action, "gamepad", name);
+            if (current.kind === "padControl")
+              setPadBinding(current.systemId, current.controlId, name);
+            else updateBinding(current.action, "gamepad", name);
             return;
           }
         }
@@ -1296,9 +1370,14 @@ const ShortcutsPanel = (props: {
                       props.config[action].find(
                         (binding) => binding.device === "gamepad",
                       );
-                    const isListening = (device: ShortcutBinding["device"]) =>
-                      listening()?.action === action &&
-                      listening()?.device === device;
+                    const isListening = (device: ShortcutBinding["device"]) => {
+                      const current = listening();
+                      return (
+                        current?.kind === "shortcut" &&
+                        current.action === action &&
+                        current.device === device
+                      );
+                    };
 
                     return (
                       <div class="flex items-center justify-between gap-4 border border-white/8 bg-[#151e1c] px-4 py-3">
@@ -1316,7 +1395,11 @@ const ShortcutsPanel = (props: {
                               setListening(
                                 isListening("keyboard")
                                   ? undefined
-                                  : {action, device: "keyboard"},
+                                  : {
+                                      kind: "shortcut",
+                                      action,
+                                      device: "keyboard",
+                                    },
                               )
                             }
                             type="button"
@@ -1335,7 +1418,11 @@ const ShortcutsPanel = (props: {
                               setListening(
                                 isListening("gamepad")
                                   ? undefined
-                                  : {action, device: "gamepad"},
+                                  : {
+                                      kind: "shortcut",
+                                      action,
+                                      device: "gamepad",
+                                    },
                               )
                             }
                             type="button"
@@ -1359,14 +1446,141 @@ const ShortcutsPanel = (props: {
           )}
         </For>
 
+        <div class="mt-10">
+          <p class="mb-3 text-[9px] font-bold tracking-[0.2em] text-[#59645f] uppercase">
+            Emulator controllers
+          </p>
+          <p class="mb-4 max-w-xl text-xs leading-5 text-[#6e7974]">
+            Map your controller to each retro system. Click a console button
+            below, then press the controller button you want to use for it.
+          </p>
+          <div class="border border-white/8 bg-[#151e1c] p-4 sm:p-5">
+            <div class="flex flex-wrap items-center gap-3">
+              <select
+                class="h-8 border border-white/10 bg-[#0c1312] px-2 text-xs text-[#e2ded4] [color-scheme:dark]"
+                value={selectedSystemId()}
+                onChange={(event) =>
+                  setSelectedSystemId(
+                    event.currentTarget.value as ArcadeSystemId,
+                  )
+                }
+              >
+                <For each={ARCADE_SYSTEMS}>
+                  {(system) => (
+                    <option
+                      value={system.id}
+                      class="bg-[#1b2422] text-[#f0ecdf]"
+                    >
+                      {system.label}
+                    </option>
+                  )}
+                </For>
+              </select>
+              <button
+                class="ml-auto border border-white/10 bg-[#121918] px-3 py-2 text-[9px] font-semibold tracking-[0.12em] text-[#8a958f] uppercase transition hover:border-[#d94c3f]/40 hover:text-white"
+                type="button"
+                onClick={() => resetSystemPadMapping(selectedSystemId())}
+              >
+                Reset {findArcadeSystem(selectedSystemId())?.shortLabel ?? ""}
+              </button>
+            </div>
+
+            <Show when={selectedSystem()}>
+              {(system) => (
+                <div class="mt-5 flex flex-col gap-6 xl:flex-row xl:items-start">
+                  <ControllerDiagram
+                    controls={SYSTEM_CONTROLLER_CONTROLS[system().id]}
+                    mappedIds={() => {
+                      const mapping = resolvedPadMapping(system().id);
+                      return new Set(Object.values(mapping));
+                    }}
+                  />
+                  <div class="min-w-0 flex-1 space-y-2">
+                    <For each={SYSTEM_CONTROLLER_CONTROLS[system().id]}>
+                      {(control) => {
+                        const boundButton = () =>
+                          buttonForControl(system().id, control.id);
+                        const isCapturing = () => {
+                          const current = listening();
+                          return (
+                            current?.kind === "padControl" &&
+                            current.controlId === control.id
+                          );
+                        };
+                        return (
+                          <div class="flex items-center justify-between gap-3 border border-white/8 bg-[#121918] px-3 py-2">
+                            <span class="text-xs text-[#b8c1bc]">
+                              {control.label}
+                            </span>
+                            <span
+                              class="font-mono text-[10px] tracking-wider text-[#59645f]"
+                              title="Default keyboard binding"
+                            >
+                              {formatArcadeKeyBinding(control.keyboard)}
+                            </span>
+                            <button
+                              class="flex h-9 min-w-[4.5rem] items-center justify-center border border-white/10 bg-[#151e1c] px-2.5 text-center transition hover:border-[#d94c3f]/40"
+                              classList={{
+                                "animate-pulse border-[#d94c3f]/60":
+                                  isCapturing(),
+                              }}
+                              title="Click, then press a controller button"
+                              type="button"
+                              onClick={() =>
+                                setListening(
+                                  isCapturing()
+                                    ? undefined
+                                    : {
+                                        kind: "padControl",
+                                        systemId: system().id,
+                                        controlId: control.id,
+                                      },
+                                )
+                              }
+                            >
+                              <Show
+                                when={boundButton()}
+                                fallback={
+                                  <span class="text-[10px] font-semibold tracking-wider text-[#59645f] uppercase">
+                                    —
+                                  </span>
+                                }
+                              >
+                                {(button) => (
+                                  <GamepadBindingGlyph
+                                    code={button()}
+                                    style={padStyle()}
+                                  />
+                                )}
+                              </Show>
+                            </button>
+                          </div>
+                        );
+                      }}
+                    </For>
+                  </div>
+                </div>
+              )}
+            </Show>
+            <p class="mt-4 text-[10px] leading-4 tracking-[0.04em] text-[#59645f]">
+              The left stick also acts as the d-pad. Keyboard bindings for the
+              emulators stay on their defaults shown above.
+            </p>
+          </div>
+        </div>
+
         <p class="mt-6 text-[10px] tracking-[0.08em] text-[#59645f] uppercase">
-          {listening()?.device === "gamepad"
-            ? padStyle() !== undefined
-              ? "Press any controller button to bind it"
-              : "Waiting for a controller — press any button on it once, then press the button you want to bind"
-            : listening()?.device === "keyboard"
-              ? "Press any key to bind it · Escape cancels"
-              : undefined}
+          {(() => {
+            const current = listening();
+            if (!current) return undefined;
+            if (current.kind === "padControl")
+              return "Press any controller button to bind it";
+            if (current.device === "gamepad")
+              return padStyle() !== undefined
+                ? "Press any controller button to bind it"
+                : "Waiting for a controller — press any button on it once, then press the button you want to bind";
+            return "Press any key to bind it · Escape cancels";
+          })()}
         </p>
 
         <div class="mt-8 flex justify-end">
@@ -2406,6 +2620,9 @@ export const App = () => {
     initialControlPreferences.gamepadLookSensitivity,
   );
   const [shortcutsConfig, setShortcutsConfig] = createSignal(loadShortcuts());
+  const [padMappingOverrides, setPadMappingOverrides] = createSignal(
+    loadPadMappingOverrides(),
+  );
   const [tvScreenLighting, setTvScreenLighting] = createSignal(
     initialControlPreferences.tvScreenLighting,
   );
@@ -2985,6 +3202,11 @@ export const App = () => {
     setShortcutsConfig(config);
   };
 
+  const updatePadMappingOverrides = (overrides: ArcadePadMappingOverrides) => {
+    savePadMappingOverrides(overrides);
+    setPadMappingOverrides(overrides);
+  };
+
   const updateDefaultReadingDirection = (value: ReadingDirection) => {
     const preferences = saveControlPreferences({
       gamepadLookSensitivity: gamepadLookSensitivity(),
@@ -3101,6 +3323,7 @@ export const App = () => {
                       onOpenMenu={openMenu}
                       onCloseMenu={() => closeMenu()}
                       shortcutsConfig={shortcutsConfig}
+                      padMappingOverrides={padMappingOverrides}
                       onPasteText={importPastedPublication}
                       onDiscardPublication={discardPublication}
                       onPageIndexChange={(publicationId, pageIndex) =>
@@ -3646,6 +3869,8 @@ export const App = () => {
                       <ShortcutsPanel
                         config={shortcutsConfig()}
                         onChange={updateShortcuts}
+                        padMappingOverrides={padMappingOverrides()}
+                        onPadMappingChange={updatePadMappingOverrides}
                       />
                     </Show>
                   </div>

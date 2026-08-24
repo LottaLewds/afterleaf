@@ -38,6 +38,7 @@ import {
 import type {WorldSaveV1} from "~/game/worldSave";
 import {createEscapeScope} from "~/game/modalModes";
 import type {ShortcutsConfig} from "~/game/input/bindings";
+import type {ArcadePadMappingOverrides} from "~/arcade/controllerMappings";
 import {promptIconUrl} from "~/game/input/prompts";
 import {INTERACTION_ROW_MODES, useUiMode} from "~/game/uiMode";
 import {loadShopMediaCatalog} from "~/game/shopMediaCatalogBrowserClient";
@@ -73,6 +74,7 @@ export type ShopViewportProps = {
   onOpenMenu?: () => void;
   onCloseMenu?: () => void;
   shortcutsConfig?: Accessor<ShortcutsConfig>;
+  padMappingOverrides?: Accessor<ArcadePadMappingOverrides>;
   onPasteText?: (text: string) => boolean | Promise<boolean>;
   onPageIndexChange?: (publicationId: string, pageIndex: number) => void;
   onDiscardPublication?: (publicationId: string) => Promise<boolean>;
@@ -338,6 +340,9 @@ export const ShopViewport = (props: ShopViewportProps) => {
           ...(props.shortcutsConfig === undefined
             ? {}
             : {shortcutsConfig: props.shortcutsConfig}),
+          ...(props.padMappingOverrides === undefined
+            ? {}
+            : {padMappingOverrides: props.padMappingOverrides}),
           ...(props.onOpenMenu === undefined
             ? {}
             : {onPauseRequest: props.onOpenMenu}),

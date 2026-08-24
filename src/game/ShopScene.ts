@@ -134,7 +134,11 @@ import {
   type ShortcutsConfig,
 } from "~/game/input/bindings";
 import {InputManager, type InputMode} from "~/game/input/inputManager";
-import {ARCADE_GAMEPAD_KEYS} from "~/arcade/arcadeGamepadKeys";
+import {
+  loadPadMappingOverrides,
+  padForwardEvent,
+  type ArcadePadMappingOverrides,
+} from "~/arcade/controllerMappings";
 import {
   buildInteractionPrompts,
   formatInteractionRowKey,
@@ -996,6 +1000,8 @@ export type ShopSceneOptions = {
   paused?: () => boolean;
   /** Live shortcuts config; defaults are used when omitted. */
   shortcutsConfig?: () => ShortcutsConfig;
+  /** Live per-system emulator pad-mapping overrides; defaults when omitted. */
+  padMappingOverrides?: () => ArcadePadMappingOverrides;
   /** Fired when the gamepad requests opening the pause menu. */
   onPauseRequest?: () => void;
   /** Fired when the gamepad requests closing the pause menu. */
@@ -1293,6 +1299,7 @@ export class ShopScene {
   ) => Promise<ShopMediaCatalog>;
   readonly #input: InputManager;
   readonly #getShortcuts: () => ShortcutsConfig;
+  readonly #getPadMappingOverrides: () => ArcadePadMappingOverrides;
   readonly #onPauseRequest: (() => void) | undefined;
   readonly #onResumeRequest: (() => void) | undefined;
   readonly #keyboardLayout = new Map<string, string>();
@@ -1669,6 +1676,8 @@ export class ShopScene {
     // rebinding from the menu should apply without rebuilding the scene.
     const fallbackShortcuts = loadShortcuts();
     this.#getShortcuts = options.shortcutsConfig ?? (() => fallbackShortcuts);
+    this.#getPadMappingOverrides =
+      options.padMappingOverrides ?? loadPadMappingOverrides;
     this.#input = new InputManager({
       getShortcuts: this.#getShortcuts,
       handleAction: (action, phase) => {
@@ -1688,13 +1697,24 @@ export class ShopScene {
       this.#forwardArcadeKey(event),
     );
     this.#input.setRawGamepadForward((name, down) => {
-      const keyEvent = ARCADE_GAMEPAD_KEYS[name];
-      if (!keyEvent) return;
       const cabinet =
         this.#activeArcadeCabinet?.sessionStatus === "playing"
           ? this.#activeArcadeCabinet
           : undefined;
-      if (cabinet) cabinet.forwardKey(down, keyEvent);
+      if (!cabinet) return;
+      // Resolve against the playing session's system so each console gets
+      // its own pad layout; unmapped buttons simply forward nothing.
+      const systemId = cabinet.sessionSystemId;
+      if (!systemId) return;
+      const system = findArcadeSystem(systemId);
+      if (!system) return;
+      const keyEvent = padForwardEvent(
+        system.id,
+        name,
+        this.#getPadMappingOverrides(),
+      );
+      if (!keyEvent) return;
+      cabinet.forwardKey(down, keyEvent);
     });
 
     this.#renderer = new WebGLRenderer({

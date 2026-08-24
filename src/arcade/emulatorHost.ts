@@ -119,13 +119,20 @@ export type ArcadeEmulatorOptions = {
   romUrl: string;
   gameName: string;
   gameId: number;
+  /**
+   * Per-system player-1 controller defaults (see
+   * ~/arcade/controllerMappings); forwarded to EmulatorJS verbatim.
+   */
+  defaultControllers?: Record<string, unknown>;
 };
 
 /**
  * Pure builder mirroring what loader.js derives from the `EJS_*` globals;
  * constructing `EmulatorJS` directly with this config keeps parallel boots
  * free of global-variable races. Volume is pinned to 1 so loudness is owned
- * by the positional audio bus rather than an extra gain stage.
+ * by the positional audio bus rather than an extra gain stage. Local
+ * storage stays disabled: Afterleaf owns all persistence, and stale EJS
+ * settings could otherwise override our per-system controller defaults.
  */
 export const buildEmulatorConfig = (
   options: ArcadeEmulatorOptions,
@@ -137,10 +144,14 @@ export const buildEmulatorConfig = (
   dataPath: EMULATORJS_DATA_URL,
   startOnLoad: true,
   noAutoFocus: true,
+  disableLocalStorage: true,
   color: "#d94c3f",
   backgroundColor: "#000000",
   volume: 1,
   buttonOpts: buildEmulatorButtonOptions(),
+  ...(options.defaultControllers
+    ? {defaultControllers: options.defaultControllers}
+    : {}),
 });
 
 /** The slice of the EmulatorJS surface Afterleaf touches. */
