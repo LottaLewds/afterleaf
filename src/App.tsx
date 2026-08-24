@@ -146,7 +146,7 @@ type LibraryUpdateStage = "loading-library" | "working";
 type MenuTab = "library" | "options" | "shortcuts";
 
 const languageLabels: Record<LanguageFilter, string> = {
-  all: "All editions",
+  all: "All",
   english: "English",
   japanese: "日本語",
 };
@@ -2481,9 +2481,17 @@ export const App = () => {
         : {...publication, direction};
     });
   });
-  const visibleTags = createMemo(() =>
-    [...new Set(library().flatMap((item) => item.tags))].sort(),
+  const queryTokens = createMemo(() =>
+    query().trim().toLowerCase().split(/\s+/).filter(Boolean),
   );
+  const visibleTags = createMemo(() => {
+    const tags = [...new Set(library().flatMap((item) => item.tags))].sort();
+    const tokens = queryTokens();
+    if (!tokens.length) return tags;
+    return tags.filter((catalogTag) =>
+      tokens.some((token) => catalogTag.toLowerCase().includes(token)),
+    );
+  });
   let libraryUpdateStartedAt = 0;
   let libraryUpdateTimer: number | undefined;
   let libraryStatusRequestPending = false;
@@ -2514,13 +2522,15 @@ export const App = () => {
   };
 
   const filteredCatalog = createMemo(() => {
-    const normalizedQuery = query().trim().toLowerCase();
+    const tokens = queryTokens();
     return library().filter((item) => {
       if (language() !== "all" && item.language !== language()) return false;
-      if (tag() && !item.tags.includes(tag() ?? "")) return false;
-      if (!normalizedQuery) return true;
-      return [item.title, item.titleJp, item.collection, ...item.tags].some(
-        (value) => value.toLowerCase().includes(normalizedQuery),
+      const selectedTag = tag();
+      if (selectedTag && !item.tags.includes(selectedTag)) return false;
+      return tokens.every((token) =>
+        [item.title, item.titleJp, item.collection, ...item.tags].some(
+          (value) => value.toLowerCase().includes(token),
+        ),
       );
     });
   });
@@ -3289,30 +3299,6 @@ export const App = () => {
                         </button>
                       </div>
 
-                      <p class="mt-9 px-2 text-[9px] font-bold tracking-[0.2em] text-[#59645f] uppercase">
-                        Collections
-                      </p>
-                      <div class="mt-4 space-y-1">
-                        <For
-                          each={[
-                            {label: "Night shelves", color: "#d14d42"},
-                            {label: "Office stories", color: "#cf8951"},
-                            {label: "Supernatural", color: "#775e93"},
-                            {label: "Unsorted", color: "#64736d"},
-                          ]}
-                        >
-                          {(collection) => (
-                            <button class="flex w-full items-center gap-3 px-3 py-2 text-left text-[11px] text-[#7e8984] hover:text-[#cbd0cc]">
-                              <span
-                                class="size-1.5 rounded-full"
-                                style={{background: collection.color}}
-                              ></span>
-                              {collection.label}
-                            </button>
-                          )}
-                        </For>
-                      </div>
-
                       <div class="mt-auto border-t border-white/8 pt-5">
                         <div class="flex items-center gap-3 px-2">
                           <span class="grid size-8 place-items-center rounded-full bg-[#24312e] text-[#789488]">
@@ -3430,7 +3416,7 @@ export const App = () => {
                         </div>
                       </div>
 
-                      <div class="no-scrollbar mt-4 flex gap-2 overflow-x-auto pb-1">
+                      <div class="scrollbar-themed-x mt-4 flex gap-2 overflow-x-auto pb-1">
                         <button
                           class="shrink-0 border px-3 py-1.5 text-[9px] font-semibold tracking-wide uppercase transition"
                           classList={{

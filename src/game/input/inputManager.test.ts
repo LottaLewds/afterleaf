@@ -26,6 +26,7 @@ type FakeKeyEvent = {
   type: string;
   defaultPrevented: boolean;
   preventDefault: () => void;
+  target?: EventTarget | null;
 };
 const installWindowStub = () => {
   Object.defineProperty(globalThis, "window", {
@@ -257,6 +258,44 @@ describe("InputManager", () => {
     dispatchKey(fakeKeyEvent("Space"));
     expect(manager.isActionDown("jump")).toBe(true);
     manager.suspend();
+    expect(manager.isActionDown("jump")).toBe(false);
+  });
+});
+
+describe("InputManager input gating", () => {
+  test("does not consume keys typed into editable targets", () => {
+    const {manager, events} = createManager();
+    manager.update("shop");
+    const typing = fakeKeyEvent("KeyE");
+    // Simulate focus sitting in a text input.
+    typing.target = {
+      tagName: "INPUT",
+      isContentEditable: false,
+    } as unknown as EventTarget;
+    dispatchKey(typing);
+    expect(events).toEqual([]);
+    expect(typing.defaultPrevented).toBe(false);
+    expect(manager.isActionDown("interact")).toBe(false);
+  });
+
+  test("stops consuming bound keys while inactive (menus)", () => {
+    let active = true;
+    const manager = new InputManager({
+      getShortcuts: () => DEFAULT_SHORTCUTS,
+      handleAction: () => true,
+      isActive: () => active,
+    });
+    manager.attach(new AbortController().signal);
+    manager.update("shop");
+    active = false;
+    const press = fakeKeyEvent("Space");
+    dispatchKey(press);
+    expect(press.defaultPrevented).toBe(false);
+    // Held-key tracking continues so state stays consistent across the gate.
+    expect(manager.isActionDown("jump")).toBe(true);
+    active = true;
+    const release = fakeKeyEvent("Space", "keyup");
+    dispatchKey(release);
     expect(manager.isActionDown("jump")).toBe(false);
   });
 });

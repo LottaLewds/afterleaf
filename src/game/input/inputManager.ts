@@ -39,6 +39,22 @@ const BUTTON_NAME_BY_INDEX: readonly GamepadButtonName[] = [
 
 const LEFT_STICK_ARROW_THRESHOLD = 0.5;
 
+/** Text entry surfaces that must never be hijacked by game bindings. */
+const EDITABLE_TAGS: ReadonlySet<string> = new Set([
+  "INPUT",
+  "TEXTAREA",
+  "SELECT",
+]);
+
+const isEditableTarget = (target: EventTarget | null): boolean => {
+  if (target === null || typeof target !== "object") return false;
+  const element = target as {tagName?: string; isContentEditable?: boolean};
+  return (
+    EDITABLE_TAGS.has(element.tagName ?? "") ||
+    element.isContentEditable === true
+  );
+};
+
 /** Bit slots for synthesized stick arrows: up, down, left, right. */
 const STICK_ARROW_SLOTS: readonly (readonly [number, GamepadButtonName])[] = [
   [1, "DpadUp"],
@@ -63,6 +79,7 @@ export class InputManager {
 
   readonly #getShortcuts: Accessor<ShortcutsConfig>;
   readonly #handleAction: ActionHandler;
+  readonly #isActive: (() => boolean) | undefined;
   readonly #onMenuToggle: (() => void) | undefined;
   readonly #onKeyEvent: ((event: KeyboardEvent) => void) | undefined;
   /** Arcade sessions intercept raw keys before action resolution. */
@@ -87,6 +104,12 @@ export class InputManager {
   constructor(options: {
     getShortcuts: Accessor<ShortcutsConfig>;
     handleAction: ActionHandler;
+    /**
+     * When false (menus, dialogs), keyboard events are never consumed -
+     * bound keys must not break typing or page scrolling. Held-key tracking
+     * continues so state stays consistent across the gate.
+     */
+    isActive?: () => boolean;
     /** Fired on Start presses in every mode; the owner decides the toggle. */
     onMenuToggle?: () => void;
     /** Observes every keydown (layout hints); cannot consume events. */
@@ -94,6 +117,7 @@ export class InputManager {
   }) {
     this.#getShortcuts = options.getShortcuts;
     this.#handleAction = options.handleAction;
+    this.#isActive = options.isActive;
     this.#onMenuToggle = options.onMenuToggle;
     this.#onKeyEvent = options.onKeyEvent;
   }
@@ -103,12 +127,14 @@ export class InputManager {
       "keydown",
       (event) => {
         this.#syncShortcuts();
+        // Typing into inputs must never be hijacked by bindings.
+        if (isEditableTarget(event.target)) return;
         if (!event.repeat) this.#keysDown.add(event.code);
         this.#onKeyEvent?.(event);
         // The interceptor owns modal raw-key routing (arcade emulation).
         if (this.#keyboardInterceptor?.(event)) return;
         // Repeats never dispatch: held actions are queried via isActionDown.
-        if (event.repeat) return;
+        if (event.repeat || !this.#inputActive()) return;
         const actions = this.#actionsByKeyCode.get(event.code);
         if (actions === undefined) return;
         event.preventDefault();
@@ -119,10 +145,12 @@ export class InputManager {
     window.addEventListener(
       "keyup",
       (event) => {
+        // Always release held state, even when typing or inactive.
         this.#keysDown.delete(event.code);
+        if (isEditableTarget(event.target)) return;
         if (this.#keyboardInterceptor?.(event)) return;
         const actions = this.#actionsByKeyCode.get(event.code);
-        if (actions === undefined) return;
+        if (actions === undefined || !this.#inputActive()) return;
         event.preventDefault();
         this.#dispatchCandidateList(actions, "up", "keyboard");
       },
@@ -205,6 +233,15 @@ export class InputManager {
     forward: ((name: GamepadButtonName, down: boolean) => void) | undefined,
   ) {
     this.#rawGamepadForward = forward;
+  }
+
+  /** False while menus or dialogs own the page (keyboard must pass through). */
+  #inputActive(): boolean {
+    if (this.#isActive && !this.#isActive()) return false;
+    // Headless environments (tests) have no document to inspect.
+    const element =
+      typeof document === "undefined" ? null : document.activeElement;
+    return !isEditableTarget(element);
   }
 
   #dispatchCandidateList(

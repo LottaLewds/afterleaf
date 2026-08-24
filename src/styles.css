@@ -99,6 +99,29 @@ button {
   display: none;
 }
 
+.scrollbar-themed-x {
+  scrollbar-width: thin;
+  scrollbar-color: #d64e42 #19211f;
+}
+
+.scrollbar-themed-x::-webkit-scrollbar {
+  height: 6px;
+}
+
+.scrollbar-themed-x::-webkit-scrollbar-track {
+  border-radius: 9999px;
+  background: #19211f;
+}
+
+.scrollbar-themed-x::-webkit-scrollbar-thumb {
+  border-radius: 9999px;
+  background: #d64e42;
+}
+
+.scrollbar-themed-x::-webkit-scrollbar-thumb:hover {
+  background: #e46a60;
+}
+
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;

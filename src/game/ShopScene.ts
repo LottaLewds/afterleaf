@@ -1671,6 +1671,9 @@ export class ShopScene {
         if (phase === "up") return this.#handleActionUp(action);
         return this.#handleActionDown(action);
       },
+      // While menus or dialogs own the page, bound keys must not swallow
+      // typing or scrolling.
+      isActive: () => !this.#paused(),
       onMenuToggle: () => {
         if (this.#paused()) this.#onResumeRequest?.();
         else this.#onPauseRequest?.();
