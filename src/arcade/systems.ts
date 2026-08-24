@@ -95,7 +95,8 @@ export const ARCADE_SYSTEMS: readonly ArcadeSystem[] = [
     extensions: ["n64", "z64", "v64", "ndd"],
     controlHints: [
       ...CONSOLE_HINTS,
-      {keys: "A / S / Q / W", action: "C buttons"},
+      {keys: "I / J / K / L", action: "C buttons"},
+      {keys: "Q / E / W", action: "L / R / Z"},
     ],
   },
   {
@@ -146,7 +147,7 @@ export const ARCADE_SYSTEMS: readonly ArcadeSystem[] = [
     extensions: ["a26"],
     controlHints: [
       {keys: "Arrows", action: "Joystick"},
-      {keys: "Z / X", action: "Button"},
+      {keys: "X", action: "Button"},
       {keys: "Enter", action: "Game select / start"},
     ],
   },
