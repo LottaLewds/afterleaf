@@ -61,6 +61,7 @@ export type ShopViewportProps = {
   catalogAtlases: Accessor<CatalogAtlases>;
   catalogAvailable: Accessor<boolean>;
   catalogIdentity: Accessor<CatalogIdentity>;
+  gamepadLookSensitivity?: Accessor<number>;
   mouseSensitivity?: Accessor<number>;
   newPublicationIds?: Accessor<readonly string[]>;
   onControlsChange?: (controls: ShopViewportControls | undefined) => void;
@@ -277,6 +278,9 @@ export const ShopViewport = (props: ShopViewportProps) => {
           ...(props.pageIndexForPublication === undefined
             ? {}
             : {initialPageIndex: props.pageIndexForPublication}),
+          ...(props.gamepadLookSensitivity === undefined
+            ? {}
+            : {gamepadLookSensitivity: props.gamepadLookSensitivity}),
           ...(props.mouseSensitivity === undefined
             ? {}
             : {mouseSensitivity: props.mouseSensitivity}),

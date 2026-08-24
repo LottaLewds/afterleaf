@@ -979,6 +979,8 @@ export type ShopSceneOptions = {
     signal: AbortSignal,
   ) => Promise<TvVideo>;
   mouseSensitivity?: () => number;
+  /** Multiplier on the base right-stick look speed. */
+  gamepadLookSensitivity?: () => number;
   newPublicationIds?: () => readonly string[];
   tvScreenLighting?: () => boolean;
   onDiscardPublication?: (publicationId: string) => Promise<boolean>;
@@ -1315,6 +1317,7 @@ export class ShopScene {
   #activeArcadeCabinet: ShopArcadeCabinet | undefined;
   readonly #arcadeAimTarget = new Vector3();
   readonly #mouseSensitivity: () => number;
+  readonly #gamepadLookSensitivity: () => number;
   readonly #newPublicationIds: () => readonly string[];
   readonly #tvScreenLighting: () => boolean;
   readonly #nextLookAngles: LookAngles = {pitch: 0, yaw: 0};
@@ -1641,6 +1644,7 @@ export class ShopScene {
           tv: {channels: []},
         }));
     this.#mouseSensitivity = options.mouseSensitivity ?? (() => 1);
+    this.#gamepadLookSensitivity = options.gamepadLookSensitivity ?? (() => 1);
     this.#tvScreenLighting = options.tvScreenLighting ?? (() => false);
     this.#mode = options.mode;
     this.#selectedPublicationId = options.selectedPublicationId;
@@ -8286,10 +8290,15 @@ export class ShopScene {
     // Gamepad look rides the same smoothed pointer-delta path as the mouse.
     const padLook = this.#input.gamepad.look;
     if (this.#pointerLocked && (padLook.yaw !== 0 || padLook.pitch !== 0)) {
+      const padSensitivity = this.#gamepadLookSensitivity();
+      const padMultiplier =
+        Number.isFinite(padSensitivity) && padSensitivity > 0
+          ? padSensitivity
+          : 1;
       this.#pendingPointerMovementX +=
-        padLook.yaw * GAMEPAD_LOOK_SPEED * deltaSeconds;
+        padLook.yaw * GAMEPAD_LOOK_SPEED * padMultiplier * deltaSeconds;
       this.#pendingPointerMovementY +=
-        padLook.pitch * GAMEPAD_LOOK_SPEED * deltaSeconds;
+        padLook.pitch * GAMEPAD_LOOK_SPEED * padMultiplier * deltaSeconds;
     }
     const movementX = this.#pendingPointerMovementX;
     const movementY = this.#pendingPointerMovementY;

@@ -22,6 +22,7 @@ import {
   FiTag,
   FiTool,
   FiTv,
+  FiZap,
   FiTrash2,
   FiX,
 } from "solid-icons/fi";
@@ -118,7 +119,9 @@ import {
 } from "~/content/tagBlacklistPreference";
 import {
   loadControlPreferences,
+  MAX_GAMEPAD_LOOK_SENSITIVITY,
   MAX_MOUSE_SENSITIVITY,
+  MIN_GAMEPAD_LOOK_SENSITIVITY,
   MIN_MOUSE_SENSITIVITY,
   saveControlPreferences,
   type ReadingDirection,
@@ -174,6 +177,42 @@ const MouseSensitivityControl = (props: {
         type="range"
         min={MIN_MOUSE_SENSITIVITY * 100}
         max={MAX_MOUSE_SENSITIVITY * 100}
+        step="5"
+        value={Math.round(props.value * 100)}
+        onInput={(event) =>
+          props.onChange(Number(event.currentTarget.value) / 100)
+        }
+      />
+      <span class="w-12 text-right text-[10px] font-semibold text-[#aeb8b3] tabular-nums">
+        {Math.round(props.value * 100)}%
+      </span>
+    </label>
+  </div>
+);
+
+const GamepadLookSensitivityControl = (props: {
+  onChange: (value: number) => void;
+  value: number;
+}) => (
+  <div class="flex flex-col gap-4 border border-white/8 bg-[#151e1c] px-4 py-4 sm:flex-row sm:items-center sm:px-5">
+    <span class="grid size-9 shrink-0 place-items-center bg-[#d94c3f]/10 text-[#dc6156]">
+      <FiZap size={15} />
+    </span>
+    <div class="min-w-0 sm:w-52">
+      <p class="text-[10px] font-semibold tracking-[0.12em] text-[#c5cec9] uppercase">
+        Controller look speed
+      </p>
+      <p class="mt-1 text-[9px] leading-4 text-[#65716c]">
+        Right-stick camera turn rate at full deflection.
+      </p>
+    </div>
+    <label class="flex min-w-0 flex-1 items-center gap-4">
+      <span class="sr-only">Controller look speed</span>
+      <input
+        class="h-1.5 min-w-0 flex-1 cursor-pointer accent-[#d94c3f]"
+        type="range"
+        min={MIN_GAMEPAD_LOOK_SENSITIVITY * 100}
+        max={MAX_GAMEPAD_LOOK_SENSITIVITY * 100}
         step="5"
         value={Math.round(props.value * 100)}
         onInput={(event) =>
@@ -1352,9 +1391,11 @@ const OptionsPanel = (props: {
   reenrollableBookPaths: ReadonlySet<string>;
   blacklistedTags: readonly string[];
   defaultReadingDirection: ReadingDirection;
+  gamepadLookSensitivity: number;
   mouseSensitivity: number;
   onBlacklistedTagsChange: (tags: readonly string[]) => void;
   onDefaultReadingDirectionChange: (value: ReadingDirection) => void;
+  onGamepadLookSensitivityChange: (value: number) => void;
   onMouseSensitivityChange: (value: number) => void;
   onPurgeBlacklistedWorks: () => void;
   onRespectBookReadingDirectionChange: (value: boolean) => void;
@@ -1382,6 +1423,10 @@ const OptionsPanel = (props: {
         <MouseSensitivityControl
           value={props.mouseSensitivity}
           onChange={props.onMouseSensitivityChange}
+        />
+        <GamepadLookSensitivityControl
+          value={props.gamepadLookSensitivity}
+          onChange={props.onGamepadLookSensitivityChange}
         />
         <TvScreenLightingControl
           enabled={props.tvScreenLighting}
@@ -2357,6 +2402,9 @@ export const App = () => {
   const [mouseSensitivity, setMouseSensitivity] = createSignal(
     initialControlPreferences.mouseSensitivity,
   );
+  const [gamepadLookSensitivity, setGamepadLookSensitivity] = createSignal(
+    initialControlPreferences.gamepadLookSensitivity,
+  );
   const [shortcutsConfig, setShortcutsConfig] = createSignal(loadShortcuts());
   const [tvScreenLighting, setTvScreenLighting] = createSignal(
     initialControlPreferences.tvScreenLighting,
@@ -2913,11 +2961,23 @@ export const App = () => {
   const updateMouseSensitivity = (value: number) => {
     const preferences = saveControlPreferences({
       defaultReadingDirection: defaultReadingDirection(),
+      gamepadLookSensitivity: gamepadLookSensitivity(),
       mouseSensitivity: value,
       respectBookReadingDirection: respectBookReadingDirection(),
       tvScreenLighting: tvScreenLighting(),
     });
     setMouseSensitivity(preferences.mouseSensitivity);
+  };
+
+  const updateGamepadLookSensitivity = (value: number) => {
+    const preferences = saveControlPreferences({
+      defaultReadingDirection: defaultReadingDirection(),
+      gamepadLookSensitivity: value,
+      mouseSensitivity: mouseSensitivity(),
+      respectBookReadingDirection: respectBookReadingDirection(),
+      tvScreenLighting: tvScreenLighting(),
+    });
+    setGamepadLookSensitivity(preferences.gamepadLookSensitivity);
   };
 
   const updateShortcuts = (config: ShortcutsConfig) => {
@@ -2927,6 +2987,7 @@ export const App = () => {
 
   const updateDefaultReadingDirection = (value: ReadingDirection) => {
     const preferences = saveControlPreferences({
+      gamepadLookSensitivity: gamepadLookSensitivity(),
       defaultReadingDirection: value,
       mouseSensitivity: mouseSensitivity(),
       respectBookReadingDirection: respectBookReadingDirection(),
@@ -2937,6 +2998,7 @@ export const App = () => {
 
   const updateRespectBookReadingDirection = (value: boolean) => {
     const preferences = saveControlPreferences({
+      gamepadLookSensitivity: gamepadLookSensitivity(),
       defaultReadingDirection: defaultReadingDirection(),
       mouseSensitivity: mouseSensitivity(),
       respectBookReadingDirection: value,
@@ -2947,6 +3009,7 @@ export const App = () => {
 
   const updateTvScreenLighting = (value: boolean) => {
     const preferences = saveControlPreferences({
+      gamepadLookSensitivity: gamepadLookSensitivity(),
       defaultReadingDirection: defaultReadingDirection(),
       mouseSensitivity: mouseSensitivity(),
       respectBookReadingDirection: respectBookReadingDirection(),
@@ -3021,6 +3084,7 @@ export const App = () => {
                         isRuntimeLibraryAvailable(runtime())
                       }
                       catalogIdentity={() => runtime().identity}
+                      gamepadLookSensitivity={gamepadLookSensitivity}
                       mouseSensitivity={mouseSensitivity}
                       newPublicationIds={newPublicationIds}
                       onControlsChange={(controls) => {
@@ -3547,10 +3611,14 @@ export const App = () => {
                         reenrollableBookPaths={reenrollableBookPaths()}
                         blacklistedTags={blacklistedTags()}
                         defaultReadingDirection={defaultReadingDirection()}
+                        gamepadLookSensitivity={gamepadLookSensitivity()}
                         mouseSensitivity={mouseSensitivity()}
                         onBlacklistedTagsChange={updateBlacklistedTags}
                         onDefaultReadingDirectionChange={
                           updateDefaultReadingDirection
+                        }
+                        onGamepadLookSensitivityChange={
+                          updateGamepadLookSensitivity
                         }
                         onMouseSensitivityChange={updateMouseSensitivity}
                         onPurgeBlacklistedWorks={() =>

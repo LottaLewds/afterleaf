@@ -3,6 +3,9 @@ export const CONTROL_PREFERENCES_STORAGE_KEY =
 export const DEFAULT_MOUSE_SENSITIVITY = 0.75;
 export const MIN_MOUSE_SENSITIVITY = 0.2;
 export const MAX_MOUSE_SENSITIVITY = 2;
+export const DEFAULT_GAMEPAD_LOOK_SENSITIVITY = 1;
+export const MIN_GAMEPAD_LOOK_SENSITIVITY = 0.2;
+export const MAX_GAMEPAD_LOOK_SENSITIVITY = 3;
 export const DEFAULT_READING_DIRECTION = "LTR";
 export const DEFAULT_RESPECT_BOOK_READING_DIRECTION = true;
 export const DEFAULT_TV_SCREEN_LIGHTING = false;
@@ -11,18 +14,38 @@ export type ReadingDirection = "LTR" | "RTL";
 
 export type ControlPreferences = {
   defaultReadingDirection: ReadingDirection;
+  /** Multiplier on top of the base right-stick look speed. */
+  gamepadLookSensitivity: number;
   mouseSensitivity: number;
   respectBookReadingDirection: boolean;
   tvScreenLighting: boolean;
 };
 
-export const normalizeMouseSensitivity = (value: number) => {
-  if (!Number.isFinite(value)) return DEFAULT_MOUSE_SENSITIVITY;
-  return Math.min(
-    Math.max(value, MIN_MOUSE_SENSITIVITY),
-    MAX_MOUSE_SENSITIVITY,
-  );
+const normalizeSensitivity = (
+  value: number,
+  min: number,
+  max: number,
+  fallback: number,
+) => {
+  if (!Number.isFinite(value)) return fallback;
+  return Math.min(Math.max(value, min), max);
 };
+
+export const normalizeMouseSensitivity = (value: number) =>
+  normalizeSensitivity(
+    value,
+    MIN_MOUSE_SENSITIVITY,
+    MAX_MOUSE_SENSITIVITY,
+    DEFAULT_MOUSE_SENSITIVITY,
+  );
+
+export const normalizeGamepadLookSensitivity = (value: number) =>
+  normalizeSensitivity(
+    value,
+    MIN_GAMEPAD_LOOK_SENSITIVITY,
+    MAX_GAMEPAD_LOOK_SENSITIVITY,
+    DEFAULT_GAMEPAD_LOOK_SENSITIVITY,
+  );
 
 const parseControlPreferences = (
   value: unknown,
@@ -54,6 +77,10 @@ const parseControlPreferences = (
       : DEFAULT_TV_SCREEN_LIGHTING;
   return {
     defaultReadingDirection,
+    gamepadLookSensitivity:
+      typeof preferences.gamepadLookSensitivity === "number"
+        ? normalizeGamepadLookSensitivity(preferences.gamepadLookSensitivity)
+        : DEFAULT_GAMEPAD_LOOK_SENSITIVITY,
     mouseSensitivity: normalizeMouseSensitivity(preferences.mouseSensitivity),
     respectBookReadingDirection,
     tvScreenLighting,
@@ -62,6 +89,7 @@ const parseControlPreferences = (
 
 const defaultControlPreferences = (): ControlPreferences => ({
   defaultReadingDirection: DEFAULT_READING_DIRECTION,
+  gamepadLookSensitivity: DEFAULT_GAMEPAD_LOOK_SENSITIVITY,
   mouseSensitivity: DEFAULT_MOUSE_SENSITIVITY,
   respectBookReadingDirection: DEFAULT_RESPECT_BOOK_READING_DIRECTION,
   tvScreenLighting: DEFAULT_TV_SCREEN_LIGHTING,
@@ -88,6 +116,9 @@ export const saveControlPreferences = (
 ) => {
   const normalizedPreferences = {
     defaultReadingDirection: preferences.defaultReadingDirection,
+    gamepadLookSensitivity: normalizeGamepadLookSensitivity(
+      preferences.gamepadLookSensitivity,
+    ),
     mouseSensitivity: normalizeMouseSensitivity(preferences.mouseSensitivity),
     respectBookReadingDirection: preferences.respectBookReadingDirection,
     tvScreenLighting: preferences.tvScreenLighting,
