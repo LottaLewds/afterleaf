@@ -2472,6 +2472,14 @@ const DetailPanel = (props: {
 const ESCAPE_GESTURE_COOLDOWN_MS = 250;
 
 /**
+ * True while a key press originates inside a modal dialog. Dialogs own
+ * their own Tab-based focus navigation (summary rows, buttons, selects),
+ * so the global Tab router must never swallow presses born there.
+ */
+const isDialogDescendant = (target: EventTarget | null): boolean =>
+  target instanceof Element && target.closest('[role="dialog"]') !== null;
+
+/**
  * Always-on Tab router plus a mode-scoped menu fallback. The router offers
  * every press to the shared modal stack from whichever mode is active; the
  * fallback that toggles the pause menu binds only while a fallback-armed
@@ -2479,9 +2487,10 @@ const ESCAPE_GESTURE_COOLDOWN_MS = 250;
  * never leak a stray press into the menu.
  *
  * Tab owns the menus outright: Escape stays reserved for the browser's own
- * pointer-lock management, and Tab presses on text-entry surfaces are
- * ignored so form focus navigation keeps working. Closing the menu through
- * here resumes regular gameplay, so the pointer lock is re-acquired.
+ * pointer-lock management, and Tab presses on text-entry surfaces or inside
+ * modal dialogs are ignored so form focus navigation keeps working. Closing
+ * the menu through here resumes regular gameplay, so the pointer lock is
+ * re-acquired.
  */
 const GlobalEscapeShortcuts = (props: {onFallback: () => void}) => {
   const {escapeFallbackArmed} = useUiMode();
@@ -2492,6 +2501,7 @@ const GlobalEscapeShortcuts = (props: {onFallback: () => void}) => {
     "keydown",
     (event) => {
       if (event.key !== "Tab" || isEditableTarget(event.target)) return;
+      if (isDialogDescendant(event.target)) return;
       if (event.defaultPrevented || event.repeat) return;
       if (!modalModes.consumeEscape()) return;
       lastStackConsumeAt = performance.now();
@@ -2505,6 +2515,7 @@ const GlobalEscapeShortcuts = (props: {onFallback: () => void}) => {
       "keydown",
       (event) => {
         if (event.key !== "Tab" || isEditableTarget(event.target)) return;
+        if (isDialogDescendant(event.target)) return;
         if (event.defaultPrevented || event.repeat) return;
         if (performance.now() - lastStackConsumeAt < ESCAPE_GESTURE_COOLDOWN_MS)
           return;
