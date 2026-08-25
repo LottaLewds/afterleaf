@@ -31,7 +31,6 @@ import {
   RepeatWrapping,
   Scene,
   SRGBColorSpace,
-  SpotLight,
   Texture,
   TextureLoader,
   Vector2,
@@ -79,6 +78,17 @@ import {
   createNightWindows,
   createTheatreSeating,
 } from "~/game/interior/seating";
+import {
+  createCeilingLightRig,
+  createCeilingLightTemplate,
+  createDeskLamps,
+  playModelAnimations,
+} from "~/game/interior/lightingProps";
+import {
+  DEFAULT_MODEL_SCALE,
+  MAX_MODEL_SCALE,
+  MIN_MODEL_SCALE,
+} from "~/game/propTuning";
 import {
   BUILTIN_ARCADE_CABINET_ASSET_ID,
   BUILTIN_CEILING_LIGHT_ASSET_ID,
@@ -153,7 +163,6 @@ import floorNormalUrl from "~/assets/materials/laminate-floor-normal.webp";
 import floorSurfaceUrl from "~/assets/materials/laminate-floor-surface.webp";
 import moonriseSkyUrl from "~/assets/materials/qwantani-moonrise-sky.webp";
 import crtTvModelUrl from "~/assets/models/crt-tv.glb?url";
-import lampModelUrl from "~/assets/models/lamp.glb?url";
 import trashCanModelUrl from "~/assets/models/trash_can.glb?url";
 import type {
   CatalogAtlases,
@@ -256,7 +265,6 @@ import {
 import {
   FACE_OUT_DISPLAY,
   READING_FURNITURE_BOXES,
-  READING_TABLE_Z_POSITIONS,
   SHOP_BOUNDS,
   SHOP_INTERIOR_FOOTPRINTS,
   SHOP_MODEL_TELEVISION_SCALE,
@@ -432,10 +440,6 @@ const AIM_SWEEP_MIN_INTERVAL_MS = 1000 / 60;
 const SHELF_HOVER_CULL_MARGIN = 1.5;
 const DISCARD_TARGETED_EMISSIVE = new Color("#ff3524");
 const DISCARD_TARGETED_EMISSIVE_INTENSITY = 0.95;
-const DESK_LAMP_HEIGHT = 0.64;
-const DESK_LAMP_SPAWN_CLEARANCE = 0.015;
-const CRT_TABLE_DESK_LAMP_SPAWN_CLEARANCE = 0.08;
-const READING_TABLE_SURFACE_Y = 0.91;
 const CARRIED_PROP_OPACITY = 0.32;
 const PROP_MAX_PROJECTION_DISTANCE = 6;
 const PROP_MIN_PROJECTION_DISTANCE = 0.9;
@@ -444,9 +448,6 @@ const PROP_PLACEMENT_HEIGHT_STEP = 0.125;
 const PROP_ROTATION_SNAP_STEP = MathUtils.degToRad(15);
 const PROP_WHEEL_ROTATION_STEP = MathUtils.degToRad(5);
 const PROP_SUPPORT_SNAP_DISTANCE = 0.65;
-const DEFAULT_MODEL_SCALE = 1;
-const MIN_MODEL_SCALE = 0.1;
-const MAX_MODEL_SCALE = 10;
 const MIN_MODEL_COLLIDER_DIMENSION = 0.02;
 const MAX_USER_MODEL_PROP_COUNT = 512;
 /** Footprint box of the height-normalized cabinet model before scaling. */
@@ -473,7 +474,6 @@ const RARE_ROOM_CENTER_Z = -6.25;
  */
 const CEILING_LIGHT_ORIGIN_Y = 4.47;
 /** Downward offset from the prop origin to the spotlight emitter. */
-const CEILING_LIGHT_BULB_DROP = 0.22;
 
 type CeilingLightPlacement = {rotationY: number; x: number; z: number};
 
@@ -2271,7 +2271,15 @@ export class ShopScene {
         cacheBuiltinPropTemplate: (registration) =>
           this.#cacheBuiltinPropTemplate(registration),
         createDeskLamps: async (parent2) => {
-          await this.#createDeskLamps(parent2);
+          await createDeskLamps(parent2, {
+            cacheBuiltinPropTemplate: (registration) =>
+              this.#cacheBuiltinPropTemplate(registration),
+            isDisposed: () => this.#disposed,
+            modelMixers: this.#modelMixers,
+            needsSeedPass: (version) => this.#needsSeedPass(version),
+            registerMovableProp: (registration) =>
+              this.#registerMovableProp(registration),
+          });
         },
         needsSeedPass: (version) => this.#needsSeedPass(version),
         registerMovableProp: (registration) =>
@@ -2301,7 +2309,15 @@ export class ShopScene {
     );
     // Ceiling-light fixtures live on the spawnable props now; the template
     // is registered here so menu spawning works on every world.
-    this.#createCeilingLightTemplate();
+    createCeilingLightTemplate({
+      cacheBuiltinPropTemplate: (registration) =>
+        this.#cacheBuiltinPropTemplate(registration),
+      isDisposed: () => this.#disposed,
+      modelMixers: this.#modelMixers,
+      needsSeedPass: (version) => this.#needsSeedPass(version),
+      registerMovableProp: (registration) =>
+        this.#registerMovableProp(registration),
+    });
     createNightWindows(
       architecture,
       (parent2, size, position2, material, castShadow) =>
@@ -2853,19 +2869,6 @@ export class ShopScene {
     this.#setShelfSign(0, "NEW ARRIVALS", "DISPLAY 01");
   }
 
-  #playModelAnimations(
-    root: Object3D,
-    clips: readonly AnimationClip[],
-    clipIndex = 0,
-  ) {
-    if (clips.length === 0) return;
-    const mixer = new AnimationMixer(root);
-    const clip = clips[clipIndex];
-    if (clip) mixer.clipAction(clip).play();
-    this.#modelMixers.add(mixer);
-    return mixer;
-  }
-
   async #createTrashcan(parent: Group) {
     // The discard bin is a seeded default like any other prop: injected
     // once as a spawned, deletable prop and persisted through modelProps.
@@ -2937,7 +2940,7 @@ export class ShopScene {
         object.receiveShadow = true;
       });
       trashcan.add(gltf.scene);
-      this.#playModelAnimations(gltf.scene, gltf.animations);
+      playModelAnimations(this.#modelMixers, gltf.scene, gltf.animations);
       const trashcanProp = this.#movableProps.get(TRASH_CAN_PROP_ID);
       if (trashcanProp && this.#carriedProp === trashcanProp)
         trashcanProp.ghostMaterialSwaps.push(...this.#ghostObject(gltf.scene));
@@ -3641,95 +3644,6 @@ export class ShopScene {
 
   /** Builds one procedural reading table visual (meshes only). */
 
-  async #createDeskLamps(parent: Group) {
-    try {
-      const gltf = await ShopScene.#modelLoader.loadAsync(lampModelUrl);
-      if (this.#disposed) {
-        disposeObject(gltf.scene);
-        return;
-      }
-
-      gltf.scene.updateMatrixWorld(true);
-      const bounds = new Box3().setFromObject(gltf.scene);
-      const height = bounds.max.y - bounds.min.y;
-      if (!(height > 0)) {
-        disposeObject(gltf.scene);
-        throw new Error("The lamp model has no measurable height.");
-      }
-
-      const scale = DESK_LAMP_HEIGHT / height;
-      const center = bounds.getCenter(new Vector3());
-      gltf.scene.scale.setScalar(scale);
-      gltf.scene.position.set(
-        -center.x * scale,
-        -bounds.min.y * scale,
-        -center.z * scale,
-      );
-      gltf.scene.name = "reading-table-lamp";
-      gltf.scene.traverse((object) => {
-        if (!(object instanceof Mesh)) return;
-        object.castShadow = true;
-        object.receiveShadow = true;
-      });
-
-      // The model is always loaded and always becomes the spawn template;
-      // seeding only decides whether default-positioned copies are placed.
-      for (const [index, z] of READING_TABLE_Z_POSITIONS.entries()) {
-        if (index > 0 && !this.#needsSeedPass(INITIAL_WORLD_SEEDING_VERSION))
-          break;
-        const lamp = index === 0 ? gltf.scene : cloneWithSkeleton(gltf.scene);
-        const spawnClearance =
-          index === 1
-            ? CRT_TABLE_DESK_LAMP_SPAWN_CLEARANCE
-            : DESK_LAMP_SPAWN_CLEARANCE;
-        lamp.position.y =
-          READING_TABLE_SURFACE_Y + spawnClearance - bounds.min.y * scale;
-        lamp.position.z = z - center.z * scale;
-        const lampBounds = new Box3().setFromObject(lamp);
-        const lampSize = lampBounds.getSize(new Vector3());
-        const lampRoot = new Group();
-        lampRoot.name = `desk-lamp-${index + 1}`;
-        lampRoot.position.copy(lampBounds.getCenter(new Vector3()));
-        lampRoot.attach(lamp);
-        if (index === 0)
-          this.#cacheBuiltinPropTemplate({
-            density: 8,
-            depth: lampSize.z,
-            heldLocalPosition: new Vector3(0, -0.12, -1.6),
-            height: lampSize.y,
-            id: BUILTIN_DESK_LAMP_ASSET_ID,
-            label: "desk lamp",
-            object: lampRoot,
-            rotationSnapStep: Math.PI / 2,
-            spawnAssetId: BUILTIN_DESK_LAMP_ASSET_ID,
-            templateForSpawning: true,
-            width: lampSize.x,
-          });
-        if (!this.#needsSeedPass(INITIAL_WORLD_SEEDING_VERSION)) continue;
-        parent.add(lampRoot);
-        this.#playModelAnimations(lamp, gltf.animations);
-        this.#registerMovableProp({
-          density: 8,
-          depth: lampSize.z,
-          heldLocalPosition: new Vector3(0, -0.12, -1.6),
-          height: lampSize.y,
-          id: `desk-lamp-${index + 1}`,
-          label: `desk lamp ${index + 1}`,
-          modelBaseSize: new Vector3(lampSize.x, lampSize.y, lampSize.z),
-          modelScale: DEFAULT_MODEL_SCALE,
-          object: lampRoot,
-          rotationSnapStep: Math.PI / 2,
-          spawnAssetId: BUILTIN_DESK_LAMP_ASSET_ID,
-          spawned: true,
-          width: lampSize.x,
-        });
-      }
-    } catch (error) {
-      if (DEV && !this.#disposed)
-        console.warn("Afterleaf could not load the desk lamp model.", error);
-    }
-  }
-
   #createRareRoom(
     parent: Group,
     wallMaterial: MeshStandardMaterial,
@@ -3908,54 +3822,12 @@ export class ShopScene {
    * Builds the shared ceiling-light spawn template: just the fixture
    * meshes, registered once so the prop is spawnable on every world.
    */
-  #createCeilingLightTemplate() {
-    const housing = new Mesh(
-      new BoxGeometry(2.15, 0.05, 0.25),
-      new MeshStandardMaterial({
-        color: "#525c58",
-        metalness: 0.6,
-        roughness: 0.42,
-      }),
-    );
-    const panel = new Mesh(
-      new BoxGeometry(1.92, 0.025, 0.12),
-      new MeshStandardMaterial({
-        color: "#dce9e2",
-        emissive: "#dff9ed",
-        emissiveIntensity: 3.8,
-        roughness: 0.28,
-      }),
-    );
-    panel.position.y = -0.04;
-    const group = new Group();
-    group.add(housing, panel);
-    this.#cacheBuiltinPropTemplate({
-      depth: 0.25,
-      height: 0.075,
-      heldLocalPosition: new Vector3(0, -0.35, -2.4),
-      id: BUILTIN_CEILING_LIGHT_ASSET_ID,
-      label: "ceiling light",
-      object: group,
-      rotationSnapStep: Math.PI / 2,
-      spawnAssetId: BUILTIN_CEILING_LIGHT_ASSET_ID,
-      templateForSpawning: true,
-      width: 2.15,
-    });
-  }
 
   /**
    * Builds one ceiling light's illumination rig: a downward spotlight plus
    * its floor target. Both parent to the prop object so they travel with
    * it whenever the light is moved.
    */
-  #createCeilingLightRig() {
-    const light = new SpotLight("#f3e3cb", 5.6, 9, Math.PI / 2, 0.75, 1.75);
-    light.position.set(0, -CEILING_LIGHT_BULB_DROP, 0);
-    const target = new Object3D();
-    target.position.set(0, -CEILING_LIGHT_ORIGIN_Y, 0);
-    light.target = target;
-    return [light, target] as const;
-  }
 
   #createSpawnedCeilingLight(
     asset: BuiltinSpawnablePropAsset,
@@ -3979,7 +3851,7 @@ export class ShopScene {
         .copy(this.#camera.position)
         .addScaledVector(this.#viewDirection, 2);
     }
-    object.add(...this.#createCeilingLightRig());
+    object.add(...createCeilingLightRig());
     this.#scene.add(object);
     return this.#registerMovableProp({
       depth: template.depth * scale,
@@ -4053,7 +3925,15 @@ export class ShopScene {
             cacheBuiltinPropTemplate: (registration) =>
               this.#cacheBuiltinPropTemplate(registration),
             createDeskLamps: async (parent2) => {
-              await this.#createDeskLamps(parent2);
+              await createDeskLamps(parent2, {
+                cacheBuiltinPropTemplate: (registration) =>
+                  this.#cacheBuiltinPropTemplate(registration),
+                isDisposed: () => this.#disposed,
+                modelMixers: this.#modelMixers,
+                needsSeedPass: (version) => this.#needsSeedPass(version),
+                registerMovableProp: (registration) =>
+                  this.#registerMovableProp(registration),
+              });
             },
             needsSeedPass: (version) => this.#needsSeedPass(version),
             registerMovableProp: (registration) =>
@@ -5188,7 +5068,8 @@ export class ShopScene {
       template.animations,
       animationClip,
     );
-    const mixer = this.#playModelAnimations(
+    const mixer = playModelAnimations(
+      this.#modelMixers,
       model,
       template.animations,
       modelAnimationIndex,
@@ -5646,7 +5527,8 @@ export class ShopScene {
       template.animations,
       animationClip,
     );
-    const mixer = this.#playModelAnimations(
+    const mixer = playModelAnimations(
+      this.#modelMixers,
       model,
       template.animations,
       modelAnimationIndex,
