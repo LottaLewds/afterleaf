@@ -372,6 +372,8 @@ const SHADER_PRECOMPILE_LATE_DELAY_MS = 4_000;
 // of every animation tick; highlight prompts and clicks tolerate a frame
 // or two of latency, and the sweep costs real time against many props.
 const AIM_SWEEP_MIN_INTERVAL_MS = 1000 / 60;
+/** Extra reach margin so culling never drops a bank the ray could graze. */
+const SHELF_HOVER_CULL_MARGIN = 1.5;
 const INSPECTION_PAGE_GUTTER = 0;
 const INSPECTION_SURFACE_GAP = 0.001;
 const INSPECTION_FRAME_FILL = 0.88;
@@ -1599,7 +1601,17 @@ export class ShopScene {
   #shelfTargeted = false;
   #shelfTargetSelection: ShelfTargetSelection | undefined;
   #shelfPresentation: ShelfPresentation = "spine";
-  #shelfHoverTargetMeshes: Mesh[] = [];
+  readonly #shelfHoverMeshesByShelf = new Map<string, Mesh[]>();
+  readonly #ungroupedShelfHoverMeshes: Mesh[] = [];
+  readonly #shelfHoverSweepScratch: Mesh[] = [];
+  /** Camera pose at the last completed reticle sweep. */
+  readonly #lastSweepPosition = new Vector3();
+  readonly #lastSweepQuaternion = new Quaternion();
+  /**
+   * Forces the next reticle sweep even when the camera has not moved, set
+   * whenever targetable scene content changes (books reshelved, props moved).
+   */
+  #interactionTargetsDirty = true;
   #shelfBrowsePublicationId: string | undefined;
   #shelfBrowseReadyAt = 0;
   #shelfSignPreviewKey: string | undefined;
@@ -2169,7 +2181,6 @@ export class ShopScene {
     this.#booksById.clear();
     this.#standaloneBookTexturePublicationIds.clear();
     this.#interactiveMeshes = [];
-    this.#shelfHoverTargetMeshes = [];
     disposeObject(this.#scene);
     this.#scene.clear();
     this.#moonEnvironment?.dispose();
@@ -10346,9 +10357,29 @@ export class ShopScene {
     this.#interactiveMeshes = [...this.#booksById.values()]
       .filter((record) => record.state.status === "floor")
       .map((record) => record.mesh);
-    this.#shelfHoverTargetMeshes = [...this.#booksById.values()]
-      .filter((record) => record.state.status === "shelved")
-      .map((record) => record.hoverTarget);
+    // Group shelved proxies per shelf so the reticle sweep can cull whole
+    // banks by camera distance instead of raycasting every book in the shop.
+    this.#shelfHoverMeshesByShelf.clear();
+    this.#ungroupedShelfHoverMeshes.length = 0;
+    for (const record of this.#booksById.values()) {
+      if (record.state.status !== "shelved") continue;
+      const {shelfId} = record.state;
+      const knownShelf =
+        typeof shelfId === "string"
+          ? this.#spineShelfDefinitions.get(shelfId)
+          : undefined;
+      if (!knownShelf || typeof shelfId !== "string") {
+        this.#ungroupedShelfHoverMeshes.push(record.hoverTarget);
+        continue;
+      }
+      let bucket = this.#shelfHoverMeshesByShelf.get(shelfId);
+      if (!bucket) {
+        bucket = [];
+        this.#shelfHoverMeshesByShelf.set(shelfId, bucket);
+      }
+      bucket.push(record.hoverTarget);
+    }
+    this.#interactionTargetsDirty = true;
   }
 
   #disposeBookRecord(record: BookRecord) {
@@ -12460,10 +12491,26 @@ export class ShopScene {
   }
 
   #findShelfHoverTargetPublicationId() {
-    const intersections = this.#raycaster.intersectObjects(
-      this.#shelfHoverTargetMeshes,
-      false,
-    );
+    // Whole-shelf cull: shelves farther than the interaction reach cannot
+    // contain a hit, so only nearby banks' proxies are raycast. Ungrouped
+    // proxies (shelf definition missing) always stay in the candidate set.
+    const scratch = this.#shelfHoverSweepScratch;
+    scratch.length = 0;
+    for (const [shelfId, meshes] of this.#shelfHoverMeshesByShelf) {
+      const shelf = this.#spineShelfDefinitions.get(shelfId);
+      if (!shelf) continue;
+      const cullDistance =
+        INTERACTION_DISTANCE + shelf.halfWidth + SHELF_HOVER_CULL_MARGIN;
+      if (
+        this.#camera.position.distanceToSquared(shelf.frontCenter) >
+        cullDistance * cullDistance
+      )
+        continue;
+      for (const mesh of meshes) scratch.push(mesh);
+    }
+    for (const mesh of this.#ungroupedShelfHoverMeshes) scratch.push(mesh);
+    if (scratch.length === 0) return undefined;
+    const intersections = this.#raycaster.intersectObjects(scratch, false);
     for (const intersection of intersections) {
       if (intersection.distance > INTERACTION_DISTANCE) break;
       const candidateId = intersection.object.userData.publicationId;
@@ -12570,6 +12617,17 @@ export class ShopScene {
     // player whips the view around.
     if (this.#frameNowMs - this.#lastAimSweepTimeMs < AIM_SWEEP_MIN_INTERVAL_MS)
       return;
+    // The reticle is screen-center, so the sweep result only changes when
+    // the camera moves or targetable content changed; skip otherwise.
+    if (
+      !this.#interactionTargetsDirty &&
+      this.#camera.position.equals(this.#lastSweepPosition) &&
+      this.#camera.quaternion.equals(this.#lastSweepQuaternion)
+    )
+      return;
+    this.#interactionTargetsDirty = false;
+    this.#lastSweepPosition.copy(this.#camera.position);
+    this.#lastSweepQuaternion.copy(this.#camera.quaternion);
     this.#lastAimSweepTimeMs = this.#frameNowMs;
     this.#camera.updateMatrixWorld();
     this.#raycaster.setFromCamera(this.#reticle, this.#camera);
@@ -13884,16 +13942,15 @@ export class ShopScene {
 
   #emitGameState() {
     if (!this.#onGameStateChange) return;
-    const records = [...this.#booksById.entries()]
-      .filter(
-        ([publicationId]) => !this.#discardedPublicationIds.has(publicationId),
-      )
-      .map(([, record]) => record);
-    const taskBooks = records.filter((record) => record.taskBook);
-    const shelvedCount = taskBooks.filter(
-      (record) => record.state.status === "shelved",
-    ).length;
-    const looseCount = taskBooks.length - shelvedCount;
+    let taskBookCount = 0;
+    let shelvedCount = 0;
+    for (const [publicationId, record] of this.#booksById) {
+      if (this.#discardedPublicationIds.has(publicationId)) continue;
+      if (!record.taskBook) continue;
+      taskBookCount += 1;
+      if (record.state.status === "shelved") shelvedCount += 1;
+    }
+    const looseCount = taskBookCount - shelvedCount;
     const carriedRecord = this.#carriedPublicationId
       ? this.#booksById.get(this.#carriedPublicationId)
       : undefined;
@@ -14708,7 +14765,11 @@ export class ShopScene {
               this.#input.isActionDown("throw"),
             deltaSeconds,
           );
-        if (positionChanged || rotationChanged) this.#worldStateDirty = true;
+        if (positionChanged || rotationChanged) {
+          this.#worldStateDirty = true;
+          // A moving prop can enter or leave the reticle; re-sweep.
+          this.#interactionTargetsDirty = true;
+        }
         continue;
       }
       if (record.state.status === "carried") continue;
