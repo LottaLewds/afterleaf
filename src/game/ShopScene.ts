@@ -1457,6 +1457,7 @@ export class ShopScene {
   readonly #discardedPublicationIds = new Set<string>();
   #disposed = false;
   #bookAtlasRevision = 0;
+  #stagedBootStarted = false;
   #frameHandle: number | undefined;
   #hoveredPublicationId: string | undefined;
   #inspectionMode: InspectionMode = "none";
@@ -1744,8 +1745,6 @@ export class ShopScene {
         scene: this.#scene,
       };
 
-    this.#configureScene();
-    this.#createShopInterior();
     this.#bindInput();
     void this.#loadKeyboardLayout();
     this.#observeSize();
@@ -1762,18 +1761,43 @@ export class ShopScene {
       unsubscribeFromWidePages,
       {once: true},
     );
+  }
+
+  /**
+   * Staged boot: the scene configuration, interior build, and initial book
+   * sync each run between frame yields so no single task stalls the main
+   * thread long enough to trip the compositor. Readiness waits for shader
+   * programs (including atlas-batch and television-light variants) to finish
+   * compiling behind the loading overlay instead of stutters landing on the
+   * first playable frames.
+   */
+  async start() {
+    if (
+      this.#disposed ||
+      this.#stagedBootStarted ||
+      this.#frameHandle !== undefined
+    )
+      return;
+    this.#stagedBootStarted = true;
+    const stage = (label: string) => {
+      if (DEV) performance.mark(`afterleaf-boot:${label}`);
+    };
+    stage("configure-scene-start");
+    this.#configureScene();
+    stage("interior-start");
+    await ShopScene.nextFrame();
+    if (this.#disposed) return;
+    this.#createShopInterior();
+    stage("sync-inputs-start");
+    await ShopScene.nextFrame();
+    if (this.#disposed) return;
     this.#syncInputs();
     void this.#refreshMediaCatalog();
     void this.#initializePhysics();
-  }
-
-  start() {
-    if (this.#disposed || this.#frameHandle !== undefined) return;
     this.#lastFrameTime = performance.now();
     this.#applyResize();
+    stage("first-render-start");
     this.#renderer.render(this.#scene, this.#camera);
-    this.#precompileShaders();
-    this.#markReady();
     this.#worldSaveIntervalHandle = window.setInterval(
       this.#scheduleWorldSave,
       WORLD_SAVE_INTERVAL_MS,
@@ -1783,6 +1807,56 @@ export class ShopScene {
       SHOP_MEDIA_CATALOG_REFRESH_INTERVAL_MS,
     );
     this.#frameHandle = requestAnimationFrame(this.#animate);
+    stage("warm-shaders-start");
+    await this.#warmShaderPrograms();
+    if (this.#disposed) return;
+    stage("ready");
+    if (DEV)
+      for (const label of [
+        "configure-scene",
+        "interior",
+        "sync-inputs",
+        "first-render",
+        "warm-shaders",
+      ])
+        performance.measure(
+          `afterleaf-boot:${label}`,
+          `afterleaf-boot:${label}-start`,
+          `afterleaf-boot:ready`,
+        );
+    this.#precompileShaders();
+    this.#markReady();
+  }
+
+  /**
+   * Compiles the current shader variants behind the loading overlay: the
+   * no-screen-light variants first, then the rect-area-light variant set
+   * from exactly one television's four wash lights (forcing every television
+   * would multiply light counts into every program and stall compilation).
+   * Book textures stream in afterwards by design; their batches reuse the
+   * already-compiled standalone-book program.
+   */
+  async #warmShaderPrograms() {
+    if (this.#disposed) return;
+    try {
+      await this.#renderer.compileAsync(this.#scene, this.#camera);
+      // Warm the rect-area-light variant set with exactly ONE television's
+      // four wash lights: forcing every television would multiply the light
+      // count into every program and stall the machine during compilation.
+      // Multi-TV combinations stay lazy (rare, incremental).
+      const sampleTelevision = this.#tvScreenLighting()
+        ? this.#televisions[0]
+        : undefined;
+      if (sampleTelevision) {
+        sampleTelevision.setScreenLightsForcedVisible(true);
+        await this.#renderer.compileAsync(this.#scene, this.#camera);
+        sampleTelevision.setScreenLightsForcedVisible(false);
+      }
+    } catch (error: unknown) {
+      // Lazy compilation still works; precompilation is best-effort.
+      if (DEV)
+        console.warn("Afterleaf could not precompile shader programs.", error);
+    }
   }
 
   /**
@@ -1798,9 +1872,7 @@ export class ShopScene {
     this.#lateShaderPrecompileHandle = window.setTimeout(() => {
       this.#lateShaderPrecompileHandle = undefined;
       if (this.#disposed) return;
-      void this.#renderer
-        .compileAsync(this.#scene, this.#camera)
-        .catch(() => {});
+      void this.#warmShaderPrograms();
     }, SHADER_PRECOMPILE_LATE_DELAY_MS);
   }
 
@@ -9528,6 +9600,8 @@ export class ShopScene {
     this.#updateHeldPhysicsTarget();
     this.#worldStateDirty = true;
     this.#emitGameState();
+    // Book textures stream into the scene as batches finish; readiness does
+    // not wait on them.
     void this.#initializeBookAtlasBatches(items, atlasRevision);
   }
 

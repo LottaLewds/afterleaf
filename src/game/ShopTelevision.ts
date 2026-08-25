@@ -531,6 +531,7 @@ export class ShopTelevision {
   readonly #screenOverlayTexture: CanvasTexture;
   #normalizedModelScreenGeometry: BufferGeometry | undefined;
   readonly #screenLights: ScreenLight[] = [];
+  #screenLightsForcedVisible = false;
   #screenLightingCanvas: HTMLCanvasElement | undefined;
   readonly #tvScreenLighting: () => boolean;
   readonly #video = document.createElement("video");
@@ -820,13 +821,14 @@ uniform sampler2D afterleafScreenOverlay;\n${shader.fragmentShader}`;
     const screenLightingEnabled = this.#tvScreenLighting();
     if (!screenLightingEnabled) {
       for (const screenLight of this.#screenLights)
-        screenLight.light.visible = false;
+        screenLight.light.visible = this.#screenLightsForcedVisible;
       return;
     }
     const lightsVisible =
-      this.#powered &&
-      !this.#suspended &&
-      this.#screenMaterial.map === this.#videoTexture;
+      (this.#powered &&
+        !this.#suspended &&
+        this.#screenMaterial.map === this.#videoTexture) ||
+      this.#screenLightsForcedVisible;
     for (const screenLight of this.#screenLights) {
       screenLight.light.visible = lightsVisible;
       screenLight.light.color.lerp(screenLight.targetColor, interpolation);
@@ -834,6 +836,19 @@ uniform sampler2D afterleafScreenOverlay;\n${shader.fragmentShader}`;
         (screenLight.targetIntensity - screenLight.light.intensity) *
         interpolation;
     }
+  }
+
+  /**
+   * Forces the screen wash lights visible so their shader variants compile
+   * during boot precompilation instead of hitching on first power-on. The
+   * flag only affects light visibility; sampled colors stay untouched.
+   */
+  setScreenLightsForcedVisible(value: boolean) {
+    if (this.#disposed) return;
+    this.#screenLightsForcedVisible = value;
+    if (!value) return;
+    for (const screenLight of this.#screenLights)
+      screenLight.light.visible = true;
   }
 
   setChannels(channels: readonly TvChannel[]) {
