@@ -41,6 +41,7 @@ import type {ShortcutsConfig} from "~/game/input/bindings";
 import type {ArcadePadMappingOverrides} from "~/arcade/controllerMappings";
 import {promptIconUrl} from "~/game/input/prompts";
 import {INTERACTION_ROW_MODES, useUiMode} from "~/game/uiMode";
+import {InteractionLabel, KeyCap, keycapParts} from "~/components/KeyCap";
 import {loadShopMediaCatalog} from "~/game/shopMediaCatalogBrowserClient";
 import {importPoster} from "~/posters/browserClient";
 import {importTvVideo} from "~/tv/browserClient";
@@ -48,12 +49,6 @@ import {tvChannelId, tvVideoImportUrl} from "~/tv/protocol";
 
 type MediaChannelKind = "art-frame" | "tv";
 
-const keycapParts = (key: string) =>
-  key
-    .split(/\s*(?:\/|\+)\s*/)
-    .flatMap((part) =>
-      part.startsWith("Hold ") ? ["Hold", part.slice("Hold ".length)] : [part],
-    );
 export type ShopViewportControls = {
   requestPointerLock: () => void;
 };
@@ -405,6 +400,10 @@ export const ShopViewport = (props: ShopViewportProps) => {
     INTERACTION_ROW_MODES.has(uiMode.mode())
       ? gameState().interactions
       : undefined;
+  // Free roam keeps the panel up even with nothing targeted so the
+  // keyboard-only menu affordance always has a home.
+  const showInteractionPanel = () =>
+    uiMode.mode() === "walk" || interactionRows() !== undefined;
 
   return (
     <section
@@ -418,7 +417,7 @@ export const ShopViewport = (props: ShopViewportProps) => {
         class="block size-full touch-manipulation outline-none"
       />
 
-      <div class="pointer-events-none absolute inset-x-0 top-0 flex items-start justify-between p-4 pb-16 sm:p-5 sm:pb-20">
+      <div class="pointer-events-none absolute inset-x-0 top-0 flex items-start p-4 pb-16 sm:p-5 sm:pb-20">
         <div class="border-l-2 border-[#d94c3f] bg-[#0b1312]/75 px-3 py-2 backdrop-blur-sm">
           <p class="text-[9px] font-bold tracking-[0.22em] text-[#d9cabd] uppercase">
             Closing shift · aisle 01
@@ -436,15 +435,6 @@ export const ShopViewport = (props: ShopViewportProps) => {
               : "Waking stock…"}
           </p>
         </div>
-        <button
-          class="pointer-events-auto flex h-9 items-center gap-2 border border-white/12 bg-[#0b1312]/75 px-3 text-[9px] font-semibold tracking-[0.14em] text-[#b3c0bb] uppercase backdrop-blur-sm transition hover:border-white/25 hover:bg-[#15201e] hover:text-white"
-          onClick={() => props.onOpenMenu?.()}
-        >
-          Menu{" "}
-          <span class="border border-white/15 px-1.5 py-0.5 text-[8px]">
-            Esc
-          </span>
-        </button>
       </div>
 
       <Show when={ready() && !error()}>
@@ -523,68 +513,69 @@ export const ShopViewport = (props: ShopViewportProps) => {
           </div>
         </Show>
 
-        <Show when={interactionRows()}>
-          {(interactions) => (
-            <div class="pointer-events-none absolute bottom-5 left-4 z-10 w-max max-w-[min(18rem,calc(100vw-2rem))] border-l-2 border-[#d94c3f] bg-[#08100f]/88 px-3 py-2 text-sm text-[#e5e0d5] shadow-lg backdrop-blur-sm sm:bottom-6 sm:left-5">
-              <p class="mb-1 text-[8px] font-bold tracking-[0.18em] text-[#8da098] uppercase">
-                Interact
-              </p>
-              <Show when={gameState().interactionContext}>
-                {(context) => (
-                  <p class="mb-1 max-w-56 truncate text-[10px] font-semibold tracking-[0.04em] text-[#e7dcc4] normal-case">
-                    {context()}
-                  </p>
-                )}
-              </Show>
-              <div class="grid gap-1">
-                <For each={interactions()}>
-                  {(interaction: ShopInteraction) => (
-                    <div class="flex items-center gap-2 leading-tight">
-                      <span
-                        class="flex shrink-0 items-center gap-1"
-                        aria-label={interaction.key}
+        <Show when={showInteractionPanel()}>
+          <div class="pointer-events-none absolute bottom-5 left-4 z-10 w-max max-w-[min(18rem,calc(100vw-2rem))] border-l-2 border-[#d94c3f] bg-[#08100f]/88 px-3 py-2 text-sm text-[#e5e0d5] shadow-lg backdrop-blur-sm sm:bottom-6 sm:left-5">
+            <p class="mb-1 text-[8px] font-bold tracking-[0.18em] text-[#8da098] uppercase">
+              Interact
+            </p>
+            <Show when={gameState().interactionContext}>
+              {(context) => (
+                <p class="mb-1 max-w-56 truncate text-[10px] font-semibold tracking-[0.04em] text-[#e7dcc4] normal-case">
+                  {context()}
+                </p>
+              )}
+            </Show>
+            <div class="grid gap-1">
+              <For each={interactionRows() ?? []}>
+                {(interaction: ShopInteraction) => (
+                  <div class="flex items-center gap-2 leading-tight">
+                    <span
+                      class="flex shrink-0 items-center gap-1"
+                      aria-label={interaction.key}
+                    >
+                      <Show
+                        when={interaction.prompts}
+                        fallback={
+                          <For each={keycapParts(interaction.key)}>
+                            {(key) => <KeyCap>{key}</KeyCap>}
+                          </For>
+                        }
                       >
-                        <Show
-                          when={interaction.prompts}
-                          fallback={
-                            <For each={keycapParts(interaction.key)}>
-                              {(key) => (
-                                <span class="inline-flex min-h-5 min-w-6 items-center justify-center rounded-[3px] border border-b-2 border-[#52605b] bg-gradient-to-b from-[#394742] to-[#18211f] px-1.5 py-0.5 font-mono text-[9px] font-bold tracking-wide text-[#f1eadc] uppercase shadow-[0_1px_2px_rgb(0_0_0_/_0.65),inset_0_1px_0_rgb(255_255_255_/_0.16)]">
-                                  {key}
+                        {(tokens) => (
+                          <For each={tokens()}>
+                            {(token) =>
+                              token.type === "button" ? (
+                                <img
+                                  src={promptIconUrl(token.icon)}
+                                  alt={token.alt}
+                                  title={token.alt}
+                                  class="size-7 shrink-0 drop-shadow-[0_1px_2px_rgb(0_0_0_/_0.65)]"
+                                />
+                              ) : (
+                                <span class="px-0.5 text-[10px] font-bold text-[#c4cec8]">
+                                  {token.text}
                                 </span>
-                              )}
-                            </For>
-                          }
-                        >
-                          {(tokens) => (
-                            <For each={tokens()}>
-                              {(token) =>
-                                token.type === "button" ? (
-                                  <img
-                                    src={promptIconUrl(token.icon)}
-                                    alt={token.alt}
-                                    title={token.alt}
-                                    class="size-7 shrink-0 drop-shadow-[0_1px_2px_rgb(0_0_0_/_0.65)]"
-                                  />
-                                ) : (
-                                  <span class="px-0.5 text-[10px] font-bold text-[#c4cec8]">
-                                    {token.text}
-                                  </span>
-                                )
-                              }
-                            </For>
-                          )}
-                        </Show>
-                      </span>
-                      <span class="text-[11px] text-[#c4cec8]">
-                        {interaction.label}
-                      </span>
-                    </div>
-                  )}
-                </For>
-              </div>
+                              )
+                            }
+                          </For>
+                        )}
+                      </Show>
+                    </span>
+                    <span class="text-[11px] text-[#c4cec8]">
+                      {interaction.label}
+                    </span>
+                  </div>
+                )}
+              </For>
+              <button
+                class="pointer-events-auto flex items-center gap-2 transition hover:text-white"
+                onClick={() => props.onOpenMenu?.()}
+              >
+                <KeyCap>Tab</KeyCap>
+                <InteractionLabel>Menu</InteractionLabel>
+              </button>
             </div>
-          )}
+          </div>
         </Show>
 
         <div class="pointer-events-none absolute inset-x-0 bottom-0 p-4 pt-24 sm:p-5 sm:pt-28">

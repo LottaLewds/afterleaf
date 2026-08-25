@@ -232,7 +232,7 @@ describe("InputManager", () => {
     ]);
   });
 
-  test("Start toggles the menu in every mode", () => {
+  test("Start toggles the menu except while a session plays", () => {
     let toggles = 0;
     const manager = new InputManager({
       getShortcuts: () => DEFAULT_SHORTCUTS,
@@ -250,6 +250,40 @@ describe("InputManager", () => {
     mockPadButtons[gamepadButtonIndex("Start")] = 1;
     manager.update("paused");
     expect(toggles).toBe(2);
+  });
+
+  test("arcade mode forwards every pad button, menu stays keyboard-only", () => {
+    let toggles = 0;
+    const manager = new InputManager({
+      getShortcuts: () => DEFAULT_SHORTCUTS,
+      handleAction: () => true,
+      onMenuToggle: () => {
+        toggles += 1;
+      },
+    });
+    manager.gamepad.connected = true;
+    const forwarded: Array<[GamepadButtonName, boolean]> = [];
+    manager.setRawGamepadForward((name, down) => forwarded.push([name, down]));
+
+    // Start and Back belong to the emulated game while a session plays.
+    mockPadButtons[gamepadButtonIndex("Start")] = 1;
+    manager.update("arcade");
+    expect(toggles).toBe(0);
+    mockPadButtons[gamepadButtonIndex("Start")] = 0;
+    manager.update("arcade");
+    expect(forwarded).toContainEqual(["Start", true]);
+    expect(forwarded).toContainEqual(["Start", false]);
+
+    forwarded.length = 0;
+    mockPadButtons[gamepadButtonIndex("Back")] = 1;
+    manager.update("arcade");
+    expect(toggles).toBe(0);
+    mockPadButtons[gamepadButtonIndex("Back")] = 0;
+    manager.update("arcade");
+    expect(forwarded).toEqual([
+      ["Back", true],
+      ["Back", false],
+    ]);
   });
 
   test("suspend releases held keys and analog state", () => {

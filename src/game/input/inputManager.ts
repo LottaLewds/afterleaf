@@ -46,7 +46,8 @@ const EDITABLE_TAGS: ReadonlySet<string> = new Set([
   "SELECT",
 ]);
 
-const isEditableTarget = (target: EventTarget | null): boolean => {
+/** True while keyboard events target a text-entry surface. */
+export const isEditableTarget = (target: EventTarget | null): boolean => {
   if (target === null || typeof target !== "object") return false;
   const element = target as {tagName?: string; isContentEditable?: boolean};
   return (
@@ -163,13 +164,17 @@ export class InputManager {
 
   /**
    * Per-frame tick. Polls the pad and dispatches edge events. Runs in every
-   * mode so Start keeps working while paused or during arcade sessions.
+   * mode so the menu keeps working while paused or during arcade sessions.
    */
   update(mode: InputMode) {
     this.#syncShortcuts();
     this.gamepad.poll();
 
-    if (this.gamepad.justPressed("Start")) this.#onMenuToggle?.();
+    // While a session plays every pad button belongs to the emulated game -
+    // including Start and Back. The pause/pick-game menu is keyboard-only
+    // (Tab); every other mode keeps Start as the menu toggle.
+    if (mode !== "arcade" && this.gamepad.justPressed("Start"))
+      this.#onMenuToggle?.();
 
     if (mode === "shop") {
       for (const [name, actions] of this.#actionsByButtonName) {
@@ -185,7 +190,6 @@ export class InputManager {
       if (!forward) return;
       for (let index = 0; index < BUTTON_NAME_BY_INDEX.length; index++) {
         const name = BUTTON_NAME_BY_INDEX[index]!;
-        if (name === "Start") continue;
         if (this.gamepad.justPressed(name)) forward(name, true);
         else if (this.gamepad.justReleased(name)) forward(name, false);
       }

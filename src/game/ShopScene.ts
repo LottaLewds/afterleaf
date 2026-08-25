@@ -9003,7 +9003,9 @@ export class ShopScene {
   #forwardArcadeKey(event: KeyboardEvent): boolean {
     if (this.#paused()) return false;
     if (this.#activeArcadeCabinet?.sessionStatus !== "playing") return false;
-    if (event.type === "keydown" && event.code === "Escape") return true;
+    // Tab owns the menus and must never reach the game; the global modal
+    // stack handles it. Escape stays browser-reserved for pointer lock.
+    if (event.type === "keydown" && event.code === "Tab") return true;
     if (event.type === "keydown" && event.code === "KeyR") {
       event.preventDefault();
       this.stepAwayFromArcade();

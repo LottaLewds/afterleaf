@@ -35,10 +35,12 @@
     "@gltf-transform/core": "^4.4.2",
     "@gltf-transform/extensions": "^4.4.2",
     "@gltf-transform/functions": "^4.4.2",
+    "clsx": "^2.1.1",
     "node-unrar-js": "^2.0.2",
     "sharp": "^0.35.3",
     "solid-icons": "^1.2.0",
     "solid-js": "^1.9.9",
+    "tailwind-merge": "^3.0.1",
     "three": "0.185.1",
     "yauzl": "^2.10.0"
   },

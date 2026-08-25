@@ -59,6 +59,7 @@ import {
   type ShortcutBinding,
   type ShortcutsConfig,
 } from "~/game/input/bindings";
+import {isEditableTarget} from "~/game/input/inputManager";
 import {promptIconUrl} from "~/game/input/prompts";
 import {
   formatArcadeKeyBinding,
@@ -2471,11 +2472,16 @@ const DetailPanel = (props: {
 const ESCAPE_GESTURE_COOLDOWN_MS = 250;
 
 /**
- * Always-on Escape router plus a mode-scoped menu fallback. The router offers
+ * Always-on Tab router plus a mode-scoped menu fallback. The router offers
  * every press to the shared modal stack from whichever mode is active; the
- * fallback that toggles the pause menu binds only while a fallback-armed mode
- * is active, so exclusive surfaces such as an emulator session can never leak
- * a stray press into the menu.
+ * fallback that toggles the pause menu binds only while a fallback-armed
+ * mode is active, so exclusive surfaces such as an emulator session can
+ * never leak a stray press into the menu.
+ *
+ * Tab owns the menus outright: Escape stays reserved for the browser's own
+ * pointer-lock management, and Tab presses on text-entry surfaces are
+ * ignored so form focus navigation keeps working. Closing the menu through
+ * here resumes regular gameplay, so the pointer lock is re-acquired.
  */
 const GlobalEscapeShortcuts = (props: {onFallback: () => void}) => {
   const {escapeFallbackArmed} = useUiMode();
@@ -2485,7 +2491,7 @@ const GlobalEscapeShortcuts = (props: {onFallback: () => void}) => {
   window.addEventListener(
     "keydown",
     (event) => {
-      if (event.key !== "Escape") return;
+      if (event.key !== "Tab" || isEditableTarget(event.target)) return;
       if (event.defaultPrevented || event.repeat) return;
       if (!modalModes.consumeEscape()) return;
       lastStackConsumeAt = performance.now();
@@ -2498,7 +2504,7 @@ const GlobalEscapeShortcuts = (props: {onFallback: () => void}) => {
     window.addEventListener(
       "keydown",
       (event) => {
-        if (event.key !== "Escape") return;
+        if (event.key !== "Tab" || isEditableTarget(event.target)) return;
         if (event.defaultPrevented || event.repeat) return;
         if (performance.now() - lastStackConsumeAt < ESCAPE_GESTURE_COOLDOWN_MS)
           return;
@@ -3296,7 +3302,10 @@ export const App = () => {
     <UiModeProvider paused={menuOpen}>
       <GlobalEscapeShortcuts
         onFallback={() => {
-          if (menuOpen()) closeMenu(false);
+          // Closing back into regular gameplay re-acquires the pointer
+          // lock; ShopScene ignores the request while arcade sessions or
+          // inspection spreads own the cursor.
+          if (menuOpen()) closeMenu();
           else openMenu();
         }}
       />
@@ -3483,7 +3492,7 @@ export const App = () => {
                       <button
                         class="grid size-9 place-items-center text-[#8d9893] transition hover:bg-white/5 hover:text-white"
                         aria-label="Close menu and return to shop"
-                        title="Return to shop (Escape)"
+                        title="Return to shop (Tab)"
                         on:pointerdown={(event) => {
                           if (event.button === 0) closeMenu();
                         }}
@@ -3754,11 +3763,11 @@ export const App = () => {
 
                       <div class="mt-5 flex items-center justify-between border-b border-white/8 pb-4">
                         <p class="text-[9px] leading-4 text-[#5f6a66]">
-                          Inspect the catalog here, then press Escape to return
-                          to the shop floor.
+                          Inspect the catalog here, then press Tab to return to
+                          the shop floor.
                         </p>
                         <span class="hidden items-center gap-2 border border-white/10 px-3 py-2 text-[9px] font-semibold tracking-[0.12em] text-[#7d8883] uppercase sm:flex">
-                          <FiMenu size={12} /> Escape menu
+                          <FiMenu size={12} /> Menu (Tab)
                         </span>
                       </div>
 
