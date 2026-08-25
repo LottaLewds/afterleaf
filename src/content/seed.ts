@@ -41,6 +41,7 @@ import {
   orientedImageDimensions,
 } from "~/content/bookAspectRatio";
 import {generateContentPackPreview} from "~/content/preview";
+import {encodeShelfAtlasPng} from "~/content/shelfAtlasKtx2Pool";
 import {physicalBookDepth} from "~/game/bookDimensions";
 import {ARCHIVE_SOURCE_PROVIDER} from "~/content/archiveReader";
 
@@ -71,6 +72,8 @@ const ATLAS_COLUMNS = 8;
  */
 const ATLAS_MAX_ROWS = 6;
 const ATLAS_PUBLICATION_CAPACITY = ATLAS_COLUMNS * ATLAS_MAX_ROWS;
+/** Concurrent atlas encodes; matches the KTX2 worker pool width. */
+const ATLAS_ENCODE_CONCURRENCY = 8;
 const FRONT_ATLAS_FORMAT_VERSION = 5;
 const BACK_ATLAS_FORMAT_VERSION = 2;
 /**
@@ -1533,21 +1536,12 @@ const createAtlas = async (
   // the vertical flip into the encoded atlas; runtime textures keep their
   // existing UV convention with flipY disabled.
   const flippedBuffer = await sharp(compositeBuffer).flip().png().toBuffer();
-  const {encodeToKTX2} = await import("ktx2-encoder");
-  const imageDecoder = async (buffer: Uint8Array) => {
-    const {data, info} = await sharp(Buffer.from(buffer))
-      .ensureAlpha()
-      .raw()
-      .toBuffer({resolveWithObject: true});
-    return {data: new Uint8Array(data), width: info.width, height: info.height};
-  };
   // Spines carry small text that ETC1S smears; UASTC keeps them crisp and
   // spine atlases are small enough that the larger footprint is cheap.
-  const ktx2Buffer = await encodeToKTX2(new Uint8Array(flippedBuffer), {
-    isUASTC: surface === "spine",
-    generateMipmap: false,
-    imageDecoder,
-  });
+  const ktx2Buffer = await encodeShelfAtlasPng(
+    new Uint8Array(flippedBuffer),
+    surface === "spine",
+  );
   await writePoolAsset(poolDirectory, path, Buffer.from(ktx2Buffer));
   return descriptor;
 };
@@ -1580,25 +1574,53 @@ const createAtlases = async (
   poolDirectory: string,
   surface: ShelfSurface,
 ) => {
-  const atlases: ShelfAtlasDescriptor[] = [];
-  for (const {firstPublicationIndex, publicationCount} of planShelfAtlasRanges(
-    publications.length,
-  )) {
+  const ranges = planShelfAtlasRanges(publications.length);
+  // Encode concurrently so the worker pool stays saturated; descriptors
+  // keep atlas-index order regardless of completion order.
+  const atlases = await boundedMap(ranges, async (range, index) => {
     const publicationSlice = publications.slice(
-      firstPublicationIndex,
-      firstPublicationIndex + publicationCount,
+      range.firstPublicationIndex,
+      range.firstPublicationIndex + range.publicationCount,
     );
-    atlases.push(
-      await createAtlas(
+    return {
+      index,
+      descriptor: await createAtlas(
         publicationSlice,
         poolDirectory,
         surface,
-        firstPublicationIndex,
+        range.firstPublicationIndex,
         shelfAtlasKey(publicationSlice, surface),
       ),
-    );
-  }
-  return atlases;
+    };
+  });
+  return atlases
+    .sort((left, right) => left.index - right.index)
+    .map(({descriptor}) => descriptor);
+};
+
+/**
+ * Maps over items with a small concurrency bound, resolving with the mapped
+ * values in input order. Keeps every encoder worker fed without holding all
+ * of a surface's composite pipelines in memory at once.
+ */
+const boundedMap = async <T, R>(
+  items: readonly T[],
+  mapper: (item: T, index: number) => Promise<R>,
+  concurrency = ATLAS_ENCODE_CONCURRENCY,
+): Promise<R[]> => {
+  const results = new Array<R>(items.length);
+  let nextIndex = 0;
+  const workers = Array.from(
+    {length: Math.min(concurrency, items.length)},
+    async () => {
+      while (nextIndex < items.length) {
+        const index = nextIndex++;
+        results[index] = await mapper(items[index]!, index);
+      }
+    },
+  );
+  await Promise.all(workers);
+  return results;
 };
 
 export const planShelfAtlasRanges = (
