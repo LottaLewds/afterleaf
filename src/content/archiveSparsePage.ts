@@ -5,6 +5,7 @@ import {
   isContentArchivePath,
   readContentArchiveImage,
 } from "./archiveReader";
+import {cacheReaderPage, cachedReaderPage} from "./readerPageCache";
 import {createReaderPageDerivative} from "./readerImage";
 
 interface ArchiveBackedPublication {
@@ -16,32 +17,6 @@ interface ArchiveBackedPublication {
     sourceUrl: string;
   };
 }
-
-const MAX_READER_CACHE_BYTES = 128 * 1024 * 1024;
-const readerPageCache = new Map<string, Buffer>();
-let readerPageCacheBytes = 0;
-
-const cachedReaderPage = (key: string) => {
-  const page = readerPageCache.get(key);
-  if (!page) return undefined;
-  readerPageCache.delete(key);
-  readerPageCache.set(key, page);
-  return page;
-};
-
-const cacheReaderPage = (key: string, page: Buffer) => {
-  const existing = readerPageCache.get(key);
-  if (existing) readerPageCacheBytes -= existing.byteLength;
-  readerPageCache.delete(key);
-  readerPageCache.set(key, page);
-  readerPageCacheBytes += page.byteLength;
-  while (readerPageCacheBytes > MAX_READER_CACHE_BYTES) {
-    const oldest = readerPageCache.entries().next().value;
-    if (!oldest) break;
-    readerPageCache.delete(oldest[0]);
-    readerPageCacheBytes -= oldest[1].byteLength;
-  }
-};
 
 const archiveSourcePath = (publication: ArchiveBackedPublication) => {
   const source = publication.source;

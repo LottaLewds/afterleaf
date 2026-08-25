@@ -4,6 +4,7 @@ import solid from "vite-plugin-solid";
 import {spawn} from "node:child_process";
 import {randomUUID} from "node:crypto";
 import {createReadStream, existsSync, readFileSync, statSync} from "node:fs";
+import {copyFile} from "node:fs/promises";
 import {mkdir, readdir, rename, rm, stat, writeFile} from "node:fs/promises";
 import type {IncomingMessage, ServerResponse} from "node:http";
 import path from "node:path";
@@ -55,6 +56,7 @@ import {createLibraryProviderRegistry} from "./src/content/providers/registry";
 import {createReaderPageDerivative} from "./src/content/readerImage";
 import {ARCHIVE_SOURCE_PROVIDER} from "./src/content/archiveReader";
 import {materializeArchiveReaderPage} from "./src/content/archiveSparsePage";
+import {materializeLocalCatalogReaderPage} from "./src/content/localCatalogSparsePage";
 import {
   defaultRomFolderPath,
   readAfterleafLibraryConfig,
@@ -409,6 +411,7 @@ const contentTypes: Record<string, string> = {
   ".json": "application/json; charset=utf-8",
   ".jpg": "image/jpeg",
   ".jpeg": "image/jpeg",
+  ".ktx2": "image/ktx2",
   ".png": "image/png",
   ".webp": "image/webp",
 };
@@ -1877,7 +1880,15 @@ const materializeSparsePage = async (
 ) => {
   const materializationStartedAt = performance.now();
   const activePublication = activeSparsePublication(publicationId);
-  if (activePublication.source?.provider === ARCHIVE_SOURCE_PROVIDER)
+  if (activePublication.source === undefined) {
+    if (typeof activePublication.localSourceId === "string")
+      return materializeLocalCatalogReaderPage(activePublication, pageNumber, {
+        additionalCatalogDirectories: configuredBookPaths,
+        workingDirectory: import.meta.dirname,
+      });
+    throw new Error("Publication does not support sparse page streaming");
+  }
+  if (activePublication.source.provider === ARCHIVE_SOURCE_PROVIDER)
     return materializeArchiveReaderPage(activePublication, pageNumber);
   const publicationDirectory = path.resolve(
     acquisitionDirectory,
@@ -2781,6 +2792,81 @@ const serveActiveLibraryAsset = (
   stream.pipe(response);
 };
 
+/**
+ * Serves the basis universal transcoder for KTX2Loader at /basis/ in every
+ * mode: publicDir is disabled (the active library snapshot is the public
+ * root), so the transcoder cannot ship through static public assets.
+ */
+const basisTranscoderPlugin = (): Plugin => {
+  const transcoderDirectory = path.join(
+    import.meta.dirname,
+    "node_modules",
+    "three",
+    "examples",
+    "jsm",
+    "libs",
+    "basis",
+  );
+  let buildOutDir = "";
+  const basisFiles = ["basis_transcoder.js", "basis_transcoder.wasm"];
+  const contentTypeFor = (file: string) =>
+    file.endsWith(".wasm") ? "application/wasm" : "text/javascript";
+  const serveBasisTranscoder = (
+    request: IncomingMessage,
+    response: ServerResponse,
+    next: () => void,
+  ) => {
+    if (request.method !== "GET" && request.method !== "HEAD") return next();
+    let pathname: string;
+    try {
+      pathname = new URL(request.url ?? "/", "http://afterleaf.local").pathname;
+    } catch {
+      return next();
+    }
+    if (!pathname.startsWith("/basis/")) return next();
+    const file = pathname.slice("/basis/".length);
+    if (!basisFiles.includes(file)) return next();
+    response.statusCode = 200;
+    response.setHeader("Content-Type", contentTypeFor(file));
+    if (request.method === "HEAD") return response.end();
+    const stream = createReadStream(path.join(transcoderDirectory, file));
+    stream.on("error", () => {
+      if (!response.headersSent) {
+        response.statusCode = 500;
+        response.end();
+      }
+    });
+    stream.pipe(response);
+  };
+  return {
+    name: "afterleaf-basis-transcoder",
+    configureServer(server) {
+      server.middlewares.use(serveBasisTranscoder);
+    },
+    configurePreviewServer(server) {
+      server.middlewares.use(serveBasisTranscoder);
+    },
+    configResolved(config) {
+      buildOutDir = path.isAbsolute(config.build.outDir)
+        ? config.build.outDir
+        : path.resolve(config.root, config.build.outDir);
+    },
+    async closeBundle() {
+      if (!buildOutDir) return;
+      const targetDirectory = path.join(buildOutDir, "basis");
+      await mkdir(targetDirectory, {recursive: true});
+      for (const file of basisFiles)
+        await copyFile(
+          path.join(transcoderDirectory, file),
+          path.join(targetDirectory, file),
+        );
+      console.log(
+        `[afterleaf] Vendored the basis transcoder into ${path.relative(import.meta.dirname, targetDirectory)}`,
+      );
+    },
+  };
+};
+
 const emulatorDataPlugin = (): Plugin => {
   const nodeModulesDirectory = path.join(import.meta.dirname, "node_modules");
   let buildOutDir = "";
@@ -2885,7 +2971,7 @@ const activeLibraryPlugin = (): Plugin => ({
 });
 
 const cacheableStaticAssetPath =
-  /^\/(?:src\/assets|assets)\/.+\.(?:avif|gif|jpe?g|mp3|mp4|ogg|png|webm|webp|glb|woff2?)$/u;
+  /^\/(?:src\/assets|assets)\/.+\.(?:avif|gif|jpe?g|ktx2|mp3|mp4|ogg|png|webm|webp|glb|woff2?)$/u;
 
 const dataRootBootstrapperPlugin = (): Plugin => ({
   name: "afterleaf-data-root-bootstrapper",
@@ -2950,6 +3036,7 @@ export default defineConfig(({command}) => ({
   plugins: [
     dataRootBootstrapperPlugin(),
     staticAssetCachePlugin(),
+    basisTranscoderPlugin(),
     emulatorDataPlugin(),
     devServerDiscoveryPlugin(),
     worldSavePlugin(),

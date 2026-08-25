@@ -47,6 +47,7 @@ import {
   type Material,
 } from "three";
 import {GLTFLoader} from "three/examples/jsm/loaders/GLTFLoader.js";
+import {KTX2Loader} from "three/examples/jsm/loaders/KTX2Loader.js";
 import {RectAreaLightUniformsLib} from "three/examples/jsm/lights/RectAreaLightUniformsLib.js";
 import {clone as cloneWithSkeleton} from "three/examples/jsm/utils/SkeletonUtils.js";
 import {DEV} from "solid-js";
@@ -371,6 +372,8 @@ const SHADER_PRECOMPILE_LATE_DELAY_MS = 4_000;
 // of every animation tick; highlight prompts and clicks tolerate a frame
 // or two of latency, and the sweep costs real time against many props.
 const AIM_SWEEP_MIN_INTERVAL_MS = 1000 / 60;
+/** Extra reach margin so culling never drops a bank the ray could graze. */
+const SHELF_HOVER_CULL_MARGIN = 1.5;
 const INSPECTION_PAGE_GUTTER = 0;
 const INSPECTION_SURFACE_GAP = 0.001;
 const INSPECTION_FRAME_FILL = 0.88;
@@ -828,6 +831,8 @@ type BookAtlasPlacement = {
   instanceId: number;
   lastMatrix: Matrix4;
   visible: boolean;
+  /** True while the standalone mesh is detached from the scene graph. */
+  detached: boolean;
 };
 
 type BookRecord = {
@@ -1420,6 +1425,11 @@ export class ShopScene {
   readonly #shelfPreviewTargetRotation = new Quaternion();
   readonly #shelfTargetOffset = new Vector3();
   readonly #textureLoader = new TextureLoader();
+  /**
+   * Lazily initialized because support detection needs the renderer. Serves
+   * the basis transcoder from the committed public/basis/ directory.
+   */
+  #ktx2Loader: KTX2Loader | undefined;
   readonly #televisions: ShopTelevision[] = [];
   readonly #televisionTargetPosition = new Vector3();
   readonly #televisionTargetScale = new Vector3();
@@ -1451,6 +1461,7 @@ export class ShopScene {
   readonly #discardedPublicationIds = new Set<string>();
   #disposed = false;
   #bookAtlasRevision = 0;
+  #stagedBootStarted = false;
   #frameHandle: number | undefined;
   #hoveredPublicationId: string | undefined;
   #inspectionMode: InspectionMode = "none";
@@ -1592,7 +1603,17 @@ export class ShopScene {
   #shelfTargeted = false;
   #shelfTargetSelection: ShelfTargetSelection | undefined;
   #shelfPresentation: ShelfPresentation = "spine";
-  #shelfHoverTargetMeshes: Mesh[] = [];
+  readonly #shelfHoverMeshesByShelf = new Map<string, Mesh[]>();
+  readonly #ungroupedShelfHoverMeshes: Mesh[] = [];
+  readonly #shelfHoverSweepScratch: Mesh[] = [];
+  /** Camera pose at the last completed reticle sweep. */
+  readonly #lastSweepPosition = new Vector3();
+  readonly #lastSweepQuaternion = new Quaternion();
+  /**
+   * Forces the next reticle sweep even when the camera has not moved, set
+   * whenever targetable scene content changes (books reshelved, props moved).
+   */
+  #interactionTargetsDirty = true;
   #shelfBrowsePublicationId: string | undefined;
   #shelfBrowseReadyAt = 0;
   #shelfSignPreviewKey: string | undefined;
@@ -1738,8 +1759,6 @@ export class ShopScene {
         scene: this.#scene,
       };
 
-    this.#configureScene();
-    this.#createShopInterior();
     this.#bindInput();
     void this.#loadKeyboardLayout();
     this.#observeSize();
@@ -1756,18 +1775,43 @@ export class ShopScene {
       unsubscribeFromWidePages,
       {once: true},
     );
+  }
+
+  /**
+   * Staged boot: the scene configuration, interior build, and initial book
+   * sync each run between frame yields so no single task stalls the main
+   * thread long enough to trip the compositor. Readiness waits for shader
+   * programs (including atlas-batch and television-light variants) to finish
+   * compiling behind the loading overlay instead of stutters landing on the
+   * first playable frames.
+   */
+  async start() {
+    if (
+      this.#disposed ||
+      this.#stagedBootStarted ||
+      this.#frameHandle !== undefined
+    )
+      return;
+    this.#stagedBootStarted = true;
+    const stage = (label: string) => {
+      if (DEV) performance.mark(`afterleaf-boot:${label}`);
+    };
+    stage("configure-scene-start");
+    this.#configureScene();
+    stage("interior-start");
+    await ShopScene.nextFrame();
+    if (this.#disposed) return;
+    this.#createShopInterior();
+    stage("sync-inputs-start");
+    await ShopScene.nextFrame();
+    if (this.#disposed) return;
     this.#syncInputs();
     void this.#refreshMediaCatalog();
     void this.#initializePhysics();
-  }
-
-  start() {
-    if (this.#disposed || this.#frameHandle !== undefined) return;
     this.#lastFrameTime = performance.now();
     this.#applyResize();
+    stage("first-render-start");
     this.#renderer.render(this.#scene, this.#camera);
-    this.#precompileShaders();
-    this.#markReady();
     this.#worldSaveIntervalHandle = window.setInterval(
       this.#scheduleWorldSave,
       WORLD_SAVE_INTERVAL_MS,
@@ -1777,6 +1821,68 @@ export class ShopScene {
       SHOP_MEDIA_CATALOG_REFRESH_INTERVAL_MS,
     );
     this.#frameHandle = requestAnimationFrame(this.#animate);
+    stage("warm-shaders-start");
+    await this.#warmShaderPrograms();
+    if (this.#disposed) return;
+    stage("ready");
+    if (DEV)
+      for (const label of [
+        "configure-scene",
+        "interior",
+        "sync-inputs",
+        "first-render",
+        "warm-shaders",
+      ])
+        performance.measure(
+          `afterleaf-boot:${label}`,
+          `afterleaf-boot:${label}-start`,
+          `afterleaf-boot:ready`,
+        );
+    this.#precompileShaders();
+    this.#markReady();
+  }
+
+  /**
+   * Compiles the current shader variants behind the loading overlay: the
+   * no-screen-light variants first, then the rect-area-light variant set
+   * from exactly one television's four wash lights (forcing every television
+   * would multiply light counts into every program and stall compilation).
+   * Book textures stream in afterwards by design; the batch program variant
+   * is warmed here so attaching batches only uploads textures.
+   */
+  async #warmShaderPrograms() {
+    if (this.#disposed) return;
+    // The atlas-batch book material uses its own program cache key and no
+    // batch mesh exists until textures stream in after ready, so warm its
+    // variant here with a stand-in mesh covering all batch groups.
+    const batchMaterialStandIn = new Mesh(
+      new BoxGeometry(0.01, 0.01, 0.01),
+      createBookExteriorMaterial(new Color("#ffffff"), -1, true, true).material,
+    );
+    this.#scene.add(batchMaterialStandIn);
+    try {
+      await this.#renderer.compileAsync(this.#scene, this.#camera);
+      // Warm the rect-area-light variant set with exactly ONE television's
+      // four wash lights: forcing every television would multiply the light
+      // count into every program and stall the machine during compilation.
+      // Multi-TV combinations stay lazy (rare, incremental).
+      const sampleTelevision = this.#tvScreenLighting()
+        ? this.#televisions[0]
+        : undefined;
+      if (sampleTelevision) {
+        sampleTelevision.setScreenLightsForcedVisible(true);
+        await this.#renderer.compileAsync(this.#scene, this.#camera);
+        sampleTelevision.setScreenLightsForcedVisible(false);
+      }
+    } catch (error: unknown) {
+      // Lazy compilation still works; precompilation is best-effort.
+      if (DEV)
+        console.warn("Afterleaf could not precompile shader programs.", error);
+    } finally {
+      this.#scene.remove(batchMaterialStandIn);
+      batchMaterialStandIn.geometry.dispose();
+      batchMaterialStandIn.material.dispose();
+    }
   }
 
   /**
@@ -1792,9 +1898,7 @@ export class ShopScene {
     this.#lateShaderPrecompileHandle = window.setTimeout(() => {
       this.#lateShaderPrecompileHandle = undefined;
       if (this.#disposed) return;
-      void this.#renderer
-        .compileAsync(this.#scene, this.#camera)
-        .catch(() => {});
+      void this.#warmShaderPrograms();
     }, SHADER_PRECOMPILE_LATE_DELAY_MS);
   }
 
@@ -2072,6 +2176,8 @@ export class ShopScene {
     this.#inspectionTurningBackTexture = undefined;
     this.#resizeObserver?.disconnect();
     this.#resizeObserver = undefined;
+    this.#ktx2Loader?.dispose();
+    this.#ktx2Loader = undefined;
     if (this.#frameHandle !== undefined)
       cancelAnimationFrame(this.#frameHandle);
     this.#frameHandle = undefined;
@@ -2089,7 +2195,6 @@ export class ShopScene {
     this.#booksById.clear();
     this.#standaloneBookTexturePublicationIds.clear();
     this.#interactiveMeshes = [];
-    this.#shelfHoverTargetMeshes = [];
     disposeObject(this.#scene);
     this.#scene.clear();
     this.#moonEnvironment?.dispose();
@@ -2454,6 +2559,13 @@ export class ShopScene {
   static readonly #interiorBatchHard =
     /television|screen|arcade|art-?frame|face-?out|display|snap|helper/iu;
   static readonly #interiorBatchSoft = /shelf|gondola|fixture|cave/iu;
+
+  /** Resolves on the next animation frame, yielding the main thread. */
+  static nextFrame(): Promise<void> {
+    return new Promise((resolve) => {
+      requestAnimationFrame(() => resolve());
+    });
+  }
 
   /**
    * Parameter fingerprint so identical inline materials (builders create
@@ -9513,7 +9625,29 @@ export class ShopScene {
     this.#updateHeldPhysicsTarget();
     this.#worldStateDirty = true;
     this.#emitGameState();
+    // Book textures stream into the scene as batches finish; readiness does
+    // not wait on them.
     void this.#initializeBookAtlasBatches(items, atlasRevision);
+  }
+
+  /**
+   * Loads a shelf atlas texture, transparently using basis-compressed KTX2
+   * for catalogs that ship it. Compressed textures cannot be flipped at
+   * upload time; the pipeline bakes the vertical flip in instead.
+   */
+  async #loadShelfAtlasTexture(url: string): Promise<Texture> {
+    // Catalog asset URLs carry a cache-busting query; test the pathname.
+    const pathname = url.split(/[?#]/u, 1)[0] ?? url;
+    if (!pathname.endsWith(".ktx2")) return this.#textureLoader.loadAsync(url);
+    this.#ktx2Loader ??= new KTX2Loader()
+      .setTranscoderPath("/basis/")
+      .detectSupport(this.#renderer);
+    const texture = await this.#ktx2Loader.loadAsync(url);
+    texture.colorSpace = SRGBColorSpace;
+    texture.flipY = false;
+    texture.generateMipmaps = false;
+    texture.minFilter = LinearFilter;
+    return texture;
   }
 
   async #initializeBookAtlasBatches(
@@ -9555,9 +9689,9 @@ export class ShopScene {
           )
             return;
           const [frontTexture, backTexture, spineTexture] = await Promise.all([
-            this.#textureLoader.loadAsync(front.url),
-            this.#textureLoader.loadAsync(back.url),
-            this.#textureLoader.loadAsync(spine.url),
+            this.#loadShelfAtlasTexture(front.url),
+            this.#loadShelfAtlasTexture(back.url),
+            this.#loadShelfAtlasTexture(spine.url),
           ]);
           const textures = {
             back: backTexture,
@@ -9631,7 +9765,13 @@ export class ShopScene {
         });
     }
 
-    for (const group of groups.values()) {
+    const builtIndexes = new Set<number>();
+    for (const [key, group] of groups) {
+      // Building a batch attaches fresh atlas textures; uploading the whole
+      // set inside one frame stalls the main thread behind the driver for
+      // seconds. Yield so each atlas trio lands in its own frame instead.
+      if (this.#disposed || revision !== this.#bookAtlasRevision) break;
+      await ShopScene.nextFrame();
       const {material, uniforms} = createBookExteriorMaterial(
         new Color("#ffffff"),
         -1,
@@ -9713,13 +9853,26 @@ export class ShopScene {
           instanceId,
           lastMatrix: record.mesh.matrix.clone(),
           visible: true,
+          detached: false,
         };
       }
       this.#scene.add(mesh);
       this.#bookAtlasBatches.push(batch);
+      builtIndexes.add(Number(key));
+    }
+    if (builtIndexes.size < atlasResources.size) {
+      // Either boot was aborted mid-build or a resource matched no entries;
+      // dispose textures for every atlas that never built a batch.
+      for (const [index, resource] of atlasResources) {
+        if (builtIndexes.has(index)) continue;
+        for (const texture of Object.values(resource.textures))
+          texture.dispose();
+      }
     }
     this.#bookAtlasTextures.push(
-      ...[...atlasResources.values()].map((resource) => resource.textures),
+      ...[...atlasResources.entries()]
+        .filter(([index]) => builtIndexes.has(index))
+        .map(([, resource]) => resource.textures),
     );
     this.#syncBookAtlasBatches();
   }
@@ -9732,20 +9885,37 @@ export class ShopScene {
         continue;
       }
       const forcedStandalone =
-        record.mesh.parent !== this.#scene ||
         record.state.status === "carried" ||
         publicationId === this.#inspectionPublicationId ||
         publicationId === this.#discardAnimation?.publicationId ||
         publicationId === this.#shelveAnimation?.publicationId;
+      // A mesh some other system reparented (carry handoff, restore) cannot
+      // render as a batch instance; fall back to standalone.
+      const externallyOwned =
+        record.mesh.parent !== this.#scene &&
+        !(record.mesh.parent === null && placement.detached);
       const readyStandalone =
         record.standaloneTexturesReady &&
         (publicationId === this.#hoveredPublicationId ||
           publicationId === this.#lastSelectedPublicationId);
-      const standalone = forcedStandalone || readyStandalone;
+      const standalone = forcedStandalone || readyStandalone || externallyOwned;
       const batchVisible = record.exteriorMaterial.visible && !standalone;
       if (batchVisible !== placement.visible) {
         placement.batch.mesh.setVisibleAt(placement.instanceId, batchVisible);
         placement.visible = batchVisible;
+      }
+      // Dormant batched books leave the scene graph entirely: their subtree
+      // (inspection assembly included) then skips per-frame traversal.
+      // Detached meshes keep world-space local transforms, so re-adding
+      // restores the exact pose.
+      if (batchVisible) {
+        if (!placement.detached && record.mesh.parent === this.#scene) {
+          record.mesh.removeFromParent();
+          placement.detached = true;
+        } else if (record.mesh.parent !== null) placement.detached = false;
+      } else if (placement.detached && record.mesh.parent === null) {
+        this.#scene.add(record.mesh);
+        placement.detached = false;
       }
       record.mesh.visible = standalone;
       if (!batchVisible) continue;
@@ -9762,8 +9932,12 @@ export class ShopScene {
   #disposeBookAtlasBatches() {
     for (const record of this.#booksById.values()) {
       const placement = record.atlasPlacement;
-      if (placement)
+      if (placement) {
         placement.batch.mesh.setVisibleAt(placement.instanceId, false);
+        // Return detached meshes to the graph; they render standalone now.
+        if (placement.detached && record.mesh.parent === null)
+          this.#scene.add(record.mesh);
+      }
       record.atlasPlacement = undefined;
       record.mesh.visible = true;
     }
@@ -9805,7 +9979,9 @@ export class ShopScene {
     hoverTarget.name = "shelved-book-hover-target";
     hoverTarget.visible = false;
     hoverTarget.userData.publicationId = item.id;
-    this.#scene.add(hoverTarget);
+    // Kept out of the scene graph: it is invisible to rendering and its
+    // world matrix is refreshed manually in #syncShelfHoverTarget, so
+    // per-frame traversal never needs to visit it.
 
     const inspectionGroup = new Group();
     inspectionGroup.name = "inspection-pages";
@@ -10219,9 +10395,29 @@ export class ShopScene {
     this.#interactiveMeshes = [...this.#booksById.values()]
       .filter((record) => record.state.status === "floor")
       .map((record) => record.mesh);
-    this.#shelfHoverTargetMeshes = [...this.#booksById.values()]
-      .filter((record) => record.state.status === "shelved")
-      .map((record) => record.hoverTarget);
+    // Group shelved proxies per shelf so the reticle sweep can cull whole
+    // banks by camera distance instead of raycasting every book in the shop.
+    this.#shelfHoverMeshesByShelf.clear();
+    this.#ungroupedShelfHoverMeshes.length = 0;
+    for (const record of this.#booksById.values()) {
+      if (record.state.status !== "shelved") continue;
+      const {shelfId} = record.state;
+      const knownShelf =
+        typeof shelfId === "string"
+          ? this.#spineShelfDefinitions.get(shelfId)
+          : undefined;
+      if (!knownShelf || typeof shelfId !== "string") {
+        this.#ungroupedShelfHoverMeshes.push(record.hoverTarget);
+        continue;
+      }
+      let bucket = this.#shelfHoverMeshesByShelf.get(shelfId);
+      if (!bucket) {
+        bucket = [];
+        this.#shelfHoverMeshesByShelf.set(shelfId, bucket);
+      }
+      bucket.push(record.hoverTarget);
+    }
+    this.#interactionTargetsDirty = true;
   }
 
   #disposeBookRecord(record: BookRecord) {
@@ -12333,10 +12529,26 @@ export class ShopScene {
   }
 
   #findShelfHoverTargetPublicationId() {
-    const intersections = this.#raycaster.intersectObjects(
-      this.#shelfHoverTargetMeshes,
-      false,
-    );
+    // Whole-shelf cull: shelves farther than the interaction reach cannot
+    // contain a hit, so only nearby banks' proxies are raycast. Ungrouped
+    // proxies (shelf definition missing) always stay in the candidate set.
+    const scratch = this.#shelfHoverSweepScratch;
+    scratch.length = 0;
+    for (const [shelfId, meshes] of this.#shelfHoverMeshesByShelf) {
+      const shelf = this.#spineShelfDefinitions.get(shelfId);
+      if (!shelf) continue;
+      const cullDistance =
+        INTERACTION_DISTANCE + shelf.halfWidth + SHELF_HOVER_CULL_MARGIN;
+      if (
+        this.#camera.position.distanceToSquared(shelf.frontCenter) >
+        cullDistance * cullDistance
+      )
+        continue;
+      for (const mesh of meshes) scratch.push(mesh);
+    }
+    for (const mesh of this.#ungroupedShelfHoverMeshes) scratch.push(mesh);
+    if (scratch.length === 0) return undefined;
+    const intersections = this.#raycaster.intersectObjects(scratch, false);
     for (const intersection of intersections) {
       if (intersection.distance > INTERACTION_DISTANCE) break;
       const candidateId = intersection.object.userData.publicationId;
@@ -12443,6 +12655,17 @@ export class ShopScene {
     // player whips the view around.
     if (this.#frameNowMs - this.#lastAimSweepTimeMs < AIM_SWEEP_MIN_INTERVAL_MS)
       return;
+    // The reticle is screen-center, so the sweep result only changes when
+    // the camera moves or targetable content changed; skip otherwise.
+    if (
+      !this.#interactionTargetsDirty &&
+      this.#camera.position.equals(this.#lastSweepPosition) &&
+      this.#camera.quaternion.equals(this.#lastSweepQuaternion)
+    )
+      return;
+    this.#interactionTargetsDirty = false;
+    this.#lastSweepPosition.copy(this.#camera.position);
+    this.#lastSweepQuaternion.copy(this.#camera.quaternion);
     this.#lastAimSweepTimeMs = this.#frameNowMs;
     this.#camera.updateMatrixWorld();
     this.#raycaster.setFromCamera(this.#reticle, this.#camera);
@@ -13757,16 +13980,15 @@ export class ShopScene {
 
   #emitGameState() {
     if (!this.#onGameStateChange) return;
-    const records = [...this.#booksById.entries()]
-      .filter(
-        ([publicationId]) => !this.#discardedPublicationIds.has(publicationId),
-      )
-      .map(([, record]) => record);
-    const taskBooks = records.filter((record) => record.taskBook);
-    const shelvedCount = taskBooks.filter(
-      (record) => record.state.status === "shelved",
-    ).length;
-    const looseCount = taskBooks.length - shelvedCount;
+    let taskBookCount = 0;
+    let shelvedCount = 0;
+    for (const [publicationId, record] of this.#booksById) {
+      if (this.#discardedPublicationIds.has(publicationId)) continue;
+      if (!record.taskBook) continue;
+      taskBookCount += 1;
+      if (record.state.status === "shelved") shelvedCount += 1;
+    }
+    const looseCount = taskBookCount - shelvedCount;
     const carriedRecord = this.#carriedPublicationId
       ? this.#booksById.get(this.#carriedPublicationId)
       : undefined;
@@ -14563,7 +14785,13 @@ export class ShopScene {
               ),
             ) >
             1e-7;
-        if (record.mesh.parent !== this.#scene) this.#scene.attach(record.mesh);
+        // Batch-rendered books stay detached; their instance matrix picks
+        // up any real pose change in #syncBookAtlasBatches.
+        if (
+          !record.atlasPlacement?.visible &&
+          record.mesh.parent !== this.#scene
+        )
+          this.#scene.attach(record.mesh);
         record.mesh.position.copy(this.#physicsTransform.position);
         record.mesh.quaternion.copy(this.#physicsTransform.rotation);
         record.mesh.scale.setScalar(1);
@@ -14581,7 +14809,11 @@ export class ShopScene {
               this.#input.isActionDown("throw"),
             deltaSeconds,
           );
-        if (positionChanged || rotationChanged) this.#worldStateDirty = true;
+        if (positionChanged || rotationChanged) {
+          this.#worldStateDirty = true;
+          // A moving prop can enter or leave the reticle; re-sweep.
+          this.#interactionTargetsDirty = true;
+        }
         continue;
       }
       if (record.state.status === "carried") continue;
