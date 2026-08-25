@@ -21,6 +21,25 @@ export type ShelfAtlasEncodeResponse =
 const port = parentPort;
 if (!port) throw new Error("Shelf atlas encoder must run inside a worker");
 
+/**
+ * The basis WASM encoder printf's progress ("Total slices: 1", ...) straight
+ * to process stdout. Workers share the process' streams, so those writes
+ * would corrupt the JSON envelopes library commands print for their callers
+ * (vite parses them). Sink all stream writes while encoding.
+ */
+const withSilencedStreams = async <T>(work: () => Promise<T>): Promise<T> => {
+  const sinks = [process.stdout, process.stderr];
+  const originals = sinks.map((stream) => stream.write);
+  const sink = () => true;
+  for (const stream of sinks) stream.write = sink as typeof stream.write;
+  try {
+    return await work();
+  } finally {
+    for (const [index, stream] of sinks.entries())
+      stream.write = originals[index]!;
+  }
+};
+
 port.on("message", async (request: ShelfAtlasEncodeRequest) => {
   try {
     const imageDecoder = async (buffer: Uint8Array) => {
@@ -34,11 +53,14 @@ port.on("message", async (request: ShelfAtlasEncodeRequest) => {
         height: info.height,
       };
     };
-    const ktx2 = await encodeToKTX2(request.png, {
-      isUASTC: request.isUASTC,
-      generateMipmap: false,
-      imageDecoder,
-    });
+    const ktx2 = await withSilencedStreams(() =>
+      encodeToKTX2(request.png, {
+        isUASTC: request.isUASTC,
+        generateMipmap: false,
+        enableDebug: false,
+        imageDecoder,
+      }),
+    );
     const response: ShelfAtlasEncodeResponse = {
       id: request.id,
       ktx2: new Uint8Array(ktx2),
