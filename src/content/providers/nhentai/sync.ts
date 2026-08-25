@@ -41,6 +41,7 @@ export interface NhentaiSyncOptions {
   limit: number;
   maxSearchPages: number;
   onProgress?: (message: string) => void;
+  onStep?: (completed: number, total: number) => void;
   outputDirectory: string;
   previewPageCount?: number;
   query: string;
@@ -521,6 +522,18 @@ export const syncNhentaiCatalog = async (
   }
   let scheduledNewGalleryCount = 0;
   let repairIndex = 0;
+  // Sub-step progress for the host UI: every materialization counts as one
+  // unit. New publications reserve `limit` slots up front; repairs discovered
+  // later grow the total, so the reported fraction may temporarily recede.
+  let stepCompletedCount = 0;
+  let stepTotalCount = 0;
+  const reportStep = () => {
+    if (stepTotalCount > 0)
+      options.onStep?.(
+        Math.min(stepCompletedCount, stepTotalCount),
+        stepTotalCount,
+      );
+  };
 
   const acquisitions = createConcurrentAcquisitionPipeline<
     QueuedAcquisition,
@@ -533,14 +546,17 @@ export const syncNhentaiCatalog = async (
         return undefined;
       if (selectedGallery.repair) {
         repairIndex += 1;
+        stepTotalCount += 1;
         options.onProgress?.(
           `Repairing nhentai-${selectedGallery.gallery.id} (repair ${repairIndex}): ${selectedGallery.repairReason ?? "the cached publication is incomplete"}`,
         );
       } else {
+        stepTotalCount = Math.max(stepTotalCount, scheduledNewGalleryCount + 1);
         options.onProgress?.(
           `Fetching nhentai-${selectedGallery.gallery.id} (new publication ${scheduledNewGalleryCount + 1} of ${options.limit})`,
         );
       }
+      reportStep();
       let gallery: NhentaiGallery;
       try {
         gallery =
@@ -591,6 +607,8 @@ export const syncNhentaiCatalog = async (
         options.onProgress?.(
           `${prepared.repair ? "Repaired" : "Imported"} nhentai-${prepared.gallery.id} (${result})`,
         );
+        stepCompletedCount += 1;
+        reportStep();
         return {
           gallery: prepared.gallery,
           repair: prepared.repair,
@@ -601,6 +619,8 @@ export const syncNhentaiCatalog = async (
         options.onProgress?.(
           `Failed to ${action} nhentai-${prepared.gallery.id}: ${error instanceof Error ? error.message : String(error)}`,
         );
+        stepCompletedCount += 1;
+        reportStep();
         throw error;
       }
     },

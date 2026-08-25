@@ -131,6 +131,17 @@ export const scanFailuresLogPath = dataRootChild(
   "scan-failures.log",
 );
 
+/**
+ * Descriptor of the library operation that may currently be running, so a
+ * reloaded page (or a different browser) can reattach to its progress.
+ * Present only while a job is live; removed when the job settles.
+ */
+export const activeLibraryOperationPath = dataRootChild(
+  GAME_DIRECTORY_NAME,
+  GAME_CACHE_DIRECTORY_NAME,
+  "active-library-operation.json",
+);
+
 const DATA_ROOT_README = `Afterleaf data folder
 =====================
 

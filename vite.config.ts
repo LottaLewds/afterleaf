@@ -5,7 +5,15 @@ import {spawn} from "node:child_process";
 import {randomUUID} from "node:crypto";
 import {createReadStream, existsSync, readFileSync, statSync} from "node:fs";
 import {copyFile} from "node:fs/promises";
-import {mkdir, readdir, rename, rm, stat, writeFile} from "node:fs/promises";
+import {
+  mkdir,
+  readFile,
+  readdir,
+  rename,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
 import type {IncomingMessage, ServerResponse} from "node:http";
 import path from "node:path";
 
@@ -36,6 +44,7 @@ import {
   type LibraryOperationHttpResponse,
   type LibraryOperationStatusHttpSuccess,
   type LibraryPasteImportMatch,
+  type LibrarySnapshotOperation,
 } from "./src/content/libraryUpdate/httpProtocol";
 import {
   arcadeSystemSupportsFileName,
@@ -67,6 +76,7 @@ import {
   unavailableLibraryPaths,
 } from "./src/content/libraryConfig";
 import {
+  activeLibraryOperationPath,
   artFramesDirectory as artFramesDirectoryFor,
   ensureDataRootStructure,
   libraryPackDirectory,
@@ -823,8 +833,46 @@ const libraryOperationArguments = (operation: LocalLibraryOperation) => {
 type LibraryCommandProgress = {
   completedSteps: number;
   message: string;
+  subProgress?: {completed: number; total: number};
   totalSteps: number;
 };
+
+/**
+ * Disk record of the snapshot operation that may currently be running so a
+ * reloaded page or a different browser can reattach to its progress. The
+ * file exists only while a job is live and is removed when the job settles.
+ */
+type ActiveLibraryOperationDescriptor = {
+  jobId: string;
+  operation: LibrarySnapshotOperation;
+  /** Epoch milliseconds; lets clients reconstruct true elapsed time. */
+  startedAt: number;
+  state: "running";
+};
+
+const activeLibraryOperationFile = activeLibraryOperationPath(
+  import.meta.dirname,
+);
+
+const persistActiveLibraryOperation = (
+  jobId: string,
+  operation: LibrarySnapshotOperation,
+) => {
+  const descriptor: ActiveLibraryOperationDescriptor = {
+    jobId,
+    operation,
+    startedAt: Date.now(),
+    state: "running",
+  };
+  return writeFile(
+    activeLibraryOperationFile,
+    `${JSON.stringify(descriptor)}\n`,
+    {mode: 0o600},
+  ).catch(() => {});
+};
+
+const clearActiveLibraryOperation = () =>
+  rm(activeLibraryOperationFile, {force: true}).catch(() => {});
 
 const runLibraryOperationCommand = (
   operation: LocalLibraryOperation,
@@ -867,16 +915,30 @@ const runLibraryOperationCommand = (
       const lines = progressBuffer.split("\n");
       progressBuffer = flush ? "" : (lines.pop() ?? "");
       for (const line of lines) {
-        const match = line.trim().match(/^\[(\d+)\/(\d+)\]\s+(.+)$/u);
+        const match = line
+          .trim()
+          .match(/^\[(\d+)\/(\d+)(?::(\d+)\/(\d+))?\]\s+(.+)$/u);
         if (!match) {
           captureErrorLine(line);
           continue;
         }
         const completedSteps = Number(match[1]);
         const totalSteps = Number(match[2]);
-        const message = match[3];
+        const subCompleted =
+          match[3] === undefined ? undefined : Number(match[3]);
+        const subTotal = match[4] === undefined ? undefined : Number(match[4]);
+        const message = match[5];
+        const subIsValid =
+          subCompleted === undefined
+            ? subTotal === undefined
+            : subTotal !== undefined &&
+              Number.isSafeInteger(subCompleted) &&
+              Number.isSafeInteger(subTotal) &&
+              subCompleted >= 0 &&
+              subTotal > 0;
         if (
           !message ||
+          !subIsValid ||
           !Number.isSafeInteger(completedSteps) ||
           !Number.isSafeInteger(totalSteps) ||
           completedSteps < 0 ||
@@ -886,7 +948,14 @@ const runLibraryOperationCommand = (
           captureErrorLine(line);
           continue;
         }
-        onProgress?.({completedSteps, message, totalSteps});
+        onProgress?.({
+          ...(subCompleted === undefined || subTotal === undefined
+            ? {}
+            : {subProgress: {completed: subCompleted, total: subTotal}}),
+          completedSteps,
+          message,
+          totalSteps,
+        });
       }
     };
 
@@ -1528,11 +1597,55 @@ const localLibraryOperationsPlugin = (): Plugin => ({
         let jobId: string;
         try {
           const jobIds = requestUrl.searchParams.getAll("jobId");
+          if (jobIds.length > 1)
+            throw new Error("Library operation status accepts one jobId");
           if (
-            jobIds.length !== 1 ||
             [...requestUrl.searchParams.keys()].some((key) => key !== "jobId")
           )
-            throw new Error("Library operation status requires one jobId");
+            throw new Error(
+              "Library operation status only accepts a jobId parameter",
+            );
+          if (jobIds.length === 0) {
+            // No jobId: report the persisted active operation so a reloaded
+            // page or another browser can reattach to the running job.
+            try {
+              const active = JSON.parse(
+                await readFile(activeLibraryOperationFile, "utf8"),
+              ) as unknown;
+              const descriptor =
+                active !== null && typeof active === "object"
+                  ? (active as {
+                      jobId?: unknown;
+                      operation?: unknown;
+                      startedAt?: unknown;
+                    })
+                  : undefined;
+              if (
+                typeof descriptor?.jobId === "string" &&
+                typeof descriptor.operation === "string" &&
+                (descriptor.operation === "fetch-more" ||
+                  descriptor.operation === "scan") &&
+                typeof descriptor.startedAt === "number" &&
+                Number.isFinite(descriptor.startedAt)
+              ) {
+                sendJson(response, 200, {
+                  jobId: descriptor.jobId,
+                  ok: true,
+                  operation: descriptor.operation,
+                  startedAt: descriptor.startedAt,
+                  state: "active",
+                });
+                return;
+              }
+            } catch {
+              // No persisted active operation.
+            }
+            sendJson(response, 200, {
+              ok: true,
+              state: "idle",
+            });
+            return;
+          }
           jobId = parseLibraryJobId(jobIds[0]);
         } catch (error) {
           sendJson(
@@ -1547,6 +1660,16 @@ const localLibraryOperationsPlugin = (): Plugin => ({
         }
         const job = operationJobs.get(jobId);
         if (!job) {
+          // Self-heal a stale persisted descriptor (e.g. after a server
+          // restart killed the job process) so clients stop reattaching.
+          void readFile(activeLibraryOperationFile, "utf8")
+            .then((contents) => {
+              const active = JSON.parse(contents) as {
+                jobId?: unknown;
+              };
+              if (active?.jobId === jobId) return clearActiveLibraryOperation();
+            })
+            .catch(() => {});
           sendJson(
             response,
             404,
@@ -1710,6 +1833,7 @@ const localLibraryOperationsPlugin = (): Plugin => ({
           totalSteps: 3,
         };
         operationJobs.set(jobId, initialStatus);
+        void persistActiveLibraryOperation(jobId, snapshotOperation);
         while (operationJobs.size > 8) {
           const oldestJobId = operationJobs.keys().next().value;
           if (oldestJobId === undefined) break;
@@ -1756,6 +1880,7 @@ const localLibraryOperationsPlugin = (): Plugin => ({
             console.info(
               `[afterleaf] Completed library ${operationLogLabel} in ${Math.round((Date.now() - operationStartedAt) / 1_000)}s: ${result.changes.addedCount} added, ${result.changes.updatedCount} updated, ${result.changes.removedCount} removed, ${result.snapshot.publicationCount} catalogued`,
             );
+            void clearActiveLibraryOperation();
           } catch (error) {
             const bridgeError =
               error instanceof LibraryUpdateBridgeError
@@ -1781,6 +1906,7 @@ const localLibraryOperationsPlugin = (): Plugin => ({
               state: "failed",
               totalSteps: currentStatus.totalSteps,
             });
+            void clearActiveLibraryOperation();
             console.error(
               `[afterleaf] Failed library ${operationLogLabel} after ${Math.round((Date.now() - operationStartedAt) / 1_000)}s: ${bridgeError.message}`,
             );

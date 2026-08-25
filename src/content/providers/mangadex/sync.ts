@@ -436,6 +436,10 @@ export const syncMangaDexCatalog = async (
   const selected: SelectedChapter[] = [];
   const seenMangaIds = new Set<string>();
   const seenLogicalChapterKeys = new Set<string>();
+  // Sub-step progress for the host UI: each chapter materialization counts
+  // as one unit; the total grows as the search discovers more chapters.
+  let stepCompletedCount = 0;
+  let stepTotalCount = 0;
   const now = dependencies.now ?? (() => new Date());
   const syncedAt = options.write ? now().toISOString() : "";
   const acquisitions = createConcurrentAcquisitionPipeline<
@@ -452,17 +456,25 @@ export const syncMangaDexCatalog = async (
       options.onProgress?.(
         `Downloading MangaDex publication ${entry.selectionIndex + 1} of ${options.limit}`,
       );
-      const result = await materializeChapter(
-        client,
-        entry.manga,
-        entry.chapter,
-        entry.server,
-        entry.language,
-        outputDirectory,
-        syncedAt,
-        markStarted,
-      );
-      return {result};
+      try {
+        const result = await materializeChapter(
+          client,
+          entry.manga,
+          entry.chapter,
+          entry.server,
+          entry.language,
+          outputDirectory,
+          syncedAt,
+          markStarted,
+        );
+        return {result};
+      } finally {
+        stepCompletedCount += 1;
+        options.onStep?.(
+          Math.min(stepCompletedCount, stepTotalCount),
+          stepTotalCount,
+        );
+      }
     },
   });
 
@@ -541,6 +553,11 @@ export const syncMangaDexCatalog = async (
             };
             selected.push(entry);
             if (options.write) {
+              stepTotalCount += 1;
+              options.onStep?.(
+                Math.min(stepCompletedCount, stepTotalCount),
+                stepTotalCount,
+              );
               const acquisition = acquisitions.enqueue(entry);
               firstPageAcquisitionStarted ??= acquisition.started;
             }

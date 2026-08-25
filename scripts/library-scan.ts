@@ -9,8 +9,12 @@ try {
     process.cwd(),
     (state) => {
       if (state.status !== "running") return;
+      const subProgress =
+        state.subProgress === undefined
+          ? ""
+          : `:${state.subProgress.completed}/${state.subProgress.total}`;
       console.error(
-        `[${state.completedSteps}/${state.totalSteps}] ${state.message}`,
+        `[${state.completedSteps}/${state.totalSteps}${subProgress}] ${state.message}`,
       );
     },
   );

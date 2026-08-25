@@ -28,6 +28,7 @@ interface ProviderRuntimeError {
 
 type ProviderRuntimeMessage =
   | {kind: "error"; error: ProviderRuntimeError}
+  | {completed: number; kind: "step"; total: number}
   | {kind: "progress"; message: string}
   | {kind: "result"; result: unknown};
 
@@ -55,6 +56,16 @@ const parseRuntimeMessage = (value: unknown): ProviderRuntimeMessage => {
     throw new Error("Content provider runtime sent an invalid message");
   if (value.kind === "progress" && typeof value.message === "string")
     return {kind: "progress", message: value.message};
+  if (
+    value.kind === "step" &&
+    typeof value.completed === "number" &&
+    Number.isSafeInteger(value.completed) &&
+    typeof value.total === "number" &&
+    Number.isSafeInteger(value.total) &&
+    value.completed >= 0 &&
+    value.total > 0
+  )
+    return {completed: value.completed, kind: "step", total: value.total};
   if (value.kind === "result") return {kind: "result", result: value.result};
   if (value.kind === "error" && isRecord(value.error)) {
     const {error} = value;
@@ -91,6 +102,7 @@ const runProviderRuntime = (
   operation: "inspect" | "materialize-page" | "resolve-pasted-import" | "sync",
   request: ProviderRuntimeRequest,
   onProgress?: (message: string) => void,
+  onStep?: (completed: number, total: number) => void,
 ) => {
   const run = async () => {
     const temporaryDirectory = await mkdtemp(
@@ -159,6 +171,18 @@ const runProviderRuntime = (
                   error instanceof Error
                     ? error
                     : new Error("Content provider progress handler failed"),
+                );
+              }
+              return;
+            }
+            if (message.kind === "step") {
+              try {
+                onStep?.(message.completed, message.total);
+              } catch (error) {
+                fail(
+                  error instanceof Error
+                    ? error
+                    : new Error("Content provider step handler failed"),
                 );
               }
               return;
@@ -252,7 +276,7 @@ const createRuntimeProvider = async (
   const sync = async (
     options: LibraryProviderSyncOptions,
   ): Promise<LibraryProviderSyncReport> => {
-    const {onProgress, ...serializableOptions} = options;
+    const {onProgress, onStep, ...serializableOptions} = options;
     const {result} = await runProviderRuntime(
       runtimeHostPath,
       sdkEntryPath,
@@ -260,6 +284,7 @@ const createRuntimeProvider = async (
       "sync",
       {context, value: serializableOptions},
       onProgress,
+      onStep,
     );
     return result as LibraryProviderSyncReport;
   };

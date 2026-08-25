@@ -69,6 +69,7 @@ type LocalLibraryOperationStatusBase = {
   jobId: string;
   message: string;
   operation: LibrarySnapshotOperation;
+  subProgress?: {completed: number; total: number};
   totalSteps: number;
 };
 
@@ -186,6 +187,50 @@ export const scanLocalLibrary = (
   );
 };
 
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+/**
+ * Asks the server whether a snapshot operation is currently running so a
+ * reloaded page (or another browser) can reattach to its progress. Returns
+ * undefined while the server reports no active job. `startedAt` carries the
+ * server-side epoch start so true elapsed time survives a reload.
+ */
+export const loadActiveLibraryJob = async (
+  fetcher: LibraryOperationFetch = fetch,
+): Promise<(LocalLibraryJob & {startedAt: number}) | undefined> => {
+  const {response, value} = await requestJson(
+    LIBRARY_STATUS_ENDPOINT,
+    {
+      method: "GET",
+    },
+    fetcher,
+  );
+  if (
+    !isRecord(value) ||
+    value.ok !== true ||
+    (value.state !== "active" && value.state !== "idle")
+  )
+    throw new BrowserLibraryOperationError(
+      "The library operation server returned an invalid active-job status",
+      "invalid_response",
+      response.status,
+    );
+  if (
+    value.state !== "active" ||
+    typeof value.jobId !== "string" ||
+    (value.operation !== "fetch-more" && value.operation !== "scan") ||
+    typeof value.startedAt !== "number" ||
+    !Number.isFinite(value.startedAt)
+  )
+    return undefined;
+  return {
+    jobId: value.jobId,
+    operation: value.operation,
+    startedAt: value.startedAt,
+  };
+};
+
 export const loadLibraryOperationStatus = async (
   jobId: string,
   fetcher: LibraryOperationFetch = fetch,
@@ -218,12 +263,13 @@ export const loadLibraryOperationStatus = async (
       "invalid_response",
       response.status,
     );
-  const {completedSteps, message, operation, totalSteps} = result;
+  const {completedSteps, message, operation, subProgress, totalSteps} = result;
   const base: LocalLibraryOperationStatusBase = {
     completedSteps,
     jobId: result.jobId,
     message,
     operation,
+    ...(subProgress === undefined ? {} : {subProgress}),
     totalSteps,
   };
   if (result.state === "running") return {...base, state: "running"};

@@ -117,6 +117,7 @@ type LibraryOperationStatusBase = {
   message: string;
   ok: true;
   operation: LibrarySnapshotOperation;
+  subProgress?: {completed: number; total: number};
   totalSteps: number;
 };
 
@@ -541,12 +542,31 @@ export const parseLibraryOperationStatusHttpResponse = (
   const totalSteps = nonNegativeInteger(value.totalSteps, "totalSteps");
   if (completedSteps > totalSteps)
     throw new Error("completedSteps cannot exceed totalSteps");
+  let subProgress: LibraryOperationStatusBase["subProgress"];
+  if (value.subProgress !== undefined) {
+    if (!isRecord(value.subProgress))
+      throw new Error("subProgress must be an object");
+    const subCompleted = nonNegativeInteger(
+      value.subProgress.completed,
+      "subProgress.completed",
+    );
+    const subTotal = nonNegativeInteger(
+      value.subProgress.total,
+      "subProgress.total",
+    );
+    if (subTotal <= 0)
+      throw new Error("subProgress.total must be a positive integer");
+    if (subCompleted > subTotal)
+      throw new Error("subProgress.completed cannot exceed subProgress.total");
+    subProgress = {completed: subCompleted, total: subTotal};
+  }
   const base: LibraryOperationStatusBase = {
     completedSteps,
     jobId: parseLibraryJobId(value.jobId),
     message: boundedString(value.message, "message"),
     ok: true,
     operation: value.operation,
+    ...(subProgress === undefined ? {} : {subProgress}),
     totalSteps,
   };
   if (value.state === "running") return {...base, state: "running"};

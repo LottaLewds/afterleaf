@@ -67,6 +67,15 @@ const run = async (request) => {
         onProgress: (message) => {
           if (typeof message === "string") send({kind: "progress", message});
         },
+        onStep: (completed, total) => {
+          if (
+            Number.isSafeInteger(completed) &&
+            Number.isSafeInteger(total) &&
+            completed >= 0 &&
+            total > 0
+          )
+            send({completed, kind: "step", total});
+        },
       });
       send({kind: "result", result});
       shutdown(0);

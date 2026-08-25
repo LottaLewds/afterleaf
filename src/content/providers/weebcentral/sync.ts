@@ -419,6 +419,10 @@ export const syncWeebCentralCatalog = async (
   }> = [];
   const seenSeriesIds = new Set<string>();
   const seenLogicalChapterKeys = new Set<string>();
+  // Sub-step progress for the host UI: each chapter materialization counts
+  // as one unit; the total grows as the search discovers more chapters.
+  let stepCompletedCount = 0;
+  let stepTotalCount = 0;
   const now = dependencies.now ?? (() => new Date());
   const syncedAt = options.write ? now().toISOString() : "";
   type SelectedChapter = (typeof selected)[number];
@@ -446,7 +450,13 @@ export const syncWeebCentralCatalog = async (
         syncedAt,
         entry.pageUrls,
         markStarted,
-      );
+      ).finally(() => {
+        stepCompletedCount += 1;
+        options.onStep?.(
+          Math.min(stepCompletedCount, stepTotalCount),
+          stepTotalCount,
+        );
+      });
     },
   });
 
@@ -513,6 +523,11 @@ export const syncWeebCentralCatalog = async (
           const entry = {chapter, selectionIndex: selected.length, series};
           selected.push(entry);
           if (options.write) {
+            stepTotalCount += 1;
+            options.onStep?.(
+              Math.min(stepCompletedCount, stepTotalCount),
+              stepTotalCount,
+            );
             const acquisition = acquisitions.enqueue(entry);
             firstPageAcquisitionStarted ??= acquisition.started;
           }

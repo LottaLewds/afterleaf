@@ -79,6 +79,7 @@ import {
   BrowserLibraryOperationError,
   blacklistPublication,
   fetchMorePublications,
+  loadActiveLibraryJob,
   loadBlacklistedPublications,
   loadLibraryOperationStatus,
   loadLibraryProviders,
@@ -2229,94 +2230,106 @@ const LibraryActivityToast = (props: {
   failed: boolean;
   notice?: string | undefined;
   status: string;
+  subProgress?: {completed: number; total: number} | undefined;
   totalSteps: number;
   onDismiss: () => void;
-}) => (
-  <Show when={props.busy || props.notice}>
-    <aside
-      class="fixed right-4 bottom-4 z-40 w-[min(24rem,calc(100vw-2rem))] border border-white/12 bg-[#101716]/95 p-4 shadow-[0_20px_70px_#000b] backdrop-blur-md"
-      aria-live="polite"
-      aria-atomic="false"
-    >
-      <Show
-        when={props.busy}
-        fallback={
-          <div class="flex items-start gap-3">
-            <span
-              class="grid size-8 shrink-0 place-items-center"
-              classList={{
-                "bg-[#6da089]/12 text-[#83b69f]": !props.failed,
-                "bg-[#d94c3f]/12 text-[#e16357]": props.failed,
-              }}
-            >
-              <Show when={props.failed} fallback={<FiCheck size={14} />}>
-                <FiX size={14} />
-              </Show>
-            </span>
-            <div class="min-w-0 flex-1">
-              <p
-                class="text-[9px] font-bold tracking-[0.16em] uppercase"
+}) => {
+  // Fractional progress within the current step (when reported) keeps the
+  // bar advancing during long single-step phases such as provider syncs.
+  const progressPercent = () => {
+    const subFraction = props.subProgress
+      ? Math.min(
+          1,
+          Math.max(0, props.subProgress.completed / props.subProgress.total),
+        )
+      : 0;
+    return Math.min(
+      100,
+      ((props.completedSteps + subFraction) / Math.max(1, props.totalSteps)) *
+        100,
+    );
+  };
+  return (
+    <Show when={props.busy || props.notice}>
+      <aside
+        class="fixed right-4 bottom-4 z-40 w-[min(24rem,calc(100vw-2rem))] border border-white/12 bg-[#101716]/95 p-4 shadow-[0_20px_70px_#000b] backdrop-blur-md"
+        aria-live="polite"
+        aria-atomic="false"
+      >
+        <Show
+          when={props.busy}
+          fallback={
+            <div class="flex items-start gap-3">
+              <span
+                class="grid size-8 shrink-0 place-items-center"
                 classList={{
-                  "text-[#799c8d]": !props.failed,
-                  "text-[#d66a60]": props.failed,
+                  "bg-[#6da089]/12 text-[#83b69f]": !props.failed,
+                  "bg-[#d94c3f]/12 text-[#e16357]": props.failed,
                 }}
               >
-                Library update
-              </p>
-              <p class="mt-1 text-[11px] leading-5 text-[#c2cbc6]">
-                {props.notice}
-              </p>
-            </div>
-            <button
-              class="grid size-7 shrink-0 place-items-center text-[#68736e] hover:bg-white/5 hover:text-white"
-              aria-label="Dismiss library update"
-              onClick={() => props.onDismiss()}
-            >
-              <FiX size={13} />
-            </button>
-          </div>
-        }
-      >
-        <div class="flex items-start gap-3">
-          <span class="grid size-8 shrink-0 place-items-center bg-[#d94c3f]/12 text-[#e16357]">
-            <FiRefreshCw class="animate-spin" size={14} />
-          </span>
-          <div class="min-w-0 flex-1">
-            <div class="flex items-center justify-between gap-3">
-              <p class="text-[9px] font-bold tracking-[0.16em] text-[#d66a60] uppercase">
-                Background library job
-              </p>
-              <span
-                class="text-[9px] text-[#69746f] tabular-nums"
-                aria-hidden="true"
-              >
-                {props.completedSteps}/{props.totalSteps} ·{" "}
-                {props.elapsedSeconds}s
+                <Show when={props.failed} fallback={<FiCheck size={14} />}>
+                  <FiX size={14} />
+                </Show>
               </span>
+              <div class="min-w-0 flex-1">
+                <p
+                  class="text-[9px] font-bold tracking-[0.16em] uppercase"
+                  classList={{
+                    "text-[#799c8d]": !props.failed,
+                    "text-[#d66a60]": props.failed,
+                  }}
+                >
+                  Library update
+                </p>
+                <p class="mt-1 text-[11px] leading-5 text-[#c2cbc6]">
+                  {props.notice}
+                </p>
+              </div>
+              <button
+                class="grid size-7 shrink-0 place-items-center text-[#68736e] hover:bg-white/5 hover:text-white"
+                aria-label="Dismiss library update"
+                onClick={() => props.onDismiss()}
+              >
+                <FiX size={13} />
+              </button>
             </div>
-            <p class="mt-1 text-[11px] leading-5 text-[#c2cbc6]">
-              {props.status}
-            </p>
-            <p class="mt-1 text-[9px] text-[#66716d]">
-              Keep shelving—the shop will update when stock is ready.
-            </p>
+          }
+        >
+          <div class="flex items-start gap-3">
+            <span class="grid size-8 shrink-0 place-items-center bg-[#d94c3f]/12 text-[#e16357]">
+              <FiRefreshCw class="animate-spin" size={14} />
+            </span>
+            <div class="min-w-0 flex-1">
+              <div class="flex items-center justify-between gap-3">
+                <p class="text-[9px] font-bold tracking-[0.16em] text-[#d66a60] uppercase">
+                  Background library job
+                </p>
+                <span
+                  class="text-[9px] text-[#69746f] tabular-nums"
+                  aria-hidden="true"
+                >
+                  {Math.round(progressPercent())}% · {props.elapsedSeconds}s
+                </span>
+              </div>
+              <p class="mt-1 text-[11px] leading-5 text-[#c2cbc6]">
+                {props.status}
+              </p>
+              <p class="mt-1 text-[9px] text-[#66716d]">
+                Keep shelving—the shop will update when stock is ready.
+              </p>
+            </div>
           </div>
-        </div>
-        <div class="mt-3 h-0.5 overflow-hidden bg-white/6">
-          <div
-            class="h-full bg-[#d94c3f]/75 transition-[width] duration-300"
-            style={{
-              width: `${Math.max(
-                8,
-                (props.completedSteps / Math.max(1, props.totalSteps)) * 100,
-              )}%`,
-            }}
-          />
-        </div>
-      </Show>
-    </aside>
-  </Show>
-);
+          <div class="mt-3 h-0.5 overflow-hidden bg-white/6">
+            <div
+              class="h-full bg-[#d94c3f]/75 transition-[width] duration-300"
+              style={{width: `${Math.max(8, progressPercent())}%`}}
+            />
+          </div>
+        </Show>
+      </aside>
+    </Show>
+  );
+};
 
 const LibraryCard = (props: {
   item: CatalogItem;
@@ -2631,6 +2644,10 @@ export const App = () => {
   const [libraryUpdateCompletedSteps, setLibraryUpdateCompletedSteps] =
     createSignal(0);
   const [libraryUpdateTotalSteps, setLibraryUpdateTotalSteps] = createSignal(3);
+  const [libraryUpdateSubProgress, setLibraryUpdateSubProgress] = createSignal<{
+    completed: number;
+    total: number;
+  }>();
   const [libraryUpdateProgressMessage, setLibraryUpdateProgressMessage] =
     createSignal("Starting library job");
   const [libraryUpdateElapsedSeconds, setLibraryUpdateElapsedSeconds] =
@@ -2795,7 +2812,13 @@ export const App = () => {
   let libraryUpdateStartedAt = 0;
   let libraryUpdateTimer: number | undefined;
   let libraryStatusRequestPending = false;
-  let activeLibraryJob: (LocalLibraryJob & {automatic: boolean}) | undefined;
+  // `reconnect` marks a job adopted after a page reload, so a vanished job
+  // (server restarted mid-run) cleans up silently instead of failing loudly.
+  type MonitoredLibraryJob = LocalLibraryJob & {
+    automatic: boolean;
+    reconnect?: boolean;
+  };
+  let activeLibraryJob: MonitoredLibraryJob | undefined;
   const finishLibraryUpdate = () => {
     if (libraryUpdateTimer !== undefined)
       window.clearInterval(libraryUpdateTimer);
@@ -2896,12 +2919,13 @@ export const App = () => {
   };
 
   const settleLibraryJob = async (
-    job: LocalLibraryJob & {automatic: boolean},
+    job: MonitoredLibraryJob,
     status: Awaited<ReturnType<typeof loadLibraryOperationStatus>>,
   ) => {
     if (activeLibraryJob?.jobId !== job.jobId) return;
     setLibraryUpdateCompletedSteps(status.completedSteps);
     setLibraryUpdateTotalSteps(status.totalSteps);
+    setLibraryUpdateSubProgress(status.subProgress);
     setLibraryUpdateProgressMessage(status.message);
     if (status.state === "running") return;
     try {
@@ -2932,9 +2956,7 @@ export const App = () => {
     }
   };
 
-  const refreshLibraryUpdateStatus = async (
-    job: LocalLibraryJob & {automatic: boolean},
-  ) => {
+  const refreshLibraryUpdateStatus = async (job: MonitoredLibraryJob) => {
     if (libraryStatusRequestPending || activeLibraryJob?.jobId !== job.jobId)
       return;
     libraryStatusRequestPending = true;
@@ -2947,7 +2969,10 @@ export const App = () => {
         error instanceof BrowserLibraryOperationError &&
         error.code === "job_not_found"
       ) {
-        reportLibraryFailure(job.operation, job.automatic, error.message);
+        // A reattached job whose process is gone just winds down silently;
+        // the server restarted, so there is nothing left to report.
+        if (!job.reconnect)
+          reportLibraryFailure(job.operation, job.automatic, error.message);
         finishLibraryUpdate();
       }
     } finally {
@@ -2955,21 +2980,7 @@ export const App = () => {
     }
   };
 
-  const beginLibraryUpdate = (operation: LibraryOperation, query?: string) => {
-    libraryUpdateStartedAt = performance.now();
-    activeLibraryJob = undefined;
-    setLibraryUpdateElapsedSeconds(0);
-    setLibraryUpdateFailed(false);
-    setLibraryOperation(operation);
-    setLibraryUpdateStage("working");
-    setLibraryUpdateCompletedSteps(0);
-    setLibraryUpdateTotalSteps(3);
-    setLibraryUpdateProgressMessage(
-      operation === "fetch-more" && query
-        ? `Starting provider search for “${query}”`
-        : "Starting library job",
-    );
-    setLibraryUpdating(true);
+  const startLibraryStatusPolling = () => {
     if (libraryUpdateTimer !== undefined)
       window.clearInterval(libraryUpdateTimer);
     libraryUpdateTimer = window.setInterval(() => {
@@ -2981,8 +2992,51 @@ export const App = () => {
     }, 1_000);
   };
 
+  const beginLibraryUpdate = (operation: LibraryOperation, query?: string) => {
+    libraryUpdateStartedAt = performance.now();
+    activeLibraryJob = undefined;
+    setLibraryUpdateElapsedSeconds(0);
+    setLibraryUpdateFailed(false);
+    setLibraryOperation(operation);
+    setLibraryUpdateStage("working");
+    setLibraryUpdateCompletedSteps(0);
+    setLibraryUpdateTotalSteps(3);
+    setLibraryUpdateSubProgress(undefined);
+    setLibraryUpdateProgressMessage(
+      operation === "fetch-more" && query
+        ? `Starting provider search for “${query}”`
+        : "Starting library job",
+    );
+    setLibraryUpdating(true);
+    startLibraryStatusPolling();
+  };
+
   const monitorLibraryJob = (job: LocalLibraryJob, automatic: boolean) => {
     activeLibraryJob = {...job, automatic};
+    void refreshLibraryUpdateStatus(activeLibraryJob);
+  };
+
+  /**
+   * Reattaches to a job that is already running on the server, e.g. after a
+   * page reload. The server-persisted epoch start reconstructs the true
+   * elapsed time instead of counting from the reload.
+   */
+  const reconnectActiveLibraryJob = async () => {
+    const job = await loadActiveLibraryJob().catch(() => undefined);
+    if (!job || libraryUpdating()) return;
+    const elapsedMilliseconds = Math.max(0, Date.now() - job.startedAt);
+    libraryUpdateStartedAt = performance.now() - elapsedMilliseconds;
+    activeLibraryJob = {...job, automatic: true, reconnect: true};
+    setLibraryUpdateFailed(false);
+    setLibraryOperation(job.operation);
+    setLibraryUpdateStage("working");
+    setLibraryUpdateCompletedSteps(0);
+    setLibraryUpdateTotalSteps(3);
+    setLibraryUpdateSubProgress(undefined);
+    setLibraryUpdateProgressMessage("Reattaching to the running library job");
+    setLibraryUpdating(true);
+    setLibraryUpdateElapsedSeconds(Math.floor(elapsedMilliseconds / 1_000));
+    startLibraryStatusPolling();
     void refreshLibraryUpdateStatus(activeLibraryJob);
   };
 
@@ -3284,7 +3338,9 @@ export const App = () => {
   };
 
   onMount(() => {
-    maybeFetchOnBoot();
+    // Reattach to a job that survived the reload before the boot fetch can
+    // consider starting a second one; adoption marks the library busy.
+    void reconnectActiveLibraryJob().then(() => maybeFetchOnBoot());
   });
   // Modal scopes mirror their dialog signals; the stack decides which one
   // owns Escape instead of a fixed priority chain in the key handler.
@@ -3385,6 +3441,7 @@ export const App = () => {
               failed={libraryUpdateFailed()}
               notice={libraryUpdateNotice()}
               status={libraryActivityStatus()}
+              subProgress={libraryUpdateSubProgress()}
               totalSteps={libraryUpdateTotalSteps()}
               onDismiss={() => {
                 setLibraryUpdateFailed(false);

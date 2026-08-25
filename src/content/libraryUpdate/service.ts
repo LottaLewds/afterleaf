@@ -296,6 +296,20 @@ export class LibraryUpdateService implements LibraryUpdateClient {
     const requestId = this.#dependencies.createRequestId?.() ?? randomUUID();
     const previousSnapshot = this.#state.activeSnapshot;
     let completedSteps = 0;
+    // Latest provider-reported sub-step progress within the syncing phase.
+    let syncMessage =
+      mode === "scan"
+        ? "Scanning local publications"
+        : "Searching for new publications";
+    let syncSubCompleted = 0;
+    let syncSubTotal = 0;
+    const syncSubProgress = () =>
+      syncSubTotal > 0
+        ? {
+            completed: Math.min(syncSubCompleted, syncSubTotal),
+            total: syncSubTotal,
+          }
+        : undefined;
     let failurePhase: Exclude<
       LibraryUpdatePhase,
       "idle" | "complete" | "failed"
@@ -350,7 +364,8 @@ export class LibraryUpdateService implements LibraryUpdateClient {
               languages: acquisitionLanguages,
               limit: acquisitionLimit,
               maxSearchPages: remoteRequest.maxSearchPages ?? 10,
-              onProgress: (message) =>
+              onProgress: (message) => {
+                syncMessage = message;
                 this.#setRunningState(
                   "syncing",
                   message,
@@ -358,7 +373,22 @@ export class LibraryUpdateService implements LibraryUpdateClient {
                   requestId,
                   startedAt,
                   previousSnapshot,
-                ),
+                  syncSubProgress(),
+                );
+              },
+              onStep: (completed, total) => {
+                syncSubCompleted = completed;
+                syncSubTotal = total;
+                this.#setRunningState(
+                  "syncing",
+                  syncMessage,
+                  completedSteps,
+                  requestId,
+                  startedAt,
+                  previousSnapshot,
+                  syncSubProgress(),
+                );
+              },
               outputDirectory: this.#dependencies.getProviderDescriptor
                 ? resolve(this.#sourceDirectory, providerId)
                 : this.#sourceDirectory,
@@ -729,9 +759,11 @@ export class LibraryUpdateService implements LibraryUpdateClient {
     requestId: string,
     startedAt: string,
     activeSnapshot: LibrarySnapshotDescriptor | undefined,
+    subProgress?: {completed: number; total: number},
   ) {
     this.#setState({
       ...(activeSnapshot === undefined ? {} : {activeSnapshot}),
+      ...(subProgress === undefined ? {} : {subProgress}),
       completedSteps,
       message,
       phase,

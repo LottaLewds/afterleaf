@@ -110,6 +110,8 @@ export interface RunningLibraryUpdateState extends LibraryUpdateStateBase {
   requestId: string;
   startedAt: string;
   status: "running";
+  /** Optional finer-grained progress within the current step. */
+  subProgress?: {completed: number; total: number};
   totalSteps: 3;
 }
 

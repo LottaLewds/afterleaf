@@ -48,6 +48,12 @@ export interface LibraryProviderSyncOptions {
   limit: number;
   maxSearchPages: number;
   onProgress?: (message: string) => void;
+  /**
+   * Optional structured sub-step progress for long-running acquisitions.
+   * The total may grow as the provider discovers more work, so completed
+   * is allowed to trail a moving target.
+   */
+  onStep?: (completed: number, total: number) => void;
   outputDirectory: string;
   query: string;
   selectionMode: "recent" | "unseen";

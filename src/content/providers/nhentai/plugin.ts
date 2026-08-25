@@ -118,6 +118,9 @@ export const createNhentaiProvider = (
             ...(syncOptions.onProgress === undefined
               ? {}
               : {onProgress: syncOptions.onProgress}),
+            ...(syncOptions.onStep === undefined
+              ? {}
+              : {onStep: syncOptions.onStep}),
             outputDirectory: syncOptions.outputDirectory,
             previewPageCount: 3,
             query: normalizeQuery(syncOptions.query),
