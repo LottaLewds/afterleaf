@@ -23,7 +23,6 @@ import {
   MeshStandardMaterial,
   NoColorSpace,
   Object3D,
-  Path,
   PCFSoftShadowMap,
   PerspectiveCamera,
   PlaneGeometry,
@@ -31,8 +30,6 @@ import {
   Raycaster,
   RepeatWrapping,
   Scene,
-  Shape,
-  ShapeGeometry,
   SRGBColorSpace,
   SpotLight,
   Texture,
@@ -59,6 +56,21 @@ import {
   type BookExteriorUniforms,
 } from "~/game/bookExteriorMaterial";
 import {disposeObject} from "~/game/threeDisposal";
+import {
+  addInteriorBox,
+  createHorizontalShape,
+  createPosterSurface as createPosterSurfaceTarget,
+  createTiledFloorSurface,
+  type PosterSurface,
+} from "~/game/interior/interiorPrimitives";
+import {
+  createAtriumRailings,
+  createStackableStairwell,
+  createUpperFloorStructures,
+  createUpperWindowWall,
+  type CreatePosterSurface,
+} from "~/game/interior/upperFloor";
+import type {AddBox} from "~/game/interior/interiorPrimitives";
 import {
   INSPECTION_ACTION_CLOSE_SPEED,
   INSPECTION_COVER_ANIMATION_SPEED,
@@ -148,13 +160,9 @@ import {
 } from "~/game/modelTelevision";
 import {
   applyCeilingShapeUv,
-  createCeilingBoxGeometry,
   createCeilingMaterial,
 } from "~/game/ceilingMaterials";
-import {
-  createWallpaperBoxGeometry,
-  createWallpaperMaterial,
-} from "~/game/wallpaperMaterials";
+import {createWallpaperMaterial} from "~/game/wallpaperMaterials";
 import {
   getPageBlockSplit,
   writeActiveLeafDeformation,
@@ -202,9 +210,7 @@ import {
 } from "~/game/input/hints";
 import {formatKeyboardCode} from "~/game/input/bindings";
 import {
-  createStackableStairBoxes,
   SHOP_ATRIUM,
-  SHOP_ATRIUM_RAIL_FLOOR_INSET,
   SHOP_EXPANSION_WALL_BOXES,
   SHOP_THEATRE,
   SHOP_THEATRE_HALL,
@@ -216,9 +222,7 @@ import {
   SHOP_UPPER_STACK_LENGTH,
   SHOP_UPPER_STACK_ZS,
   SHOP_UPPER_CEILING_Y,
-  SHOP_UPPER_FLOOR_BOXES,
   SHOP_UPPER_FLOOR_Y,
-  SHOP_STAIR_RAIL_INSET,
   SHOP_STAIR_ROOM,
 } from "~/game/shopExpansionLayout";
 import {
@@ -286,13 +290,8 @@ import {
   type WorldTelevisionChannels,
   type WorldTelevisionVolumes,
 } from "~/game/worldSave";
+import {createWoodMaterial, loadWoodTextures} from "~/game/woodMaterials";
 import {
-  createWoodBoxGeometry,
-  createWoodMaterial,
-  loadWoodTextures,
-} from "~/game/woodMaterials";
-import {
-  createUpholsteryBoxGeometry,
   createUpholsteryMaterial,
   loadUpholsteryTextures,
 } from "~/game/upholsteryMaterials";
@@ -483,9 +482,6 @@ const CEILING_LIGHT_PLACEMENTS: readonly CeilingLightPlacement[] = [
 ];
 const RARE_ROOM_DOOR_CENTER_X = 8.4;
 const RARE_ROOM_DOOR_Z = -1.92;
-const UPPER_WINDOW_CENTERS = [-8.25, 0, 8.25] as const;
-const UPPER_WINDOW_WIDTH = 4.8;
-const UPPER_WINDOW_HEIGHT = 3.5;
 const LEGACY_TV_CAVE_BOUNDS = Object.freeze({
   maxX: 23.5,
   maxZ: 11.5,
@@ -537,12 +533,6 @@ type ShelfTargetSelection = {
   presentation: ShelfPresentation;
   shelfId: string;
   slotIndex: number;
-};
-
-type PosterSurface = {
-  height: number;
-  target: Mesh<PlaneGeometry, MeshBasicMaterial>;
-  width: number;
 };
 
 type PosterRecord = {
@@ -4338,378 +4328,6 @@ export class ShopScene {
     return environment;
   }
 
-  #createHorizontalShape(
-    parent: Group,
-    bounds: {maxX: number; maxZ: number; minX: number; minZ: number},
-    holes: readonly {
-      maxX: number;
-      maxZ: number;
-      minX: number;
-      minZ: number;
-    }[],
-    y: number,
-    material: MeshStandardMaterial,
-  ) {
-    const localMinY = -bounds.maxZ;
-    const localMaxY = -bounds.minZ;
-    const shape = new Shape();
-    shape.moveTo(bounds.minX, localMinY);
-    shape.lineTo(bounds.minX, localMaxY);
-    shape.lineTo(bounds.maxX, localMaxY);
-    shape.lineTo(bounds.maxX, localMinY);
-    shape.closePath();
-    for (const holeBounds of holes) {
-      const localHoleMinY = -holeBounds.maxZ;
-      const localHoleMaxY = -holeBounds.minZ;
-      const hole = new Path();
-      hole.moveTo(holeBounds.minX, localHoleMinY);
-      hole.lineTo(holeBounds.maxX, localHoleMinY);
-      hole.lineTo(holeBounds.maxX, localHoleMaxY);
-      hole.lineTo(holeBounds.minX, localHoleMaxY);
-      hole.closePath();
-      shape.holes.push(hole);
-    }
-    const mesh = new Mesh(new ShapeGeometry(shape), material);
-    mesh.rotation.x = -Math.PI / 2;
-    mesh.position.y = y;
-    mesh.receiveShadow = true;
-    parent.add(mesh);
-    return mesh;
-  }
-
-  #createUpperFloorStructures(
-    parent: Group,
-    ceilingMaterial: MeshStandardMaterial,
-  ) {
-    // Only the underside of each slab is visible from the ground floor; keep
-    // the edges (and the covered top) on the cheap unlit gray material.
-    const edgeMaterial = new MeshBasicMaterial({color: "#242a28"});
-    const slabMaterials = [
-      edgeMaterial,
-      edgeMaterial,
-      edgeMaterial,
-      ceilingMaterial,
-      edgeMaterial,
-      edgeMaterial,
-    ];
-    for (const box of SHOP_UPPER_FLOOR_BOXES) {
-      const floorStructure = new Mesh(
-        createCeilingBoxGeometry(box.size, box.position),
-        slabMaterials,
-      );
-      floorStructure.position.set(...box.position);
-      parent.add(floorStructure);
-      this.#registerPropPlacementSupport(floorStructure);
-    }
-  }
-
-  #createTiledFloorSurface(
-    parent: Group,
-    bounds: {maxX: number; maxZ: number; minX: number; minZ: number},
-    floorMaterial: MeshStandardMaterial,
-    holes: readonly {
-      maxX: number;
-      maxZ: number;
-      minX: number;
-      minZ: number;
-    }[] = [],
-    y = SHOP_UPPER_FLOOR_Y + 0.002,
-  ) {
-    const material = floorMaterial.clone();
-    const floor = this.#createHorizontalShape(
-      parent,
-      bounds,
-      holes,
-      y,
-      material,
-    );
-    return floor;
-  }
-
-  #createAtriumRailings(parent: Group, woodMaterial: MeshStandardMaterial) {
-    const railY = SHOP_UPPER_FLOOR_Y + 0.72;
-    const postY = SHOP_UPPER_FLOOR_Y + 0.61;
-    const minX = SHOP_ATRIUM.minX - SHOP_ATRIUM_RAIL_FLOOR_INSET;
-    const maxX = SHOP_ATRIUM.maxX + SHOP_ATRIUM_RAIL_FLOOR_INSET;
-    const minZ = SHOP_ATRIUM.minZ - SHOP_ATRIUM_RAIL_FLOOR_INSET;
-    const maxZ = SHOP_ATRIUM.maxZ + SHOP_ATRIUM_RAIL_FLOOR_INSET;
-    const addRailBars = (
-      start: number,
-      end: number,
-      fixed: number,
-      alongX: boolean,
-    ) => {
-      const length = end - start;
-      const center = (start + end) / 2;
-      for (const y of [railY - 0.34, railY + 0.36])
-        this.#addBox(
-          parent,
-          alongX ? [length, 0.1, 0.1] : [0.1, 0.1, length],
-          alongX ? [center, y, fixed] : [fixed, y, center],
-          woodMaterial,
-          true,
-        );
-    };
-    const addPost = (x: number, z: number) =>
-      this.#addBox(
-        parent,
-        [0.12, 1.22, 0.12],
-        [x, postY, z],
-        woodMaterial,
-        true,
-      );
-    const addIntermediatePosts = (
-      start: number,
-      end: number,
-      fixed: number,
-      alongX: boolean,
-    ) => {
-      const length = end - start;
-      const postCount = Math.ceil(length / 1.75);
-      for (let post = 1; post < postCount; post += 1) {
-        const offset = start + (length * post) / postCount;
-        if (alongX) addPost(offset, fixed);
-        else addPost(fixed, offset);
-      }
-    };
-    addRailBars(minZ, maxZ, minX, false);
-    addRailBars(minZ, maxZ, maxX, false);
-    addRailBars(minX, maxX, minZ, true);
-    addRailBars(minX, maxX, maxZ, true);
-    for (const x of [minX, maxX]) for (const z of [minZ, maxZ]) addPost(x, z);
-    addIntermediatePosts(minZ, maxZ, minX, false);
-    addIntermediatePosts(minZ, maxZ, maxX, false);
-    addIntermediatePosts(minX, maxX, minZ, true);
-    addIntermediatePosts(minX, maxX, maxZ, true);
-  }
-
-  #createStackableStairwell(parent: Group, woodMaterial: MeshStandardMaterial) {
-    const stairBoxes = createStackableStairBoxes(0);
-    const landingMaterial = woodMaterial.clone();
-    landingMaterial.color.offsetHSL(0, -0.08, 0.08);
-    for (const [index, box] of stairBoxes.entries()) {
-      const isTopLanding = index === stairBoxes.length - 1;
-      const visualMinX = isTopLanding
-        ? Math.max(box.position[0] - box.size[0] / 2, SHOP_STAIR_ROOM.minX)
-        : box.position[0] - box.size[0] / 2;
-      const visualMaxX = box.position[0] + box.size[0] / 2;
-      this.#addBox(
-        parent,
-        [visualMaxX - visualMinX, box.size[1], box.size[2]],
-        [(visualMinX + visualMaxX) / 2, box.position[1], box.position[2]],
-        index === 11 || isTopLanding ? landingMaterial : woodMaterial,
-        true,
-      );
-    }
-
-    const addFlightRailings = (
-      flightBoxes: readonly (typeof stairBoxes)[number][],
-    ) => {
-      const ordered = [...flightBoxes].sort(
-        (first, second) => first.position[0] - second.position[0],
-      );
-      const first = ordered[0];
-      const last = ordered.at(-1);
-      if (!first || !last) return;
-      const firstTop = first.position[1] + first.size[1] / 2;
-      const lastTop = last.position[1] + last.size[1] / 2;
-      const slope =
-        (lastTop - firstTop) / (last.position[0] - first.position[0]);
-      const minX = first.position[0] - first.size[0] / 2;
-      const maxX = last.position[0] + last.size[0] / 2;
-      const treadYAt = (x: number) =>
-        firstTop + slope * (x - first.position[0]);
-      const edgeOffset = first.size[2] / 2 - SHOP_STAIR_RAIL_INSET;
-      for (const z of [
-        first.position[2] - edgeOffset,
-        first.position[2] + edgeOffset,
-      ]) {
-        for (const height of [0.55, 1]) {
-          const startY = treadYAt(minX) + height;
-          const endY = treadYAt(maxX) + height;
-          const rail = this.#addBox(
-            parent,
-            [Math.hypot(maxX - minX, endY - startY), 0.1, 0.1],
-            [(minX + maxX) / 2, (startY + endY) / 2, z],
-            woodMaterial,
-            true,
-          );
-          rail.rotation.z = Math.atan2(endY - startY, maxX - minX);
-        }
-        for (let index = 0; index < ordered.length; index += 2) {
-          const step = ordered[index];
-          if (!step) continue;
-          const stepTop = step.position[1] + step.size[1] / 2;
-          const handrailY = treadYAt(step.position[0]) + 1;
-          this.#addBox(
-            parent,
-            [0.12, handrailY - stepTop, 0.12],
-            [step.position[0], (stepTop + handrailY) / 2, z],
-            woodMaterial,
-            true,
-          );
-        }
-      }
-    };
-    addFlightRailings(stairBoxes.slice(0, 11));
-    addFlightRailings(stairBoxes.slice(12, 23));
-
-    const addLandingRail = (
-      size: readonly [width: number, height: number, depth: number],
-      position: readonly [x: number, y: number, z: number],
-      alongX: boolean,
-    ) => {
-      const top = position[1] + size[1] / 2;
-      const length = alongX ? size[0] : size[2];
-      for (const height of [0.55, 1])
-        this.#addBox(
-          parent,
-          alongX ? [length, 0.1, 0.1] : [0.1, 0.1, length],
-          [position[0], top + height, position[2]],
-          woodMaterial,
-          true,
-        );
-      const halfLength = length / 2;
-      for (const offset of [-halfLength, 0, halfLength])
-        this.#addBox(
-          parent,
-          [0.12, 1, 0.12],
-          alongX
-            ? [position[0] + offset, top + 0.5, position[2]]
-            : [position[0], top + 0.5, position[2] + offset],
-          woodMaterial,
-          true,
-        );
-    };
-    const turnLanding = stairBoxes[11];
-    if (turnLanding) {
-      const railSize = [
-        turnLanding.size[0] - SHOP_STAIR_RAIL_INSET * 2,
-        turnLanding.size[1],
-        turnLanding.size[2] - SHOP_STAIR_RAIL_INSET * 2,
-      ] as const;
-      addLandingRail(
-        railSize,
-        [
-          turnLanding.position[0] +
-            turnLanding.size[0] / 2 -
-            SHOP_STAIR_RAIL_INSET,
-          turnLanding.position[1],
-          turnLanding.position[2],
-        ],
-        false,
-      );
-      for (const side of [-1, 1])
-        addLandingRail(
-          railSize,
-          [
-            turnLanding.position[0],
-            turnLanding.position[1],
-            turnLanding.position[2] +
-              side * (turnLanding.size[2] / 2 - SHOP_STAIR_RAIL_INSET),
-          ],
-          true,
-        );
-    }
-    const topLanding = stairBoxes.at(-1);
-    if (topLanding) {
-      const railSize = [
-        topLanding.size[0] - SHOP_STAIR_RAIL_INSET * 2,
-        topLanding.size[1],
-        topLanding.size[2] - SHOP_STAIR_RAIL_INSET * 2,
-      ] as const;
-      for (const side of [-1, 1])
-        addLandingRail(
-          railSize,
-          [
-            topLanding.position[0],
-            topLanding.position[1],
-            topLanding.position[2] +
-              side * (topLanding.size[2] / 2 - SHOP_STAIR_RAIL_INSET),
-          ],
-          true,
-        );
-    }
-  }
-
-  #createUpperWindowWall(
-    parent: Group,
-    z: number,
-    rotationY: number,
-    wallMaterial: MeshStandardMaterial,
-    frameMaterial: MeshStandardMaterial,
-    glassMaterial: MeshBasicMaterial,
-  ) {
-    this.#addBox(parent, [25, 0.7, 0.18], [0, 5.25, z], wallMaterial);
-    this.#addBox(parent, [25, 0.7, 0.18], [0, 9.45, z], wallMaterial);
-    const openings = UPPER_WINDOW_CENTERS.map((center) => ({
-      max: center + UPPER_WINDOW_WIDTH / 2,
-      min: center - UPPER_WINDOW_WIDTH / 2,
-    }));
-    const solidRuns = [
-      {max: openings[0]?.min ?? -12.5, min: -12.5},
-      {max: openings[1]?.min ?? 0, min: openings[0]?.max ?? 0},
-      {max: openings[2]?.min ?? 0, min: openings[1]?.max ?? 0},
-      {max: 12.5, min: openings[2]?.max ?? 12.5},
-    ];
-    const windowWallId =
-      z < 0 ? "upper-north-window-wall" : "upper-south-window-wall";
-    for (const [index, run] of solidRuns.entries()) {
-      this.#addBox(
-        parent,
-        [run.max - run.min, 3.5, 0.18],
-        [(run.min + run.max) / 2, 7.35, z],
-        wallMaterial,
-      );
-
-      const surfaceWidth = run.max - run.min - 0.12;
-      if (surfaceWidth <= MIN_POSTER_HEIGHT) continue;
-      this.#createPosterSurface(
-        parent,
-        `${windowWallId}-pier-${index + 1}`,
-        surfaceWidth,
-        3.34,
-        [(run.min + run.max) / 2, 7.35, z + (rotationY === 0 ? 0.105 : -0.105)],
-        rotationY,
-      );
-    }
-
-    const glassZ = z + (rotationY === 0 ? 0.105 : -0.105);
-    for (const x of UPPER_WINDOW_CENTERS) {
-      const glass = new Mesh(
-        new PlaneGeometry(UPPER_WINDOW_WIDTH, UPPER_WINDOW_HEIGHT),
-        glassMaterial,
-      );
-      glass.position.set(x, 7.35, glassZ);
-      glass.rotation.y = rotationY;
-      parent.add(glass);
-      for (const frameX of [
-        x - UPPER_WINDOW_WIDTH / 2,
-        x,
-        x + UPPER_WINDOW_WIDTH / 2,
-      ])
-        this.#addBox(
-          parent,
-          [0.09, UPPER_WINDOW_HEIGHT + 0.16, 0.12],
-          [frameX, 7.35, glassZ],
-          frameMaterial,
-          true,
-        );
-      for (const frameY of [
-        7.35 - UPPER_WINDOW_HEIGHT / 2,
-        7.35,
-        7.35 + UPPER_WINDOW_HEIGHT / 2,
-      ])
-        this.#addBox(
-          parent,
-          [UPPER_WINDOW_WIDTH + 0.12, 0.09, 0.12],
-          [x, frameY, glassZ],
-          frameMaterial,
-          true,
-        );
-    }
-  }
-
   #createUpperReadingFurniture(
     parent: Group,
     woodMaterial: MeshStandardMaterial,
@@ -5148,7 +4766,9 @@ export class ShopScene {
       this.#textureLoader,
       this.#renderer.capabilities.getMaxAnisotropy(),
     );
-    this.#createUpperFloorStructures(parent, ceilingMaterial);
+    createUpperFloorStructures(parent, ceilingMaterial, (object) =>
+      this.#registerPropPlacementSupport(object),
+    );
     const stairFloorStructure = new Mesh(
       new BoxGeometry(
         SHOP_STAIR_ROOM.maxX - SHOP_STAIR_ROOM.minX,
@@ -5163,20 +4783,14 @@ export class ShopScene {
       (SHOP_STAIR_ROOM.minZ + SHOP_STAIR_ROOM.maxZ) / 2,
     );
     parent.add(stairFloorStructure);
-    this.#createTiledFloorSurface(
-      parent,
-      SHOP_STAIR_ROOM,
-      floorMaterial,
-      [],
-      0.012,
-    );
-    this.#createTiledFloorSurface(
+    createTiledFloorSurface(parent, SHOP_STAIR_ROOM, floorMaterial, [], 0.012);
+    createTiledFloorSurface(
       parent,
       {maxX: 12.5, maxZ: 28, minX: -12.5, minZ: -10.5},
       floorMaterial,
       [SHOP_ATRIUM],
     );
-    this.#createTiledFloorSurface(
+    createTiledFloorSurface(
       parent,
       {
         maxX: SHOP_THEATRE_HALL.centerX + SHOP_THEATRE_HALL.width / 2,
@@ -5186,7 +4800,7 @@ export class ShopScene {
       },
       floorMaterial,
     );
-    this.#createTiledFloorSurface(
+    createTiledFloorSurface(
       parent,
       {
         maxX: SHOP_TV_CAVE_HALL.centerX + SHOP_TV_CAVE_HALL.width / 2,
@@ -5196,7 +4810,7 @@ export class ShopScene {
       },
       floorMaterial,
     );
-    this.#createTiledFloorSurface(
+    createTiledFloorSurface(
       parent,
       {
         maxX: SHOP_TV_CAVE.centerX + SHOP_TV_CAVE.width / 2,
@@ -5236,21 +4850,43 @@ export class ShopScene {
       transparent: true,
     });
     glassMaterial.forceSinglePass = true;
-    this.#createUpperWindowWall(
+    const addBox: AddBox = (parent2, size, position2, material, castShadow) =>
+      this.#addBox(parent2, size, position2, material, castShadow);
+    const createPosterSurface: CreatePosterSurface = (
+      parent2,
+      id,
+      width,
+      height,
+      position2,
+      rotationY,
+    ) =>
+      this.#createPosterSurface(
+        parent2,
+        id,
+        width,
+        height,
+        position2,
+        rotationY,
+      );
+    createUpperWindowWall(
       parent,
       -10.5,
       0,
       upperWallMaterial,
       frameMaterial,
       glassMaterial,
+      addBox,
+      createPosterSurface,
     );
-    this.#createUpperWindowWall(
+    createUpperWindowWall(
       parent,
       28,
       Math.PI,
       upperWallMaterial,
       frameMaterial,
       glassMaterial,
+      addBox,
+      createPosterSurface,
     );
     for (const [index, box] of SHOP_EXPANSION_WALL_BOXES.entries()) {
       if (index < 2) continue;
@@ -5284,8 +4920,18 @@ export class ShopScene {
       woodMaterial,
     );
 
-    this.#createAtriumRailings(parent, woodMaterial);
-    this.#createStackableStairwell(parent, woodMaterial);
+    createAtriumRailings(
+      parent,
+      woodMaterial,
+      (parent2, size, position2, material, castShadow) =>
+        this.#addBox(parent2, size, position2, material, castShadow),
+    );
+    createStackableStairwell(
+      parent,
+      woodMaterial,
+      (parent2, size, position2, material, castShadow) =>
+        this.#addBox(parent2, size, position2, material, castShadow),
+    );
     this.#createSpineShelfFixture(
       parent,
       "mezzanine-west",
@@ -5363,7 +5009,7 @@ export class ShopScene {
     const skylightDepth = skylight.maxZ - skylight.minZ;
     const skylightCenterX = (skylight.minX + skylight.maxX) / 2;
     const skylightCenterZ = (skylight.minZ + skylight.maxZ) / 2;
-    const roof = this.#createHorizontalShape(
+    const roof = createHorizontalShape(
       parent,
       {maxX: 12.5, maxZ: 28, minX: -12.5, minZ: -10.5},
       [skylight],
@@ -5372,7 +5018,7 @@ export class ShopScene {
     );
     applyCeilingShapeUv(roof.geometry);
     roof.name = "main-roof";
-    const stairRoof = this.#createHorizontalShape(
+    const stairRoof = createHorizontalShape(
       parent,
       SHOP_STAIR_ROOM,
       [],
@@ -5673,22 +5319,14 @@ export class ShopScene {
     material: MeshStandardMaterial,
     castShadow = false,
   ) {
-    let geometry: BoxGeometry;
-    if (material.userData.boxUvMode === "wallpaper")
-      geometry = createWallpaperBoxGeometry(size, position);
-    else if (material.userData.boxUvMode === "upholstery")
-      geometry = createUpholsteryBoxGeometry(size, position);
-    else if (material.userData.boxUvMode === "ceiling")
-      geometry = createCeilingBoxGeometry(size, position);
-    else if (material.map) geometry = createWoodBoxGeometry(size, position);
-    else geometry = new BoxGeometry(...size);
-    const mesh = new Mesh(geometry, material);
-    mesh.position.set(...position);
-    mesh.castShadow = castShadow;
-    mesh.receiveShadow = true;
-    parent.add(mesh);
-    this.#posterRaycastMeshes.push(mesh);
-    return mesh;
+    return addInteriorBox(
+      parent,
+      size,
+      position,
+      material,
+      castShadow,
+      this.#posterRaycastMeshes,
+    );
   }
 
   #createPosterSurface(
@@ -5699,20 +5337,16 @@ export class ShopScene {
     position: readonly [number, number, number],
     rotationY: number,
   ) {
-    const target = new Mesh(
-      new PlaneGeometry(width, height),
-      new MeshBasicMaterial({
-        colorWrite: false,
-        depthWrite: false,
-      }),
+    createPosterSurfaceTarget(
+      parent,
+      id,
+      width,
+      height,
+      position,
+      rotationY,
+      this.#posterRaycastMeshes,
+      this.#posterSurfaces,
     );
-    target.name = `poster-surface-${id}`;
-    target.position.set(...position);
-    target.rotation.y = rotationY;
-    target.userData.posterSurfaceId = id;
-    parent.add(target);
-    this.#posterRaycastMeshes.push(target);
-    this.#posterSurfaces.set(id, {height, target, width});
   }
 
   #createWallPosterSurfaces(
