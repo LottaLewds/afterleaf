@@ -56,6 +56,14 @@ export const isEditableTarget = (target: EventTarget | null): boolean => {
   );
 };
 
+/**
+ * True while a clipboard/browser modifier is held. Bindings match bare
+ * physical codes only, so these combos stay reserved for native
+ * shortcuts (e.g. Ctrl/Cmd+V paste) and are never consumed.
+ */
+const hasReservedModifier = (event: KeyboardEvent): boolean =>
+  event.ctrlKey || event.metaKey || event.altKey;
+
 /** Bit slots for synthesized stick arrows: up, down, left, right. */
 const STICK_ARROW_SLOTS: readonly (readonly [number, GamepadButtonName])[] = [
   [1, "DpadUp"],
@@ -130,12 +138,14 @@ export class InputManager {
         this.#syncShortcuts();
         // Typing into inputs must never be hijacked by bindings.
         if (isEditableTarget(event.target)) return;
-        if (!event.repeat) this.#keysDown.add(event.code);
+        if (!event.repeat && !hasReservedModifier(event))
+          this.#keysDown.add(event.code);
         this.#onKeyEvent?.(event);
         // The interceptor owns modal raw-key routing (arcade emulation).
         if (this.#keyboardInterceptor?.(event)) return;
         // Repeats never dispatch: held actions are queried via isActionDown.
         if (event.repeat || !this.#inputActive()) return;
+        if (hasReservedModifier(event)) return;
         const actions = this.#actionsByKeyCode.get(event.code);
         if (actions === undefined) return;
         event.preventDefault();
@@ -151,7 +161,12 @@ export class InputManager {
         if (isEditableTarget(event.target)) return;
         if (this.#keyboardInterceptor?.(event)) return;
         const actions = this.#actionsByKeyCode.get(event.code);
-        if (actions === undefined || !this.#inputActive()) return;
+        if (
+          actions === undefined ||
+          !this.#inputActive() ||
+          hasReservedModifier(event)
+        )
+          return;
         event.preventDefault();
         this.#dispatchCandidateList(actions, "up", "keyboard");
       },

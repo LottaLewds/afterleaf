@@ -25,6 +25,9 @@ type FakeKeyEvent = {
   repeat: boolean;
   type: string;
   defaultPrevented: boolean;
+  ctrlKey: boolean;
+  metaKey: boolean;
+  altKey: boolean;
   preventDefault: () => void;
   target?: EventTarget | null;
 };
@@ -44,11 +47,15 @@ const fakeKeyEvent = (
   code: string,
   type = "keydown",
   repeat = false,
+  modifiers?: {alt?: boolean; ctrl?: boolean; meta?: boolean},
 ): FakeKeyEvent => ({
   code,
   repeat,
   type,
   defaultPrevented: false,
+  altKey: modifiers?.alt ?? false,
+  ctrlKey: modifiers?.ctrl ?? false,
+  metaKey: modifiers?.meta ?? false,
   preventDefault() {
     this.defaultPrevented = true;
   },
@@ -361,5 +368,59 @@ describe("InputManager edge dispatch", () => {
     dispatchKey(fakeKeyEvent("KeyF"));
     dispatchKey(fakeKeyEvent("KeyF", "keyup"));
     expect(ups).toEqual(["throw"]);
+  });
+});
+
+describe("InputManager browser-modifier pass-through", () => {
+  test("Ctrl/Cmd/Alt combos never dispatch or consume bound keys", () => {
+    // Regression guard: Ctrl/Cmd+V must reach the native paste event instead
+    // of toggling art-frame placement; preventDefault would suppress paste.
+    const {manager, events} = createManager();
+    manager.update("shop");
+    for (const modifiers of [{ctrl: true}, {meta: true}, {alt: true}]) {
+      const down = fakeKeyEvent("KeyV", "keydown", false, modifiers);
+      dispatchKey(down);
+      expect(down.defaultPrevented).toBe(false);
+      const up = fakeKeyEvent("KeyV", "keyup", false, modifiers);
+      dispatchKey(up);
+      expect(up.defaultPrevented).toBe(false);
+    }
+    expect(events).toEqual([]);
+    expect(manager.isActionDown("toggleArtFramePlacement")).toBe(false);
+  });
+
+  test("modifier combos do not pollute held-key state", () => {
+    // Holding Ctrl+V must not register V as held, or isActionDown consumers
+    // (sprint, throw charge) would see phantom presses.
+    const {manager} = createManager();
+    manager.update("shop");
+    dispatchKey(fakeKeyEvent("KeyV", "keydown", false, {ctrl: true}));
+    expect(manager.isActionDown("toggleArtFramePlacement")).toBe(false);
+    // A later bare press still registers normally.
+    dispatchKey(fakeKeyEvent("KeyV"));
+    expect(manager.isActionDown("toggleArtFramePlacement")).toBe(true);
+  });
+
+  test("bare key still dispatches right after a modifier combo", () => {
+    const {manager, events} = createManager();
+    manager.update("shop");
+    dispatchKey(fakeKeyEvent("KeyV", "keydown", false, {meta: true}));
+    dispatchKey(fakeKeyEvent("KeyV", "keyup", false, {meta: true}));
+    dispatchKey(fakeKeyEvent("KeyV"));
+    expect(events).toEqual([
+      {action: "toggleArtFramePlacement", phase: "down", source: "keyboard"},
+    ]);
+  });
+
+  test("Shift combos keep dispatching (not a browser-reserved modifier)", () => {
+    // Only Ctrl/Meta/Alt are reserved; Shift+key keeps its physical code and
+    // game-style bindings may legitimately want it.
+    const {manager, events} = createManager();
+    manager.update("shop");
+    dispatchKey(fakeKeyEvent("KeyV"));
+    expect(events).toEqual([
+      {action: "toggleArtFramePlacement", phase: "down", source: "keyboard"},
+    ]);
+    expect(manager.isActionDown("toggleArtFramePlacement")).toBe(true);
   });
 });
