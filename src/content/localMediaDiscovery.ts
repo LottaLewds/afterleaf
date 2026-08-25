@@ -1,6 +1,6 @@
 import {readdir} from "node:fs/promises";
 import {extname, relative, resolve, sep} from "node:path";
-import {isContentArchivePath} from "~/content/archiveReader";
+import {isContentArchivePath} from "./archiveReader";
 
 export const LOCAL_PUBLICATION_MANIFEST = "publication.json";
 

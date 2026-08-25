@@ -56,6 +56,7 @@ import {createLibraryProviderRegistry} from "./src/content/providers/registry";
 import {createReaderPageDerivative} from "./src/content/readerImage";
 import {ARCHIVE_SOURCE_PROVIDER} from "./src/content/archiveReader";
 import {materializeArchiveReaderPage} from "./src/content/archiveSparsePage";
+import {materializeLocalCatalogReaderPage} from "./src/content/localCatalogSparsePage";
 import {
   defaultRomFolderPath,
   readAfterleafLibraryConfig,
@@ -1879,7 +1880,15 @@ const materializeSparsePage = async (
 ) => {
   const materializationStartedAt = performance.now();
   const activePublication = activeSparsePublication(publicationId);
-  if (activePublication.source?.provider === ARCHIVE_SOURCE_PROVIDER)
+  if (activePublication.source === undefined) {
+    if (typeof activePublication.localSourceId === "string")
+      return materializeLocalCatalogReaderPage(activePublication, pageNumber, {
+        additionalCatalogDirectories: configuredBookPaths,
+        workingDirectory: import.meta.dirname,
+      });
+    throw new Error("Publication does not support sparse page streaming");
+  }
+  if (activePublication.source.provider === ARCHIVE_SOURCE_PROVIDER)
     return materializeArchiveReaderPage(activePublication, pageNumber);
   const publicationDirectory = path.resolve(
     acquisitionDirectory,
