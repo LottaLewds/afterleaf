@@ -831,6 +831,8 @@ type BookAtlasPlacement = {
   instanceId: number;
   lastMatrix: Matrix4;
   visible: boolean;
+  /** True while the standalone mesh is detached from the scene graph. */
+  detached: boolean;
 };
 
 type BookRecord = {
@@ -9851,6 +9853,7 @@ export class ShopScene {
           instanceId,
           lastMatrix: record.mesh.matrix.clone(),
           visible: true,
+          detached: false,
         };
       }
       this.#scene.add(mesh);
@@ -9882,20 +9885,37 @@ export class ShopScene {
         continue;
       }
       const forcedStandalone =
-        record.mesh.parent !== this.#scene ||
         record.state.status === "carried" ||
         publicationId === this.#inspectionPublicationId ||
         publicationId === this.#discardAnimation?.publicationId ||
         publicationId === this.#shelveAnimation?.publicationId;
+      // A mesh some other system reparented (carry handoff, restore) cannot
+      // render as a batch instance; fall back to standalone.
+      const externallyOwned =
+        record.mesh.parent !== this.#scene &&
+        !(record.mesh.parent === null && placement.detached);
       const readyStandalone =
         record.standaloneTexturesReady &&
         (publicationId === this.#hoveredPublicationId ||
           publicationId === this.#lastSelectedPublicationId);
-      const standalone = forcedStandalone || readyStandalone;
+      const standalone = forcedStandalone || readyStandalone || externallyOwned;
       const batchVisible = record.exteriorMaterial.visible && !standalone;
       if (batchVisible !== placement.visible) {
         placement.batch.mesh.setVisibleAt(placement.instanceId, batchVisible);
         placement.visible = batchVisible;
+      }
+      // Dormant batched books leave the scene graph entirely: their subtree
+      // (inspection assembly included) then skips per-frame traversal.
+      // Detached meshes keep world-space local transforms, so re-adding
+      // restores the exact pose.
+      if (batchVisible) {
+        if (!placement.detached && record.mesh.parent === this.#scene) {
+          record.mesh.removeFromParent();
+          placement.detached = true;
+        } else if (record.mesh.parent !== null) placement.detached = false;
+      } else if (placement.detached && record.mesh.parent === null) {
+        this.#scene.add(record.mesh);
+        placement.detached = false;
       }
       record.mesh.visible = standalone;
       if (!batchVisible) continue;
@@ -9912,8 +9932,12 @@ export class ShopScene {
   #disposeBookAtlasBatches() {
     for (const record of this.#booksById.values()) {
       const placement = record.atlasPlacement;
-      if (placement)
+      if (placement) {
         placement.batch.mesh.setVisibleAt(placement.instanceId, false);
+        // Return detached meshes to the graph; they render standalone now.
+        if (placement.detached && record.mesh.parent === null)
+          this.#scene.add(record.mesh);
+      }
       record.atlasPlacement = undefined;
       record.mesh.visible = true;
     }
@@ -9955,7 +9979,9 @@ export class ShopScene {
     hoverTarget.name = "shelved-book-hover-target";
     hoverTarget.visible = false;
     hoverTarget.userData.publicationId = item.id;
-    this.#scene.add(hoverTarget);
+    // Kept out of the scene graph: it is invisible to rendering and its
+    // world matrix is refreshed manually in #syncShelfHoverTarget, so
+    // per-frame traversal never needs to visit it.
 
     const inspectionGroup = new Group();
     inspectionGroup.name = "inspection-pages";
@@ -14759,7 +14785,13 @@ export class ShopScene {
               ),
             ) >
             1e-7;
-        if (record.mesh.parent !== this.#scene) this.#scene.attach(record.mesh);
+        // Batch-rendered books stay detached; their instance matrix picks
+        // up any real pose change in #syncBookAtlasBatches.
+        if (
+          !record.atlasPlacement?.visible &&
+          record.mesh.parent !== this.#scene
+        )
+          this.#scene.attach(record.mesh);
         record.mesh.position.copy(this.#physicsTransform.position);
         record.mesh.quaternion.copy(this.#physicsTransform.rotation);
         record.mesh.scale.setScalar(1);
