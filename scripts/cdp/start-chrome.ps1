@@ -25,6 +25,16 @@ if (-not $chrome) {
 # browsing data, cookies, and signed-in accounts.
 $profile = Join-Path $env:TEMP "afterleaf-codex-profile"
 
+# A fresh launch that shares a profile directory with a running chrome.exe
+# joins that instance and silently drops --remote-debugging-port. Stop stale
+# instances of this exact profile first so the debug flag always applies.
+$stale = Get-CimInstance Win32_Process -Filter "Name = 'chrome.exe'" |
+  Where-Object { $_.CommandLine -like "*afterleaf-codex-profile*" }
+foreach ($instance in $stale) {
+  Stop-Process -Id $instance.ProcessId -Force -ErrorAction SilentlyContinue
+}
+if ($stale) { Start-Sleep -Milliseconds 750 }
+
 Start-Process -FilePath $chrome -ArgumentList @(
   "--user-data-dir=`"$profile`""
   "--remote-debugging-port=$DebugPort"
@@ -57,6 +67,17 @@ while ([DateTime]::UtcNow -lt $deadline) {
 
 if ($null -eq $version) {
   throw "Chrome started, but its DevTools endpoint did not respond at $endpoint."
+}
+
+# Under WSL mirrored networking, a browser listening inside WSL on the same
+# loopback port can answer this readiness check in place of Windows Chrome.
+# A headless answerer would silently invalidate every later measurement.
+if ($version.Browser -match "Headless" -or $version."User-Agent" -match "Headless") {
+  throw @"
+Port $DebugPort answered with $($version.Browser), not real Windows Chrome.
+A headless browser (often a WSL-side instance under mirrored networking) is
+shadowing the DevTools port. Stop it or choose another AFTERLEAF_CHROME_DEBUG_PORT.
+"@
 }
 
 Write-Host "Chrome DevTools is ready on local port $DebugPort." -ForegroundColor Green

@@ -49,6 +49,43 @@ Set `AFTERLEAF_CDP_FRAME_PUMP=off` on `cdp:profile:wsl` to opt out for purist
 visible-window runs. The profiler reports `"framePumpActive"` in its JSON so
 you can tell which mode produced a sample.
 
+## Real Windows Chrome vs headless browsers
+
+Frame-time, FPS, boot, and stutter numbers are only representative on the
+real, GPU-composited Windows Chrome launched by `bun run chrome:profile:wsl`.
+A headless Chromium (for example a Playwright instance inside WSL) renders
+through a software rasterizer (SwiftShader/llvmpipe) with a different
+compositor pipeline; its frametimes, shader-compile costs, and texture-upload
+behavior bear no resemblance to the real stack. Use headless only for
+non-timing work: console collection, navigation checks, scene census queries,
+screenshots. The WSL wrapper refuses to run `profile-renderer.ts` against a
+headless answerer (`AFTERLEAF_ALLOW_HEADLESS=1` overrides deliberately) and
+warns for other tools.
+
+Two failure modes end with the wrong browser answering the CDP endpoint;
+both have occurred in practice:
+
+1. **Mirrored-networking loopback shadowing.** Under WSL2 mirrored networking,
+   a browser listening inside WSL on the DevTools port (`9222`) or bridge port
+   (`9223`) can intercept connections meant for the Windows side — including
+   the launcher's own readiness check. Before trusting any measurement,
+   verify who is answering:
+
+   ```bash
+   curl -s "http://$(ip route show default | awk '{print $3; exit}'):9223/json/version" |
+     grep -E '"Browser"|User-Agent'
+   ```
+
+   Real Windows Chrome reports `"Browser": "Chrome/..."` (never
+   `HeadlessChrome/...`) and a `Windows NT` user agent. The launcher refuses
+   to start against a headless answerer.
+
+2. **Stale dedicated-profile instances.** When a chrome.exe with the dedicated
+   profile directory is already running, a fresh launch joins that instance
+   and silently drops `--remote-debugging-port`. The launcher stops stale
+   instances of its exact profile before starting; if you started the
+   dedicated window by hand, close it before invoking the launcher.
+
 ## One-time Windows bridge setup
 
 Chrome exposes unauthenticated CDP only on Windows loopback. Open PowerShell as
