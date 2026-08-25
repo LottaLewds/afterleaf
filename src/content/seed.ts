@@ -65,16 +65,20 @@ const READER_MAX_DIMENSION = 2048;
 const READER_WEBP_PASSTHROUGH_MAX_BYTES = 2 * 1024 * 1024;
 const READER_WEBP_QUALITY = 88;
 const ATLAS_COLUMNS = 8;
-const ATLAS_MAX_ROWS = 10;
+/**
+ * Six rows of 384x576 cells keep each front/back atlas at 10.6 Mpix, under
+ * the basis_universal v2.5 WASM encoder's 12 Mpix source-texel ceiling.
+ */
+const ATLAS_MAX_ROWS = 6;
 const ATLAS_PUBLICATION_CAPACITY = ATLAS_COLUMNS * ATLAS_MAX_ROWS;
-const FRONT_ATLAS_FORMAT_VERSION = 4;
-const BACK_ATLAS_FORMAT_VERSION = 1;
+const FRONT_ATLAS_FORMAT_VERSION = 5;
+const BACK_ATLAS_FORMAT_VERSION = 2;
 /**
  * Version of the pooled back-cover surface derivative. Version 2 renders at
  * the back atlas cell height and no longer pools a separate detail cover.
  */
 const BACK_DERIVATIVE_FORMAT_VERSION = 2;
-const SPINE_ATLAS_FORMAT_VERSION = 4;
+const SPINE_ATLAS_FORMAT_VERSION = 6;
 const SPINE_DERIVATIVE_FORMAT_VERSION = 4;
 const MAX_PUBLICATION_PAGES = 1_000;
 const MAX_SOURCE_FILE_BYTES = 128 * 1024 * 1024;
@@ -551,7 +555,11 @@ const spineTextureWidth = (thicknessMillimeters: number | undefined) =>
 const packedSpineRegions = (publications: readonly PackedPublication[]) => {
   let x = 0;
   return publications.map((publication) => {
-    const width = spineTextureWidth(publication.physical.thicknessMm);
+    // Basis block compression requires atlas dimensions in multiples of
+    // four, and 4-aligned cell edges keep compression blocks from bleeding
+    // between adjacent spines. Round every stride up to a block boundary.
+    const width =
+      Math.ceil(spineTextureWidth(publication.physical.thicknessMm) / 4) * 4;
     const region = {height: SPINE_TEXTURE_HEIGHT, width, x, y: 0};
     x += width;
     return region;
@@ -1453,8 +1461,9 @@ const createAtlas = async (
     : columns * cellWidth;
   const height = regions ? SPINE_TEXTURE_HEIGHT : rows * cellHeight;
   // The atlas path is derived from the identity of its member publications
-  // and the surface geometry, so an unchanged shelf never re-encodes.
-  const path = poolAssetPath(`atlases/${surface}-${atlasKey}.webp`);
+  // and the surface geometry, so an unchanged shelf never re-encodes. The
+  // atlas ships as a basis-compressed KTX2 so it stays compressed in VRAM.
+  const path = poolAssetPath(`atlases/${surface}-${atlasKey}.ktx2`);
   const descriptor: ShelfAtlasDescriptor = {
     path,
     ...(formatVersion === undefined ? {} : {formatVersion}),
@@ -1500,7 +1509,7 @@ const createAtlas = async (
         .toBuffer();
     }),
   );
-  const buffer = await sharp({
+  const compositeBuffer = await sharp({
     create: {
       width,
       height,
@@ -1518,13 +1527,28 @@ const createAtlas = async (
         };
       }),
     )
-    .webp(
-      surface === "spine"
-        ? {effort: 5, lossless: true}
-        : {quality: 86, effort: 5, smartSubsample: true},
-    )
+    .png()
     .toBuffer();
-  await writePoolAsset(poolDirectory, path, buffer);
+  // GPU-compressed uploads cannot use UNPACK_FLIP_Y at upload time, so bake
+  // the vertical flip into the encoded atlas; runtime textures keep their
+  // existing UV convention with flipY disabled.
+  const flippedBuffer = await sharp(compositeBuffer).flip().png().toBuffer();
+  const {encodeToKTX2} = await import("ktx2-encoder");
+  const imageDecoder = async (buffer: Uint8Array) => {
+    const {data, info} = await sharp(Buffer.from(buffer))
+      .ensureAlpha()
+      .raw()
+      .toBuffer({resolveWithObject: true});
+    return {data: new Uint8Array(data), width: info.width, height: info.height};
+  };
+  // Spines carry small text that ETC1S smears; UASTC keeps them crisp and
+  // spine atlases are small enough that the larger footprint is cheap.
+  const ktx2Buffer = await encodeToKTX2(new Uint8Array(flippedBuffer), {
+    isUASTC: surface === "spine",
+    generateMipmap: false,
+    imageDecoder,
+  });
+  await writePoolAsset(poolDirectory, path, Buffer.from(ktx2Buffer));
   return descriptor;
 };
 

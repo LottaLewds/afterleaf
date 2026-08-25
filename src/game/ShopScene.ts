@@ -47,6 +47,7 @@ import {
   type Material,
 } from "three";
 import {GLTFLoader} from "three/examples/jsm/loaders/GLTFLoader.js";
+import {KTX2Loader} from "three/examples/jsm/loaders/KTX2Loader.js";
 import {RectAreaLightUniformsLib} from "three/examples/jsm/lights/RectAreaLightUniformsLib.js";
 import {clone as cloneWithSkeleton} from "three/examples/jsm/utils/SkeletonUtils.js";
 import {DEV} from "solid-js";
@@ -1420,6 +1421,11 @@ export class ShopScene {
   readonly #shelfPreviewTargetRotation = new Quaternion();
   readonly #shelfTargetOffset = new Vector3();
   readonly #textureLoader = new TextureLoader();
+  /**
+   * Lazily initialized because support detection needs the renderer. Serves
+   * the basis transcoder from the committed public/basis/ directory.
+   */
+  #ktx2Loader: KTX2Loader | undefined;
   readonly #televisions: ShopTelevision[] = [];
   readonly #televisionTargetPosition = new Vector3();
   readonly #televisionTargetScale = new Vector3();
@@ -2072,6 +2078,8 @@ export class ShopScene {
     this.#inspectionTurningBackTexture = undefined;
     this.#resizeObserver?.disconnect();
     this.#resizeObserver = undefined;
+    this.#ktx2Loader?.dispose();
+    this.#ktx2Loader = undefined;
     if (this.#frameHandle !== undefined)
       cancelAnimationFrame(this.#frameHandle);
     this.#frameHandle = undefined;
@@ -2454,6 +2462,13 @@ export class ShopScene {
   static readonly #interiorBatchHard =
     /television|screen|arcade|art-?frame|face-?out|display|snap|helper/iu;
   static readonly #interiorBatchSoft = /shelf|gondola|fixture|cave/iu;
+
+  /** Resolves on the next animation frame, yielding the main thread. */
+  static nextFrame(): Promise<void> {
+    return new Promise((resolve) => {
+      requestAnimationFrame(() => resolve());
+    });
+  }
 
   /**
    * Parameter fingerprint so identical inline materials (builders create
@@ -9516,6 +9531,26 @@ export class ShopScene {
     void this.#initializeBookAtlasBatches(items, atlasRevision);
   }
 
+  /**
+   * Loads a shelf atlas texture, transparently using basis-compressed KTX2
+   * for catalogs that ship it. Compressed textures cannot be flipped at
+   * upload time; the pipeline bakes the vertical flip in instead.
+   */
+  async #loadShelfAtlasTexture(url: string): Promise<Texture> {
+    // Catalog asset URLs carry a cache-busting query; test the pathname.
+    const pathname = url.split(/[?#]/u, 1)[0] ?? url;
+    if (!pathname.endsWith(".ktx2")) return this.#textureLoader.loadAsync(url);
+    this.#ktx2Loader ??= new KTX2Loader()
+      .setTranscoderPath("/basis/")
+      .detectSupport(this.#renderer);
+    const texture = await this.#ktx2Loader.loadAsync(url);
+    texture.colorSpace = SRGBColorSpace;
+    texture.flipY = false;
+    texture.generateMipmaps = false;
+    texture.minFilter = LinearFilter;
+    return texture;
+  }
+
   async #initializeBookAtlasBatches(
     items: readonly CatalogItem[],
     revision: number,
@@ -9555,9 +9590,9 @@ export class ShopScene {
           )
             return;
           const [frontTexture, backTexture, spineTexture] = await Promise.all([
-            this.#textureLoader.loadAsync(front.url),
-            this.#textureLoader.loadAsync(back.url),
-            this.#textureLoader.loadAsync(spine.url),
+            this.#loadShelfAtlasTexture(front.url),
+            this.#loadShelfAtlasTexture(back.url),
+            this.#loadShelfAtlasTexture(spine.url),
           ]);
           const textures = {
             back: backTexture,
@@ -9631,7 +9666,13 @@ export class ShopScene {
         });
     }
 
-    for (const group of groups.values()) {
+    const builtIndexes = new Set<number>();
+    for (const [key, group] of groups) {
+      // Building a batch attaches fresh atlas textures; uploading the whole
+      // set inside one frame stalls the main thread behind the driver for
+      // seconds. Yield so each atlas trio lands in its own frame instead.
+      if (this.#disposed || revision !== this.#bookAtlasRevision) break;
+      await ShopScene.nextFrame();
       const {material, uniforms} = createBookExteriorMaterial(
         new Color("#ffffff"),
         -1,
@@ -9717,9 +9758,21 @@ export class ShopScene {
       }
       this.#scene.add(mesh);
       this.#bookAtlasBatches.push(batch);
+      builtIndexes.add(Number(key));
+    }
+    if (builtIndexes.size < atlasResources.size) {
+      // Either boot was aborted mid-build or a resource matched no entries;
+      // dispose textures for every atlas that never built a batch.
+      for (const [index, resource] of atlasResources) {
+        if (builtIndexes.has(index)) continue;
+        for (const texture of Object.values(resource.textures))
+          texture.dispose();
+      }
     }
     this.#bookAtlasTextures.push(
-      ...[...atlasResources.values()].map((resource) => resource.textures),
+      ...[...atlasResources.entries()]
+        .filter(([index]) => builtIndexes.has(index))
+        .map(([, resource]) => resource.textures),
     );
     this.#syncBookAtlasBatches();
   }

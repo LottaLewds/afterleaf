@@ -13,6 +13,7 @@ import {
 import {tmpdir} from "node:os";
 import {dirname, join, resolve} from "node:path";
 import sharp from "sharp";
+import {read as readKtx2} from "ktx-parse";
 import {BOOK_ASPECT_RATIO_INFERENCE_VERSION} from "~/content/bookAspectRatio";
 import {LocalCatalogSource} from "~/content/localCatalogSource";
 import {planShelfAtlasRanges, seedContentPack} from "~/content/seed";
@@ -245,12 +246,11 @@ describe("seedContentPack", () => {
     });
     if (!frontAtlas) throw new Error("Expected a front shelf atlas");
     expect(frontAtlas.path).toStartWith("assets/atlases/front-");
-    expect(await sharp(pooled(root, frontAtlas.path)).metadata()).toMatchObject(
-      {
-        width: 768,
-        height: 576,
-      },
+    const frontAtlasContainer = readKtx2(
+      await readFile(pooled(root, frontAtlas.path)),
     );
+    expect(frontAtlasContainer.pixelWidth).toBe(768);
+    expect(frontAtlasContainer.pixelHeight).toBe(576);
     const englishFront = catalog.publications[0]?.assets.front;
     if (!englishFront) throw new Error("Expected an english front cover");
     expect(englishFront).toStartWith("assets/publications/english-book/");
@@ -451,10 +451,10 @@ describe("seedContentPack", () => {
     expect(second.catalog.publications[0]?.spineFormatVersion).toBe(4);
 
     const upgradedSpineAtlas = second.catalog.atlases.spine[0];
-    expect(second.catalog.atlases.front[0]?.formatVersion).toBe(4);
-    expect(second.catalog.atlases.back[0]?.formatVersion).toBe(1);
+    expect(second.catalog.atlases.front[0]?.formatVersion).toBe(5);
+    expect(second.catalog.atlases.back[0]?.formatVersion).toBe(2);
     expect(second.catalog.atlases.back[0]?.height).toBe(576);
-    expect(upgradedSpineAtlas?.formatVersion).toBe(4);
+    expect(upgradedSpineAtlas?.formatVersion).toBe(6);
     expect(upgradedSpineAtlas?.height).toBe(1024);
     expect(upgradedSpineAtlas?.regions).toHaveLength(2);
     expect(upgradedSpineAtlas?.width).toBe(
@@ -916,9 +916,11 @@ describe("seedContentPack", () => {
     ).toMatchObject({height: 1536, width: 1113});
     const frontAtlas = result.catalog?.atlases.front[0];
     if (!frontAtlas) throw new Error("Expected a front shelf atlas");
-    expect(await sharp(pooled(root, frontAtlas.path)).metadata()).toMatchObject(
-      {height: 576, width: 384},
+    const atlasContainer = readKtx2(
+      await readFile(pooled(root, frontAtlas.path)),
     );
+    expect(atlasContainer.pixelWidth).toBe(384);
+    expect(atlasContainer.pixelHeight).toBe(576);
   });
 
   test("infers a landscape book from interior pages despite wide covers and early spreads", async () => {
