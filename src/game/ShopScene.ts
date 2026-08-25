@@ -1845,11 +1845,19 @@ export class ShopScene {
    * no-screen-light variants first, then the rect-area-light variant set
    * from exactly one television's four wash lights (forcing every television
    * would multiply light counts into every program and stall compilation).
-   * Book textures stream in afterwards by design; their batches reuse the
-   * already-compiled standalone-book program.
+   * Book textures stream in afterwards by design; the batch program variant
+   * is warmed here so attaching batches only uploads textures.
    */
   async #warmShaderPrograms() {
     if (this.#disposed) return;
+    // The atlas-batch book material uses its own program cache key and no
+    // batch mesh exists until textures stream in after ready, so warm its
+    // variant here with a stand-in mesh covering all batch groups.
+    const batchMaterialStandIn = new Mesh(
+      new BoxGeometry(0.01, 0.01, 0.01),
+      createBookExteriorMaterial(new Color("#ffffff"), -1, true, true).material,
+    );
+    this.#scene.add(batchMaterialStandIn);
     try {
       await this.#renderer.compileAsync(this.#scene, this.#camera);
       // Warm the rect-area-light variant set with exactly ONE television's
@@ -1868,6 +1876,10 @@ export class ShopScene {
       // Lazy compilation still works; precompilation is best-effort.
       if (DEV)
         console.warn("Afterleaf could not precompile shader programs.", error);
+    } finally {
+      this.#scene.remove(batchMaterialStandIn);
+      batchMaterialStandIn.geometry.dispose();
+      batchMaterialStandIn.material.dispose();
     }
   }
 
