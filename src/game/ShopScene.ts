@@ -31,28 +31,12 @@ import floorAlbedoUrl from "~/assets/materials/laminate-floor-albedo.webp";
 import floorNormalUrl from "~/assets/materials/laminate-floor-normal.webp";
 import floorSurfaceUrl from "~/assets/materials/laminate-floor-surface.webp";
 import moonriseSkyUrl from "~/assets/materials/qwantani-moonrise-sky.webp";
-import {
-  INSPECTION_TRANSITION_POSITION_EPSILON_SQ,
-  INSPECTION_TRANSITION_ROTATION_EPSILON,
-  SHELF_PREVIEW_SPEED,
-  SHELF_PREVIEW_PULL_END,
-  SHELF_PREVIEW_ROTATION_START,
-  SHELF_PREVIEW_FOCUS_HANDOFF_PROGRESS,
-} from "~/game/bookInspectionTuning";
 import {TRASH_CAN_PROP_ID} from "~/game/discardBin";
-import {
-  BOOK_UNDER_SHELF_RECOVERY_Y,
-  BOOK_VOID_RECOVERY_Y,
-} from "~/game/bookTuning";
 import {physicalBookWidth} from "~/game/bookDimensions";
 import {
-  INSPECTION_ACTION_CLOSE_SPEED,
-  INSPECTION_COVER_ANIMATION_SPEED,
   INSPECTION_FRAME_FILL,
-  INSPECTION_OPEN_ANGLE,
   INSPECTION_PAGE_GUTTER,
 } from "~/game/bookInspectionTuning";
-import {hashString} from "~/game/mathHelpers";
 import {clampUnit, dotWithPhysicsQuaternion} from "~/game/mathHelpers";
 import {BOOK_HEIGHT} from "~/game/bookTuning";
 import {
@@ -108,6 +92,10 @@ import {
 } from "~/game/movablePropSystem";
 import {ShopInputController} from "~/game/shopInputController";
 import {ShopBookLifecycle} from "~/game/shopBookLifecycle";
+import {
+  ShopBookPresentation,
+  type ShopBookPresentationHost,
+} from "~/game/shopBookPresentation";
 import {ShopWorldPersistence} from "~/game/shopWorldPersistence";
 
 import type {CatalogAtlases, CatalogIdentity, CatalogItem} from "~/catalog";
@@ -119,7 +107,6 @@ import {type UiMode} from "~/game/uiMode";
 import {
   DEFAULT_PITCH_LIMIT,
   getPlanarMovement,
-  isPointInsideShopObstacle,
   resolvePlayerGrounded,
   resolveShopMovement,
   type PlanarMovementInput,
@@ -181,10 +168,6 @@ import type {PosterAsset} from "~/posters/protocol";
 
 const SHOP_PLAYER_START_X = 0;
 const SHOP_PLAYER_START_Z = 25;
-const HELD_BOOK_STACK_GAP = 0.012;
-const HELD_BOOK_FAN_X_SPACING = 0.105;
-const HELD_BOOK_FAN_Y_SPACING = 0.008;
-const HELD_BOOK_FAN_ANGLE = 0.1;
 const MAX_PIXEL_RATIO = 2;
 const PLAYER_RADIUS = 0.3;
 const WALK_SPEED = 2.65;
@@ -418,9 +401,6 @@ export class ShopScene {
   readonly #catalogIdentity: () => CatalogIdentity;
   readonly #catalogItems: () => readonly CatalogItem[];
   readonly #heldLocalPosition = new Vector3(0.5, -0.36, -1.08);
-  readonly #heldBookFanAxis = new Vector3(0, 0, 1);
-  readonly #heldBookFanRotation = new Quaternion();
-  readonly #heldBookLocalPoseRotation = new Quaternion();
   readonly #heldLocalRotation = new Quaternion().setFromEuler(
     new Euler(-0.16, -0.48, -0.08),
   );
@@ -524,8 +504,6 @@ export class ShopScene {
   readonly #spineShelfDefinitions = new Map<string, SpineShelfDefinition>();
   readonly #selectedPublicationId: () => string | null | undefined;
   readonly #shelfTargetMeshes: Mesh[] = [];
-  readonly #shelfPreviewBaseRotation = new Quaternion();
-  readonly #shelfPreviewTargetRotation = new Quaternion();
   readonly #textureLoader = new TextureLoader();
   /**
    * Lazily initialized because support detection needs the renderer. Serves
@@ -541,6 +519,7 @@ export class ShopScene {
   #carriedPublicationId: string | undefined;
   readonly #bookActions: BookCarryActions;
   readonly #bookLifecycle: ShopBookLifecycle;
+  readonly #bookPresentation: ShopBookPresentation;
   readonly #worldPersistence: ShopWorldPersistence;
   readonly #scanner: InteractionScanner;
   readonly #props: MovablePropLifecycle;
@@ -806,12 +785,16 @@ export class ShopScene {
       },
       shelfHoverMeshesByShelf: this.#shelfHoverMeshesByShelf,
       spineShelfDefinitions: () => this.#spineShelfDefinitions,
-      syncCarriedBookPresentation: () => this.#syncCarriedBookPresentation(),
+      syncCarriedBookPresentation: () =>
+        this.#bookPresentation.syncCarriedBookPresentation(),
       takeCompatibleWorldSave: () =>
         this.#worldPersistence.takeCompatibleWorldSave(),
       ungroupedShelfHoverMeshes: this.#ungroupedShelfHoverMeshes,
       updateHeldPhysicsTarget: () => this.#updateHeldPhysicsTarget(),
     });
+    this.#bookPresentation = new ShopBookPresentation(
+      this.#createBookPresentationHost(),
+    );
     this.#inputController = new ShopInputController({
       abortSignal: this.#abortController.signal,
       activeArcadeCabinet: () => this.#activeArcadeCabinet,
@@ -1505,7 +1488,7 @@ export class ShopScene {
     this.#syncMovablePropPhysics();
     for (const record of this.#artFrames.records.values())
       record.frame.update(deltaSeconds);
-    this.#animateBooks(deltaSeconds);
+    this.#bookPresentation.animate(deltaSeconds);
     this.#bookActions.animateShelve(deltaSeconds);
     this.#bookTextures.syncBookAtlasBatches();
     this.#bookActions.animateDiscard(deltaSeconds);
@@ -2260,185 +2243,6 @@ export class ShopScene {
     );
   }
 
-  #animateInspectedBook(record: BookRecord, deltaSeconds: number) {
-    const returningToHand = this.#inspection.inspectionMode === "closing";
-    const returningToShelf =
-      returningToHand && record.state.status === "shelved";
-    if (returningToShelf) {
-      this.#inspection.animateInspectionShelfReturn(record, deltaSeconds);
-      return;
-    }
-    if (
-      !returningToHand &&
-      record.state.status === "shelved" &&
-      this.#inspection.inspectionShelfFocusPending
-    ) {
-      if (!this.#animateShelfPreview(record, true, deltaSeconds)) return;
-      this.#inspection.inspectionShelfFocusPending = false;
-      return;
-    }
-    if (returningToHand) {
-      const publicationId = this.#inspection.inspectionPublicationId;
-      if (
-        this.#inspection.inspectionPhysicsReturnActive ||
-        (publicationId &&
-          this.#inspection.beginInspectionPhysicsReturn(record, publicationId))
-      ) {
-        this.#inspection.animateInspectionPhysicsReturn(record, deltaSeconds);
-        return;
-      }
-    }
-    if (!returningToHand) this.#inspection.updateInspectionLocalTarget();
-    let targetPosition = this.#inspection.inspectionLocalPosition;
-    let targetRotation = this.#inspection.inspectionLocalRotation;
-    if (returningToHand) {
-      const publicationId = this.#inspection.inspectionPublicationId;
-      const carriedIndex = publicationId
-        ? this.#carriedPublicationIds.indexOf(publicationId)
-        : -1;
-      if (carriedIndex >= 0) {
-        this.#writeHeldBookLocalPosition(
-          carriedIndex,
-          this.#inspection.inspectionLocalPosition,
-        );
-        this.#writeHeldBookLocalRotation(
-          carriedIndex,
-          this.#inspection.inspectionLocalRotation,
-        );
-      } else {
-        this.#inspection.inspectionLocalPosition.copy(this.#heldLocalPosition);
-        this.#inspection.inspectionLocalRotation.copy(this.#heldLocalRotation);
-      }
-      targetPosition = this.#inspection.inspectionLocalPosition;
-      targetRotation = this.#inspection.inspectionLocalRotation;
-    }
-    if (record.mesh.parent !== this.#camera) this.#camera.attach(record.mesh);
-    record.mesh.position.x = MathUtils.damp(
-      record.mesh.position.x,
-      targetPosition.x,
-      INSPECTION_TRANSITION_SPEED,
-      deltaSeconds,
-    );
-    record.mesh.position.y = MathUtils.damp(
-      record.mesh.position.y,
-      targetPosition.y,
-      INSPECTION_TRANSITION_SPEED,
-      deltaSeconds,
-    );
-    record.mesh.position.z = MathUtils.damp(
-      record.mesh.position.z,
-      targetPosition.z,
-      INSPECTION_TRANSITION_SPEED,
-      deltaSeconds,
-    );
-    record.mesh.quaternion.slerp(
-      targetRotation,
-      1 - Math.exp(-INSPECTION_TRANSITION_SPEED * deltaSeconds),
-    );
-    record.mesh.scale.setScalar(1);
-    const closeAction = this.#inspection.inspectionCloseAction;
-    const coverAnimationSpeed =
-      returningToHand && (closeAction === "drop" || closeAction === "throw")
-        ? INSPECTION_ACTION_CLOSE_SPEED
-        : INSPECTION_COVER_ANIMATION_SPEED;
-    this.#inspection.animateInspectionOpening(
-      record,
-      deltaSeconds,
-      coverAnimationSpeed,
-    );
-    if (
-      this.#inspection.inspectionMode === "closing" &&
-      this.#inspection.inspectionOpenAngle === INSPECTION_OPEN_ANGLE &&
-      record.inspectionGroup.visible
-    )
-      this.#inspection.showCompactInspectionBook(record);
-    this.#inspection.animateInspectionPageTurn(record, deltaSeconds);
-    if (
-      this.#inspection.inspectionMode === "closing" &&
-      this.#inspection.inspectionOpenAngle === INSPECTION_OPEN_ANGLE &&
-      record.mesh.position.distanceToSquared(targetPosition) <
-        INSPECTION_TRANSITION_POSITION_EPSILON_SQ &&
-      1 - Math.abs(record.mesh.quaternion.dot(targetRotation)) <
-        INSPECTION_TRANSITION_ROTATION_EPSILON
-    ) {
-      record.mesh.position.copy(targetPosition);
-      record.mesh.quaternion.copy(targetRotation);
-      this.#inspection.finishInspectionClose();
-    }
-  }
-
-  #heldBookStackOffset(index: number) {
-    let offset = 0;
-    for (let stackIndex = 1; stackIndex <= index; stackIndex += 1) {
-      const previous = this.#booksById.get(
-        this.#carriedPublicationIds[stackIndex - 1] ?? "",
-      );
-      const current = this.#booksById.get(
-        this.#carriedPublicationIds[stackIndex] ?? "",
-      );
-      if (!previous || !current) continue;
-      offset += (previous.thickness + current.thickness) / 2;
-      offset += HELD_BOOK_STACK_GAP;
-    }
-    return offset;
-  }
-
-  #writeHeldBookLocalPosition(index: number, output: Vector3) {
-    const activeIndex = 0;
-    const relativeIndex = index - activeIndex;
-    output.copy(this.#heldLocalPosition);
-    output.x += relativeIndex * HELD_BOOK_FAN_X_SPACING;
-    output.y += relativeIndex * HELD_BOOK_FAN_Y_SPACING;
-    output.z -= this.#heldBookStackOffset(index);
-  }
-
-  #writeHeldBookLocalRotation(index: number, output: Quaternion) {
-    const activeIndex = 0;
-    const relativeIndex = index - activeIndex;
-    this.#heldBookFanRotation.setFromAxisAngle(
-      this.#heldBookFanAxis,
-      relativeIndex * HELD_BOOK_FAN_ANGLE,
-    );
-    output.copy(this.#heldLocalRotation).multiply(this.#heldBookFanRotation);
-  }
-
-  #syncCarriedBookPresentation() {
-    if (this.#physicsWorld.isReady) return;
-    for (const [
-      index,
-      publicationId,
-    ] of this.#carriedPublicationIds.entries()) {
-      if (
-        publicationId === this.#inspection.inspectionPublicationId &&
-        this.#inspection.inspectionMode !== "none"
-      )
-        continue;
-      const record = this.#booksById.get(publicationId);
-      if (!record) continue;
-      if (record.mesh.parent !== this.#camera) this.#camera.add(record.mesh);
-      this.#writeHeldBookLocalPosition(index, this.#heldTargetPosition);
-      record.mesh.position.copy(this.#heldTargetPosition);
-      this.#writeHeldBookLocalRotation(index, record.mesh.quaternion);
-      record.mesh.scale.setScalar(1);
-    }
-  }
-
-  #writeHeldBookTargetPose(index: number, publicationId: string) {
-    const inspecting =
-      this.#inspection.inspectionMode === "spread" &&
-      publicationId === this.#inspection.inspectionPublicationId;
-    if (inspecting) {
-      this.#inspection.updateInspectionLocalTarget();
-      this.#heldTargetPosition.copy(this.#inspection.inspectionLocalPosition);
-    } else this.#writeHeldBookLocalPosition(index, this.#heldTargetPosition);
-    this.#heldTargetPosition.applyMatrix4(this.#camera.matrixWorld);
-    this.#camera.getWorldQuaternion(this.#heldTargetRotation);
-    if (!inspecting) {
-      this.#writeHeldBookLocalRotation(index, this.#heldBookLocalPoseRotation);
-      this.#heldTargetRotation.multiply(this.#heldBookLocalPoseRotation);
-    }
-  }
-
   #updateHeldPhysicsTarget() {
     const prop = this.#props.carriedProp;
     if (prop) {
@@ -2478,15 +2282,7 @@ export class ShopScene {
       return;
     }
 
-    if (this.#carriedPublicationIds.length === 0) return;
-    this.#camera.updateMatrixWorld();
-    for (const [
-      index,
-      publicationId,
-    ] of this.#carriedPublicationIds.entries()) {
-      this.#writeHeldBookTargetPose(index, publicationId);
-      this.#physicsWorld.setHeldTarget(publicationId, this.#heldTargetPose);
-    }
+    this.#bookPresentation.updateHeldPhysicsTarget();
   }
 
   #cycleCarriedBook(direction: number) {
@@ -2514,7 +2310,7 @@ export class ShopScene {
         this.#carriedPublicationId,
         record,
       );
-    this.#syncCarriedBookPresentation();
+    this.#bookPresentation.syncCarriedBookPresentation();
     this.#updateHeldPhysicsTarget();
     this.#scanner.update();
     this.#emitGameState();
@@ -2609,6 +2405,35 @@ export class ShopScene {
     }
     if (!this.#hoveredPublicationId) return;
     this.#bookActions.pickUpBook(this.#hoveredPublicationId);
+  }
+
+  #createBookPresentationHost(): ShopBookPresentationHost {
+    return {
+      bookActions: () => this.#bookActions,
+      bookLifecycle: () => this.#bookLifecycle,
+      booksById: () => this.#booksById,
+      camera: () => this.#camera,
+      carriedPublicationIds: () => this.#carriedPublicationIds,
+      emitGameState: () => this.#emitGameState(),
+      heldLocalPosition: () => this.#heldLocalPosition,
+      heldLocalRotation: () => this.#heldLocalRotation,
+      heldTargetPose: () => this.#heldTargetPose,
+      heldTargetPosition: () => this.#heldTargetPosition,
+      heldTargetRotation: () => this.#heldTargetRotation,
+      hoveredPublicationId: () => this.#hoveredPublicationId,
+      input: () => this.#input,
+      inspection: () => this.#inspection,
+      markScannerDirty: () => this.#scanner.markDirty(),
+      markWorldStateDirty: () => this.#worldPersistence.markDirty(),
+      physicsPoseEuler: () => this.#physicsPoseEuler,
+      physicsTransform: () => this.#physicsTransform,
+      physicsWorld: () => this.#physicsWorld,
+      scene: () => this.#scene,
+      setInteractiveMeshes: () => this.#bookLifecycle.syncInteractiveMeshes(),
+      setPhysicsPose: (position, rotation) =>
+        this.#bookLifecycle.setPhysicsPose(position, rotation),
+      spineShelfDefinitions: () => this.#spineShelfDefinitions,
+    };
   }
 
   #createMovablePropLifecycleHost(): MovablePropLifecycleHost {
@@ -2751,7 +2576,8 @@ export class ShopScene {
       setTrashTargeted: (targeted) => this.#setTrashTargeted(targeted),
       shelfTargetSelection: () => this.#scanner.shelfTargetSelection,
       spineShelfDefinitions: () => this.#spineShelfDefinitions,
-      syncCarriedBookPresentation: () => this.#syncCarriedBookPresentation(),
+      syncCarriedBookPresentation: () =>
+        this.#bookPresentation.syncCarriedBookPresentation(),
       syncInteractiveMeshes: () => this.#bookLifecycle.syncInteractiveMeshes(),
       targetedTrashBinId: () => this.#scanner.targetedTrashBinId,
       throwVelocity: () => this.#throwVelocity,
@@ -2760,11 +2586,11 @@ export class ShopScene {
       updateShelfTargetVisuals: () => this.#scanner.updateShelfTargetVisuals(),
       viewDirection: () => this.#viewDirection,
       writeHeldBookTargetPose: (index, publicationId) =>
-        this.#writeHeldBookTargetPose(index, publicationId),
+        this.#bookPresentation.writeHeldBookTargetPose(index, publicationId),
       writeHeldBookLocalPosition: (index, output) =>
-        this.#writeHeldBookLocalPosition(index, output),
+        this.#bookPresentation.writeHeldBookLocalPosition(index, output),
       writeHeldBookLocalRotation: (index, output) =>
-        this.#writeHeldBookLocalRotation(index, output),
+        this.#bookPresentation.writeHeldBookLocalRotation(index, output),
     };
   }
 
@@ -2801,261 +2627,6 @@ export class ShopScene {
       if (positionChanged || rotationChanged)
         this.#worldPersistence.markDirty();
     }
-  }
-
-  #animateBooks(deltaSeconds: number) {
-    let interactionStateChanged = false;
-    for (const [publicationId, record] of this.#booksById) {
-      if (this.#bookActions.shelveAnimation?.publicationId === publicationId)
-        continue;
-      const inspectionFocused =
-        publicationId === this.#inspection.inspectionPublicationId &&
-        this.#inspection.inspectionMode === "spread";
-      if (inspectionFocused || record.inspectionLightingBlend > 0)
-        this.#inspection.animateInspectionLighting(
-          record,
-          inspectionFocused,
-          deltaSeconds,
-        );
-      if (
-        publicationId === this.#inspection.inspectionPublicationId &&
-        this.#inspection.inspectionMode !== "none"
-      ) {
-        this.#animateInspectedBook(record, deltaSeconds);
-        continue;
-      }
-      if (
-        this.#physicsWorld.isReady &&
-        this.#physicsWorld.sampleInterpolatedBookTransform(
-          publicationId,
-          this.#physicsTransform,
-        )
-      ) {
-        const physicsState = this.#physicsWorld.getBookState(publicationId);
-        const trappedUnderShelf =
-          physicsState === "dynamic" &&
-          this.#physicsTransform.position.y < BOOK_UNDER_SHELF_RECOVERY_Y &&
-          SHOP_INTERIOR_FOOTPRINTS.some((footprint) =>
-            isPointInsideShopObstacle(
-              this.#physicsTransform.position,
-              footprint,
-            ),
-          );
-        if (
-          !this.#carriedPublicationIds.includes(publicationId) &&
-          (this.#physicsTransform.position.y < BOOK_VOID_RECOVERY_Y ||
-            trappedUnderShelf)
-        ) {
-          if (record.state.status !== "floor") interactionStateChanged = true;
-          this.#respawnEscapedBook(publicationId, record);
-          continue;
-        }
-        if (record.state.status === "shelved" && physicsState === "dynamic") {
-          record.state = {status: "floor"};
-          interactionStateChanged = true;
-        }
-        const shelfIsStationary = record.state.status === "shelved";
-        const positionChanged =
-          !shelfIsStationary &&
-          record.basePosition.distanceToSquared(
-            this.#physicsTransform.position,
-          ) > 1e-8;
-        const rotationChanged =
-          !shelfIsStationary &&
-          1 -
-            Math.abs(
-              dotWithPhysicsQuaternion(
-                record.mesh.quaternion,
-                this.#physicsTransform.rotation,
-              ),
-            ) >
-            1e-7;
-        // Batch-rendered books stay detached; their instance matrix picks
-        // up any real pose change in #syncBookAtlasBatches.
-        if (
-          !record.atlasPlacement?.visible &&
-          record.mesh.parent !== this.#scene
-        )
-          this.#scene.attach(record.mesh);
-        record.mesh.position.copy(this.#physicsTransform.position);
-        record.mesh.quaternion.copy(this.#physicsTransform.rotation);
-        record.mesh.scale.setScalar(1);
-        record.basePosition.copy(this.#physicsTransform.position);
-        this.#physicsPoseEuler.setFromQuaternion(record.mesh.quaternion, "XYZ");
-        record.baseRotation.set(
-          this.#physicsPoseEuler.x,
-          this.#physicsPoseEuler.y,
-          this.#physicsPoseEuler.z,
-        );
-        if (record.state.status === "shelved")
-          this.#animateShelfPreview(
-            record,
-            publicationId === this.#hoveredPublicationId &&
-              this.#input.isActionDown("throw"),
-            deltaSeconds,
-          );
-        if (positionChanged || rotationChanged) {
-          this.#worldPersistence.markDirty();
-          // A moving prop can enter or leave the reticle; re-sweep.
-          this.#scanner.markDirty();
-        }
-        continue;
-      }
-      if (record.state.status === "carried") continue;
-      if (record.state.status === "shelved") {
-        this.#animateShelfPreview(
-          record,
-          publicationId === this.#hoveredPublicationId &&
-            this.#input.isActionDown("throw"),
-          deltaSeconds,
-        );
-        continue;
-      }
-      const scale = MathUtils.damp(
-        record.mesh.scale.x,
-        record.targetScale,
-        13,
-        deltaSeconds,
-      );
-      record.mesh.scale.setScalar(scale);
-      record.mesh.position.x = MathUtils.damp(
-        record.mesh.position.x,
-        record.basePosition.x,
-        12,
-        deltaSeconds,
-      );
-      record.mesh.position.y = MathUtils.damp(
-        record.mesh.position.y,
-        record.basePosition.y + record.targetLift,
-        12,
-        deltaSeconds,
-      );
-      record.mesh.position.z = MathUtils.damp(
-        record.mesh.position.z,
-        record.basePosition.z,
-        12,
-        deltaSeconds,
-      );
-      record.mesh.rotation.x = MathUtils.damp(
-        record.mesh.rotation.x,
-        record.baseRotation.x,
-        12,
-        deltaSeconds,
-      );
-      record.mesh.rotation.y = MathUtils.damp(
-        record.mesh.rotation.y,
-        record.baseRotation.y,
-        12,
-        deltaSeconds,
-      );
-      record.mesh.rotation.z = MathUtils.damp(
-        record.mesh.rotation.z,
-        record.baseRotation.z,
-        12,
-        deltaSeconds,
-      );
-    }
-    if (!interactionStateChanged) return;
-    this.#bookLifecycle.syncInteractiveMeshes();
-    this.#worldPersistence.markDirty();
-    this.#emitGameState();
-  }
-
-  #animateShelfPreview(
-    record: BookRecord,
-    targeted: boolean,
-    deltaSeconds: number,
-  ) {
-    const shelf =
-      record.state.status === "shelved"
-        ? this.#spineShelfDefinitions.get(record.state.shelfId)
-        : undefined;
-    if (!shelf) return false;
-    record.shelfPreview = MathUtils.damp(
-      record.shelfPreview,
-      targeted ? 1 : 0,
-      SHELF_PREVIEW_SPEED,
-      deltaSeconds,
-    );
-    if (!targeted && record.shelfPreview < 0.001) record.shelfPreview = 0;
-    const pullProgress = MathUtils.smoothstep(
-      record.shelfPreview,
-      0,
-      SHELF_PREVIEW_PULL_END,
-    );
-    const rotationProgress = MathUtils.smoothstep(
-      record.shelfPreview,
-      SHELF_PREVIEW_ROTATION_START,
-      1,
-    );
-    const outwardDistance =
-      record.shelfPresentation === "face" ? 0.14 : record.width * 0.72 + 0.1;
-    record.mesh.position
-      .copy(record.basePosition)
-      .addScaledVector(shelf.normal, outwardDistance * pullProgress);
-    this.#shelfPreviewBaseRotation.setFromEuler(
-      this.#physicsPoseEuler.set(
-        record.baseRotation.x,
-        record.baseRotation.y,
-        record.baseRotation.z,
-        "XYZ",
-      ),
-    );
-    record.mesh.quaternion.copy(this.#shelfPreviewBaseRotation);
-    if (record.shelfPresentation === "spine" && rotationProgress > 0) {
-      this.#shelfPreviewTargetRotation.setFromEuler(
-        this.#physicsPoseEuler.set(
-          0,
-          Math.atan2(
-            this.#camera.position.x - record.mesh.position.x,
-            this.#camera.position.z - record.mesh.position.z,
-          ),
-          0,
-          "XYZ",
-        ),
-      );
-      record.mesh.quaternion.slerp(
-        this.#shelfPreviewTargetRotation,
-        rotationProgress,
-      );
-    }
-    const scaleProgress =
-      record.shelfPresentation === "spine" ? rotationProgress : pullProgress;
-    record.mesh.scale.setScalar(1 + scaleProgress * 0.025);
-    return targeted
-      ? rotationProgress >= SHELF_PREVIEW_FOCUS_HANDOFF_PROGRESS
-      : record.shelfPreview === 0;
-  }
-
-  #respawnEscapedBook(publicationId: string, record: BookRecord) {
-    const seed = hashString(`${publicationId}:void-recovery`);
-    record.state = {status: "floor"};
-    record.basePosition.set(
-      (((seed >>> 5) % 1_000) / 999 - 0.5) * 3.2,
-      5.5 + ((seed >>> 15) % 100) * 0.012,
-      21 + ((seed >>> 23) % 100) * 0.025,
-    );
-    record.baseRotation.set(
-      -Math.PI / 2,
-      ((seed >>> 11) % 1_000) * (Math.PI / 500),
-      (((seed >>> 26) % 64) / 63 - 0.5) * 0.32,
-    );
-    record.mesh.position.copy(record.basePosition);
-    record.mesh.rotation.set(
-      record.baseRotation.x,
-      record.baseRotation.y,
-      record.baseRotation.z,
-      "XYZ",
-    );
-    record.mesh.scale.setScalar(1);
-    this.#physicsWorld.respawnBook(
-      publicationId,
-      this.#bookLifecycle.setPhysicsPose(
-        record.basePosition,
-        record.baseRotation,
-      ),
-    );
-    this.#worldPersistence.markDirty();
   }
 
   #markReady() {
