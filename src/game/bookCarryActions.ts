@@ -228,7 +228,11 @@ export class BookCarryActions {
       host.setShelfPosition(record);
       record.basePosition.copy(record.shelfPosition);
       host.setShelfRotation(record, placement.id);
+      record.mesh.position.copy(record.shelfPosition);
+      record.mesh.rotation.set(record.baseRotation.x, record.baseRotation.y, record.baseRotation.z, "XYZ");
+      record.mesh.scale.setScalar(1);
       host.physicsWorld().shelveBook(placement.id, host.setPhysicsPose(record.shelfPosition, record.baseRotation));
+      host.bookTextures().syncBookAtlasBatch(placement.id);
     }
   }
 

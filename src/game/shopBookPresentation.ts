@@ -45,6 +45,7 @@ export type ShopBookPresentationHost = {
   hoveredPublicationId: () => string | undefined;
   input: () => InputManager;
   inspection: () => InspectionController;
+  lastSelectedPublicationId: () => string | null | undefined;
   markScannerDirty: () => void;
   markWorldStateDirty: () => void;
   physicsPoseEuler: () => import("three").Euler;
@@ -71,12 +72,20 @@ export class ShopBookPresentation {
     this.#host = host;
   }
 
+  get updatedPublicationIds(): ReadonlySet<string> {
+    return this.#animatedPublicationIds;
+  }
+
   #queueActiveVisualPublications() {
     const host = this.#host;
     const inspectionPublicationId = host.inspection().inspectionPublicationId;
     if (inspectionPublicationId) this.#activeVisualPublicationIds.add(inspectionPublicationId);
     const shelvePublicationId = host.bookActions().shelveAnimation?.publicationId;
     if (shelvePublicationId) this.#activeVisualPublicationIds.add(shelvePublicationId);
+    const discardPublicationId = host.bookActions().discardAnimation?.publicationId;
+    if (discardPublicationId) this.#activeVisualPublicationIds.add(discardPublicationId);
+    const lastSelectedPublicationId = host.lastSelectedPublicationId();
+    if (lastSelectedPublicationId) this.#activeVisualPublicationIds.add(lastSelectedPublicationId);
     const hoveredPublicationId = host.hoveredPublicationId();
     if (hoveredPublicationId && host.booksById().get(hoveredPublicationId)?.state.status === "shelved")
       this.#activeVisualPublicationIds.add(hoveredPublicationId);
@@ -135,7 +144,7 @@ export class ShopBookPresentation {
       !shelfIsStationary &&
       1 - Math.abs(dotWithPhysicsQuaternion(record.mesh.quaternion, host.physicsTransform().rotation)) > 1e-7;
     // Batch-rendered books stay detached; their instance matrix picks
-    // up any real pose change in #syncBookAtlasBatches.
+    // up any real pose change in syncActiveBookAtlasBatches.
     if (!record.atlasPlacement?.visible && record.mesh.parent !== host.scene()) host.scene().attach(record.mesh);
     record.mesh.position.copy(host.physicsTransform().position);
     record.mesh.quaternion.copy(host.physicsTransform().rotation);
@@ -213,9 +222,9 @@ export class ShopBookPresentation {
       if (this.#animatedPublicationIds.has(publicationId)) continue;
       const record = host.booksById().get(publicationId);
       if (!record) continue;
+      this.#animatedPublicationIds.add(publicationId);
       interactionStateChanged = this.#animateBook(publicationId, record, deltaSeconds) || interactionStateChanged;
     }
-    this.#animatedPublicationIds.clear();
     if (!interactionStateChanged) return;
     host.setInteractiveMeshes();
     host.markWorldStateDirty();

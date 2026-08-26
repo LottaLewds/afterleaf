@@ -56,8 +56,8 @@ type BookAtlasGroup = {
 
 /**
  * Owns the batched-atlas rendering path and the standalone cover/spine
- * texture pipeline for the shop's books. The scene drives it from
- * `syncBooks`; visibility decisions come in through the host predicates.
+ * texture pipeline for the shop's books. Catalog rebuilds use a full sync;
+ * the frame loop supplies only books with active presentation or ownership.
  */
 export class BookTextureRuntime {
   readonly #batches: BookAtlasBatch[] = [];
@@ -296,44 +296,61 @@ export class BookTextureRuntime {
     this.syncBookAtlasBatches();
   }
 
+  #syncBookAtlasBatch(publicationId: string, record: BookRecord) {
+    const placement = record.atlasPlacement;
+    if (!placement) {
+      record.mesh.visible = true;
+      return;
+    }
+    const forcedStandalone = record.state.status === "carried" || this.#host.isBookInFlight(publicationId);
+    // A mesh some other system reparented (carry handoff, restore) cannot
+    // render as a batch instance; fall back to standalone.
+    const externallyOwned =
+      record.mesh.parent !== this.#host.scene && !(record.mesh.parent === null && placement.detached);
+    const readyStandalone = record.standaloneTexturesReady && this.#host.isActiveDetailTarget(publicationId);
+    const standalone = forcedStandalone || readyStandalone || externallyOwned;
+    const batchVisible = record.exteriorMaterial.visible && !standalone;
+    if (batchVisible !== placement.visible) {
+      placement.batch.mesh.setVisibleAt(placement.instanceId, batchVisible);
+      placement.visible = batchVisible;
+    }
+    // Dormant batched books leave the scene graph entirely: their subtree
+    // (inspection assembly included) then skips per-frame traversal.
+    // Detached meshes keep world-space local transforms, so re-adding
+    // restores the exact pose.
+    if (batchVisible) {
+      if (!placement.detached && record.mesh.parent === this.#host.scene) {
+        record.mesh.removeFromParent();
+        placement.detached = true;
+      } else if (record.mesh.parent !== null) placement.detached = false;
+    } else if (placement.detached && record.mesh.parent === null) {
+      this.#host.scene.add(record.mesh);
+      placement.detached = false;
+    }
+    record.mesh.visible = standalone;
+    if (!batchVisible) return;
+    record.mesh.updateMatrix();
+    if (placement.lastMatrix.equals(record.mesh.matrix)) return;
+    placement.lastMatrix.copy(record.mesh.matrix);
+    placement.batch.mesh.setMatrixAt(placement.instanceId, record.mesh.matrix);
+  }
+
+  /** Reconciles every placement after a catalog or batch rebuild. */
   syncBookAtlasBatches() {
-    for (const [publicationId, record] of this.#host.getBooks()) {
-      const placement = record.atlasPlacement;
-      if (!placement) {
-        record.mesh.visible = true;
-        continue;
-      }
-      const forcedStandalone = record.state.status === "carried" || this.#host.isBookInFlight(publicationId);
-      // A mesh some other system reparented (carry handoff, restore) cannot
-      // render as a batch instance; fall back to standalone.
-      const externallyOwned =
-        record.mesh.parent !== this.#host.scene && !(record.mesh.parent === null && placement.detached);
-      const readyStandalone = record.standaloneTexturesReady && this.#host.isActiveDetailTarget(publicationId);
-      const standalone = forcedStandalone || readyStandalone || externallyOwned;
-      const batchVisible = record.exteriorMaterial.visible && !standalone;
-      if (batchVisible !== placement.visible) {
-        placement.batch.mesh.setVisibleAt(placement.instanceId, batchVisible);
-        placement.visible = batchVisible;
-      }
-      // Dormant batched books leave the scene graph entirely: their subtree
-      // (inspection assembly included) then skips per-frame traversal.
-      // Detached meshes keep world-space local transforms, so re-adding
-      // restores the exact pose.
-      if (batchVisible) {
-        if (!placement.detached && record.mesh.parent === this.#host.scene) {
-          record.mesh.removeFromParent();
-          placement.detached = true;
-        } else if (record.mesh.parent !== null) placement.detached = false;
-      } else if (placement.detached && record.mesh.parent === null) {
-        this.#host.scene.add(record.mesh);
-        placement.detached = false;
-      }
-      record.mesh.visible = standalone;
-      if (!batchVisible) continue;
-      record.mesh.updateMatrix();
-      if (placement.lastMatrix.equals(record.mesh.matrix)) continue;
-      placement.lastMatrix.copy(record.mesh.matrix);
-      placement.batch.mesh.setMatrixAt(placement.instanceId, record.mesh.matrix);
+    for (const [publicationId, record] of this.#host.getBooks()) this.#syncBookAtlasBatch(publicationId, record);
+  }
+
+  /** Reconciles one placement after an event updates its ownership or pose. */
+  syncBookAtlasBatch(publicationId: string) {
+    const record = this.#host.getBooks().get(publicationId);
+    if (record) this.#syncBookAtlasBatch(publicationId, record);
+  }
+
+  /** Reconciles only books whose presentation or ownership can change this frame. */
+  syncActiveBookAtlasBatches(publicationIds: Iterable<string>) {
+    for (const publicationId of publicationIds) {
+      const record = this.#host.getBooks().get(publicationId);
+      if (record) this.#syncBookAtlasBatch(publicationId, record);
     }
   }
 
@@ -431,7 +448,7 @@ export class BookTextureRuntime {
           loadedTexture.anisotropy = anisotropy;
           record.coverTextureReady = true;
           if (!record.detailTextureReady) this.#setBookCoverTexture(record, loadedTexture);
-          this.#syncStandaloneBookTextureReadiness(record);
+          this.#syncStandaloneBookTextureReadiness(publicationId, record);
         },
         undefined,
         () => {
@@ -440,7 +457,7 @@ export class BookTextureRuntime {
           record.texture = undefined;
           record.coverTextureReady = false;
           record.exteriorUniforms.coverMap.value = null;
-          this.#syncStandaloneBookTextureReadiness(record);
+          this.#syncStandaloneBookTextureReadiness(publicationId, record);
         },
       );
       requestedTexture.colorSpace = SRGBColorSpace;
@@ -470,7 +487,7 @@ export class BookTextureRuntime {
           record.inspectionBackCoverMaterial.map = loadedTexture;
           record.inspectionBackCoverMaterial.emissiveMap = loadedTexture;
           record.inspectionBackCoverMaterial.needsUpdate = true;
-          this.#syncStandaloneBookTextureReadiness(record);
+          this.#syncStandaloneBookTextureReadiness(publicationId, record);
         },
         undefined,
         () => {
@@ -480,7 +497,7 @@ export class BookTextureRuntime {
           record.backTextureReady = true;
           record.exteriorUniforms.backMap.value = null;
           record.exteriorUniforms.backMapEnabled.value = false;
-          this.#syncStandaloneBookTextureReadiness(record);
+          this.#syncStandaloneBookTextureReadiness(publicationId, record);
         },
       );
       requestedTexture.colorSpace = SRGBColorSpace;
@@ -507,7 +524,7 @@ export class BookTextureRuntime {
             record.spineTextureReady = true;
             record.exteriorUniforms.spineMap.value = loadedTexture;
             record.exteriorUniforms.spineMapEnabled.value = true;
-            this.#syncStandaloneBookTextureReadiness(record);
+            this.#syncStandaloneBookTextureReadiness(publicationId, record);
           },
           undefined,
           () => {
@@ -522,7 +539,7 @@ export class BookTextureRuntime {
             record.spineTextureReady = true;
             record.exteriorUniforms.spineMap.value = fallbackTexture ?? null;
             record.exteriorUniforms.spineMapEnabled.value = fallbackTexture !== undefined;
-            this.#syncStandaloneBookTextureReadiness(record);
+            this.#syncStandaloneBookTextureReadiness(publicationId, record);
           },
         );
         requestedTexture.colorSpace = SRGBColorSpace;
@@ -538,7 +555,7 @@ export class BookTextureRuntime {
         record.spineTextureReady = true;
         record.exteriorUniforms.spineMap.value = fallbackTexture ?? null;
         record.exteriorUniforms.spineMapEnabled.value = fallbackTexture !== undefined;
-        this.#syncStandaloneBookTextureReadiness(record);
+        this.#syncStandaloneBookTextureReadiness(publicationId, record);
       }
     }
     this.#trimStandaloneBookTextures();
@@ -636,10 +653,10 @@ export class BookTextureRuntime {
     record.detailTextureReady = false;
   }
 
-  #syncStandaloneBookTextureReadiness(record: BookRecord) {
+  #syncStandaloneBookTextureReadiness(publicationId: string, record: BookRecord) {
     const ready = record.coverTextureReady && record.backTextureReady && record.spineTextureReady;
     if (ready === record.standaloneTexturesReady) return;
     record.standaloneTexturesReady = ready;
-    this.syncBookAtlasBatches();
+    this.#syncBookAtlasBatch(publicationId, record);
   }
 }

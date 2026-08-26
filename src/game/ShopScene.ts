@@ -1051,7 +1051,7 @@ export class ShopScene {
     for (const record of this.#artFrames.records.values()) record.frame.update(deltaSeconds);
     this.#bookPresentation.animate(deltaSeconds);
     this.#bookActions.animateShelve(deltaSeconds);
-    this.#bookTextures.syncBookAtlasBatches();
+    this.#bookTextures.syncActiveBookAtlasBatches(this.#bookPresentation.updatedPublicationIds);
     this.#bookActions.animateDiscard(deltaSeconds);
     for (const mixer of this.#props.modelMixers) mixer.update(deltaSeconds);
     this.#renderer.render(this.#scene, this.#camera);
@@ -1304,6 +1304,7 @@ export class ShopScene {
       hoveredPublicationId: () => this.#hoveredPublicationId,
       input: () => this.#input,
       inspection: () => this.#inspection,
+      lastSelectedPublicationId: () => this.#lastSelectedPublicationId,
       markScannerDirty: () => this.#scanner.markDirty(),
       setInteractiveMeshes: () => this.#bookLifecycle.syncInteractiveMeshes(),
       setPhysicsPose: (position, rotation) => this.#bookLifecycle.setPhysicsPose(position, rotation),
