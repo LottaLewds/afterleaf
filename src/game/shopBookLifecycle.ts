@@ -178,7 +178,6 @@ export class ShopBookLifecycle {
 
   syncBooks(items: readonly CatalogItem[], newPublicationIds: readonly string[] = this.#host.newPublicationIds()) {
     const atlasRevision = this.#host.bookTextures().bumpRevision();
-    this.#host.bookTextures().disposeBookAtlasBatches();
     const savedBooks = this.#host.takeCompatibleWorldSave();
     const itemsById = new Map(items.map((item) => [item.id, item]));
     const unobservedArrivalIds = newPublicationIds.filter((publicationId) => {
