@@ -2,16 +2,13 @@ import {
   ACESFilmicToneMapping,
   AmbientLight,
   AnimationMixer,
-  Box3,
   BoxGeometry,
   Color,
-  DoubleSide,
   EquirectangularReflectionMapping,
   Euler,
   Group,
   MathUtils,
   Mesh,
-  MeshBasicMaterial,
   MeshStandardMaterial,
   NoColorSpace,
   Object3D,
@@ -29,13 +26,11 @@ import {
   WebGLRenderer,
   type AnimationClip,
   type ColorSpace,
-  type Material,
 } from "three";
 import floorAlbedoUrl from "~/assets/materials/laminate-floor-albedo.webp";
 import floorNormalUrl from "~/assets/materials/laminate-floor-normal.webp";
 import floorSurfaceUrl from "~/assets/materials/laminate-floor-surface.webp";
 import moonriseSkyUrl from "~/assets/materials/qwantani-moonrise-sky.webp";
-import {BUILTIN_TRASH_CAN_ASSET_ID} from "~/game/propAssetIds";
 import {
   DIGITAL_ART_FRAME_INTERVALS,
   MAX_POSTER_HEIGHT,
@@ -70,16 +65,13 @@ import {hashString} from "~/game/mathHelpers";
 import {clampUnit, dotWithPhysicsQuaternion} from "~/game/mathHelpers";
 import {bookDropPosition} from "~/game/bookDropPlacement";
 import {BOOK_HEIGHT} from "~/game/bookTuning";
-import type {BuiltinSpawnablePropAsset} from "~/game/propTemplates";
 import {
   ARCADE_CABINET_HEIGHT,
   ShopArcadeCabinet,
   type ArcadeSessionStatus,
 } from "~/game/ShopArcadeCabinet";
-import {GLTFLoader} from "three/examples/jsm/loaders/GLTFLoader.js";
 import {KTX2Loader} from "three/examples/jsm/loaders/KTX2Loader.js";
 import {RectAreaLightUniformsLib} from "three/examples/jsm/lights/RectAreaLightUniformsLib.js";
-import {clone as cloneWithSkeleton} from "three/examples/jsm/utils/SkeletonUtils.js";
 import {DEV} from "solid-js";
 import {ShopAudioManager} from "~/game/ShopAudioManager";
 import {FpsHud} from "~/game/FpsHud";
@@ -102,43 +94,19 @@ import {
   GameStateEmitter,
   type GameSnapshotInput,
 } from "~/game/gameStateEmitter";
-import {
-  createDeskLamps,
-  createCeilingLightRig,
-} from "~/game/interior/lightingProps";
-import {getInitialModelAnimationIndex} from "~/game/modelTelevision";
-import {playModelAnimations} from "~/game/interior/lightingProps";
-import crtTvModelUrl from "~/assets/models/crt-tv.glb?url";
-import trashCanModelUrl from "~/assets/models/trash_can.glb?url";
-import {findModelTelevisionScreen} from "~/game/modelTelevision";
-import {MIN_MODEL_SCALE, MAX_MODEL_SCALE} from "~/game/propTuning";
-import {DEFAULT_MODEL_SCALE} from "~/game/propTuning";
-import {
-  BUILTIN_ARCADE_CABINET_ASSET_ID,
-  BUILTIN_CEILING_LIGHT_ASSET_ID,
-  BUILTIN_CRT_TV_ASSET_ID,
-} from "~/game/propAssetIds";
 import type {ShopSignKind} from "~/game/signs/ShopSignSystem";
 import {shopSignKey} from "~/game/signs/ShopSignSystem";
 import type {DigitalArtFramePasteTarget} from "~/game/artFrameSystem";
 import {addInteriorBox} from "~/game/interior/interiorPrimitives";
 import {createPosterSurface as createPosterSurfaceTarget} from "~/game/interior/interiorPrimitives";
-import {buildMergedStaticParts} from "~/game/staticModelBatching";
 import type {ReadingFurnitureMaterials} from "~/game/propRegistration";
 import {createReadingChairInstance} from "~/game/interior/readingFurniture";
+import {createDeskLamps} from "~/game/interior/lightingProps";
 import {
   createFaceOutDisplay,
-  createSpineShelfFixture as _unusedSsf,
 } from "~/game/interior/shelfFixtures";
 import {buildShopInterior} from "~/game/interior/shopComposition";
 import {InspectionController} from "~/game/inspection/InspectionController";
-import {PropTemplateCache} from "~/game/propTemplates";
-import {
-  BUILTIN_SPAWNABLE_PROP_ASSETS,
-  placeClonedTemplateObject,
-  TEMPLATE_SPAWNED_BUILTIN_ASSET_IDS,
-  type SpawnablePropAsset,
-} from "~/game/propTemplates";
 import {ShopSignSystem} from "~/game/signs/ShopSignSystem";
 import {DiscardBin} from "~/game/discardBin";
 import {DoorSystem} from "~/game/interior/doors";
@@ -152,6 +120,15 @@ import {
   InteractionScanner,
   type InteractionScannerHost,
 } from "~/game/interactionScanner";
+import {
+  MovablePropLifecycle,
+  type MovablePropLifecycleHost,
+} from "~/game/movablePropSystem";
+import {
+  DEFAULT_MODEL_SCALE,
+  PROP_MAX_PROJECTION_DISTANCE,
+  PROP_MIN_PROJECTION_DISTANCE,
+} from "~/game/propTuning";
 
 import type {CatalogAtlases, CatalogIdentity, CatalogItem} from "~/catalog";
 import type {ArtFrameImage} from "~/artFrames/protocol";
@@ -200,13 +177,9 @@ import {
   READING_FURNITURE_BOXES,
   SHOP_BOUNDS,
   FACE_DISPLAY_COLUMNS,
-  RARE_ROOM_CENTER_X,
-  RARE_ROOM_CENTER_Z,
   FACE_DISPLAY_ROWS,
   FACE_SHELF_ID,
   SHOP_INTERIOR_FOOTPRINTS,
-  SHOP_MODEL_TELEVISION_SCALE,
-  SHOP_MODEL_TELEVISION_SIZE,
 } from "~/game/shopLayout";
 import {
   ShopPhysicsWorld,
@@ -216,7 +189,6 @@ import {
   type MutablePlayerMovement,
 } from "~/game/ShopPhysicsWorld";
 import {
-  CRT_TV_SAFE_AREA,
   ShopTelevision,
   type ShopTelevisionInteraction,
 } from "~/game/ShopTelevision";
@@ -224,14 +196,11 @@ import type {ShopMediaCatalog} from "~/game/shopMediaCatalog";
 import type {ModelAsset} from "~/models/protocol";
 import {
   INITIAL_WORLD_SEEDING_VERSION,
-  WORLD_SEEDING_VERSION,
   worldSaveCanReconcileCatalog,
   worldSaveMatchesCatalog,
   worldSaveSeedingVersion,
   type WorldBookSave,
   type WorldModelPropSave,
-  type WorldPropSave,
-  type WorldQuaternion,
   type WorldSaveV1,
   type WorldTelevisionChannels,
   type WorldTelevisionVolumes,
@@ -271,21 +240,9 @@ const PLAYER_JUMP_SPEED = 6.2;
 const PLAYER_JUMP_BUFFER_MS = 160;
 const PLAYER_JUMP_COYOTE_MS = 160;
 const PLAYER_TERMINAL_VELOCITY = -24;
-// Each entry places one cabinet (model screen faces +Z; rotationY flips it
-// toward the shop interior). Add entries to open more arcade lanes. The
-// origin is the model center, so the lane spawns half a height above floor.
-const ARCADE_CABINET_PLACEMENTS: readonly {
-  position: readonly [number, number, number];
-  rotationY: number;
-}[] = [{position: [2.7, ARCADE_CABINET_HEIGHT / 2, 16.2], rotationY: Math.PI}];
 const SHOP_MEDIA_CATALOG_REFRESH_INTERVAL_MS = 10_000;
 const TV_WHEEL_SCRUB_RESET_MS = 900;
 const TV_WHEEL_SCRUB_STEPS_SECONDS = [3, 5, 10, 15, 30] as const;
-const MODEL_TELEVISION_PHYSICS_ID = "crt-television";
-// A content model whose GLB contains a node with this name spawns as a
-// television: the node's first mesh becomes the video screen.
-const MODEL_TELEVISION_SCREEN_NODE_NAME = "TVScreen";
-const MODEL_TELEVISION_DENSITY = 60;
 const LOOK_SENSITIVITY = 0.0021;
 /** Gamepad look speed in equivalent mouse pixels per second at full deflection. */
 const GAMEPAD_LOOK_SPEED = 700;
@@ -305,55 +262,9 @@ const SHADER_PRECOMPILE_LATE_DELAY_MS = 4_000;
 /** Extra reach margin so culling never drops a bank the ray could graze. */
 const DISCARD_TARGETED_EMISSIVE = new Color("#ff3524");
 const DISCARD_TARGETED_EMISSIVE_INTENSITY = 0.95;
-const CARRIED_PROP_OPACITY = 0.32;
-const PROP_MAX_PROJECTION_DISTANCE = 6;
-const PROP_MIN_PROJECTION_DISTANCE = 0.9;
 const PROP_PLACEMENT_GRID_SIZE = 0.25;
 const PROP_PLACEMENT_HEIGHT_STEP = 0.125;
-const PROP_ROTATION_SNAP_STEP = MathUtils.degToRad(15);
 const PROP_WHEEL_ROTATION_STEP = MathUtils.degToRad(5);
-const PROP_SUPPORT_SNAP_DISTANCE = 0.65;
-const MIN_MODEL_COLLIDER_DIMENSION = 0.02;
-const MAX_USER_MODEL_PROP_COUNT = 512;
-/** Footprint box of the height-normalized cabinet model before scaling. */
-const ARCADE_CABINET_BASE_SIZE = {
-  depth: 0.7,
-  height: ARCADE_CABINET_HEIGHT,
-  width: 0.84,
-} as const;
-const ARCADE_CABINET_DENSITY = 45;
-const ARCADE_CABINET_HELD_LOCAL_POSITION = new Vector3(0, -0.42, -2.2);
-const IDENTITY_WORLD_QUATERNION: WorldQuaternion = Object.freeze({
-  w: 1,
-  x: 0,
-  y: 0,
-  z: 0,
-});
-const CEILING_LIGHT_COLUMNS = [-7, 0, 7] as const;
-const CEILING_LIGHT_ROWS = [-7, -1.5, 4, 9.5, 15, 20.5, 26] as const;
-/**
- * Where ceiling-light props hang: the prop origin sits at the housing
- * center, matching the pre-seeding hard-wired fixture height.
- */
-const CEILING_LIGHT_ORIGIN_Y = 4.47;
-/** Downward offset from the prop origin to the spotlight emitter. */
-
-type CeilingLightPlacement = {rotationY: number; x: number; z: number};
-
-const CEILING_LIGHT_PLACEMENTS: readonly CeilingLightPlacement[] = [
-  ...CEILING_LIGHT_COLUMNS.flatMap((x) =>
-    CEILING_LIGHT_ROWS.filter((z) => !(x > 0 && z === -7)).map((z) => ({
-      rotationY: 0,
-      x,
-      z,
-    })),
-  ),
-  {
-    rotationY: Math.PI / 2,
-    x: RARE_ROOM_CENTER_X,
-    z: RARE_ROOM_CENTER_Z,
-  },
-];
 const LEGACY_TV_CAVE_BOUNDS = Object.freeze({
   maxX: 23.5,
   maxZ: 11.5,
@@ -415,13 +326,7 @@ export type MovablePropRecord = {
   spawned: boolean;
 };
 
-type PropPlacementSupport = {
-  bounds?: Box3;
-  object?: Object3D;
-  owner?: MovablePropRecord;
-};
-
-type ModelTemplate = {
+export type ModelTemplate = {
   animations: readonly AnimationClip[];
   center: Vector3;
   normalizationScale: number;
@@ -567,8 +472,6 @@ type ShopPerformanceDebugWindow = Window & {
  * while this runtime owns only imperative Three resources.
  */
 export class ShopScene {
-  static readonly #modelLoader = new GLTFLoader();
-
   readonly #abortController = new AbortController();
   readonly #catalogAtlases: () => CatalogAtlases;
   readonly #audioManager = new ShopAudioManager();
@@ -630,20 +533,12 @@ export class ShopScene {
   readonly #lookAngles: LookAngles = {pitch: 0, yaw: 0};
   readonly #lookDelta: LookAngles = {pitch: 0, yaw: 0};
   readonly #lookTarget: LookAngles = {pitch: 0, yaw: 0};
-  readonly #markTelevisionSettingChanged = () => {
-    this.#worldStateDirty = true;
-  };
   readonly #movementDelta: PlanarPoint = {x: 0, z: 0};
   readonly #movementInput: PlanarMovementInput = {forward: 0, right: 0};
   readonly #movementPosition: PlanarPoint = {x: 0, z: 0};
-  readonly #movableProps = new Map<string, MovablePropRecord>();
-  readonly #movablePropTargetMeshes: Mesh[] = [];
-  readonly #televisionProps = new Map<ShopTelevision, MovablePropRecord>();
-  readonly #televisionsBySaveId = new Map<string, ShopTelevision>();
   // Every placed cabinet runs its own session; the "active" one is the
   // cabinet whose UI (picker or game) the player is currently driving.
   readonly #arcadeCabinets: ShopArcadeCabinet[] = [];
-  readonly #arcadeProps = new Map<ShopArcadeCabinet, MovablePropRecord>();
   #targetedArcadeCabinet: ShopArcadeCabinet | undefined;
   #activeArcadeCabinet: ShopArcadeCabinet | undefined;
   readonly #arcadeAimTarget = new Vector3();
@@ -693,11 +588,6 @@ export class ShopScene {
   readonly #physicsWorld = new ShopPhysicsWorld();
   readonly #playerVelocity = new Vector3();
   readonly #posterRaycastMeshes: Mesh[] = [];
-  readonly #modelMixers = new Set<AnimationMixer>();
-  readonly #modelTemplatePromises = new Map<string, Promise<ModelTemplate>>();
-  readonly #builtinPropTemplates = new PropTemplateCache();
-  readonly #propSupportBounds = new Box3();
-  readonly #propPlacementSupports: PropPlacementSupport[] = [];
   readonly #raycaster = new Raycaster();
   /** Frame timestamp from the animation loop; one time source per frame. */
   #frameNowMs = 0;
@@ -719,11 +609,11 @@ export class ShopScene {
   readonly #upAxis = new Vector3(0, 1, 0);
   readonly #viewDirection = new Vector3();
 
-  #carriedProp: MovablePropRecord | undefined;
   readonly #carriedPublicationIds: string[] = [];
   #carriedPublicationId: string | undefined;
   readonly #bookActions: BookCarryActions;
   readonly #scanner: InteractionScanner;
+  readonly #props: MovablePropLifecycle;
   #disposed = false;
   #stagedBootStarted = false;
   #frameHandle: number | undefined;
@@ -739,18 +629,6 @@ export class ShopScene {
   #lastPixelRatio = 0;
   #lastSelectedPublicationId: string | null | undefined;
   #moonEnvironment: Texture | undefined;
-  #customModelAssets: readonly ModelAsset[] = [];
-  #spawnablePropAssets: readonly SpawnablePropAsset[] =
-    BUILTIN_SPAWNABLE_PROP_ASSETS;
-  #spawnablePropAssetIndex = 0;
-  #modelImportError: string | undefined;
-  #modelPlacement: ModelPlacementSession | undefined;
-  #modelPlacementRevision = 0;
-  #modelRestoreActive = false;
-  /** A builtin template landed while a restore pass was running. */
-  #modelRestoreRetry = false;
-  /** Missing prop assets already reported so each warns only once. */
-  readonly #missingPropAssetIds = new Set<string>();
   #onReady: (() => void) | undefined;
   #inputSuspended = false;
   #pointerLocked = false;
@@ -764,12 +642,6 @@ export class ShopScene {
   #mediaCatalogRefreshHandle: number | undefined;
   #lateShaderPrecompileHandle: number | undefined;
   #mediaCatalogRequestPending = false;
-  #pendingModelPropSaves: readonly WorldModelPropSave[] = [];
-  #pendingPropSaves = new Map<string, WorldPropSave>();
-  #propPlacementDistance = 2;
-  #propPlacementRotationSnapOrigin = 0;
-  #propPlacementSnapping = true;
-  #propPlacementYaw = 0;
   #pendingPointerMovementX = 0;
   #pendingPointerMovementY = 0;
   #pendingWorldSave: WorldSaveV1 | undefined;
@@ -977,16 +849,19 @@ export class ShopScene {
       spreadDistance: () => this.#spreadDistance(),
       heldTargetPose: () => this.#heldTargetPose,
     });
+    this.#props = new MovablePropLifecycle(
+      this.#createMovablePropLifecycleHost(),
+    );
     this.#bookActions = new BookCarryActions(this.#createBookCarryHost());
     this.#scanner = new InteractionScanner(this.#createScannerHost());
     this.#snapshotInput = {
       activeArcadeCabinet: () => this.#activeArcadeCabinet,
-      arcadeProps: () => this.#arcadeProps,
+      arcadeProps: () => this.#props.arcadeProps,
       arcadeStatusForUi: () => this.#arcadeStatusForUi(),
       arcadeSystemIdForUi: () => this.#arcadeSystemIdForUi(),
       artFrames: () => this.#artFrames,
       booksById: () => this.#booksById,
-      carriedProp: () => this.#carriedProp,
+      carriedProp: () => this.#props.carriedProp,
       carriedPublicationId: () => this.#carriedPublicationId,
       carriedPublicationIds: () => this.#carriedPublicationIds,
       discardBusy: () => this.#bookActions.discardBusy,
@@ -1004,25 +879,26 @@ export class ShopScene {
       inspectionPublication: () => this.#inspection.inspectionPublication(),
       keyboardLayout: () => this.#keyboardLayout,
       mode: () => this.#mode,
-      modelAnimationLabel: (record) => this.#modelAnimationLabel(record) ?? "",
-      modelImportError: () => this.#modelImportError,
-      modelPlacement: () => this.#modelPlacement,
+      modelAnimationLabel: (record) =>
+        this.#props.modelAnimationLabel(record) ?? "",
+      modelImportError: () => this.#props.modelImportError,
+      modelPlacement: () => this.#props.modelPlacement,
       onGameStateChange: () => this.#onGameStateChange,
       physicsWorld: () => this.#physicsWorld,
       pointerLocked: () => this.#pointerLocked,
       posters: () => this.#posters,
-      propPlacementDistance: () => this.#propPlacementDistance,
-      propPlacementSnapping: () => this.#propPlacementSnapping,
+      propPlacementDistance: () => this.#props.propPlacementDistance,
+      propPlacementSnapping: () => this.#props.propPlacementSnapping,
       shelfPresentation: () => this.#shelfPresentation,
       shelfTargetSelection: () => this.#scanner.shelfTargetSelection,
       shelfTargeted: () => this.#scanner.shelfTargeted,
       shelveAnimation: () => this.#bookActions.shelveAnimation,
       signs: () => this.#signs,
-      spawnablePropAssets: () => this.#spawnablePropAssets,
+      spawnablePropAssets: () => this.#props.spawnablePropAssets,
       targetedArcadeCabinet: () => this.#targetedArcadeCabinet,
       targetedProp: () => this.#targetedProp,
       targetedTelevision: () => this.#targetedTelevision,
-      televisionProps: () => this.#televisionProps,
+      televisionProps: () => this.#props.televisionProps,
       televisionTargeted: () => this.#televisionTargeted,
       throwChargeActive: () => this.#bookActions.throwChargeActive,
       throwChargeProgress: () => this.#bookActions.throwChargeProgress(),
@@ -1074,18 +950,20 @@ export class ShopScene {
     );
     this.#doors = new DoorSystem();
     this.#discardBin = new DiscardBin({
-      ghostObject: (object) => this.#ghostObject(object),
-      getMovableProp: (id) => this.#movableProps.get(id),
+      ghostObject: (object) => this.#props.ghostObject(object),
+      getMovableProp: (id) => this.#props.records.get(id),
       isCarried: (record) =>
-        this.#carriedProp === (record as unknown as MovablePropRecord),
+        this.#props.carriedProp === (record as unknown as MovablePropRecord),
       isDisposed: () => this.#disposed,
       markWorldStateDirty: () => {
         this.#worldStateDirty = true;
       },
-      modelMixers: this.#modelMixers,
-      needsSeedPass: (version) => this.#needsSeedPass(version),
+      modelMixers: this.#props.modelMixers,
+      needsSeedPass: (version) => this.#props.needsSeedPass(version),
       registerMovableProp: (registration) =>
-        this.#registerMovableProp(registration as MovablePropRegistration),
+        this.#props.registerMovableProp(
+          registration as MovablePropRegistration,
+        ),
       updatePropPose: (id, pose) =>
         this.#physicsWorld.updatePropPose(id, {
           position: pose.position,
@@ -1147,7 +1025,7 @@ export class ShopScene {
         this.#addBox(p, size, pos, mat, castShadow),
       artFrames: this.#artFrames,
       cacheBuiltinPropTemplate: (registration) =>
-        this.#cacheBuiltinPropTemplate(registration),
+        this.#props.cacheBuiltinPropTemplate(registration),
       cloneFloorMaterial: (material, repeatX, repeatY) =>
         this.#cloneFloorMaterial(material, repeatX, repeatY),
       createFloorMaterial: () => this.#createFloorMaterial(),
@@ -1156,26 +1034,26 @@ export class ShopScene {
       createFaceOutDisplay: (p, wood, backing, deps) =>
         createFaceOutDisplay(p, wood, backing, deps),
       createSpawnedCrtTelevision: (asset, id, scale, pose) =>
-        this.#createSpawnedCrtTelevision(asset, id, scale, pose),
+        this.#props.createSpawnedCrtTelevision(asset, id, scale, pose),
       createUpperReadingFurniture: (p, wood, furnitureMaterials) =>
         this.#createUpperReadingFurniture(p, wood, furnitureMaterials),
       discardBin: this.#discardBin,
       disposed: this.#disposed,
       doors: this.#doors,
-      modelMixers: this.#modelMixers,
-      needsSeedPass: (version) => this.#needsSeedPass(version),
+      modelMixers: this.#props.modelMixers,
+      needsSeedPass: (version) => this.#props.needsSeedPass(version),
       pendingWorldSave: this.#pendingWorldSave,
       registerMovableProp: (registration) =>
-        this.#registerMovableProp(registration),
+        this.#props.registerMovableProp(registration),
       registerPropPlacementSupport: (object) =>
-        this.#registerPropPlacementSupport(object),
+        this.#props.registerPropPlacementSupport(object),
       registerTelevision: (saveId, television) =>
-        this.#registerTelevision(saveId, television),
+        this.#props.registerTelevision(saveId, television),
       renderer: this.#renderer,
       scene: this.#scene,
-      seedDefaultProps: () => this.#seedDefaultProps(),
+      seedDefaultProps: () => this.#props.seedDefaultProps(),
       sharedTelevisionOptions: (channelId, volume) =>
-        this.#sharedTelevisionOptions(channelId, volume),
+        this.#props.sharedTelevisionOptions(channelId, volume),
       shelfSnapMesh: this.#scanner.shelfSnapMesh,
       shelfTargetMeshes: this.#shelfTargetMeshes,
       signs: this.#signs,
@@ -1454,7 +1332,8 @@ export class ShopScene {
         if (record.state.status !== "carried") continue;
         this.#scene.attach(record.mesh);
       }
-      if (this.#carriedProp) this.#scene.attach(this.#carriedProp.object);
+      if (this.#props.carriedProp)
+        this.#scene.attach(this.#props.carriedProp.object);
       this.#updateHeldPhysicsTarget();
       this.#emitGameState();
     } catch (error) {
@@ -1467,25 +1346,27 @@ export class ShopScene {
     this.#stopWorldSaveScheduler();
     this.#flushWorldSave();
     this.#disposed = true;
-    if (this.#carriedProp)
-      this.#restoreGhostedObject(this.#carriedProp.ghostMaterialSwaps);
+    if (this.#props.carriedProp)
+      this.#props.restoreGhostedObject(
+        this.#props.carriedProp.ghostMaterialSwaps,
+      );
     this.#releasePointerLock();
     this.#abortController.abort();
     this.#tvVideos.clearMessageTimer();
-    for (const mixer of this.#modelMixers) mixer.stopAllAction();
-    this.#modelMixers.clear();
+    for (const mixer of this.#props.modelMixers) mixer.stopAllAction();
+    this.#props.modelMixers.clear();
     this.#physicsWorld.dispose();
     for (const television of this.#televisions) television.dispose();
     this.#televisions.length = 0;
-    this.#televisionsBySaveId.clear();
+    this.#props.televisionsBySaveId.clear();
     for (const cabinet of this.#arcadeCabinets) cabinet.dispose();
     this.#arcadeCabinets.length = 0;
-    this.#arcadeProps.clear();
+    this.#props.arcadeProps.clear();
     this.#targetedArcadeCabinet = undefined;
     this.#activeArcadeCabinet = undefined;
-    this.#carriedProp = undefined;
+    this.#props.carriedProp = undefined;
     this.#targetedTelevision = undefined;
-    this.#televisionProps.clear();
+    this.#props.televisionProps.clear();
     this.#audioManager.dispose();
     for (const record of this.#artFrames.records.values())
       record.frame.dispose();
@@ -1622,7 +1503,7 @@ export class ShopScene {
     this.#bookActions.animateShelve(deltaSeconds);
     this.#bookTextures.syncBookAtlasBatches();
     this.#bookActions.animateDiscard(deltaSeconds);
-    for (const mixer of this.#modelMixers) mixer.update(deltaSeconds);
+    for (const mixer of this.#props.modelMixers) mixer.update(deltaSeconds);
     this.#renderer.render(this.#scene, this.#camera);
     this.#frameHandle = requestAnimationFrame(this.#animate);
   };
@@ -1706,379 +1587,6 @@ export class ShopScene {
    * Rides an invisible discard volume inside every trash can prop so any
    * spawned, saved, or seeded bin accepts discards.
    */
-
-  /** Drops the discard volume that lived inside a deleted trash can. */
-
-  #registerMovableProp(registration: MovablePropRegistration) {
-    registration.object.updateWorldMatrix(true, false);
-    const currentPosition = registration.object.getWorldPosition(new Vector3());
-    const currentRotation = registration.object.getWorldQuaternion(
-      new Quaternion(),
-    );
-    const record: MovablePropRecord = {
-      currentPosition,
-      currentRotation,
-      ghostMaterialSwaps: [],
-      halfDepth: registration.depth / 2,
-      halfHeight: registration.height / 2,
-      halfWidth: registration.width / 2,
-      heldLocalPosition: registration.heldLocalPosition,
-      id: registration.id,
-      label: registration.label,
-      locked: registration.locked ?? false,
-      ...(registration.modelAnimationIndex === undefined
-        ? {}
-        : {modelAnimationIndex: registration.modelAnimationIndex}),
-      ...(registration.modelAnimations
-        ? {modelAnimations: registration.modelAnimations}
-        : {}),
-      ...(registration.modelAsset ? {modelAsset: registration.modelAsset} : {}),
-      ...(registration.modelBaseSize
-        ? {modelBaseSize: registration.modelBaseSize}
-        : {}),
-      ...(registration.modelMixer ? {modelMixer: registration.modelMixer} : {}),
-      ...(registration.modelScale === undefined
-        ? {}
-        : {modelScale: registration.modelScale}),
-      object: registration.object,
-      placementSupport: registration.placementSupport ?? registration.object,
-      rotationSnapStep:
-        registration.rotationSnapStep ?? PROP_ROTATION_SNAP_STEP,
-      ...(registration.spawnAssetId
-        ? {spawnAssetId: registration.spawnAssetId}
-        : {}),
-      spawned: registration.spawned ?? false,
-    };
-    if (registration.targetable !== false)
-      (registration.targetObject ?? registration.object).traverse((object) => {
-        if (!(object instanceof Mesh)) return;
-        object.userData.movablePropId = registration.id;
-        this.#movablePropTargetMeshes.push(object);
-      });
-    this.#movableProps.set(record.id, record);
-    this.#propPlacementSupports.push({
-      object: record.placementSupport,
-      owner: record,
-    });
-    this.#physicsWorld.addProp({
-      ...(registration.colliderParts
-        ? {colliderParts: registration.colliderParts}
-        : {}),
-      ...(registration.density !== undefined
-        ? {density: registration.density}
-        : {}),
-      depth: registration.depth,
-      ...(registration.staticWhenPlaced !== undefined
-        ? {staticWhenPlaced: registration.staticWhenPlaced}
-        : {}),
-      height: registration.height,
-      id: registration.id,
-      pose: {position: currentPosition, rotation: currentRotation},
-      width: registration.width,
-    });
-    const savedProp = this.#pendingPropSaves.get(record.id);
-    if (savedProp) {
-      this.#applySavedPropPose(record, savedProp);
-      this.#pendingPropSaves.delete(record.id);
-    }
-    if (record.locked) this.#physicsWorld.setPropLocked(record.id, true);
-    // Cache the spawn template before the discard volume joins the object
-    // so cloned trash can templates stay volume-free.
-    if (registration.templateForSpawning)
-      this.#cacheBuiltinPropTemplate(registration);
-    if (registration.spawnAssetId === BUILTIN_TRASH_CAN_ASSET_ID)
-      this.#discardBin.attach(record);
-    return record;
-  }
-
-  /**
-   * Caches a spawnable prop's template so the generic builtin factory
-   * (#createPropFromBuiltinTemplate) can recreate it later. Called from
-   * prop registrations and from the furniture template bootstrap, which
-   * runs even on worlds whose live defaults come from their saves.
-   */
-  #cacheBuiltinPropTemplate(registration: MovablePropRegistration) {
-    const cached =
-      this.#builtinPropTemplates.cacheFromRegistration(registration);
-    if (!cached) return;
-    // Async builtin templates (the desk lamp GLB, for example) can land
-    // after a restore pass already gave up on their saved props. Retry
-    // those restores once the template exists.
-    if (this.#modelRestoreActive) this.#modelRestoreRetry = true;
-    else void this.#restoreSavedModelProps();
-  }
-
-  #registerPropPlacementSupport(object: Object3D) {
-    object.updateWorldMatrix(true, false);
-    this.#propPlacementSupports.push({
-      bounds: new Box3().setFromObject(object),
-    });
-  }
-
-  #applySavedPropPose(record: MovablePropRecord, savedProp: WorldPropSave) {
-    this.#scene.attach(record.object);
-    record.object.position.copy(savedProp.pose.position);
-    record.object.quaternion.copy(savedProp.pose.quaternion);
-    record.currentPosition.copy(savedProp.pose.position);
-    record.currentRotation.copy(savedProp.pose.quaternion);
-    this.#physicsWorld.updatePropPose(record.id, {
-      position: savedProp.pose.position,
-      rotation: savedProp.pose.quaternion,
-    });
-    if (savedProp.locked !== undefined) record.locked = savedProp.locked;
-  }
-
-  #ghostObject(object: Object3D) {
-    const swaps: PropMaterialSwap[] = [];
-    object.traverse((child) => {
-      if (
-        !(child instanceof Mesh) ||
-        child.userData.movablePropTargetProxy === true
-      )
-        return;
-      const material = child.material;
-      const createGhostMaterial = (source: Material) => {
-        const ghost = source.clone();
-        ghost.alphaTest *= CARRIED_PROP_OPACITY;
-        ghost.depthWrite = false;
-        ghost.opacity = source.opacity * CARRIED_PROP_OPACITY;
-        ghost.transparent = true;
-        return ghost;
-      };
-      const ghostMaterial = Array.isArray(material)
-        ? material.map(createGhostMaterial)
-        : createGhostMaterial(material);
-      swaps.push({material, mesh: child, renderOrder: child.renderOrder});
-      child.material = ghostMaterial;
-      child.renderOrder = 10;
-    });
-    return swaps;
-  }
-
-  #restoreGhostedObject(swaps: PropMaterialSwap[]) {
-    for (const swap of swaps) {
-      const ghostMaterials = Array.isArray(swap.mesh.material)
-        ? swap.mesh.material
-        : [swap.mesh.material];
-      swap.mesh.material = swap.material;
-      swap.mesh.renderOrder = swap.renderOrder;
-      for (const material of ghostMaterials) material.dispose();
-    }
-    swaps.length = 0;
-  }
-
-  #beginPropPlacement(
-    object: Object3D,
-    projectionDistance: number,
-    rotationSnapStep: number,
-  ) {
-    object.updateWorldMatrix(true, false);
-    object.getWorldQuaternion(this.#physicsPoseRotation);
-    this.#physicsPoseEuler.setFromQuaternion(this.#physicsPoseRotation, "YXZ");
-    this.#propPlacementDistance = MathUtils.clamp(
-      projectionDistance,
-      PROP_MIN_PROJECTION_DISTANCE,
-      PROP_MAX_PROJECTION_DISTANCE,
-    );
-    this.#propPlacementRotationSnapOrigin = 0;
-    this.#propPlacementYaw = normalizePosterRotation(
-      Math.round(this.#physicsPoseEuler.y / rotationSnapStep) *
-        rotationSnapStep,
-    );
-  }
-
-  #resolvedPropPlacementYaw(rotationSnapStep: number) {
-    if (!this.#propPlacementSnapping) return this.#propPlacementYaw;
-    return (
-      this.#propPlacementRotationSnapOrigin +
-      Math.round(
-        (this.#propPlacementYaw - this.#propPlacementRotationSnapOrigin) /
-          rotationSnapStep,
-      ) *
-        rotationSnapStep
-    );
-  }
-
-  #snapHeldPropToSupport(
-    heldProp: MovablePropRecord | undefined,
-    halfWidth: number,
-    halfHeight: number,
-    halfDepth: number,
-    yaw: number,
-  ) {
-    const cosine = Math.abs(Math.cos(yaw));
-    const sine = Math.abs(Math.sin(yaw));
-    const extentX = cosine * halfWidth + sine * halfDepth;
-    const extentZ = sine * halfWidth + cosine * halfDepth;
-    const bottom = this.#heldTargetPosition.y - halfHeight;
-    let supportTop = 0;
-    let supportX = this.#heldTargetPosition.x;
-    let supportZ = this.#heldTargetPosition.z;
-    for (const candidate of this.#propPlacementSupports) {
-      if (candidate.owner === heldProp) continue;
-      const resolvedBounds =
-        candidate.bounds ??
-        (candidate.object
-          ? this.#propSupportBounds.setFromObject(candidate.object)
-          : undefined);
-      if (!resolvedBounds) continue;
-      const supportWidth = resolvedBounds.max.x - resolvedBounds.min.x;
-      const supportDepth = resolvedBounds.max.z - resolvedBounds.min.z;
-      if (
-        extentX * 2 > supportWidth ||
-        extentZ * 2 > supportDepth ||
-        this.#heldTargetPosition.x + extentX < resolvedBounds.min.x ||
-        this.#heldTargetPosition.x - extentX > resolvedBounds.max.x ||
-        this.#heldTargetPosition.z + extentZ < resolvedBounds.min.z ||
-        this.#heldTargetPosition.z - extentZ > resolvedBounds.max.z ||
-        Math.abs(bottom - resolvedBounds.max.y) > PROP_SUPPORT_SNAP_DISTANCE ||
-        resolvedBounds.max.y <= supportTop
-      )
-        continue;
-      supportTop = resolvedBounds.max.y;
-      supportX = MathUtils.clamp(
-        this.#heldTargetPosition.x,
-        resolvedBounds.min.x + extentX,
-        resolvedBounds.max.x - extentX,
-      );
-      supportZ = MathUtils.clamp(
-        this.#heldTargetPosition.z,
-        resolvedBounds.min.z + extentZ,
-        resolvedBounds.max.z - extentZ,
-      );
-    }
-    if (supportTop <= 0) return;
-    this.#heldTargetPosition.set(supportX, supportTop + halfHeight, supportZ);
-  }
-
-  #pickUpProp(record: MovablePropRecord) {
-    if (this.#carriedPublicationId || this.#carriedProp) return;
-    record.object.updateMatrixWorld(true);
-    const placementStartPosition = record.object.getWorldPosition(
-      new Vector3(),
-    );
-    const placementStartRotation = record.object.getWorldQuaternion(
-      new Quaternion(),
-    );
-    if (!this.#physicsWorld.holdProp(record.id)) return;
-    record.placementStartPosition = placementStartPosition;
-    record.placementStartRotation = placementStartRotation;
-    record.placementStartScale = record.modelScale;
-    this.#beginPropPlacement(
-      record.object,
-      Math.abs(record.heldLocalPosition.z),
-      record.rotationSnapStep,
-    );
-    this.#carriedProp = record;
-    this.#setPropTargeted(undefined);
-    this.#setHoveredPublicationId(undefined);
-    record.ghostMaterialSwaps = this.#ghostObject(record.object);
-    if (this.#physicsWorld.isReady) this.#scene.attach(record.object);
-    else {
-      this.#camera.add(record.object);
-      record.object.position.copy(record.heldLocalPosition);
-      record.object.quaternion.identity();
-    }
-    this.#updateHeldPhysicsTarget();
-    this.#worldStateDirty = true;
-    this.#emitGameState();
-  }
-
-  #dropCarriedProp(throwProp = false) {
-    const record = this.#carriedProp;
-    if (!record) return;
-    record.object.updateMatrixWorld(true);
-    record.object.getWorldPosition(this.#physicsPosePosition);
-    record.object.getWorldQuaternion(this.#physicsPoseRotation);
-    this.#scene.attach(record.object);
-    this.#camera.getWorldDirection(this.#viewDirection);
-    const linearVelocity = throwProp
-      ? this.#throwVelocity
-          .copy(this.#viewDirection)
-          .multiplyScalar(4.2)
-          .add(this.#playerVelocity)
-          .setY(this.#viewDirection.y * 4.2 + this.#playerVelocity.y + 0.8)
-      : this.#playerVelocity;
-    this.#physicsWorld.dropProp(record.id, {
-      ...(throwProp ? {angularVelocity: {x: 0.35, y: 0.6, z: 0.25}} : {}),
-      linearVelocity,
-      pose: this.#physicsPose,
-    });
-    this.#restoreGhostedObject(record.ghostMaterialSwaps);
-    this.#carriedProp = undefined;
-    if (this.#modelPlacement?.id === record.id)
-      this.#modelPlacement = undefined;
-    this.#worldStateDirty = true;
-    this.#emitGameState();
-  }
-
-  #cancelCarriedProp() {
-    const record = this.#carriedProp;
-    if (record && this.#modelPlacement?.id === record.id) {
-      this.#cancelModelPlacement();
-      return;
-    }
-    const position = record?.placementStartPosition;
-    const rotation = record?.placementStartRotation;
-    if (!record || !position || !rotation) return;
-    this.#dropCarriedProp();
-    this.#physicsWorld.updatePropPose(record.id, {
-      position: {x: position.x, y: position.y, z: position.z},
-      rotation: {w: rotation.w, x: rotation.x, y: rotation.y, z: rotation.z},
-    });
-    record.placementStartPosition = undefined;
-    record.placementStartRotation = undefined;
-    if (record.placementStartScale !== undefined)
-      this.#setModelPropScale(record, record.placementStartScale);
-    record.placementStartScale = undefined;
-    this.#worldStateDirty = true;
-    this.#emitGameState();
-  }
-
-  #createSpawnedCeilingLight(
-    asset: BuiltinSpawnablePropAsset,
-    id: string,
-    scale: number,
-    pose?: WorldModelPropSave["pose"],
-    locked = true,
-  ) {
-    const template = this.#builtinPropTemplates.get(asset.id);
-    if (!template)
-      throw new Error(`${asset.label} is not ready to be spawned.`);
-    const object = placeClonedTemplateObject({
-      assetId: asset.id,
-      camera: this.#camera,
-      id,
-      pose,
-      scale,
-      template,
-      viewDirection: this.#viewDirection,
-    });
-    object.add(...createCeilingLightRig());
-    this.#scene.add(object);
-    return this.#registerMovableProp({
-      depth: template.depth * scale,
-      height: template.height * scale,
-      heldLocalPosition: template.heldLocalPosition.clone(),
-      id,
-      label: asset.label,
-      modelBaseSize: new Vector3(
-        template.width,
-        template.height,
-        template.depth,
-      ),
-      modelScale: scale,
-      object,
-      ...(template.rotationSnapStep === undefined
-        ? {}
-        : {rotationSnapStep: template.rotationSnapStep}),
-      spawnAssetId: asset.id,
-      spawned: true,
-      width: template.width * scale,
-      ...(locked ? {locked: true} : {}),
-    });
-  }
-
   #createMoonEnvironment() {
     const environment = this.#textureLoader.load(moonriseSkyUrl);
     environment.colorSpace = SRGBColorSpace;
@@ -2127,50 +1635,27 @@ export class ShopScene {
             addBox: (parent2, size, position2, material, castShadow) =>
               this.#addBox(parent2, size, position2, material, castShadow),
             cacheBuiltinPropTemplate: (registration) =>
-              this.#cacheBuiltinPropTemplate(registration),
+              this.#props.cacheBuiltinPropTemplate(registration),
             createDeskLamps: async (parent2) => {
               await createDeskLamps(parent2, {
                 cacheBuiltinPropTemplate: (registration) =>
-                  this.#cacheBuiltinPropTemplate(registration),
+                  this.#props.cacheBuiltinPropTemplate(registration),
                 isDisposed: () => this.#disposed,
-                modelMixers: this.#modelMixers,
-                needsSeedPass: (version) => this.#needsSeedPass(version),
+                modelMixers: this.#props.modelMixers,
+                needsSeedPass: (version) => this.#props.needsSeedPass(version),
                 registerMovableProp: (registration) =>
-                  this.#registerMovableProp(registration),
+                  this.#props.registerMovableProp(registration),
               });
             },
-            needsSeedPass: (version) => this.#needsSeedPass(version),
+            needsSeedPass: (version) => this.#props.needsSeedPass(version),
             registerMovableProp: (registration) =>
-              this.#registerMovableProp(registration),
+              this.#props.registerMovableProp(registration),
           },
           [x, chairCenterY, z],
           z < 23 ? -Math.PI / 2 : Math.PI / 2,
         );
       }
     }
-  }
-
-  #registerTelevision(saveId: string, television: ShopTelevision) {
-    this.#televisionsBySaveId.set(saveId, television);
-    this.#televisions.push(television);
-    if (this.#tvChannels.length > 0) television.setChannels(this.#tvChannels);
-  }
-
-  // Shared ShopTelevision options for every set; saved tuning slots are only
-  // spread when present so exactOptionalPropertyTypes stays honest.
-  #sharedTelevisionOptions(
-    initialChannelId: string | undefined,
-    initialVolume: number | undefined,
-  ) {
-    return {
-      audioManager: this.#audioManager,
-      onChannelChange: this.#markTelevisionSettingChanged,
-      onStateChange: () => this.#emitGameState(),
-      onVolumeChange: this.#markTelevisionSettingChanged,
-      tvScreenLighting: this.#tvScreenLighting,
-      ...(initialChannelId === undefined ? {} : {initialChannelId}),
-      ...(initialVolume === undefined ? {} : {initialVolume}),
-    };
   }
 
   setSignContent(
@@ -2276,976 +1761,6 @@ export class ShopScene {
     );
   }
 
-  #modelCatalogMatches(assets: readonly ModelAsset[]) {
-    return (
-      assets.length === this.#customModelAssets.length &&
-      assets.every((asset, index) => {
-        const current = this.#customModelAssets[index];
-        return (
-          current?.id === asset.id &&
-          current.label === asset.label &&
-          current.url === asset.url
-        );
-      })
-    );
-  }
-
-  #applyModelCatalog(assets: readonly ModelAsset[]) {
-    if (this.#modelCatalogMatches(assets)) return;
-    const selectedAssetId =
-      this.#spawnablePropAssets[this.#spawnablePropAssetIndex]?.id;
-    const activeAssetId = this.#modelPlacement
-      ? this.#spawnablePropAssets[this.#modelPlacement.assetIndex]?.id
-      : undefined;
-    this.#customModelAssets = assets;
-    this.#spawnablePropAssets = [
-      ...BUILTIN_SPAWNABLE_PROP_ASSETS,
-      ...assets.map(
-        (model): SpawnablePropAsset => ({
-          id: model.id,
-          kind: "model",
-          label: model.label,
-          model,
-        }),
-      ),
-    ];
-    const selectedIndex = selectedAssetId
-      ? this.#spawnablePropAssets.findIndex(
-          (asset) => asset.id === selectedAssetId,
-        )
-      : -1;
-    this.#spawnablePropAssetIndex = Math.max(0, selectedIndex);
-    if (this.#modelPlacement && activeAssetId) {
-      const activeIndex = this.#spawnablePropAssets.findIndex(
-        (asset) => asset.id === activeAssetId,
-      );
-      if (activeIndex < 0) this.#cancelModelPlacement();
-      else {
-        this.#modelPlacement.assetIndex = activeIndex;
-        this.#spawnablePropAssetIndex = activeIndex;
-      }
-    }
-    this.#emitGameState();
-  }
-
-  #loadModelTemplate(asset: ModelAsset) {
-    const cached = this.#modelTemplatePromises.get(asset.id);
-    if (cached) return cached;
-    const pending = ShopScene.#modelLoader.loadAsync(asset.url).then((gltf) => {
-      if (this.#disposed) {
-        disposeObject(gltf.scene);
-        throw new Error("The shop scene was disposed.");
-      }
-      gltf.scene.updateMatrixWorld(true);
-      const bounds = new Box3().setFromObject(gltf.scene);
-      const size = bounds.getSize(new Vector3());
-      const maximumDimension = Math.max(size.x, size.y, size.z);
-      if (
-        bounds.isEmpty() ||
-        !Number.isFinite(maximumDimension) ||
-        maximumDimension <= 0
-      ) {
-        disposeObject(gltf.scene);
-        throw new Error("The model has no measurable bounds.");
-      }
-      return {
-        animations: gltf.animations,
-        center: bounds.getCenter(new Vector3()),
-        normalizationScale: 1 / maximumDimension,
-        scene: gltf.scene,
-        size: size
-          .multiplyScalar(1 / maximumDimension)
-          .max(
-            new Vector3(
-              MIN_MODEL_COLLIDER_DIMENSION,
-              MIN_MODEL_COLLIDER_DIMENSION,
-              MIN_MODEL_COLLIDER_DIMENSION,
-            ),
-          ),
-      } satisfies ModelTemplate;
-    });
-    this.#modelTemplatePromises.set(asset.id, pending);
-    void pending.catch(() => {
-      if (this.#modelTemplatePromises.get(asset.id) === pending)
-        this.#modelTemplatePromises.delete(asset.id);
-    });
-    return pending;
-  }
-
-  #createModelPropFromTemplate(
-    asset: ModelAsset,
-    template: ModelTemplate,
-    id: string,
-    scale: number,
-    pose?: WorldModelPropSave["pose"],
-    animationClip?: string | null,
-  ) {
-    const model = cloneWithSkeleton(template.scene);
-    model.name = `user-model-visual-${asset.id}`;
-    model.traverse((object) => {
-      if (!(object instanceof Mesh)) return;
-      object.castShadow = true;
-      object.receiveShadow = true;
-    });
-    // Static decoration models collapse into one draw call per material
-    // signature; animated models keep their per-part nodes so mixers can
-    // drive them.
-    if (template.animations.length === 0) {
-      const {consumed, parts} = buildMergedStaticParts(model);
-      if (consumed.length > 1) {
-        for (const original of consumed) original.removeFromParent();
-        for (const {geometry, material} of parts) {
-          const mesh = new Mesh(geometry, material);
-          mesh.name = "user-model-static-parts";
-          mesh.castShadow = true;
-          mesh.receiveShadow = true;
-          model.add(mesh);
-        }
-      }
-    }
-    const normalizedModel = new Group();
-    normalizedModel.position
-      .copy(template.center)
-      .multiplyScalar(-template.normalizationScale);
-    normalizedModel.scale.setScalar(template.normalizationScale);
-    normalizedModel.add(model);
-    const root = new Group();
-    root.name = `user-model-${id}`;
-    root.scale.setScalar(scale);
-    root.add(normalizedModel);
-    const targetProxy = new Mesh(
-      new BoxGeometry(template.size.x, template.size.y, template.size.z),
-      new MeshBasicMaterial({
-        colorWrite: false,
-        depthWrite: false,
-        opacity: 0,
-        side: DoubleSide,
-        transparent: true,
-        visible: false,
-      }),
-    );
-    targetProxy.name = `user-model-target-${id}`;
-    targetProxy.userData.movablePropTargetProxy = true;
-    root.add(targetProxy);
-    if (pose) {
-      root.position.copy(pose.position);
-      root.quaternion.copy(pose.quaternion);
-    } else {
-      this.#camera.getWorldDirection(this.#viewDirection);
-      root.position
-        .copy(this.#camera.position)
-        .addScaledVector(this.#viewDirection, 2);
-    }
-    this.#scene.add(root);
-    const modelAnimationIndex = getInitialModelAnimationIndex(
-      template.animations,
-      animationClip,
-    );
-    const mixer = playModelAnimations(
-      this.#modelMixers,
-      model,
-      template.animations,
-      modelAnimationIndex,
-    );
-    return this.#registerMovableProp({
-      depth: template.size.z * scale,
-      height: template.size.y * scale,
-      heldLocalPosition: new Vector3(0, -0.18, -2),
-      id,
-      label: asset.label,
-      ...(template.animations.length > 0
-        ? {
-            modelAnimationIndex,
-            modelAnimations: template.animations,
-          }
-        : {}),
-      modelAsset: asset,
-      modelBaseSize: template.size.clone(),
-      ...(mixer ? {modelMixer: mixer} : {}),
-      modelScale: scale,
-      object: root,
-      spawnAssetId: asset.id,
-      spawned: true,
-      targetObject: targetProxy,
-      width: template.size.x * scale,
-    });
-  }
-
-  #createPropFromBuiltinTemplate(
-    asset: BuiltinSpawnablePropAsset,
-    id: string,
-    scale: number,
-    pose?: WorldModelPropSave["pose"],
-  ) {
-    const template = this.#builtinPropTemplates.get(asset.id);
-    if (!template)
-      throw new Error(`${asset.label} is not ready to be spawned.`);
-    const object = placeClonedTemplateObject({
-      assetId: asset.id,
-      camera: this.#camera,
-      id,
-      pose,
-      scale,
-      template,
-      viewDirection: this.#viewDirection,
-    });
-    this.#scene.add(object);
-    return this.#registerMovableProp({
-      ...(template.density === undefined ? {} : {density: template.density}),
-      // Part colliders are body-local, so they scale with the prop.
-      ...(template.colliderParts
-        ? {
-            colliderParts: template.colliderParts.map((part) => ({
-              halfExtents: {
-                x: part.halfExtents.x * scale,
-                y: part.halfExtents.y * scale,
-                z: part.halfExtents.z * scale,
-              },
-              position: {
-                x: part.position.x * scale,
-                y: part.position.y * scale,
-                z: part.position.z * scale,
-              },
-            })),
-          }
-        : {}),
-      depth: template.depth * scale,
-      height: template.height * scale,
-      heldLocalPosition: template.heldLocalPosition.clone(),
-      id,
-      label: asset.label,
-      modelBaseSize: new Vector3(
-        template.width,
-        template.height,
-        template.depth,
-      ),
-      modelScale: scale,
-      object,
-      ...(template.rotationSnapStep === undefined
-        ? {}
-        : {rotationSnapStep: template.rotationSnapStep}),
-      spawnAssetId: asset.id,
-      spawned: true,
-      ...(template.staticWhenPlaced === undefined
-        ? {}
-        : {staticWhenPlaced: template.staticWhenPlaced}),
-      width: template.width * scale,
-    });
-  }
-
-  /**
-   * True while the world has not yet absorbed the given default-prop
-   * seeding pass. Passes are cumulative: a fresh world runs every pass,
-   * while saves only run passes introduced after their recorded version.
-   */
-  #needsSeedPass(version: number) {
-    return worldSaveSeedingVersion(this.#pendingWorldSave) < version;
-  }
-
-  /**
-   * Brings the world up to the current seeding version by running every
-   * missing pass. Fresh worlds get each pass at its designed spots; older
-   * saves migrate pass by pass. Worlds that already absorbed a pass are
-   * authoritative: whatever the players kept, moved, or deleted stays
-   * as-is.
-   */
-  #seedDefaultProps() {
-    if (this.#needsSeedPass(INITIAL_WORLD_SEEDING_VERSION))
-      this.#seedInitialDefaults();
-    if (this.#needsSeedPass(WORLD_SEEDING_VERSION)) this.#seedCeilingLights();
-    else this.#restoreSavedCeilingLights();
-  }
-
-  /**
-   * Seeding pass 1: injects the shop's original movable defaults (lane
-   * arcade cabinet(s), the shop's CRT television) as ordinary spawned
-   * props. Legacy saves predate seeded props, so they migrate here too.
-   */
-  #seedInitialDefaults() {
-    try {
-      const crtAsset = BUILTIN_SPAWNABLE_PROP_ASSETS.find(
-        (asset) => asset.id === BUILTIN_CRT_TV_ASSET_ID,
-      );
-      if (crtAsset) {
-        // Menu-spawned CRTs default to 1x; the old hard-wired fixture was
-        // 2x. Seed at player scale, resting on the television shelf.
-        const seededScale = DEFAULT_MODEL_SCALE;
-        const unitHalfHeight =
-          SHOP_MODEL_TELEVISION_SIZE.height / (2 * SHOP_MODEL_TELEVISION_SCALE);
-        this.#createSpawnedCrtTelevision(
-          crtAsset,
-          MODEL_TELEVISION_PHYSICS_ID,
-          seededScale,
-          {
-            position: {
-              x: -0.72,
-              y: 0.91 + unitHalfHeight * seededScale,
-              z: 13.82 + 0.183 * seededScale,
-            },
-            quaternion: IDENTITY_WORLD_QUATERNION,
-          },
-        );
-      }
-      const cabinetAsset = BUILTIN_SPAWNABLE_PROP_ASSETS.find(
-        (asset) => asset.id === BUILTIN_ARCADE_CABINET_ASSET_ID,
-      );
-      if (cabinetAsset)
-        for (const [
-          laneIndex,
-          placement,
-        ] of ARCADE_CABINET_PLACEMENTS.entries()) {
-          const quaternion = new Quaternion().setFromAxisAngle(
-            this.#upAxis,
-            placement.rotationY,
-          );
-          this.#createSpawnedArcadeCabinet(
-            cabinetAsset,
-            `arcade-cabinet-${laneIndex + 1}`,
-            DEFAULT_MODEL_SCALE,
-            {
-              position: {
-                x: placement.position[0],
-                y: placement.position[1],
-                z: placement.position[2],
-              },
-              quaternion: {
-                w: quaternion.w,
-                x: quaternion.x,
-                y: quaternion.y,
-                z: quaternion.z,
-              },
-            },
-          );
-        }
-    } catch (error) {
-      if (DEV && !this.#disposed)
-        console.warn("Afterleaf could not seed its default props.", error);
-    }
-    // Persist promptly so legacy worlds migrate past pass 1 and later
-    // deletions of the defaults stick across reloads.
-    this.#worldStateDirty = true;
-  }
-
-  /**
-   * Seeding pass 2: the hard-wired ceiling light grid becomes ordinary
-   * spawned props, deletable and movable like any other prop.
-   */
-  #seedCeilingLights() {
-    const asset = BUILTIN_SPAWNABLE_PROP_ASSETS.find(
-      (candidate) => candidate.id === BUILTIN_CEILING_LIGHT_ASSET_ID,
-    );
-    if (!asset) return;
-    try {
-      for (const [index, placement] of CEILING_LIGHT_PLACEMENTS.entries()) {
-        const quaternion = new Quaternion().setFromAxisAngle(
-          this.#upAxis,
-          placement.rotationY,
-        );
-        this.#createSpawnedCeilingLight(
-          asset,
-          `ceiling-light-${index + 1}`,
-          DEFAULT_MODEL_SCALE,
-          {
-            position: {
-              x: placement.x,
-              y: CEILING_LIGHT_ORIGIN_Y,
-              z: placement.z,
-            },
-            quaternion: {
-              w: quaternion.w,
-              x: quaternion.x,
-              y: quaternion.y,
-              z: quaternion.z,
-            },
-          },
-        );
-      }
-    } catch (error) {
-      if (DEV && !this.#disposed)
-        console.warn("Afterleaf could not seed the ceiling lights.", error);
-    }
-    // Persist promptly so worlds migrate past pass 2 and light deletions
-    // stay gone across reloads.
-    this.#worldStateDirty = true;
-  }
-
-  /**
-   * Spawns saved ceiling-light props immediately on boot so the shop is
-   * lit without waiting for the catalog-gated model-prop restore. Later,
-   * #takeCompatibleWorldSave adopts these registrations in place of their
-   * save entries; until then they simply render from the last save.
-   */
-  #restoreSavedCeilingLights() {
-    const save = this.#pendingWorldSave;
-    if (!save) return;
-    const asset = BUILTIN_SPAWNABLE_PROP_ASSETS.find(
-      (candidate) => candidate.id === BUILTIN_CEILING_LIGHT_ASSET_ID,
-    );
-    if (!asset) return;
-    for (const savedProp of save.modelProps ?? []) {
-      if (
-        savedProp.assetId !== BUILTIN_CEILING_LIGHT_ASSET_ID ||
-        this.#movableProps.has(savedProp.id)
-      )
-        continue;
-      try {
-        this.#createSpawnedCeilingLight(
-          asset,
-          savedProp.id,
-          savedProp.scale,
-          savedProp.pose,
-          savedProp.locked === true,
-        );
-      } catch (error) {
-        if (DEV && !this.#disposed)
-          console.warn(
-            `Afterleaf could not restore ceiling light ${savedProp.id}.`,
-            error,
-          );
-      }
-    }
-  }
-
-  #createSpawnedCrtTelevision(
-    asset: BuiltinSpawnablePropAsset,
-    id: string,
-    scale: number,
-    pose?: WorldModelPropSave["pose"],
-  ) {
-    const tableMaterial = this.#televisionTableMaterial;
-    if (!tableMaterial)
-      throw new Error("CRT television materials are not ready.");
-    const television = new ShopTelevision({
-      ...this.#sharedTelevisionOptions(
-        this.#savedTelevisionChannels[id],
-        this.#savedTelevisionVolumes[id],
-      ),
-      model: {
-        // The CRT GLB predates the control strip; invisible knob targets
-        // would only cost draw calls, and screen clicks already drive power.
-        controls: false,
-        mergeStaticParts: true,
-        screenAspect: 4 / 3,
-        screenNodeName: "Screen",
-        screenSafeArea: CRT_TV_SAFE_AREA,
-        scale: SHOP_MODEL_TELEVISION_SCALE,
-        url: crtTvModelUrl,
-      },
-      parent: this.#scene,
-      tableMaterial,
-    });
-    television.object.name = id;
-    television.object.scale.setScalar(scale);
-    if (pose) {
-      television.object.position.copy(pose.position);
-      television.object.quaternion.copy(pose.quaternion);
-    } else {
-      this.#camera.getWorldDirection(this.#viewDirection);
-      television.object.position
-        .copy(this.#camera.position)
-        .addScaledVector(this.#viewDirection, 2);
-    }
-    this.#registerTelevision(id, television);
-    const prop = this.#registerMovableProp({
-      density: 45,
-      depth: SHOP_MODEL_TELEVISION_SIZE.depth * scale,
-      height: SHOP_MODEL_TELEVISION_SIZE.height * scale,
-      heldLocalPosition: new Vector3(0, -0.12, -1.45),
-      id,
-      label: asset.label,
-      modelBaseSize: new Vector3(
-        SHOP_MODEL_TELEVISION_SIZE.width,
-        SHOP_MODEL_TELEVISION_SIZE.height,
-        SHOP_MODEL_TELEVISION_SIZE.depth,
-      ),
-      modelScale: scale,
-      object: television.object,
-      spawnAssetId: asset.id,
-      spawned: true,
-      targetable: false,
-      width: SHOP_MODEL_TELEVISION_SIZE.width * scale,
-    });
-    this.#televisionProps.set(television, prop);
-    return prop;
-  }
-
-  /**
-   * Wraps a cabinet's scene object as a movable prop: released cabinets
-   * simulate like the CRT televisions (gravity, tippable, bumpable) unless
-   * the player pins them with the lock toggle. The cabinet stays fully
-   * interactive while placed.
-   */
-  #registerArcadeCabinetProp(
-    cabinet: ShopArcadeCabinet,
-    registration: {
-      id: string;
-      label: string;
-      scale: number;
-      spawnAssetId?: string;
-      spawned: boolean;
-    },
-  ) {
-    this.#arcadeCabinets.push(cabinet);
-    const size = ARCADE_CABINET_BASE_SIZE;
-    const scale = registration.scale;
-    const prop = this.#registerMovableProp({
-      density: ARCADE_CABINET_DENSITY,
-      depth: size.depth * scale,
-      height: size.height * scale,
-      heldLocalPosition: ARCADE_CABINET_HELD_LOCAL_POSITION.clone(),
-      id: registration.id,
-      label: registration.label,
-      modelBaseSize: new Vector3(size.width, size.height, size.depth),
-      modelScale: scale,
-      object: cabinet.object,
-      ...(registration.spawnAssetId
-        ? {spawnAssetId: registration.spawnAssetId}
-        : {}),
-      spawned: registration.spawned,
-      // Cabinets simulate like the CRT televisions once released: gravity
-      // applies and the player can bump them unless they are locked.
-      targetable: false,
-      width: size.width * scale,
-    });
-    this.#arcadeProps.set(cabinet, prop);
-    return prop;
-  }
-
-  #createSpawnedArcadeCabinet(
-    asset: BuiltinSpawnablePropAsset,
-    id: string,
-    scale: number,
-    pose?: WorldModelPropSave["pose"],
-  ) {
-    const cabinet = new ShopArcadeCabinet({
-      parent: this.#scene,
-      position: [0, 0, 0],
-      audioManager: this.#audioManager,
-      onInteractRequest: (target) => this.#enterArcadeBrowsing(target),
-      onStateChange: () => this.#emitGameState(),
-    });
-    cabinet.object.name = id;
-    if (pose) {
-      cabinet.object.position.copy(pose.position);
-      cabinet.object.quaternion.copy(pose.quaternion);
-    } else {
-      this.#camera.getWorldDirection(this.#viewDirection);
-      cabinet.object.position
-        .copy(this.#camera.position)
-        .addScaledVector(this.#viewDirection, 2);
-    }
-    cabinet.object.scale.setScalar(scale);
-    // Spawned cabinets persist through modelProps (asset id + scale + pose).
-    return this.#registerArcadeCabinetProp(cabinet, {
-      id,
-      label: asset.label,
-      scale,
-      spawnAssetId: BUILTIN_ARCADE_CABINET_ASSET_ID,
-      spawned: true,
-    });
-  }
-
-  #createModelTelevisionProp(
-    asset: ModelAsset,
-    template: ModelTemplate,
-    id: string,
-    scale: number,
-    pose?: WorldModelPropSave["pose"],
-    animationClip?: string | null,
-  ) {
-    const tableMaterial = this.#televisionTableMaterial;
-    if (!tableMaterial) throw new Error("Television materials are not ready.");
-    const {center, normalizationScale, size} = template;
-    const model = cloneWithSkeleton(template.scene);
-    model.name = `user-model-television-visual-${asset.id}`;
-    const normalizedModel = new Group();
-    normalizedModel.position.copy(center).multiplyScalar(-normalizationScale);
-    normalizedModel.scale.setScalar(normalizationScale);
-    normalizedModel.add(model);
-    const television = new ShopTelevision({
-      ...this.#sharedTelevisionOptions(
-        this.#savedTelevisionChannels[id],
-        this.#savedTelevisionVolumes[id],
-      ),
-      model: {
-        audioPosition: [0, 0, 0],
-        center: [0, 0, 0],
-        controls: false,
-        interactionRadius: Math.hypot(size.x, size.y, size.z) / 2,
-        label: asset.label,
-        object: normalizedModel,
-        screenNodeName: MODEL_TELEVISION_SCREEN_NODE_NAME,
-        screenSafeArea: {bottom: 0, left: 0, right: 0, top: 0},
-        scale: 1,
-      },
-      parent: this.#scene,
-      tableMaterial,
-    });
-    television.object.name = id;
-    television.object.scale.setScalar(scale);
-    if (pose) {
-      television.object.position.copy(pose.position);
-      television.object.quaternion.copy(pose.quaternion);
-    } else {
-      this.#camera.getWorldDirection(this.#viewDirection);
-      television.object.position
-        .copy(this.#camera.position)
-        .addScaledVector(this.#viewDirection, 2);
-    }
-    this.#registerTelevision(id, television);
-    const modelAnimationIndex = getInitialModelAnimationIndex(
-      template.animations,
-      animationClip,
-    );
-    const mixer = playModelAnimations(
-      this.#modelMixers,
-      model,
-      template.animations,
-      modelAnimationIndex,
-    );
-    const prop = this.#registerMovableProp({
-      density: MODEL_TELEVISION_DENSITY,
-      depth: size.z * scale,
-      height: size.y * scale,
-      heldLocalPosition: new Vector3(0, -0.18, -2),
-      id,
-      label: asset.label,
-      ...(template.animations.length > 0
-        ? {
-            modelAnimationIndex,
-            modelAnimations: template.animations,
-          }
-        : {}),
-      modelAsset: asset,
-      modelBaseSize: size.clone(),
-      ...(mixer ? {modelMixer: mixer} : {}),
-      modelScale: scale,
-      object: television.object,
-      spawnAssetId: asset.id,
-      spawned: true,
-      targetable: false,
-      width: size.x * scale,
-    });
-    this.#televisionProps.set(television, prop);
-    return prop;
-  }
-
-  async #createSpawnableProp(
-    asset: SpawnablePropAsset,
-    id: string,
-    scale: number,
-    pose?: WorldModelPropSave["pose"],
-    animationClip?: string | null,
-  ) {
-    if (asset.kind === "model") {
-      const template = await this.#loadModelTemplate(asset.model);
-      if (
-        findModelTelevisionScreen(
-          template.scene,
-          MODEL_TELEVISION_SCREEN_NODE_NAME,
-        )
-      )
-        return this.#createModelTelevisionProp(
-          asset.model,
-          template,
-          id,
-          scale,
-          pose,
-          animationClip,
-        );
-      return this.#createModelPropFromTemplate(
-        asset.model,
-        template,
-        id,
-        scale,
-        pose,
-        animationClip,
-      );
-    }
-    if (asset.id === BUILTIN_CRT_TV_ASSET_ID)
-      return this.#createSpawnedCrtTelevision(asset, id, scale, pose);
-    if (asset.id === BUILTIN_ARCADE_CABINET_ASSET_ID)
-      return this.#createSpawnedArcadeCabinet(asset, id, scale, pose);
-    if (asset.id === BUILTIN_CEILING_LIGHT_ASSET_ID)
-      return this.#createSpawnedCeilingLight(asset, id, scale, pose);
-    if (asset.id === BUILTIN_TRASH_CAN_ASSET_ID) {
-      const modelAsset: ModelAsset = {
-        id: asset.id,
-        label: asset.label,
-        url: trashCanModelUrl,
-      };
-      const template = await this.#loadModelTemplate(modelAsset);
-      return this.#createModelPropFromTemplate(
-        modelAsset,
-        template,
-        id,
-        scale,
-        pose,
-        animationClip,
-      );
-    }
-    return this.#createPropFromBuiltinTemplate(asset, id, scale, pose);
-  }
-
-  async #restoreSavedModelProps() {
-    if (this.#modelRestoreActive || this.#pendingModelPropSaves.length === 0)
-      return;
-    this.#modelRestoreActive = true;
-    const assetsById = new Map(
-      this.#spawnablePropAssets.map((asset) => [asset.id, asset]),
-    );
-    const unresolved: WorldModelPropSave[] = [];
-    const pending = this.#pendingModelPropSaves;
-    let restoreAgain = false;
-    try {
-      for (const savedProp of pending) {
-        if (this.#movableProps.has(savedProp.id)) continue;
-        const asset = assetsById.get(savedProp.assetId);
-        if (!asset) {
-          // The content pack renamed or dropped this asset; the saved prop
-          // cannot come back, but it must not block anything else either.
-          if (DEV && !this.#missingPropAssetIds.has(savedProp.assetId)) {
-            this.#missingPropAssetIds.add(savedProp.assetId);
-            console.warn(
-              `Afterleaf cannot restore prop ${savedProp.id}: its asset "${savedProp.assetId}" is no longer in the spawnable catalog.`,
-            );
-          }
-          unresolved.push(savedProp);
-          continue;
-        }
-        // A template-spawned builtin may still be loading its template;
-        // defer quietly, #cacheBuiltinPropTemplate retries once it lands.
-        if (
-          TEMPLATE_SPAWNED_BUILTIN_ASSET_IDS.has(savedProp.assetId) &&
-          !this.#builtinPropTemplates.has(savedProp.assetId)
-        ) {
-          unresolved.push(savedProp);
-          continue;
-        }
-        try {
-          const record = await this.#createSpawnableProp(
-            asset,
-            savedProp.id,
-            savedProp.scale,
-            savedProp.pose,
-            savedProp.animationClip,
-          );
-          if (this.#disposed) return;
-          if (this.#movableProps.get(savedProp.id) !== record) {
-            this.#removeSpawnedProp(record);
-          } else if (savedProp.locked && !record.locked) {
-            record.locked = true;
-            this.#physicsWorld.setPropLocked(record.id, true);
-          }
-        } catch (error) {
-          if (this.#disposed) return;
-          unresolved.push(savedProp);
-          if (DEV)
-            console.warn(
-              `Afterleaf could not restore prop ${asset.id}.`,
-              error,
-            );
-        }
-      }
-      restoreAgain = this.#pendingModelPropSaves !== pending;
-      if (!restoreAgain) this.#pendingModelPropSaves = unresolved;
-      this.#emitGameState();
-    } finally {
-      this.#modelRestoreActive = false;
-      const retryRequested = this.#modelRestoreRetry;
-      this.#modelRestoreRetry = false;
-      if (!this.#disposed && (retryRequested || restoreAgain))
-        void this.#restoreSavedModelProps();
-    }
-  }
-
-  async #startModelPlacement(assetIndex: number) {
-    if (this.#spawnablePropAssets.length === 0) {
-      this.#modelImportError = "No movable prop assets are available.";
-      this.#emitGameState();
-      return;
-    }
-    const modelPropCount =
-      this.#pendingModelPropSaves.length +
-      [...this.#movableProps.values()].filter((record) => record.spawned)
-        .length;
-    if (modelPropCount >= MAX_USER_MODEL_PROP_COUNT) {
-      this.#modelImportError = `The shop can contain at most ${MAX_USER_MODEL_PROP_COUNT} model props.`;
-      this.#emitGameState();
-      return;
-    }
-    if (this.#modelPlacement || this.#carriedPublicationId || this.#carriedProp)
-      return;
-    const normalizedIndex =
-      (assetIndex + this.#spawnablePropAssets.length) %
-      this.#spawnablePropAssets.length;
-    const asset = this.#spawnablePropAssets[normalizedIndex];
-    if (!asset) return;
-    const revision = (this.#modelPlacementRevision += 1);
-    const placement: ModelPlacementSession = {
-      assetIndex: normalizedIndex,
-      id: crypto.randomUUID(),
-      revision,
-    };
-    this.#modelPlacement = placement;
-    this.#spawnablePropAssetIndex = normalizedIndex;
-    this.#modelImportError = undefined;
-    this.#emitGameState();
-    try {
-      const record = await this.#createSpawnableProp(
-        asset,
-        placement.id,
-        DEFAULT_MODEL_SCALE,
-      );
-      if (
-        this.#disposed ||
-        this.#modelPlacement !== placement ||
-        placement.revision !== revision
-      ) {
-        this.#removeSpawnedProp(record);
-        return;
-      }
-      this.#pickUpProp(record);
-    } catch (error) {
-      if (this.#disposed) return;
-      if (this.#modelPlacement !== placement) return;
-      this.#modelPlacement = undefined;
-      this.#modelImportError =
-        error instanceof Error
-          ? error.message
-          : "The prop could not be loaded.";
-      this.#emitGameState();
-    }
-  }
-
-  #cancelModelPlacement() {
-    const placement = this.#modelPlacement;
-    if (!placement) return;
-    this.#modelPlacementRevision += 1;
-    this.#modelPlacement = undefined;
-    const record = this.#movableProps.get(placement.id);
-    if (record) this.#removeSpawnedProp(record);
-    else this.#emitGameState();
-  }
-
-  #cycleModelPlacement(direction: -1 | 1) {
-    const placement = this.#modelPlacement;
-    if (!placement || this.#spawnablePropAssets.length < 2) return;
-    const nextIndex =
-      (placement.assetIndex + direction + this.#spawnablePropAssets.length) %
-      this.#spawnablePropAssets.length;
-    this.#cancelModelPlacement();
-    void this.#startModelPlacement(nextIndex);
-  }
-
-  #setModelPropScale(record: MovablePropRecord, scale: number) {
-    const baseSize = record.modelBaseSize;
-    if (!baseSize) return;
-    const nextScale = MathUtils.clamp(scale, MIN_MODEL_SCALE, MAX_MODEL_SCALE);
-    if (nextScale === record.modelScale) return;
-    record.modelScale = nextScale;
-    record.object.scale.setScalar(nextScale);
-    record.halfWidth = (baseSize.x * nextScale) / 2;
-    record.halfHeight = (baseSize.y * nextScale) / 2;
-    record.halfDepth = (baseSize.z * nextScale) / 2;
-    this.#physicsWorld.updatePropSize(record.id, {
-      depth: record.halfDepth * 2,
-      height: record.halfHeight * 2,
-      width: record.halfWidth * 2,
-    });
-    this.#updateHeldPhysicsTarget();
-    this.#worldStateDirty = true;
-    this.#emitGameState();
-  }
-
-  #modelAnimationLabel(record: MovablePropRecord) {
-    const animations = record.modelAnimations;
-    const index = record.modelAnimationIndex;
-    if (!animations || index === undefined) return;
-    if (index < 0) return "Off";
-    const name = animations[index]?.name.trim();
-    if (!name) return `Clip ${index + 1}`;
-    return name.split("|").at(-1) ?? name;
-  }
-
-  #cycleModelAnimation(record: MovablePropRecord, direction: -1 | 1) {
-    const animations = record.modelAnimations;
-    const mixer = record.modelMixer;
-    if (!animations || animations.length === 0 || !mixer) return;
-    const currentSlot = (record.modelAnimationIndex ?? 0) + 1;
-    const slotCount = animations.length + 1;
-    const nextSlot = (currentSlot + direction + slotCount) % slotCount;
-    const nextIndex = nextSlot - 1;
-    mixer.stopAllAction();
-    const clip = animations[nextIndex];
-    if (clip) mixer.clipAction(clip).reset().play();
-    record.modelAnimationIndex = nextIndex;
-    this.#worldStateDirty = true;
-    this.#emitGameState();
-  }
-
-  #removeSpawnedProp(record: MovablePropRecord) {
-    if (!record.spawned) return;
-    if (this.#carriedProp === record) {
-      this.#restoreGhostedObject(record.ghostMaterialSwaps);
-      this.#carriedProp = undefined;
-    }
-    if (this.#targetedProp === record) this.#setPropTargeted(undefined);
-    record.object.traverse((object) => {
-      if (!(object instanceof Mesh)) return;
-      const index = this.#movablePropTargetMeshes.indexOf(object);
-      if (index >= 0) this.#movablePropTargetMeshes.splice(index, 1);
-      delete object.userData.movablePropId;
-      if (object.userData.movablePropTargetProxy !== true) return;
-      object.geometry.dispose();
-      const materials = Array.isArray(object.material)
-        ? object.material
-        : [object.material];
-      for (const material of materials) material.dispose();
-    });
-    const supportIndex = this.#propPlacementSupports.findIndex(
-      (support) => support.owner === record,
-    );
-    if (supportIndex >= 0) this.#propPlacementSupports.splice(supportIndex, 1);
-    record.modelMixer?.stopAllAction();
-    if (record.modelMixer) this.#modelMixers.delete(record.modelMixer);
-    for (const [television, televisionProp] of this.#televisionProps) {
-      if (televisionProp !== record) continue;
-      if (this.#targetedTelevision === television)
-        this.#setTelevisionTargeted(false);
-      this.#televisionProps.delete(television);
-      const televisionIndex = this.#televisions.indexOf(television);
-      if (televisionIndex >= 0) this.#televisions.splice(televisionIndex, 1);
-      for (const [saveId, savedTelevision] of this.#televisionsBySaveId) {
-        if (savedTelevision === television)
-          this.#televisionsBySaveId.delete(saveId);
-      }
-      television.dispose();
-      break;
-    }
-    for (const [cabinet, cabinetProp] of this.#arcadeProps) {
-      if (cabinetProp !== record) continue;
-      if (this.#targetedArcadeCabinet === cabinet)
-        this.#setArcadeTargeted(undefined);
-      if (this.#activeArcadeCabinet === cabinet)
-        this.#activeArcadeCabinet = undefined;
-      this.#arcadeProps.delete(cabinet);
-      const cabinetIndex = this.#arcadeCabinets.indexOf(cabinet);
-      if (cabinetIndex >= 0) this.#arcadeCabinets.splice(cabinetIndex, 1);
-      // Disposing kills any emulator session attached to this cabinet.
-      cabinet.dispose();
-      break;
-    }
-    // The discard volume lives inside the bin; losing a bin loses its volume.
-    this.#discardBin.detach(record);
-    this.#physicsWorld.removeProp(record.id);
-    if (this.#movableProps.get(record.id) === record)
-      this.#movableProps.delete(record.id);
-    record.object.removeFromParent();
-    this.#worldStateDirty = true;
-    this.#emitGameState();
-  }
-
   readonly #refreshMediaCatalogIfActive = () => {
     if (
       document.visibilityState !== "visible" ||
@@ -3264,8 +1779,8 @@ export class ShopScene {
         this.#abortController.signal,
       );
       if (this.#disposed) return;
-      this.#applyModelCatalog(catalog.models.models);
-      await this.#restoreSavedModelProps();
+      this.#props.applyModelCatalog(catalog.models.models);
+      await this.#props.restoreSavedModelProps();
       this.#posters.applyPosterCatalog(catalog.posters.posters);
       if (!this.#posters.saveRestoreCompleted)
         await this.#posters.restoreSavedPosters(catalog.posters.posters);
@@ -3611,45 +2126,45 @@ export class ShopScene {
     }
     if (
       this.#pointerLocked &&
-      this.#carriedProp?.modelBaseSize &&
+      this.#props.carriedProp?.modelBaseSize &&
       event.shiftKey &&
       event.deltaY !== 0
     ) {
       event.preventDefault();
-      this.#setModelPropScale(
-        this.#carriedProp,
-        (this.#carriedProp.modelScale ?? DEFAULT_MODEL_SCALE) *
+      this.#props.setModelPropScale(
+        this.#props.carriedProp,
+        (this.#props.carriedProp.modelScale ?? DEFAULT_MODEL_SCALE) *
           Math.exp(-event.deltaY * 0.0015),
       );
       return;
     }
     if (
       this.#pointerLocked &&
-      this.#carriedProp &&
+      this.#props.carriedProp &&
       event.ctrlKey &&
       event.deltaY !== 0
     ) {
       event.preventDefault();
-      const rotationStep = this.#propPlacementSnapping
-        ? this.#carriedProp.rotationSnapStep
+      const rotationStep = this.#props.propPlacementSnapping
+        ? this.#props.carriedProp.rotationSnapStep
         : PROP_WHEEL_ROTATION_STEP;
-      this.#propPlacementYaw = normalizePosterRotation(
-        this.#propPlacementYaw - Math.sign(event.deltaY) * rotationStep,
+      this.#props.propPlacementYaw = normalizePosterRotation(
+        this.#props.propPlacementYaw - Math.sign(event.deltaY) * rotationStep,
       );
       this.#updateHeldPhysicsTarget();
       this.#worldStateDirty = true;
       this.#emitGameState();
       return;
     }
-    if (this.#pointerLocked && this.#carriedProp) {
+    if (this.#pointerLocked && this.#props.carriedProp) {
       const wheelDelta =
         Math.abs(event.deltaX) > Math.abs(event.deltaY)
           ? event.deltaX
           : event.deltaY;
       if (Math.abs(wheelDelta) < 1) return;
       event.preventDefault();
-      this.#propPlacementDistance = MathUtils.clamp(
-        this.#propPlacementDistance - wheelDelta * 0.0025,
+      this.#props.propPlacementDistance = MathUtils.clamp(
+        this.#props.propPlacementDistance - wheelDelta * 0.0025,
         PROP_MIN_PROJECTION_DISTANCE,
         PROP_MAX_PROJECTION_DISTANCE,
       );
@@ -3859,17 +2374,19 @@ export class ShopScene {
         return true;
       case "toggleModelPlacement":
         if (this.#televisionTargeted) return false;
-        if (this.#modelPlacement) {
-          this.#cancelModelPlacement();
+        if (this.#props.modelPlacement) {
+          this.#props.cancelModelPlacement();
           return true;
         }
         if (
           !this.#artFrames.placement &&
           !this.#posters.placement &&
           !this.#carriedPublicationId &&
-          !this.#carriedProp
+          !this.#props.carriedProp
         )
-          void this.#startModelPlacement(this.#spawnablePropAssetIndex);
+          void this.#props.startModelPlacement(
+            this.#props.spawnablePropAssetIndex,
+          );
         return true;
       case "toggleArtFramePlacement":
         if (this.#artFrames.placement) {
@@ -3878,9 +2395,9 @@ export class ShopScene {
         }
         if (
           !this.#posters.placement &&
-          !this.#modelPlacement &&
+          !this.#props.modelPlacement &&
           !this.#carriedPublicationId &&
-          !this.#carriedProp
+          !this.#props.carriedProp
         ) {
           if (this.#artFrames.assets.length > 0)
             this.#artFrames.startDigitalArtFramePlacement(
@@ -3916,9 +2433,9 @@ export class ShopScene {
         }
         if (
           !this.#artFrames.placement &&
-          !this.#modelPlacement &&
+          !this.#props.modelPlacement &&
           !this.#carriedPublicationId &&
-          !this.#carriedProp
+          !this.#props.carriedProp
         ) {
           if (this.#posters.assets.length > 0)
             void this.#posters.startPosterPlacement(this.#posters.assetIndex);
@@ -3926,8 +2443,8 @@ export class ShopScene {
         }
         return true;
       case "placementCycleLeft":
-        if (this.#modelPlacement) {
-          this.#cycleModelPlacement(-1);
+        if (this.#props.modelPlacement) {
+          this.#props.cycleModelPlacement(-1);
           return true;
         }
         if (this.#posters.placement) {
@@ -3936,8 +2453,8 @@ export class ShopScene {
         }
         return false;
       case "placementCycleRight":
-        if (this.#modelPlacement) {
-          this.#cycleModelPlacement(1);
+        if (this.#props.modelPlacement) {
+          this.#props.cycleModelPlacement(1);
           return true;
         }
         if (this.#posters.placement) {
@@ -3985,35 +2502,35 @@ export class ShopScene {
         return true;
       }
       case "propToggleSnap":
-        if (!this.#carriedProp) return false;
-        this.#propPlacementSnapping = !this.#propPlacementSnapping;
+        if (!this.#props.carriedProp) return false;
+        this.#props.propPlacementSnapping = !this.#props.propPlacementSnapping;
         this.#emitGameState();
         return true;
       case "propCycleAnimationLeft":
         if (!this.#targetedProp?.modelAnimations?.length) return false;
-        this.#cycleModelAnimation(this.#targetedProp, -1);
+        this.#props.cycleModelAnimation(this.#targetedProp, -1);
         return true;
       case "propCycleAnimationRight":
         if (!this.#targetedProp?.modelAnimations?.length) return false;
-        this.#cycleModelAnimation(this.#targetedProp, 1);
+        this.#props.cycleModelAnimation(this.#targetedProp, 1);
         return true;
       case "removeTargeted": {
         const targetedTelevisionProp = this.#targetedTelevision
-          ? this.#televisionProps.get(this.#targetedTelevision)
+          ? this.#props.televisionProps.get(this.#targetedTelevision)
           : undefined;
         const targetedArcadeProp = this.#targetedArcadeCabinet
-          ? this.#arcadeProps.get(this.#targetedArcadeCabinet)
+          ? this.#props.arcadeProps.get(this.#targetedArcadeCabinet)
           : undefined;
         if (targetedTelevisionProp?.spawned) {
-          this.#removeSpawnedProp(targetedTelevisionProp);
+          this.#props.removeSpawnedProp(targetedTelevisionProp);
           return true;
         }
         if (targetedArcadeProp?.spawned) {
-          this.#removeSpawnedProp(targetedArcadeProp);
+          this.#props.removeSpawnedProp(targetedArcadeProp);
           return true;
         }
         if (this.#targetedProp?.spawned) {
-          this.#removeSpawnedProp(this.#targetedProp);
+          this.#props.removeSpawnedProp(this.#targetedProp);
           return true;
         }
         if (this.#artFrames.targetedId) {
@@ -4038,8 +2555,8 @@ export class ShopScene {
         return true;
       }
       case "pickUpCancel":
-        if (this.#modelPlacement) {
-          this.#cancelModelPlacement();
+        if (this.#props.modelPlacement) {
+          this.#props.cancelModelPlacement();
           return true;
         }
         if (this.#artFrames.placement) {
@@ -4050,26 +2567,26 @@ export class ShopScene {
           this.#posters.cancelPosterPlacement();
           return true;
         }
-        if (this.#carriedProp) {
-          this.#cancelCarriedProp();
+        if (this.#props.carriedProp) {
+          this.#props.cancelCarriedProp();
           return true;
         }
         if (this.#targetedArcadeCabinet) {
-          const cabinetProp = this.#arcadeProps.get(
+          const cabinetProp = this.#props.arcadeProps.get(
             this.#targetedArcadeCabinet,
           );
-          if (cabinetProp) this.#pickUpProp(cabinetProp);
+          if (cabinetProp) this.#props.pickUpProp(cabinetProp);
           return true;
         }
         if (this.#televisionTargeted) {
           const televisionProp = this.#targetedTelevision
-            ? this.#televisionProps.get(this.#targetedTelevision)
+            ? this.#props.televisionProps.get(this.#targetedTelevision)
             : undefined;
-          if (televisionProp) this.#pickUpProp(televisionProp);
+          if (televisionProp) this.#props.pickUpProp(televisionProp);
           return true;
         }
         if (this.#targetedProp) {
-          this.#pickUpProp(this.#targetedProp);
+          this.#props.pickUpProp(this.#targetedProp);
           return true;
         }
         if (this.#artFrames.targetedId || this.#posters.targetedId) {
@@ -4122,12 +2639,13 @@ export class ShopScene {
         const lockableProp =
           this.#targetedProp ??
           (this.#targetedTelevision
-            ? this.#televisionProps.get(this.#targetedTelevision)
+            ? this.#props.televisionProps.get(this.#targetedTelevision)
             : undefined) ??
           (this.#targetedArcadeCabinet
-            ? this.#arcadeProps.get(this.#targetedArcadeCabinet)
+            ? this.#props.arcadeProps.get(this.#targetedArcadeCabinet)
             : undefined);
-        if (!lockableProp || this.#carriedProp === lockableProp) return false;
+        if (!lockableProp || this.#props.carriedProp === lockableProp)
+          return false;
         const locked = !lockableProp.locked;
         lockableProp.locked = locked;
         this.#physicsWorld.setPropLocked(lockableProp.id, locked);
@@ -4142,7 +2660,7 @@ export class ShopScene {
         if (this.#televisionTargeted) this.#targetedTelevision?.skip();
         else if (this.#artFrames.targetedId)
           this.#artFrames.records.get(this.#artFrames.targetedId)?.frame.skip();
-        else if (this.#carriedProp) this.#dropCarriedProp(true);
+        else if (this.#props.carriedProp) this.#props.dropCarriedProp(true);
         else if (this.#carriedPublicationId)
           this.#bookActions.startThrowCharge();
         // Held throw state drives shelf browsing; isActionDown covers it.
@@ -4152,7 +2670,7 @@ export class ShopScene {
         if (this.#artFrames.targetedId)
           this.#artFrames.removeTargetedDigitalArtFrame();
         else if (this.#posters.targetedId) this.#posters.removeTargetedPoster();
-        else if (this.#carriedProp) this.#dropCarriedProp();
+        else if (this.#props.carriedProp) this.#props.dropCarriedProp();
         else this.#bookActions.dropCarriedBook();
         return true;
       case "inspectionReturn": {
@@ -4207,8 +2725,8 @@ export class ShopScene {
       else this.#targetedTelevision?.togglePower();
       return;
     }
-    if (this.#carriedProp) {
-      this.#dropCarriedProp();
+    if (this.#props.carriedProp) {
+      this.#props.dropCarriedProp();
       return;
     }
     if (this.#targetedProp || this.#posters.targetedId) return;
@@ -4507,16 +3025,16 @@ export class ShopScene {
       savedProp.id.startsWith("tv-cave-"),
     );
     if (hasLegacyTvCaveProps) this.#worldStateDirty = true;
-    this.#pendingPropSaves = new Map(
+    this.#props.pendingPropSaves = new Map(
       savedProps
         .filter((savedProp) => !savedProp.id.startsWith("tv-cave-"))
         .map((savedProp) => [savedProp.id, savedProp]),
     );
-    for (const [id, record] of this.#movableProps) {
-      const savedProp = this.#pendingPropSaves.get(id);
+    for (const [id, record] of this.#props.records) {
+      const savedProp = this.#props.pendingPropSaves.get(id);
       if (!savedProp) continue;
-      this.#applySavedPropPose(record, savedProp);
-      this.#pendingPropSaves.delete(id);
+      this.#props.applySavedPropPose(record, savedProp);
+      this.#props.pendingPropSaves.delete(id);
     }
     this.#posters.pendingSaves = save.posters ?? [];
     this.#artFrames.pendingSaves = save.digitalArtFrames ?? [];
@@ -4525,24 +3043,24 @@ export class ShopScene {
     // ids remain for #restoreSavedModelProps to spawn.
     const adoptedModelPropSaves: WorldModelPropSave[] = [];
     for (const savedProp of save.modelProps ?? []) {
-      const record = this.#movableProps.get(savedProp.id);
+      const record = this.#props.records.get(savedProp.id);
       if (!record) {
         adoptedModelPropSaves.push(savedProp);
         continue;
       }
-      this.#applySavedPropPose(record, savedProp);
+      this.#props.applySavedPropPose(record, savedProp);
       // Boot-registered defaults spawn at seed scale; without this, a
       // player-scaled default would silently revert and the next save
       // would overwrite the stored scale with the reverted value.
       if (savedProp.scale !== record.modelScale)
-        this.#setModelPropScale(record, savedProp.scale);
+        this.#props.setModelPropScale(record, savedProp.scale);
       if (savedProp.locked && !record.locked) {
         record.locked = true;
         this.#physicsWorld.setPropLocked(record.id, true);
       }
     }
-    this.#pendingModelPropSaves = adoptedModelPropSaves;
-    void this.#restoreSavedModelProps();
+    this.#props.pendingModelPropSaves = adoptedModelPropSaves;
+    void this.#props.restoreSavedModelProps();
     const playerWasInLegacyTvCave =
       save.player.position.y > SHOP_UPPER_FLOOR_Y &&
       save.player.position.x >= LEGACY_TV_CAVE_BOUNDS.minX &&
@@ -5355,14 +3873,14 @@ export class ShopScene {
   }
 
   #updateHeldPhysicsTarget() {
-    const prop = this.#carriedProp;
+    const prop = this.#props.carriedProp;
     if (prop) {
       this.#camera.updateMatrixWorld();
       this.#heldTargetPosition
         .copy(prop.heldLocalPosition)
-        .setZ(-this.#propPlacementDistance)
+        .setZ(-this.#props.propPlacementDistance)
         .applyMatrix4(this.#camera.matrixWorld);
-      if (this.#propPlacementSnapping) {
+      if (this.#props.propPlacementSnapping) {
         this.#heldTargetPosition.x =
           Math.round(this.#heldTargetPosition.x / PROP_PLACEMENT_GRID_SIZE) *
           PROP_PLACEMENT_GRID_SIZE;
@@ -5373,13 +3891,13 @@ export class ShopScene {
           Math.round(this.#heldTargetPosition.z / PROP_PLACEMENT_GRID_SIZE) *
           PROP_PLACEMENT_GRID_SIZE;
       }
-      const yaw = this.#resolvedPropPlacementYaw(prop.rotationSnapStep);
+      const yaw = this.#props.resolvedPropPlacementYaw(prop.rotationSnapStep);
       const halfHeight = prop.halfHeight;
       this.#heldTargetPosition.y = Math.max(
         halfHeight,
         this.#heldTargetPosition.y,
       );
-      this.#snapHeldPropToSupport(
+      this.#props.snapHeldPropToSupport(
         prop,
         prop.halfWidth,
         halfHeight,
@@ -5387,7 +3905,7 @@ export class ShopScene {
         yaw,
       );
       this.#heldTargetRotation.setFromAxisAngle(this.#upAxis, yaw);
-      if (this.#propPlacementSnapping)
+      if (this.#props.propPlacementSnapping)
         this.#physicsWorld.snapHeldProp(prop.id, this.#heldTargetPose);
       else this.#physicsWorld.setHeldPropTarget(prop.id, this.#heldTargetPose);
       return;
@@ -5447,8 +3965,8 @@ export class ShopScene {
       this.#posters.placePoster();
       return;
     }
-    if (this.#carriedProp) {
-      this.#dropCarriedProp();
+    if (this.#props.carriedProp) {
+      this.#props.dropCarriedProp();
       return;
     }
     if (this.#carriedPublicationId) {
@@ -5467,17 +3985,17 @@ export class ShopScene {
     if (this.#televisionTargeted) {
       const targetedTelevision = this.#targetedTelevision;
       const televisionProp = targetedTelevision
-        ? this.#televisionProps.get(targetedTelevision)
+        ? this.#props.televisionProps.get(targetedTelevision)
         : undefined;
       if (this.#televisionInteraction === "body" && televisionProp) {
-        if (allowNonBookPropPickup) this.#pickUpProp(televisionProp);
+        if (allowNonBookPropPickup) this.#props.pickUpProp(televisionProp);
         return;
       }
       targetedTelevision?.interactTargeted();
       return;
     }
     if (this.#targetedProp) {
-      if (allowNonBookPropPickup) this.#pickUpProp(this.#targetedProp);
+      if (allowNonBookPropPickup) this.#props.pickUpProp(this.#targetedProp);
       return;
     }
     if (this.#signs.targetedKey !== undefined) {
@@ -5526,15 +4044,64 @@ export class ShopScene {
     this.#bookActions.pickUpBook(this.#hoveredPublicationId);
   }
 
+  #createMovablePropLifecycleHost(): MovablePropLifecycleHost {
+    return {
+      activeArcadeCabinet: () => this.#activeArcadeCabinet,
+      arcadeCabinets: () => this.#arcadeCabinets,
+      audioManager: () => this.#audioManager,
+      camera: () => this.#camera,
+      carriedPublicationId: () => this.#carriedPublicationId,
+      discardBin: () => this.#discardBin,
+      disposed: () => this.#disposed,
+      emitGameState: () => this.#emitGameState(),
+      enterArcadeBrowsing: (cabinet) => this.#enterArcadeBrowsing(cabinet),
+      heldTargetPosition: () => this.#heldTargetPosition,
+      markTelevisionSettingChanged: () => {
+        this.#worldStateDirty = true;
+      },
+      markWorldStateDirty: () => {
+        this.#worldStateDirty = true;
+      },
+      pendingWorldSave: () => this.#pendingWorldSave,
+      physicsPose: () => this.#physicsPose,
+      physicsPosePosition: () => this.#physicsPosePosition,
+      physicsWorld: () => this.#physicsWorld,
+      playerVelocity: () => this.#playerVelocity,
+      savedTelevisionChannels: () => this.#savedTelevisionChannels,
+      savedTelevisionVolumes: () => this.#savedTelevisionVolumes,
+      scene: () => this.#scene,
+      setActiveArcadeCabinet: (cabinet) => {
+        this.#activeArcadeCabinet = cabinet;
+      },
+      setArcadeTargeted: (cabinet) => this.#setArcadeTargeted(cabinet),
+      setHoveredPublicationId: (publicationId) =>
+        this.#setHoveredPublicationId(publicationId),
+      setPropTargeted: (record) => this.#setPropTargeted(record),
+      setTelevisionTargeted: (targeted) =>
+        this.#setTelevisionTargeted(targeted),
+      targetedArcadeCabinet: () => this.#targetedArcadeCabinet,
+      targetedProp: () => this.#targetedProp,
+      targetedTelevision: () => this.#targetedTelevision,
+      televisionTableMaterial: () => this.#televisionTableMaterial,
+      televisions: () => this.#televisions,
+      throwVelocity: () => this.#throwVelocity,
+      tvChannels: () => this.#tvChannels,
+      tvScreenLighting: () => this.#tvScreenLighting,
+      updateHeldPhysicsTarget: () => this.#updateHeldPhysicsTarget(),
+      upAxis: () => this.#upAxis,
+      viewDirection: () => this.#viewDirection,
+    };
+  }
+
   #createScannerHost(): InteractionScannerHost {
     return {
       arcadeCabinets: () => this.#arcadeCabinets,
-      arcadeProps: () => this.#arcadeProps,
+      arcadeProps: () => this.#props.arcadeProps,
       arcadeStatusForUi: () => this.#arcadeStatusForUi(),
       artFrames: () => this.#artFrames,
       booksById: () => this.#booksById,
       camera: () => this.#camera,
-      carriedProp: () => this.#carriedProp,
+      carriedProp: () => this.#props.carriedProp,
       carriedPublicationId: () => this.#carriedPublicationId,
       carriedPublicationIds: () => this.#carriedPublicationIds,
       discardBinVolumeMeshes: () => this.#discardBin.volumeMeshes,
@@ -5543,8 +4110,8 @@ export class ShopScene {
       hoveredPublicationId: () => this.#hoveredPublicationId,
       inspectionMode: () => this.#inspection.inspectionMode,
       interactiveMeshes: () => this.#interactiveMeshes,
-      movableProps: () => this.#movableProps,
-      movablePropTargetMeshes: () => this.#movablePropTargetMeshes,
+      movableProps: () => this.#props.records,
+      movablePropTargetMeshes: () => this.#props.targetMeshes,
       pointerLocked: () => this.#pointerLocked,
       posters: () => this.#posters,
       raycaster: () => this.#raycaster,
@@ -5574,7 +4141,7 @@ export class ShopScene {
       bookTextures: () => this.#bookTextures,
       booksById: () => this.#booksById,
       camera: () => this.#camera,
-      carriedProp: () => this.#carriedProp,
+      carriedProp: () => this.#props.carriedProp,
       carriedPublicationId: () => this.#carriedPublicationId,
       carriedPublicationIds: () => this.#carriedPublicationIds,
       clearShelfTargetSelection: () => {
@@ -5593,7 +4160,7 @@ export class ShopScene {
       markWorldStateDirty: () => {
         this.#worldStateDirty = true;
       },
-      movableProps: () => this.#movableProps,
+      movableProps: () => this.#props.records,
       onDiscardPublication: () => this.#onDiscardPublication,
       physicsPose: () => this.#physicsPose,
       physicsPosePosition: () => this.#physicsPosePosition,
@@ -5697,12 +4264,12 @@ export class ShopScene {
           catalogIdentity: () => this.#catalogIdentity(),
           discardedPublicationIds: this.#bookActions.discardedPublicationIds,
           discardBin: this.#discardBin,
-          movableProps: this.#movableProps,
-          pendingModelPropSaves: this.#pendingModelPropSaves,
-          pendingPropSaves: this.#pendingPropSaves,
+          movableProps: this.#props.records,
+          pendingModelPropSaves: this.#props.pendingModelPropSaves,
+          pendingPropSaves: this.#props.pendingPropSaves,
           posters: this.#posters,
           signs: this.#signs,
-          televisionsBySaveId: this.#televisionsBySaveId,
+          televisionsBySaveId: this.#props.televisionsBySaveId,
         }),
       );
       if (!(persisted instanceof Promise)) {
@@ -5729,7 +4296,7 @@ export class ShopScene {
   }
 
   #syncMovablePropPhysics() {
-    for (const record of this.#movableProps.values()) {
+    for (const record of this.#props.records.values()) {
       if (
         !this.#physicsWorld.sampleInterpolatedPropTransform(
           record.id,
