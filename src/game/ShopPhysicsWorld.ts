@@ -899,20 +899,101 @@ export class ShopPhysicsWorld {
     return this.sampleInterpolatedBookTransform(physicsPropId(id), output);
   }
 
+  #isValidBookUpdate(update: BookPhysicsUpdate) {
+    return (
+      (!update.pose || isValidPose(update.pose)) &&
+      (update.thickness === undefined || isValidThickness(update.thickness)) &&
+      (update.height === undefined || isValidBodyDimension(update.height)) &&
+      (update.width === undefined ||
+        (Number.isFinite(update.width) && update.width > 0))
+    );
+  }
+
+  #rebuildBookColliders(record: BookPhysicsRecord) {
+    const world = this.#world;
+    const rapier = this.#rapier;
+    const body = record.body;
+    if (!world || !rapier || !body) return;
+    for (const collider of record.colliders)
+      world.removeCollider(collider, false);
+    record.colliders.length = 0;
+    if (record.colliderParts) {
+      for (const part of record.colliderParts)
+        record.colliders.push(
+          world.createCollider(
+            this.#createBookCollider(
+              rapier,
+              part.halfExtents.z * 2,
+              part.halfExtents.x * 2,
+              part.halfExtents.y * 2,
+              record.density,
+              record.mode === "held",
+              record.collisionlessWhileHeld,
+              record.releasedCollisionless,
+            ).setTranslation(part.position.x, part.position.y, part.position.z),
+            body,
+          ),
+        );
+      return;
+    }
+    record.colliders.push(
+      world.createCollider(
+        this.#createBookCollider(
+          rapier,
+          record.thickness,
+          record.width,
+          record.height,
+          record.density,
+          record.mode === "held",
+          record.collisionlessWhileHeld,
+          record.releasedCollisionless,
+        ),
+        body,
+      ),
+    );
+  }
+
+  #updateBookDimensions(
+    record: BookPhysicsRecord,
+    nextThickness: number,
+    nextHeight: number,
+    nextWidth: number,
+  ) {
+    if (
+      nextThickness === record.thickness &&
+      nextHeight === record.height &&
+      nextWidth === record.width
+    )
+      return;
+    // Part offsets/extents live in body-local space, so they scale with
+    // the body; storing the scaled parts keeps repeated updates exact.
+    const scaleX = nextWidth / record.width;
+    const scaleY = nextHeight / record.height;
+    const scaleZ = nextThickness / record.thickness;
+    if (record.colliderParts)
+      record.colliderParts = record.colliderParts.map((part) => ({
+        halfExtents: {
+          x: part.halfExtents.x * scaleX,
+          y: part.halfExtents.y * scaleY,
+          z: part.halfExtents.z * scaleZ,
+        },
+        position: {
+          x: part.position.x * scaleX,
+          y: part.position.y * scaleY,
+          z: part.position.z * scaleZ,
+        },
+      }));
+    record.thickness = nextThickness;
+    record.height = nextHeight;
+    record.width = nextWidth;
+    this.#rebuildBookColliders(record);
+  }
+
   updateBook(publicationId: string, update: BookPhysicsUpdate) {
     if (this.#disposed) return false;
     const record = this.#books.get(publicationId);
     if (!record) return false;
-    if (update.pose && !isValidPose(update.pose)) return false;
-    if (update.thickness !== undefined && !isValidThickness(update.thickness))
-      return false;
-    if (update.height !== undefined && !isValidBodyDimension(update.height))
-      return false;
-    if (
-      update.width !== undefined &&
-      (!Number.isFinite(update.width) || update.width <= 0)
-    )
-      return false;
+    if (!this.#isValidBookUpdate(update)) return false;
 
     const body = record.body;
     if (update.pose) {
@@ -927,79 +1008,7 @@ export class ShopPhysicsWorld {
     const nextThickness = update.thickness ?? record.thickness;
     const nextHeight = update.height ?? record.height;
     const nextWidth = update.width ?? record.width;
-    if (
-      nextThickness !== record.thickness ||
-      nextHeight !== record.height ||
-      nextWidth !== record.width
-    ) {
-      // Part offsets/extents live in body-local space, so they scale with
-      // the body; storing the scaled parts keeps repeated updates exact.
-      const scaleX = nextWidth / record.width;
-      const scaleY = nextHeight / record.height;
-      const scaleZ = nextThickness / record.thickness;
-      if (record.colliderParts)
-        record.colliderParts = record.colliderParts.map((part) => ({
-          halfExtents: {
-            x: part.halfExtents.x * scaleX,
-            y: part.halfExtents.y * scaleY,
-            z: part.halfExtents.z * scaleZ,
-          },
-          position: {
-            x: part.position.x * scaleX,
-            y: part.position.y * scaleY,
-            z: part.position.z * scaleZ,
-          },
-        }));
-      record.thickness = nextThickness;
-      record.height = nextHeight;
-      record.width = nextWidth;
-      const world = this.#world;
-      const rapier = this.#rapier;
-      if (world && rapier && body) {
-        for (const collider of record.colliders)
-          world.removeCollider(collider, false);
-        record.colliders.length = 0;
-        if (record.colliderParts) {
-          for (const part of record.colliderParts) {
-            record.colliders.push(
-              world.createCollider(
-                this.#createBookCollider(
-                  rapier,
-                  part.halfExtents.z * 2,
-                  part.halfExtents.x * 2,
-                  part.halfExtents.y * 2,
-                  record.density,
-                  record.mode === "held",
-                  record.collisionlessWhileHeld,
-                  record.releasedCollisionless,
-                ).setTranslation(
-                  part.position.x,
-                  part.position.y,
-                  part.position.z,
-                ),
-                body,
-              ),
-            );
-          }
-        } else {
-          record.colliders.push(
-            world.createCollider(
-              this.#createBookCollider(
-                rapier,
-                record.thickness,
-                record.width,
-                record.height,
-                record.density,
-                record.mode === "held",
-                record.collisionlessWhileHeld,
-                record.releasedCollisionless,
-              ),
-              body,
-            ),
-          );
-        }
-      }
-    }
+    this.#updateBookDimensions(record, nextThickness, nextHeight, nextWidth);
     return true;
   }
 

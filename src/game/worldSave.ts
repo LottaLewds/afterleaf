@@ -547,6 +547,166 @@ const parseAisleSigns = (value: unknown): readonly WorldAisleSign[] => {
   });
 };
 
+type ParsedWorldOptionalFields = {
+  aisleSigns: readonly WorldAisleSign[] | undefined;
+  digitalArtFrames: readonly WorldDigitalArtFrameSave[] | undefined;
+  modelProps: readonly WorldModelPropSave[] | undefined;
+  posters: readonly WorldPosterSave[] | undefined;
+  props: readonly WorldPropSave[] | undefined;
+  shelfSigns: readonly WorldShelfSign[] | undefined;
+  television: WorldPose | undefined;
+  televisionChannels: WorldTelevisionChannels | undefined;
+  televisionModelVersion: 2 | undefined;
+  televisionVolumes: WorldTelevisionVolumes | undefined;
+  trashcan: WorldVector3 | undefined;
+};
+
+const parseOptionalWorldFields = (
+  value: Record<string, unknown>,
+): ParsedWorldOptionalFields => {
+  if (
+    value.televisionModelVersion !== undefined &&
+    value.televisionModelVersion !== 2
+  )
+    throw new Error("televisionModelVersion is unsupported");
+  return {
+    aisleSigns:
+      value.aisleSigns === undefined
+        ? undefined
+        : parseAisleSigns(value.aisleSigns),
+    digitalArtFrames:
+      value.digitalArtFrames === undefined
+        ? undefined
+        : parseDigitalArtFrames(value.digitalArtFrames),
+    modelProps:
+      value.modelProps === undefined
+        ? undefined
+        : parseModelProps(value.modelProps),
+    posters:
+      value.posters === undefined ? undefined : parsePosters(value.posters),
+    props: value.props === undefined ? undefined : parseProps(value.props),
+    shelfSigns:
+      value.shelfSigns === undefined
+        ? undefined
+        : parseShelfSigns(value.shelfSigns),
+    television:
+      value.television === undefined
+        ? undefined
+        : parsePose(value.television, "television"),
+    televisionChannels:
+      value.televisionChannels === undefined
+        ? undefined
+        : parseTelevisionChannels(value.televisionChannels),
+    televisionModelVersion: value.televisionModelVersion as 2 | undefined,
+    televisionVolumes:
+      value.televisionVolumes === undefined
+        ? undefined
+        : parseTelevisionVolumes(value.televisionVolumes),
+    trashcan:
+      value.trashcan === undefined
+        ? undefined
+        : parseVector3(value.trashcan, "trashcan"),
+  };
+};
+
+const parseSeedingVersion = (value: Record<string, unknown>) => {
+  if (value.defaultsSeeded !== undefined && value.defaultsSeeded !== true)
+    throw new Error("defaultsSeeded must be true when present");
+  // Legacy saves recorded only the first seeding pass, as a boolean flag;
+  // current saves record the pass number explicitly.
+  const rawSeedingVersion = value.seedingVersion;
+  if (rawSeedingVersion === undefined)
+    return value.defaultsSeeded === true
+      ? INITIAL_WORLD_SEEDING_VERSION
+      : undefined;
+  if (
+    typeof rawSeedingVersion !== "number" ||
+    !Number.isInteger(rawSeedingVersion) ||
+    rawSeedingVersion < INITIAL_WORLD_SEEDING_VERSION ||
+    rawSeedingVersion > WORLD_SEEDING_VERSION
+  )
+    throw new Error(
+      `seedingVersion must be an integer between ${INITIAL_WORLD_SEEDING_VERSION} and ${WORLD_SEEDING_VERSION}`,
+    );
+  return rawSeedingVersion;
+};
+
+const validateBooks = (books: readonly WorldBookSave[]) => {
+  const copyIds = new Set(books.map((book) => book.copyId));
+  if (copyIds.size !== books.length)
+    throw new Error("World save contains duplicate copy IDs");
+  const carriedBookCount = books.filter(
+    (book) => book.state === "carried",
+  ).length;
+  if (carriedBookCount > MAX_CARRIED_BOOKS)
+    throw new Error(
+      `World save cannot contain more than ${MAX_CARRIED_BOOKS} carried books`,
+    );
+};
+
+const parsePendingArrivalIds = (value: Record<string, unknown>) => {
+  if (
+    value.pendingArrivalIds !== undefined &&
+    (!Array.isArray(value.pendingArrivalIds) ||
+      value.pendingArrivalIds.length > MAX_BOOK_COUNT)
+  )
+    throw new Error("World save pending arrivals must be a bounded array");
+  const pendingArrivalIds = (value.pendingArrivalIds ?? []).map(
+    (publicationId, index) =>
+      requiredString(publicationId, `pendingArrivalIds[${index}]`),
+  );
+  if (new Set(pendingArrivalIds).size !== pendingArrivalIds.length)
+    throw new Error("World save contains duplicate pending arrival IDs");
+  return pendingArrivalIds;
+};
+
+const optionalObjectField = <T>(
+  value: T | undefined,
+  create: (value: T) => object,
+) => (value === undefined ? {} : create(value));
+
+const createNormalizedWorldSave = (
+  value: Record<string, unknown>,
+  books: readonly WorldBookSave[],
+  catalog: WorldCatalogIdentity | undefined,
+  seedingVersion: number | undefined,
+  pendingArrivalIds: readonly string[],
+  fields: ParsedWorldOptionalFields,
+): WorldSaveV1 => ({
+  ...optionalObjectField(fields.aisleSigns, (aisleSigns) => ({aisleSigns})),
+  books,
+  ...optionalObjectField(catalog, (catalog) => ({catalog})),
+  ...optionalObjectField(seedingVersion, (seedingVersion) => ({
+    seedingVersion,
+  })),
+  ...optionalObjectField(fields.digitalArtFrames, (digitalArtFrames) => ({
+    digitalArtFrames,
+  })),
+  ...optionalObjectField(fields.modelProps, (modelProps) => ({modelProps})),
+  ...optionalObjectField(
+    pendingArrivalIds.length > 0 ? pendingArrivalIds : undefined,
+    (pendingArrivalIds) => ({pendingArrivalIds}),
+  ),
+  player: parsePose(value.player, "player"),
+  ...optionalObjectField(fields.posters, (posters) => ({posters})),
+  ...optionalObjectField(fields.props, (props) => ({props})),
+  savedAt: value.savedAt as string,
+  schemaVersion: WORLD_SAVE_SCHEMA_VERSION,
+  ...optionalObjectField(fields.shelfSigns, (shelfSigns) => ({shelfSigns})),
+  ...optionalObjectField(fields.television, (television) => ({television})),
+  ...optionalObjectField(fields.televisionChannels, (televisionChannels) => ({
+    televisionChannels,
+  })),
+  ...optionalObjectField(
+    fields.televisionModelVersion,
+    (televisionModelVersion) => ({televisionModelVersion}),
+  ),
+  ...optionalObjectField(fields.televisionVolumes, (televisionVolumes) => ({
+    televisionVolumes,
+  })),
+  ...optionalObjectField(fields.trashcan, (trashcan) => ({trashcan})),
+});
+
 /**
  * Every field this parser understands, including legacy inputs it
  * normalizes away. Anything else means the writer speaks a newer save
@@ -599,113 +759,23 @@ export const parseWorldSave = (value: unknown): WorldSaveV1 => {
   const books = value.books.map((book, index) =>
     parseBook(book, `books[${index}]`),
   );
-  const shelfSigns =
-    value.shelfSigns === undefined
-      ? undefined
-      : parseShelfSigns(value.shelfSigns);
-  const aisleSigns =
-    value.aisleSigns === undefined
-      ? undefined
-      : parseAisleSigns(value.aisleSigns);
-  const trashcan =
-    value.trashcan === undefined
-      ? undefined
-      : parseVector3(value.trashcan, "trashcan");
-  const posters =
-    value.posters === undefined ? undefined : parsePosters(value.posters);
-  const digitalArtFrames =
-    value.digitalArtFrames === undefined
-      ? undefined
-      : parseDigitalArtFrames(value.digitalArtFrames);
-  const props = value.props === undefined ? undefined : parseProps(value.props);
-  const modelProps =
-    value.modelProps === undefined
-      ? undefined
-      : parseModelProps(value.modelProps);
-  if (value.defaultsSeeded !== undefined && value.defaultsSeeded !== true)
-    throw new Error("defaultsSeeded must be true when present");
-  // Legacy saves recorded only the first seeding pass, as a boolean flag;
-  // current saves record the pass number explicitly.
-  const rawSeedingVersion = value.seedingVersion;
-  let seedingVersion: number | undefined;
-  if (rawSeedingVersion === undefined) {
-    if (value.defaultsSeeded === true)
-      seedingVersion = INITIAL_WORLD_SEEDING_VERSION;
-  } else if (
-    typeof rawSeedingVersion !== "number" ||
-    !Number.isInteger(rawSeedingVersion) ||
-    rawSeedingVersion < INITIAL_WORLD_SEEDING_VERSION ||
-    rawSeedingVersion > WORLD_SEEDING_VERSION
-  ) {
-    throw new Error(
-      `seedingVersion must be an integer between ${INITIAL_WORLD_SEEDING_VERSION} and ${WORLD_SEEDING_VERSION}`,
-    );
-  } else seedingVersion = rawSeedingVersion;
-  const television =
-    value.television === undefined
-      ? undefined
-      : parsePose(value.television, "television");
-  const televisionChannels =
-    value.televisionChannels === undefined
-      ? undefined
-      : parseTelevisionChannels(value.televisionChannels);
-  const televisionVolumes =
-    value.televisionVolumes === undefined
-      ? undefined
-      : parseTelevisionVolumes(value.televisionVolumes);
-  if (
-    value.televisionModelVersion !== undefined &&
-    value.televisionModelVersion !== 2
-  )
-    throw new Error("televisionModelVersion is unsupported");
-  const televisionModelVersion = value.televisionModelVersion as 2 | undefined;
-  const copyIds = new Set(books.map((book) => book.copyId));
-  if (copyIds.size !== books.length)
-    throw new Error("World save contains duplicate copy IDs");
-  const carriedBookCount = books.filter(
-    (book) => book.state === "carried",
-  ).length;
-  if (carriedBookCount > MAX_CARRIED_BOOKS)
-    throw new Error(
-      `World save cannot contain more than ${MAX_CARRIED_BOOKS} carried books`,
-    );
-  if (
-    value.pendingArrivalIds !== undefined &&
-    (!Array.isArray(value.pendingArrivalIds) ||
-      value.pendingArrivalIds.length > MAX_BOOK_COUNT)
-  )
-    throw new Error("World save pending arrivals must be a bounded array");
-  const pendingArrivalIds = (value.pendingArrivalIds ?? []).map(
-    (publicationId, index) =>
-      requiredString(publicationId, `pendingArrivalIds[${index}]`),
-  );
-  if (new Set(pendingArrivalIds).size !== pendingArrivalIds.length)
-    throw new Error("World save contains duplicate pending arrival IDs");
+  const fields = parseOptionalWorldFields(value);
+  const seedingVersion = parseSeedingVersion(value);
+  validateBooks(books);
+  const pendingArrivalIds = parsePendingArrivalIds(value);
 
   const catalog =
     value.catalog === undefined
       ? undefined
       : parseCatalogIdentity(value.catalog, "catalog");
-  return {
-    ...(aisleSigns === undefined ? {} : {aisleSigns}),
+  return createNormalizedWorldSave(
+    value,
     books,
-    ...(catalog === undefined ? {} : {catalog}),
-    ...(seedingVersion === undefined ? {} : {seedingVersion}),
-    ...(digitalArtFrames === undefined ? {} : {digitalArtFrames}),
-    ...(modelProps === undefined ? {} : {modelProps}),
-    ...(pendingArrivalIds.length === 0 ? {} : {pendingArrivalIds}),
-    player: parsePose(value.player, "player"),
-    ...(posters === undefined ? {} : {posters}),
-    ...(props === undefined ? {} : {props}),
-    savedAt: value.savedAt,
-    schemaVersion: WORLD_SAVE_SCHEMA_VERSION,
-    ...(shelfSigns === undefined ? {} : {shelfSigns}),
-    ...(television === undefined ? {} : {television}),
-    ...(televisionChannels === undefined ? {} : {televisionChannels}),
-    ...(televisionModelVersion === undefined ? {} : {televisionModelVersion}),
-    ...(televisionVolumes === undefined ? {} : {televisionVolumes}),
-    ...(trashcan === undefined ? {} : {trashcan}),
-  };
+    catalog,
+    seedingVersion,
+    pendingArrivalIds,
+    fields,
+  );
 };
 
 /** Effective highest completed seeding pass of a save; 0 before any pass. */

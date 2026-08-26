@@ -204,7 +204,8 @@ export class InputManager {
       const forward = this.#rawGamepadForward;
       if (!forward) return;
       for (let index = 0; index < BUTTON_NAME_BY_INDEX.length; index++) {
-        const name = BUTTON_NAME_BY_INDEX[index]!;
+        const name = BUTTON_NAME_BY_INDEX[index];
+        if (!name) continue;
         if (this.gamepad.justPressed(name)) forward(name, true);
         else if (this.gamepad.justReleased(name)) forward(name, false);
       }
@@ -219,7 +220,8 @@ export class InputManager {
   isActionDown(action: ShortcutAction): boolean {
     const bindings = this.#getShortcuts()[action];
     for (let index = 0; index < bindings.length; index++) {
-      const binding = bindings[index]!;
+      const binding = bindings[index];
+      if (!binding) continue;
       if (binding.device === "keyboard") {
         if (this.#keysDown.has(binding.code)) return true;
       } else if (this.gamepad.isDown(binding.code)) return true;
@@ -272,7 +274,8 @@ export class InputManager {
     source: ActionSource,
   ) {
     for (let index = 0; index < actions.length; index++) {
-      if (this.#handleAction(actions[index]!, phase, source)) return;
+      const action = actions[index];
+      if (action && this.#handleAction(action, phase, source)) return;
     }
   }
 
@@ -290,7 +293,9 @@ export class InputManager {
       (moveRight < -LEFT_STICK_ARROW_THRESHOLD ? 4 : 0) |
       (moveRight > LEFT_STICK_ARROW_THRESHOLD ? 8 : 0);
     for (let slot = 0; slot < STICK_ARROW_SLOTS.length; slot++) {
-      const [bit, name] = STICK_ARROW_SLOTS[slot]!;
+      const arrowSlot = STICK_ARROW_SLOTS[slot];
+      if (!arrowSlot) continue;
+      const [bit, name] = arrowSlot;
       const isWanted = (wanted & bit) !== 0 ? 1 : 0;
       if (this.#stickArrows[slot] === isWanted) continue;
       this.#stickArrows[slot] = isWanted;
@@ -336,7 +341,9 @@ export class InputManager {
     const priority = actionDispatchPriority(action);
     while (
       insertAt > 0 &&
-      actionDispatchPriority(existing[insertAt - 1]!) > priority
+      existing[insertAt - 1] !== undefined &&
+      actionDispatchPriority(existing[insertAt - 1] as ShortcutAction) >
+        priority
     )
       insertAt -= 1;
     existing.splice(insertAt, 0, action);

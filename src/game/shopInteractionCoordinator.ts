@@ -77,103 +77,126 @@ export class ShopInteractionCoordinator {
     return true;
   }
 
+  #interactPlacement(): boolean {
+    const host = this.#host;
+    if (host.artFrames().placement) {
+      host.artFrames().placeDigitalArtFrame();
+      return true;
+    }
+    if (host.posters().placement) {
+      host.posters().placePoster();
+      return true;
+    }
+    if (host.props().carriedProp) {
+      host.props().dropCarriedProp();
+      return true;
+    }
+    return false;
+  }
+
+  #interactCarriedBook(): boolean {
+    const host = this.#host;
+    if (!host.carriedPublicationId()) return false;
+    const hoveredPublicationId = host.hoveredPublicationId();
+    if (hoveredPublicationId)
+      host.bookActions().pickUpBook(hoveredPublicationId);
+    else if (host.scanner().trashTargeted)
+      void host.bookActions().discardCarriedBook();
+    else if (host.scanner().shelfTargeted)
+      host.bookActions().shelveCarriedBook();
+    return true;
+  }
+
+  #interactTelevision(allowNonBookPropPickup: boolean): boolean {
+    const host = this.#host;
+    if (!host.televisionTargeted()) return false;
+    const targetedTelevision = host.targetedTelevision();
+    const televisionProp = targetedTelevision
+      ? host.props().televisionProps.get(targetedTelevision)
+      : undefined;
+    if (host.televisionInteraction() === "body" && televisionProp) {
+      if (allowNonBookPropPickup) host.props().pickUpProp(televisionProp);
+      return true;
+    }
+    targetedTelevision?.interactTargeted();
+    return true;
+  }
+
+  #interactTargetedProp(allowNonBookPropPickup: boolean): boolean {
+    const host = this.#host;
+    const targetedProp = host.targetedProp();
+    if (!targetedProp) return false;
+    if (allowNonBookPropPickup) host.props().pickUpProp(targetedProp);
+    return true;
+  }
+
+  #interactDigitalArtFrame(): boolean {
+    const host = this.#host;
+    const targetedArtFrameId = host.artFrames().targetedId;
+    if (!targetedArtFrameId) return false;
+    const record = host.artFrames().records.get(targetedArtFrameId);
+    const imageId =
+      record?.frame.currentImageId() ??
+      host
+        .artFrames()
+        .channels.find((channel) => channel.id === record?.frame.channelId())
+        ?.images[0]?.id;
+    const assetIndex = imageId
+      ? host.artFrames().assets.findIndex((asset) => asset.id === imageId)
+      : -1;
+    if (record && assetIndex >= 0)
+      host
+        .artFrames()
+        .startDigitalArtFramePlacement(
+          assetIndex,
+          record.id,
+          record.height,
+          record.rotation,
+          record.frame.aspectRatio(),
+          record.frame.fit(),
+          record.frame.intervalSeconds(),
+        );
+    return true;
+  }
+
+  #interactPoster(): boolean {
+    const host = this.#host;
+    const targetedPosterId = host.posters().targetedId;
+    if (!targetedPosterId) return false;
+    const record = host.posters().records.get(targetedPosterId);
+    const assetIndex = record
+      ? host.posters().assets.findIndex((asset) => asset.id === record.asset.id)
+      : -1;
+    if (record && assetIndex >= 0)
+      void host
+        .posters()
+        .startPosterPlacement(
+          assetIndex,
+          record.id,
+          record.height,
+          record.rotation,
+        );
+    return true;
+  }
+
   interact(allowNonBookPropPickup = true) {
     const host = this.#host;
     if (host.bookActions().discardBusy || host.bookActions().shelveAnimation)
       return;
-    if (host.artFrames().placement) {
-      host.artFrames().placeDigitalArtFrame();
-      return;
-    }
-    if (host.posters().placement) {
-      host.posters().placePoster();
-      return;
-    }
-    if (host.props().carriedProp) {
-      host.props().dropCarriedProp();
-      return;
-    }
-    if (host.carriedPublicationId()) {
-      const hoveredPublicationId = host.hoveredPublicationId();
-      if (hoveredPublicationId) {
-        host.bookActions().pickUpBook(hoveredPublicationId);
-      } else if (host.scanner().trashTargeted)
-        void host.bookActions().discardCarriedBook();
-      else if (host.scanner().shelfTargeted)
-        host.bookActions().shelveCarriedBook();
-      return;
-    }
+    if (this.#interactPlacement() || this.#interactCarriedBook()) return;
     const targetedArcadeCabinet = host.targetedArcadeCabinet();
     if (targetedArcadeCabinet) {
       targetedArcadeCabinet.interact();
       return;
     }
-    if (host.televisionTargeted()) {
-      const targetedTelevision = host.targetedTelevision();
-      const televisionProp = targetedTelevision
-        ? host.props().televisionProps.get(targetedTelevision)
-        : undefined;
-      if (host.televisionInteraction() === "body" && televisionProp) {
-        if (allowNonBookPropPickup) host.props().pickUpProp(televisionProp);
-        return;
-      }
-      targetedTelevision?.interactTargeted();
-      return;
-    }
-    const targetedProp = host.targetedProp();
-    if (targetedProp) {
-      if (allowNonBookPropPickup) host.props().pickUpProp(targetedProp);
-      return;
-    }
+    if (this.#interactTelevision(allowNonBookPropPickup)) return;
+    if (this.#interactTargetedProp(allowNonBookPropPickup)) return;
     if (host.signs().targetedKey !== undefined) {
       host.signs().requestEdit();
       return;
     }
-    const targetedArtFrameId = host.artFrames().targetedId;
-    if (targetedArtFrameId) {
-      const record = host.artFrames().records.get(targetedArtFrameId);
-      const imageId =
-        record?.frame.currentImageId() ??
-        host
-          .artFrames()
-          .channels.find((channel) => channel.id === record?.frame.channelId())
-          ?.images[0]?.id;
-      const assetIndex = imageId
-        ? host.artFrames().assets.findIndex((asset) => asset.id === imageId)
-        : -1;
-      if (record && assetIndex >= 0)
-        host
-          .artFrames()
-          .startDigitalArtFramePlacement(
-            assetIndex,
-            record.id,
-            record.height,
-            record.rotation,
-            record.frame.aspectRatio(),
-            record.frame.fit(),
-            record.frame.intervalSeconds(),
-          );
-      return;
-    }
-    const targetedPosterId = host.posters().targetedId;
-    if (targetedPosterId) {
-      const record = host.posters().records.get(targetedPosterId);
-      const assetIndex = record
-        ? host
-            .posters()
-            .assets.findIndex((asset) => asset.id === record.asset.id)
-        : -1;
-      if (record && assetIndex >= 0)
-        void host
-          .posters()
-          .startPosterPlacement(
-            assetIndex,
-            record.id,
-            record.height,
-            record.rotation,
-          );
-      return;
-    }
+    if (this.#interactDigitalArtFrame()) return;
+    if (this.#interactPoster()) return;
     const hoveredPublicationId = host.hoveredPublicationId();
     if (hoveredPublicationId)
       host.bookActions().pickUpBook(hoveredPublicationId);

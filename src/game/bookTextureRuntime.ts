@@ -50,6 +50,12 @@ export type BookTextureRuntimeHost = {
   };
 };
 
+type BookAtlasResource = {
+  coverAtlas: CatalogShelfAtlas;
+  spineAtlas: CatalogShelfAtlas;
+  textures: BookAtlasTextures;
+};
+
 /**
  * Owns the batched-atlas rendering path and the standalone cover/spine
  * texture pipeline for the shop's books. The scene drives it from
@@ -104,26 +110,11 @@ export class BookTextureRuntime {
     return texture;
   }
 
-  async initializeBookAtlasBatches(
-    items: readonly CatalogItem[],
-    revision: number,
-  ) {
-    const atlases = this.#host.catalogAtlases();
-    const atlasIndexes = [
-      ...new Set(
-        items.flatMap((item) =>
-          item.shelfAtlas === undefined ? [] : [item.shelfAtlas.index],
-        ),
-      ),
-    ];
-    const atlasResources = new Map<
-      number,
-      {
-        coverAtlas: CatalogShelfAtlas;
-        spineAtlas: CatalogShelfAtlas;
-        textures: BookAtlasTextures;
-      }
-    >();
+  async #loadBookAtlasResources(
+    atlases: CatalogAtlases,
+    atlasIndexes: readonly number[],
+  ): Promise<Map<number, BookAtlasResource> | undefined> {
+    const atlasResources = new Map<number, BookAtlasResource>();
     try {
       const loadedResources = await Promise.all(
         atlasIndexes.map(async (atlasIndex) => {
@@ -178,6 +169,26 @@ export class BookTextureRuntime {
         );
       return;
     }
+    return atlasResources;
+  }
+
+  async initializeBookAtlasBatches(
+    items: readonly CatalogItem[],
+    revision: number,
+  ) {
+    const atlases = this.#host.catalogAtlases();
+    const atlasIndexes = [
+      ...new Set(
+        items.flatMap((item) =>
+          item.shelfAtlas === undefined ? [] : [item.shelfAtlas.index],
+        ),
+      ),
+    ];
+    const atlasResources = await this.#loadBookAtlasResources(
+      atlases,
+      atlasIndexes,
+    );
+    if (!atlasResources) return;
     if (this.#host.isDisposed() || revision !== this.#revision) {
       for (const resource of atlasResources.values())
         for (const texture of Object.values(resource.textures))

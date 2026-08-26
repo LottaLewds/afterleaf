@@ -71,6 +71,11 @@ import type {InspectionCloseAction, InspectionMode} from "~/game/shopTypes";
 
 export type InspectionShelfReturnPhase = "close" | "rotate" | "translate";
 
+type InspectionPageUrls = {
+  left: string | undefined;
+  right: string | undefined;
+};
+
 /** Live accessors into the owning scene. */
 export type InspectionHost = {
   booksById: () => ReadonlyMap<string, BookRecord>;
@@ -927,23 +932,10 @@ export class InspectionController {
     this.#host.emitGameState();
   }
 
-  async prepareInspectionPageTurn(
-    record: BookRecord,
-    publication: CatalogItem,
-    nextPageIndex: number,
-    navigation: ReaderNavigation,
+  async #acquireInspectionTurnTextures(
+    currentUrls: InspectionPageUrls,
+    targetUrls: InspectionPageUrls,
   ) {
-    const revision = ++this.inspectionTurnRevision;
-    this.inspectionTurnPreparing = true;
-    this.inspectionTurnTargetPageIndex = nextPageIndex;
-    const targetUrls = this.inspectionPageUrls(publication, nextPageIndex);
-    // Hold the current spread as well: its textures stay assigned to the
-    // surface materials until the turn commits, so they must stay referenced
-    // even if a prior texture sync was invalidated and dropped its holds.
-    const currentUrls = this.inspectionPageUrls(
-      publication,
-      this.inspectionPageIndex,
-    );
     const requestedUrls = new Set(
       [
         currentUrls.left,
@@ -962,18 +954,17 @@ export class InspectionController {
         }
       }),
     );
-    if (
-      this.#host.disposed() ||
-      revision !== this.inspectionTurnRevision ||
-      this.inspectionPublication()?.id !== publication.id
-    ) {
-      for (const url of textures.keys())
-        this.inspectionPageTextureCache.release(url);
-      return;
-    }
+    return textures;
+  }
 
-    this.releaseInspectionTurnTextures();
-    this.inspectionTurnTextureUrls = new Set(textures.keys());
+  #configureInspectionTurn(
+    record: BookRecord,
+    publication: CatalogItem,
+    nextPageIndex: number,
+    navigation: ReaderNavigation,
+    targetUrls: InspectionPageUrls,
+    textures: Map<string, Texture>,
+  ) {
     const widePages = getWideReaderPageIndices(publication.pages);
     const currentSpread = getReaderSpread(
       this.inspectionPageIndex,
@@ -1066,6 +1057,49 @@ export class InspectionController {
       sourceAssembly.visible = false;
       destinationAssembly.visible = true;
     }
+  }
+
+  async prepareInspectionPageTurn(
+    record: BookRecord,
+    publication: CatalogItem,
+    nextPageIndex: number,
+    navigation: ReaderNavigation,
+  ) {
+    const revision = ++this.inspectionTurnRevision;
+    this.inspectionTurnPreparing = true;
+    this.inspectionTurnTargetPageIndex = nextPageIndex;
+    const targetUrls = this.inspectionPageUrls(publication, nextPageIndex);
+    // Hold the current spread as well: its textures stay assigned to the
+    // surface materials until the turn commits, so they must stay referenced
+    // even if a prior texture sync was invalidated and dropped its holds.
+    const currentUrls = this.inspectionPageUrls(
+      publication,
+      this.inspectionPageIndex,
+    );
+    const textures = await this.#acquireInspectionTurnTextures(
+      currentUrls,
+      targetUrls,
+    );
+    if (
+      this.#host.disposed() ||
+      revision !== this.inspectionTurnRevision ||
+      this.inspectionPublication()?.id !== publication.id
+    ) {
+      for (const url of textures.keys())
+        this.inspectionPageTextureCache.release(url);
+      return;
+    }
+
+    this.releaseInspectionTurnTextures();
+    this.inspectionTurnTextureUrls = new Set(textures.keys());
+    this.#configureInspectionTurn(
+      record,
+      publication,
+      nextPageIndex,
+      navigation,
+      targetUrls,
+      textures,
+    );
     record.inspectionTurningPage.visible = true;
     this.updateInspectionTurningPageGeometry(record, publication, 0, true);
     if (this.inspectionDragging) this.updateInspectionDragProgress();

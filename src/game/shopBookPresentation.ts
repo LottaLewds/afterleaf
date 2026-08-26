@@ -82,161 +82,173 @@ export class ShopBookPresentation {
     this.#host = host;
   }
 
+  #animatePhysicsBook(
+    publicationId: string,
+    record: BookRecord,
+    deltaSeconds: number,
+  ): boolean {
+    const host = this.#host;
+    const physicsState = host.physicsWorld().getBookState(publicationId);
+    const trappedUnderShelf =
+      physicsState === "dynamic" &&
+      host.physicsTransform().position.y < BOOK_UNDER_SHELF_RECOVERY_Y &&
+      SHOP_INTERIOR_FOOTPRINTS.some((footprint) =>
+        isPointInsideShopObstacle(host.physicsTransform().position, footprint),
+      );
+    if (
+      !host.carriedPublicationIds().includes(publicationId) &&
+      (host.physicsTransform().position.y < BOOK_VOID_RECOVERY_Y ||
+        trappedUnderShelf)
+    ) {
+      const interactionStateChanged = record.state.status !== "floor";
+      this.#respawnEscapedBook(publicationId, record);
+      return interactionStateChanged;
+    }
+    let interactionStateChanged = false;
+    if (record.state.status === "shelved" && physicsState === "dynamic") {
+      record.state = {status: "floor"};
+      interactionStateChanged = true;
+    }
+    const shelfIsStationary = record.state.status === "shelved";
+    const positionChanged =
+      !shelfIsStationary &&
+      record.basePosition.distanceToSquared(host.physicsTransform().position) >
+        1e-8;
+    const rotationChanged =
+      !shelfIsStationary &&
+      1 -
+        Math.abs(
+          dotWithPhysicsQuaternion(
+            record.mesh.quaternion,
+            host.physicsTransform().rotation,
+          ),
+        ) >
+        1e-7;
+    // Batch-rendered books stay detached; their instance matrix picks
+    // up any real pose change in #syncBookAtlasBatches.
+    if (!record.atlasPlacement?.visible && record.mesh.parent !== host.scene())
+      host.scene().attach(record.mesh);
+    record.mesh.position.copy(host.physicsTransform().position);
+    record.mesh.quaternion.copy(host.physicsTransform().rotation);
+    record.mesh.scale.setScalar(1);
+    record.basePosition.copy(host.physicsTransform().position);
+    host.physicsPoseEuler().setFromQuaternion(record.mesh.quaternion, "XYZ");
+    record.baseRotation.set(
+      host.physicsPoseEuler().x,
+      host.physicsPoseEuler().y,
+      host.physicsPoseEuler().z,
+    );
+    if (record.state.status === "shelved")
+      this.#animateShelfPreview(
+        record,
+        publicationId === host.hoveredPublicationId() &&
+          host.input().isActionDown("throw"),
+        deltaSeconds,
+      );
+    if (positionChanged || rotationChanged) {
+      host.markWorldStateDirty();
+      // A moving prop can enter or leave the reticle; re-sweep.
+      host.markScannerDirty();
+    }
+    return interactionStateChanged;
+  }
+
+  #animateLooseBook(record: BookRecord, deltaSeconds: number) {
+    const scale = MathUtils.damp(
+      record.mesh.scale.x,
+      record.targetScale,
+      13,
+      deltaSeconds,
+    );
+    record.mesh.scale.setScalar(scale);
+    record.mesh.position.x = MathUtils.damp(
+      record.mesh.position.x,
+      record.basePosition.x,
+      12,
+      deltaSeconds,
+    );
+    record.mesh.position.y = MathUtils.damp(
+      record.mesh.position.y,
+      record.basePosition.y + record.targetLift,
+      12,
+      deltaSeconds,
+    );
+    record.mesh.position.z = MathUtils.damp(
+      record.mesh.position.z,
+      record.basePosition.z,
+      12,
+      deltaSeconds,
+    );
+    record.mesh.rotation.x = MathUtils.damp(
+      record.mesh.rotation.x,
+      record.baseRotation.x,
+      12,
+      deltaSeconds,
+    );
+    record.mesh.rotation.y = MathUtils.damp(
+      record.mesh.rotation.y,
+      record.baseRotation.y,
+      12,
+      deltaSeconds,
+    );
+    record.mesh.rotation.z = MathUtils.damp(
+      record.mesh.rotation.z,
+      record.baseRotation.z,
+      12,
+      deltaSeconds,
+    );
+  }
+
+  #animateBook(
+    publicationId: string,
+    record: BookRecord,
+    deltaSeconds: number,
+  ): boolean {
+    const host = this.#host;
+    if (host.bookActions().shelveAnimation?.publicationId === publicationId)
+      return false;
+    const inspectionFocused =
+      publicationId === host.inspection().inspectionPublicationId &&
+      host.inspection().inspectionMode === "spread";
+    if (inspectionFocused || record.inspectionLightingBlend > 0)
+      host
+        .inspection()
+        .animateInspectionLighting(record, inspectionFocused, deltaSeconds);
+    if (
+      publicationId === host.inspection().inspectionPublicationId &&
+      host.inspection().inspectionMode !== "none"
+    ) {
+      this.#animateInspectedBook(record, deltaSeconds);
+      return false;
+    }
+    if (
+      host.physicsWorld().isReady &&
+      host
+        .physicsWorld()
+        .sampleInterpolatedBookTransform(publicationId, host.physicsTransform())
+    )
+      return this.#animatePhysicsBook(publicationId, record, deltaSeconds);
+    if (record.state.status === "carried") return false;
+    if (record.state.status === "shelved") {
+      this.#animateShelfPreview(
+        record,
+        publicationId === host.hoveredPublicationId() &&
+          host.input().isActionDown("throw"),
+        deltaSeconds,
+      );
+      return false;
+    }
+    this.#animateLooseBook(record, deltaSeconds);
+    return false;
+  }
+
   animate(deltaSeconds: number) {
     const host = this.#host;
     let interactionStateChanged = false;
-    for (const [publicationId, record] of host.booksById()) {
-      if (host.bookActions().shelveAnimation?.publicationId === publicationId)
-        continue;
-      const inspectionFocused =
-        publicationId === host.inspection().inspectionPublicationId &&
-        host.inspection().inspectionMode === "spread";
-      if (inspectionFocused || record.inspectionLightingBlend > 0)
-        host
-          .inspection()
-          .animateInspectionLighting(record, inspectionFocused, deltaSeconds);
-      if (
-        publicationId === host.inspection().inspectionPublicationId &&
-        host.inspection().inspectionMode !== "none"
-      ) {
-        this.#animateInspectedBook(record, deltaSeconds);
-        continue;
-      }
-      if (
-        host.physicsWorld().isReady &&
-        host
-          .physicsWorld()
-          .sampleInterpolatedBookTransform(
-            publicationId,
-            host.physicsTransform(),
-          )
-      ) {
-        const physicsState = host.physicsWorld().getBookState(publicationId);
-        const trappedUnderShelf =
-          physicsState === "dynamic" &&
-          host.physicsTransform().position.y < BOOK_UNDER_SHELF_RECOVERY_Y &&
-          SHOP_INTERIOR_FOOTPRINTS.some((footprint) =>
-            isPointInsideShopObstacle(
-              host.physicsTransform().position,
-              footprint,
-            ),
-          );
-        if (
-          !host.carriedPublicationIds().includes(publicationId) &&
-          (host.physicsTransform().position.y < BOOK_VOID_RECOVERY_Y ||
-            trappedUnderShelf)
-        ) {
-          if (record.state.status !== "floor") interactionStateChanged = true;
-          this.#respawnEscapedBook(publicationId, record);
-          continue;
-        }
-        if (record.state.status === "shelved" && physicsState === "dynamic") {
-          record.state = {status: "floor"};
-          interactionStateChanged = true;
-        }
-        const shelfIsStationary = record.state.status === "shelved";
-        const positionChanged =
-          !shelfIsStationary &&
-          record.basePosition.distanceToSquared(
-            host.physicsTransform().position,
-          ) > 1e-8;
-        const rotationChanged =
-          !shelfIsStationary &&
-          1 -
-            Math.abs(
-              dotWithPhysicsQuaternion(
-                record.mesh.quaternion,
-                host.physicsTransform().rotation,
-              ),
-            ) >
-            1e-7;
-        // Batch-rendered books stay detached; their instance matrix picks
-        // up any real pose change in #syncBookAtlasBatches.
-        if (
-          !record.atlasPlacement?.visible &&
-          record.mesh.parent !== host.scene()
-        )
-          host.scene().attach(record.mesh);
-        record.mesh.position.copy(host.physicsTransform().position);
-        record.mesh.quaternion.copy(host.physicsTransform().rotation);
-        record.mesh.scale.setScalar(1);
-        record.basePosition.copy(host.physicsTransform().position);
-        host
-          .physicsPoseEuler()
-          .setFromQuaternion(record.mesh.quaternion, "XYZ");
-        record.baseRotation.set(
-          host.physicsPoseEuler().x,
-          host.physicsPoseEuler().y,
-          host.physicsPoseEuler().z,
-        );
-        if (record.state.status === "shelved")
-          this.#animateShelfPreview(
-            record,
-            publicationId === host.hoveredPublicationId() &&
-              host.input().isActionDown("throw"),
-            deltaSeconds,
-          );
-        if (positionChanged || rotationChanged) {
-          host.markWorldStateDirty();
-          // A moving prop can enter or leave the reticle; re-sweep.
-          host.markScannerDirty();
-        }
-        continue;
-      }
-      if (record.state.status === "carried") continue;
-      if (record.state.status === "shelved") {
-        this.#animateShelfPreview(
-          record,
-          publicationId === host.hoveredPublicationId() &&
-            host.input().isActionDown("throw"),
-          deltaSeconds,
-        );
-        continue;
-      }
-      const scale = MathUtils.damp(
-        record.mesh.scale.x,
-        record.targetScale,
-        13,
-        deltaSeconds,
-      );
-      record.mesh.scale.setScalar(scale);
-      record.mesh.position.x = MathUtils.damp(
-        record.mesh.position.x,
-        record.basePosition.x,
-        12,
-        deltaSeconds,
-      );
-      record.mesh.position.y = MathUtils.damp(
-        record.mesh.position.y,
-        record.basePosition.y + record.targetLift,
-        12,
-        deltaSeconds,
-      );
-      record.mesh.position.z = MathUtils.damp(
-        record.mesh.position.z,
-        record.basePosition.z,
-        12,
-        deltaSeconds,
-      );
-      record.mesh.rotation.x = MathUtils.damp(
-        record.mesh.rotation.x,
-        record.baseRotation.x,
-        12,
-        deltaSeconds,
-      );
-      record.mesh.rotation.y = MathUtils.damp(
-        record.mesh.rotation.y,
-        record.baseRotation.y,
-        12,
-        deltaSeconds,
-      );
-      record.mesh.rotation.z = MathUtils.damp(
-        record.mesh.rotation.z,
-        record.baseRotation.z,
-        12,
-        deltaSeconds,
-      );
-    }
+    for (const [publicationId, record] of host.booksById())
+      interactionStateChanged =
+        this.#animateBook(publicationId, record, deltaSeconds) ||
+        interactionStateChanged;
     if (!interactionStateChanged) return;
     host.setInteractiveMeshes();
     host.markWorldStateDirty();

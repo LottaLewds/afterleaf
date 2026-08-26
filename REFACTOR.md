@@ -53,14 +53,14 @@ Do not replace dependency injection with a monolithic `ShopScene` reference; the
 - [ ] Add tests for carry, drop, throw, shelve, discard, catalog replacement, arrival, and save restoration.
 - [ ] Extract the repeated post-carry mutation refresh sequence from `BookCarryActions`.
 - [ ] Separate catalog/save decisions from rendering and physics synchronization in `ShopBookLifecycle.syncBooks`.
-- [ ] Split `ShopBookPresentation.animate` into inspection, physics-book, shelf-preview, and loose-book paths.
+- [x] Split `ShopBookPresentation.animate` into inspection, physics-book, shelf-preview, and loose-book paths.
 - [ ] Keep the existing physics and texture ownership boundaries while reducing host lookups.
 
 ## 5. Isolate save migration
 
-- [ ] Add tests for current saves and each supported legacy save shape.
-- [ ] Move TV-cave, legacy trash-can, and pre-seeding migration logic into `worldSaveMigration.ts`.
-- [ ] Keep `ShopWorldPersistence` focused on compatibility checks, save adoption, scheduling, and persistence.
+- [x] Add tests for current saves and each supported legacy save shape.
+- [x] Move TV-cave, legacy trash-can, and pre-seeding migration logic into `worldSaveMigration.ts`.
+- [x] Keep `ShopWorldPersistence` focused on compatibility checks, save adoption, scheduling, and persistence.
 - [ ] Define a save-version cutoff before removing legacy migration behavior; do not delete compatibility code opportunistically.
 
 ## 6. Split movable-prop responsibilities only when needed
@@ -78,11 +78,12 @@ Do not replace dependency injection with a monolithic `ShopScene` reference; the
 - [ ] Change the rule to error only after the existing baseline is below the threshold.
 - [ ] Add tests alongside each complexity reduction so the metric does not encourage behavior-changing shortcuts.
 
-The remaining configured complexity warnings are concentrated in book presentation/inspection, save parsing, texture setup, physics-book updates, shelf fixtures, and interaction coordination.
+The configured complexity scan is clear at the current `max: 30` threshold; the remaining ratchet work targets the stricter `20` threshold.
 
 ## Small cleanup while touching nearby code
 
 - [ ] Remove stale orphan comments left behind in `ShopScene.ts` and `movablePropSystem.ts`.
 - [x] Extract the duplicated shelf-book candidate collection in `InteractionScanner`.
 - [x] Replace the `INTERACTION_DISTANCE` alias with the correctly named constant or document why the two distances must remain coupled.
-- [ ] Review the redundant MangaDex status comparison and existing non-null warnings separately from the game refactor.
+- [ ] Review the redundant MangaDex status comparison separately from the game refactor.
+- [x] Review and remove the existing non-null warnings separately from the game refactor.
