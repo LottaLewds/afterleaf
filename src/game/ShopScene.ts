@@ -93,11 +93,16 @@ import {
   BUILTIN_ARCADE_CABINET_ASSET_ID,
   BUILTIN_CEILING_LIGHT_ASSET_ID,
   BUILTIN_CRT_TV_ASSET_ID,
-  BUILTIN_DESK_LAMP_ASSET_ID,
-  BUILTIN_READING_CHAIR_ASSET_ID,
-  BUILTIN_READING_TABLE_ASSET_ID,
   BUILTIN_TRASH_CAN_ASSET_ID,
 } from "~/game/propAssetIds";
+import {
+  BUILTIN_SPAWNABLE_PROP_ASSETS,
+  TEMPLATE_SPAWNED_BUILTIN_ASSET_IDS,
+  placeClonedTemplateObject,
+  type BuiltinPropTemplate,
+  type BuiltinSpawnablePropAsset,
+  type SpawnablePropAsset,
+} from "~/game/propTemplates";
 import {
   type MovablePropRegistration,
   type ReadingFurnitureMaterials,
@@ -289,7 +294,6 @@ import {
   type BookPhysicsPose,
   type MutableBookPhysicsTransform,
   type MutablePlayerMovement,
-  type PhysicsPropColliderDefinition,
 } from "~/game/ShopPhysicsWorld";
 import {
   CRT_TV_SAFE_AREA,
@@ -650,74 +654,6 @@ type PropPlacementSupport = {
   object?: Object3D;
   owner?: MovablePropRecord;
 };
-
-type BuiltinSpawnablePropAsset = {
-  id:
-    | typeof BUILTIN_CRT_TV_ASSET_ID
-    | typeof BUILTIN_READING_TABLE_ASSET_ID
-    | typeof BUILTIN_READING_CHAIR_ASSET_ID
-    | typeof BUILTIN_TRASH_CAN_ASSET_ID
-    | typeof BUILTIN_DESK_LAMP_ASSET_ID
-    | typeof BUILTIN_ARCADE_CABINET_ASSET_ID
-    | typeof BUILTIN_CEILING_LIGHT_ASSET_ID;
-  kind: "builtin";
-  label: string;
-};
-
-type SpawnablePropAsset =
-  | BuiltinSpawnablePropAsset
-  | {id: string; kind: "model"; label: string; model: ModelAsset};
-
-type BuiltinPropTemplate = {
-  colliderParts?: readonly PhysicsPropColliderDefinition[];
-  density?: number;
-  depth: number;
-  height: number;
-  heldLocalPosition: Vector3;
-  object: Object3D;
-  rotationSnapStep?: number;
-  staticWhenPlaced?: boolean;
-  width: number;
-};
-
-const BUILTIN_SPAWNABLE_PROP_ASSETS: readonly BuiltinSpawnablePropAsset[] = [
-  {id: BUILTIN_CRT_TV_ASSET_ID, kind: "builtin", label: "CRT television"},
-  {
-    id: BUILTIN_READING_TABLE_ASSET_ID,
-    kind: "builtin",
-    label: "reading table",
-  },
-  {
-    id: BUILTIN_READING_CHAIR_ASSET_ID,
-    kind: "builtin",
-    label: "reading chair",
-  },
-  {id: BUILTIN_TRASH_CAN_ASSET_ID, kind: "builtin", label: "trash can"},
-  {id: BUILTIN_DESK_LAMP_ASSET_ID, kind: "builtin", label: "desk lamp"},
-  {
-    id: BUILTIN_ARCADE_CABINET_ASSET_ID,
-    kind: "builtin",
-    label: "arcade cabinet",
-  },
-  {
-    id: BUILTIN_CEILING_LIGHT_ASSET_ID,
-    kind: "builtin",
-    label: "ceiling light",
-  },
-];
-
-/**
- * Builtin props that spawn through cached templates instead of dedicated
- * factories. Their templates can load asynchronously (the desk lamp GLB),
- * so saved restores defer quietly until #cacheBuiltinPropTemplate lands
- * them and kicks a retry.
- */
-const TEMPLATE_SPAWNED_BUILTIN_ASSET_IDS: ReadonlySet<string> = new Set([
-  BUILTIN_READING_TABLE_ASSET_ID,
-  BUILTIN_READING_CHAIR_ASSET_ID,
-  BUILTIN_DESK_LAMP_ASSET_ID,
-  BUILTIN_CEILING_LIGHT_ASSET_ID,
-]);
 
 type ModelTemplate = {
   animations: readonly AnimationClip[];
@@ -3839,18 +3775,15 @@ export class ShopScene {
     const template = this.#builtinPropTemplates.get(asset.id);
     if (!template)
       throw new Error(`${asset.label} is not ready to be spawned.`);
-    const object = cloneWithSkeleton(template.object);
-    object.name = `${asset.id}-${id}`;
-    object.scale.setScalar(scale);
-    if (pose) {
-      object.position.copy(pose.position);
-      object.quaternion.copy(pose.quaternion);
-    } else {
-      this.#camera.getWorldDirection(this.#viewDirection);
-      object.position
-        .copy(this.#camera.position)
-        .addScaledVector(this.#viewDirection, 2);
-    }
+    const object = placeClonedTemplateObject({
+      assetId: asset.id,
+      camera: this.#camera,
+      id,
+      pose,
+      scale,
+      template,
+      viewDirection: this.#viewDirection,
+    });
     object.add(...createCeilingLightRig());
     this.#scene.add(object);
     return this.#registerMovableProp({
@@ -5107,18 +5040,15 @@ export class ShopScene {
     const template = this.#builtinPropTemplates.get(asset.id);
     if (!template)
       throw new Error(`${asset.label} is not ready to be spawned.`);
-    const object = cloneWithSkeleton(template.object);
-    object.name = `${asset.id}-${id}`;
-    object.scale.setScalar(scale);
-    if (pose) {
-      object.position.copy(pose.position);
-      object.quaternion.copy(pose.quaternion);
-    } else {
-      this.#camera.getWorldDirection(this.#viewDirection);
-      object.position
-        .copy(this.#camera.position)
-        .addScaledVector(this.#viewDirection, 2);
-    }
+    const object = placeClonedTemplateObject({
+      assetId: asset.id,
+      camera: this.#camera,
+      id,
+      pose,
+      scale,
+      template,
+      viewDirection: this.#viewDirection,
+    });
     this.#scene.add(object);
     return this.#registerMovableProp({
       ...(template.density === undefined ? {} : {density: template.density}),
