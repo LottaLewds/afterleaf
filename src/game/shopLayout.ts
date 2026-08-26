@@ -333,3 +333,6 @@ export const FACE_DISPLAY_ROWS = 4;
 export const FACE_SHELF_ID = "new-arrivals";
 
 export const RARE_ROOM_DOOR_CENTER_X = 8.4;
+export const RARE_ROOM_DOOR_Z = -1.92;
+export const RARE_ROOM_CENTER_X = 8.25;
+export const RARE_ROOM_CENTER_Z = -6.25;

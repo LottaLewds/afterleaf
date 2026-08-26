@@ -7,7 +7,6 @@ import {
   BoxGeometry,
   CanvasTexture,
   Color,
-  CylinderGeometry,
   DoubleSide,
   EquirectangularReflectionMapping,
   Euler,
@@ -124,6 +123,12 @@ import {
   TRASH_CAN_HEIGHT,
   TRASH_CAN_PROP_ID,
 } from "~/game/discardBin";
+import {
+  createHallwayDoor,
+  createRareRoom,
+  DoorSystem,
+  type CreateSpineShelfFixture,
+} from "~/game/interior/doors";
 import {
   createSignVisual,
   shopSignKey,
@@ -296,10 +301,11 @@ import {
   READING_FURNITURE_BOXES,
   SHOP_BOUNDS,
   FACE_DISPLAY_COLUMNS,
+  RARE_ROOM_CENTER_X,
+  RARE_ROOM_CENTER_Z,
   FACE_DISPLAY_ROWS,
   FACE_SHELF_ID,
   FACE_DISPLAY_COLUMN_SPACING,
-  RARE_ROOM_DOOR_CENTER_X,
   SHOP_INTERIOR_FOOTPRINTS,
   SHOP_MODEL_TELEVISION_SCALE,
   SHOP_MODEL_TELEVISION_SIZE,
@@ -394,7 +400,6 @@ const HELD_BOOK_STACK_GAP = 0.012;
 const HELD_BOOK_FAN_X_SPACING = 0.105;
 const HELD_BOOK_FAN_Y_SPACING = 0.008;
 const HELD_BOOK_FAN_ANGLE = 0.1;
-const SPECIAL_COLLECTION_BACKING_THICKNESS = 0.22;
 const MAX_PIXEL_RATIO = 2;
 const PLAYER_RADIUS = 0.3;
 const WALK_SPEED = 2.65;
@@ -483,8 +488,6 @@ const IDENTITY_WORLD_QUATERNION: WorldQuaternion = Object.freeze({
 });
 const CEILING_LIGHT_COLUMNS = [-7, 0, 7] as const;
 const CEILING_LIGHT_ROWS = [-7, -1.5, 4, 9.5, 15, 20.5, 26] as const;
-const RARE_ROOM_CENTER_X = 8.25;
-const RARE_ROOM_CENTER_Z = -6.25;
 /**
  * Where ceiling-light props hang: the prop origin sits at the housing
  * center, matching the pre-seeding hard-wired fixture height.
@@ -508,7 +511,6 @@ const CEILING_LIGHT_PLACEMENTS: readonly CeilingLightPlacement[] = [
     z: RARE_ROOM_CENTER_Z,
   },
 ];
-const RARE_ROOM_DOOR_Z = -1.92;
 const LEGACY_TV_CAVE_BOUNDS = Object.freeze({
   maxX: 23.5,
   maxZ: 11.5,
@@ -518,14 +520,6 @@ const LEGACY_TV_CAVE_BOUNDS = Object.freeze({
 const SHOP_COLLISION_WORLD: ShopCollisionWorld = {
   bounds: SHOP_BOUNDS,
   obstacles: SHOP_INTERIOR_FOOTPRINTS,
-};
-
-type AutomaticDoor = {
-  centerX: number;
-  centerZ: number;
-  open: number;
-  openAngle: number;
-  pivot: Group;
 };
 
 type SpineShelfDefinition = {
@@ -907,6 +901,7 @@ export class ShopScene {
   ) => Promise<ShopMediaCatalog>;
   readonly #signs: ShopSignSystem;
   readonly #discardBin: DiscardBin;
+  readonly #doors: DoorSystem;
   readonly #input: InputManager;
   readonly #getShortcuts: () => ShortcutsConfig;
   readonly #getPadMappingOverrides: () => ArcadePadMappingOverrides;
@@ -994,14 +989,12 @@ export class ShopScene {
   });
   readonly #artFrameTextureCache = new Map<string, ArtFrameTextureCacheEntry>();
   readonly #artFrameTexturePreparationQueue: ArtFrameTexturePreparation[] = [];
-  readonly #hallwayDoors: AutomaticDoor[] = [];
   readonly #modelMixers = new Set<AnimationMixer>();
   readonly #modelTemplatePromises = new Map<string, Promise<ModelTemplate>>();
   readonly #builtinPropTemplates = new PropTemplateCache();
   readonly #propSupportBounds = new Box3();
   readonly #propPlacementSupports: PropPlacementSupport[] = [];
   readonly #raycaster = new Raycaster();
-  readonly #rareRoomDoorPivot = new Group();
   readonly #reticle = new Vector2();
   /** Frame timestamp from the animation loop; one time source per frame. */
   #frameNowMs = 0;
@@ -1185,7 +1178,6 @@ export class ShopScene {
   #propPlacementYaw = 0;
   #pendingPointerMovementX = 0;
   #pendingPointerMovementY = 0;
-  #rareRoomDoorOpen = 0;
   #pendingWorldSave: WorldSaveV1 | undefined;
   #ready = false;
   #resizeDirty = true;
@@ -1345,6 +1337,7 @@ export class ShopScene {
       releasePointerLock: () => this.#releasePointerLock(),
     });
 
+    this.#doors = new DoorSystem();
     this.#discardBin = new DiscardBin({
       ghostObject: (object) => this.#ghostObject(object),
       getMovableProp: (id) => this.#movableProps.get(id),
@@ -1882,8 +1875,16 @@ export class ShopScene {
     this.#updateCameraLook(deltaSeconds);
     this.#updateThrowCharge(deltaSeconds);
     this.#movePlayer(deltaSeconds);
-    this.#updateRareRoomDoor(deltaSeconds);
-    this.#updateHallwayDoors(deltaSeconds);
+    this.#doors.updateRareRoom(
+      deltaSeconds,
+      this.#camera.position.x,
+      this.#camera.position.z,
+    );
+    this.#doors.updateHallway(
+      deltaSeconds,
+      this.#camera.position.x,
+      this.#camera.position.z,
+    );
     this.#updateInteractionTarget();
     this.#inspectionZoom = MathUtils.damp(
       this.#inspectionZoom,
@@ -2120,12 +2121,22 @@ export class ShopScene {
           this.#registerMovableProp(registration),
       },
     );
-    this.#createRareRoom(
+    createRareRoom(
       architecture,
       wallMaterial,
       woodMaterial,
       shelfBackingMaterial,
       shelfEdgeMaterial,
+      {
+        addBox: (parent2, size, position2, material, castShadow) =>
+          this.#addBox(parent2, size, position2, material, castShadow),
+        createSpineShelfFixture: (...args) =>
+          this.#createSpineShelfFixture(
+            ...(args as Parameters<CreateSpineShelfFixture>),
+          ),
+        doors: this.#doors,
+        signs: this.#signs,
+      },
     );
     const upperFloorMaterial = this.#cloneFloorMaterial(
       floorMaterial,
@@ -2925,142 +2936,6 @@ export class ShopScene {
 
   /** Builds one procedural reading table visual (meshes only). */
 
-  #createRareRoom(
-    parent: Group,
-    wallMaterial: MeshStandardMaterial,
-    woodMaterial: MeshStandardMaterial,
-    shelfBackingMaterial: MeshStandardMaterial,
-    shelfEdgeMaterial: MeshStandardMaterial,
-  ) {
-    const carpetMaterial = new MeshStandardMaterial({
-      color: "#4d2528",
-      roughness: 1,
-    });
-    const carpet = new Mesh(new PlaneGeometry(5.25, 8.15), carpetMaterial);
-    carpet.rotation.x = -Math.PI / 2;
-    carpet.position.set(RARE_ROOM_CENTER_X, 0.012, RARE_ROOM_CENTER_Z);
-    carpet.receiveShadow = true;
-    parent.add(carpet);
-
-    this.#addBox(
-      parent,
-      [0.18, 4.55, 8.5],
-      [5.45, 2.275, RARE_ROOM_CENTER_Z],
-      wallMaterial,
-    );
-
-    this.#createSpineShelfFixture(
-      parent,
-      "special-collection",
-      5.45,
-      RARE_ROOM_CENTER_Z,
-      8.1,
-      4,
-      [-1, 1],
-      woodMaterial,
-      shelfBackingMaterial,
-      shelfEdgeMaterial,
-      SPECIAL_COLLECTION_BACKING_THICKNESS,
-    );
-    this.#addBox(parent, [2.05, 4.55, 0.18], [6.475, 2.275, -2], wallMaterial);
-    this.#addBox(parent, [1.7, 4.55, 0.18], [10.15, 2.275, -2], wallMaterial);
-    this.#addBox(parent, [2.1, 1.45, 0.18], [8.4, 3.825, -2], wallMaterial);
-
-    const frameMaterial = woodMaterial.clone();
-    frameMaterial.color.set("#7d6658");
-    frameMaterial.roughness = 0.8;
-    this.#addBox(
-      parent,
-      [0.16, 3.05, 0.28],
-      [7.43, 1.525, -1.98],
-      frameMaterial,
-      true,
-    );
-    this.#addBox(
-      parent,
-      [0.16, 3.05, 0.28],
-      [9.37, 1.525, -1.98],
-      frameMaterial,
-      true,
-    );
-    this.#addBox(
-      parent,
-      [2.1, 0.18, 0.28],
-      [8.4, 3.01, -1.98],
-      frameMaterial,
-      true,
-    );
-
-    const door = this.#rareRoomDoorPivot;
-    door.name = "special-collection-door";
-    // The door pivot animates at runtime; keep the entire subtree out of the
-    // static interior batch so its leaf meshes follow the pivot rotation.
-    door.userData.excludeFromStaticBatch = true;
-    door.position.set(7.52, 0, RARE_ROOM_DOOR_Z);
-    parent.add(door);
-    const doorMaterial = woodMaterial.clone();
-    doorMaterial.color.set("#d6b499");
-    doorMaterial.roughness = 0.72;
-    this.#addBox(door, [1.77, 2.9, 0.12], [0.885, 1.45, 0], doorMaterial, true);
-    for (const side of [-1, 1])
-      for (const y of [0.75, 2.05])
-        this.#addBox(
-          door,
-          [1.29, 0.9, 0.055],
-          [0.885, y, side * 0.085],
-          frameMaterial,
-          true,
-        );
-    const handleMaterial = new MeshStandardMaterial({
-      color: "#b89a55",
-      metalness: 0.82,
-      roughness: 0.26,
-    });
-    const handleGeometry = new CylinderGeometry(0.055, 0.055, 0.16, 14);
-    for (const side of [-1, 1]) {
-      const handle = new Mesh(handleGeometry, handleMaterial);
-      handle.position.set(1.5, 1.42, side * 0.13);
-      handle.rotation.x = Math.PI / 2;
-      handle.castShadow = true;
-      door.add(handle);
-    }
-
-    this.#signs.createRareRoomSignSlot(parent);
-  }
-
-  #updateRareRoomDoor(deltaSeconds: number) {
-    const distance = Math.hypot(
-      this.#camera.position.x - RARE_ROOM_DOOR_CENTER_X,
-      this.#camera.position.z - RARE_ROOM_DOOR_Z,
-    );
-    const target = distance < 3.35 ? 1 : 0;
-    this.#rareRoomDoorOpen = MathUtils.damp(
-      this.#rareRoomDoorOpen,
-      target,
-      target > 0 ? 9 : 5,
-      deltaSeconds,
-    );
-    this.#rareRoomDoorPivot.rotation.y =
-      this.#rareRoomDoorOpen * Math.PI * 0.52;
-  }
-
-  #updateHallwayDoors(deltaSeconds: number) {
-    for (const door of this.#hallwayDoors) {
-      const distance = Math.hypot(
-        this.#camera.position.x - door.centerX,
-        this.#camera.position.z - door.centerZ,
-      );
-      const target = distance < 3.35 ? 1 : 0;
-      door.open = MathUtils.damp(
-        door.open,
-        target,
-        target > 0 ? 9 : 5,
-        deltaSeconds,
-      );
-      door.pivot.rotation.y = door.open * door.openAngle;
-    }
-  }
-
   /**
    * Builds the shared ceiling-light spawn template: just the fixture
    * meshes, registered once so the prop is spawnable on every world.
@@ -3183,89 +3058,6 @@ export class ShopScene {
           z < 23 ? -Math.PI / 2 : Math.PI / 2,
         );
       }
-    }
-  }
-
-  #createHallwayDoor(
-    parent: Group,
-    id: string,
-    centerX: number,
-    centerZ: number,
-    wallAxis: "x" | "z",
-    corridorDirection: -1 | 1,
-    woodMaterial: MeshStandardMaterial,
-  ) {
-    const frameMaterial = woodMaterial.clone();
-    frameMaterial.color.set("#3d302a");
-    const doorMaterial = woodMaterial.clone();
-    doorMaterial.color.set("#594038");
-    const frameThickness = 0.18;
-    const framePostOffset = 1.42;
-    const frameHeaderCenterY = SHOP_UPPER_FLOOR_Y + 2.52;
-    const leafHalfWidth = framePostOffset - frameThickness / 2;
-    const leafHeight =
-      frameHeaderCenterY - frameThickness / 2 - SHOP_UPPER_FLOOR_Y;
-    const frameCenterY = SHOP_UPPER_FLOOR_Y + 1.3;
-    const doorGroup = new Group();
-    doorGroup.name = `upper-hallway-door-${id}`;
-    // Door leaves rotate with their pivots during play; they are not static
-    // architecture even though their materials match nearby trim.
-    doorGroup.userData.excludeFromStaticBatch = true;
-    doorGroup.position.set(centerX, 0, centerZ);
-    if (wallAxis === "z") doorGroup.rotation.y = Math.PI / 2;
-    parent.add(doorGroup);
-    for (const z of [-framePostOffset, framePostOffset])
-      this.#addBox(
-        doorGroup,
-        [frameThickness, 2.6, frameThickness],
-        [0, frameCenterY, z],
-        frameMaterial,
-        true,
-      );
-    this.#addBox(
-      doorGroup,
-      [frameThickness, frameThickness, 3],
-      [0, frameHeaderCenterY, 0],
-      frameMaterial,
-      true,
-    );
-    for (const side of [-1, 1] as const) {
-      const pivot = new Group();
-      pivot.name = `upper-hallway-door-${id}-${side < 0 ? "first" : "second"}`;
-      pivot.position.set(0, SHOP_UPPER_FLOOR_Y, side * leafHalfWidth);
-      doorGroup.add(pivot);
-
-      const leafCenterZ = (-side * leafHalfWidth) / 2;
-      this.#addBox(
-        pivot,
-        [0.12, leafHeight, leafHalfWidth],
-        [0, leafHeight / 2, leafCenterZ],
-        doorMaterial,
-        true,
-      );
-      for (const face of [-1, 1] as const)
-        for (const y of [0.68, 1.72])
-          this.#addBox(
-            pivot,
-            [0.055, 0.76, 0.92],
-            [face * 0.085, y, leafCenterZ],
-            frameMaterial,
-            true,
-          );
-      for (const face of [-1, 1] as const)
-        this.#addBox(
-          pivot,
-          [0.1, 0.09, 0.09],
-          [face * 0.13, 1.16, -side * 1.08],
-          frameMaterial,
-        );
-      this.#hallwayDoors.push({
-        centerX,
-        centerZ,
-        open: 0,
-        openAngle: -corridorDirection * side * Math.PI * 0.5,
-        pivot,
-      });
     }
   }
 
@@ -3598,7 +3390,14 @@ export class ShopScene {
       );
     }
 
-    this.#createHallwayDoor(
+    const doorAddBox: AddBox = (
+      parent2,
+      size,
+      position2,
+      material,
+      castShadow,
+    ) => this.#addBox(parent2, size, position2, material, castShadow);
+    for (const door of createHallwayDoor(
       parent,
       "theatre",
       SHOP_THEATRE_HALL.centerX + SHOP_THEATRE_HALL.width / 2 + 0.12,
@@ -3606,8 +3405,10 @@ export class ShopScene {
       "x",
       -1,
       woodMaterial,
-    );
-    this.#createHallwayDoor(
+      doorAddBox,
+    ))
+      this.#doors.registerHallwayDoor(door);
+    for (const door of createHallwayDoor(
       parent,
       "tv-cave",
       12.38,
@@ -3615,7 +3416,9 @@ export class ShopScene {
       "x",
       1,
       woodMaterial,
-    );
+      doorAddBox,
+    ))
+      this.#doors.registerHallwayDoor(door);
 
     createAtriumRailings(
       parent,
