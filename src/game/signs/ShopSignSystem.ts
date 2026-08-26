@@ -35,6 +35,9 @@ type ShopSignSlot = ShopSignEditRequest & {
   width: number;
 };
 
+/** Canvas texture anisotropy cap shared by every sign visual. */
+export const SIGN_TEXTURE_MAX_ANISOTROPY = 4;
+
 export const shopSignKey = (kind: ShopSignKind, id: string) => `${kind}:${id}`;
 
 /**

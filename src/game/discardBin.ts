@@ -13,7 +13,10 @@ import {DEV} from "solid-js";
 import trashCanModelUrl from "~/assets/models/trash_can.glb?url";
 import {BUILTIN_TRASH_CAN_ASSET_ID} from "~/game/propAssetIds";
 import {DEFAULT_MODEL_SCALE} from "~/game/propTuning";
-import {createSignVisual} from "~/game/signs/ShopSignSystem";
+import {
+  createSignVisual,
+  SIGN_TEXTURE_MAX_ANISOTROPY,
+} from "~/game/signs/ShopSignSystem";
 import {playModelAnimations} from "~/game/interior/lightingProps";
 import {INITIAL_WORLD_SEEDING_VERSION} from "~/game/worldSave";
 import {
@@ -26,9 +29,6 @@ import {disposeObject} from "~/game/threeDisposal";
 export const TRASH_CAN_HEIGHT = 0.9;
 export const TRASH_CAN_PROP_ID = "discard-trashcan";
 export const TRASH_CAN_SIZE = SHOP_PHYSICS_TRASH_HALF_EXTENT * 2;
-
-/** Canvas texture anisotropy cap shared by sign visuals. */
-export const SIGN_TEXTURE_MAX_ANISOTROPY = 4;
 
 /** Minimal movable-prop surface the discard bin needs to inspect. */
 export type DiscardBinTargetRecord = {

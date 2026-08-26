@@ -117,6 +117,7 @@ import {
 import {
   createSignVisual,
   shopSignKey,
+  SIGN_TEXTURE_MAX_ANISOTROPY,
   ShopSignSystem,
   type ShopSignEditRequest,
   type ShopSignKind,
@@ -392,7 +393,6 @@ const SPECIAL_COLLECTION_BACKING_THICKNESS = 0.22;
 const BOOK_HEIGHT = 0.74;
 const BOOK_VOID_RECOVERY_Y = -BOOK_HEIGHT / 2;
 const BOOK_UNDER_SHELF_RECOVERY_Y = BOOK_HEIGHT / 2;
-const SIGN_TEXTURE_MAX_ANISOTROPY = 4;
 const MAX_PIXEL_RATIO = 2;
 const PLAYER_RADIUS = 0.3;
 const WALK_SPEED = 2.65;
