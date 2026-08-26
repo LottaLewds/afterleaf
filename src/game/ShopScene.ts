@@ -120,6 +120,7 @@ import {ArtFrameTextureCache} from "~/game/artFrameTextureCache";
 import type {DigitalArtFramePasteTarget} from "~/game/artFrameSystem";
 import {ArtFrameSystem} from "~/game/artFrameSystem";
 import {BookTextureRuntime} from "~/game/bookTextureRuntime";
+import {createWorldSave} from "~/game/worldSaveSnapshot";
 import {TvVideoImporter} from "~/game/tvVideoImporter";
 import {PosterSystem} from "~/game/posters/PosterSystem";
 import {
@@ -310,15 +311,12 @@ import type {ModelAsset} from "~/models/protocol";
 import {
   INITIAL_WORLD_SEEDING_VERSION,
   MAX_CARRIED_BOOKS,
-  WORLD_SAVE_SCHEMA_VERSION,
   WORLD_SEEDING_VERSION,
   worldSaveCanReconcileCatalog,
   worldSaveMatchesCatalog,
   worldSaveSeedingVersion,
   type WorldBookSave,
-  type WorldDigitalArtFrameSave,
   type WorldModelPropSave,
-  type WorldPosterSave,
   type WorldPropSave,
   type WorldQuaternion,
   type WorldSaveV1,
@@ -8831,233 +8829,6 @@ export class ShopScene {
     this.#emitGameState();
   }
 
-  #createWorldSave(): WorldSaveV1 {
-    const books: WorldBookSave[] = [];
-    for (const [publicationId, record] of this.#booksById) {
-      if (this.#discardedPublicationIds.has(publicationId)) continue;
-      let position: Vector3;
-      let quaternion: Quaternion;
-      if (record.state.status === "shelved") {
-        position = record.basePosition;
-        quaternion = new Quaternion().setFromEuler(
-          new Euler(
-            record.baseRotation.x,
-            record.baseRotation.y,
-            record.baseRotation.z,
-            "XYZ",
-          ),
-        );
-      } else {
-        record.mesh.updateWorldMatrix(true, false);
-        position = record.mesh.getWorldPosition(new Vector3());
-        quaternion = record.mesh.getWorldQuaternion(new Quaternion());
-      }
-      const base = {
-        copyId: publicationId,
-        pose: {
-          position: {x: position.x, y: position.y, z: position.z},
-          quaternion: {
-            w: quaternion.w,
-            x: quaternion.x,
-            y: quaternion.y,
-            z: quaternion.z,
-          },
-        },
-        publicationId,
-      };
-      if (record.state.status === "shelved") {
-        books.push({
-          ...base,
-          shelf: {
-            presentation: record.shelfPresentation,
-            shelfId: record.state.shelfId,
-            slotIndex: record.state.slotIndex,
-          },
-          state: "shelved",
-        });
-        continue;
-      }
-      books.push({...base, state: record.state.status});
-    }
-    const catalog = this.#catalogIdentity();
-    const playerQuaternion = this.#camera.quaternion;
-    const shelfSigns = [...this.#signs.slots.values()].flatMap((slot) =>
-      slot.kind === "shelf" && slot.column !== undefined && slot.title
-        ? [
-            {
-              column: slot.column,
-              ...(slot.subtitle ? {subtitle: slot.subtitle} : {}),
-              text: slot.title,
-            },
-          ]
-        : [],
-    );
-    const aisleSigns = [...this.#signs.slots.values()].flatMap((slot) =>
-      slot.kind === "aisle" && slot.title
-        ? [
-            {
-              id: slot.id,
-              ...(slot.subtitle ? {subtitle: slot.subtitle} : {}),
-              title: slot.title,
-            },
-          ]
-        : [],
-    );
-    const posters: WorldPosterSave[] = [
-      ...this.#posters.pendingSaves.filter(
-        (savedPoster) => !this.#posters.records.has(savedPoster.id),
-      ),
-      ...[...this.#posters.records.values()]
-        .sort((left, right) => left.depthLayer - right.depthLayer)
-        .map((record) => {
-          record.mesh.updateWorldMatrix(true, false);
-          const position = record.mesh.getWorldPosition(new Vector3());
-          const quaternion = record.mesh.getWorldQuaternion(new Quaternion());
-          return {
-            assetId: record.asset.id,
-            height: record.height,
-            id: record.id,
-            pose: {
-              position: {x: position.x, y: position.y, z: position.z},
-              quaternion: {
-                w: quaternion.w,
-                x: quaternion.x,
-                y: quaternion.y,
-                z: quaternion.z,
-              },
-            },
-            rotation: record.rotation,
-          };
-        }),
-    ];
-    const digitalArtFrames: WorldDigitalArtFrameSave[] = [
-      ...(
-        this.#artFrames.pendingSaves as readonly WorldDigitalArtFrameSave[]
-      ).filter((savedFrame) => !this.#artFrames.records.has(savedFrame.id)),
-      ...[...this.#artFrames.records.values()].map((record) => {
-        record.frame.object.updateWorldMatrix(true, false);
-        const position = record.frame.object.getWorldPosition(new Vector3());
-        const quaternion = record.frame.object.getWorldQuaternion(
-          new Quaternion(),
-        );
-        const currentImageId = record.frame.currentImageId();
-        return {
-          aspectRatio: record.frame.aspectRatio(),
-          channelId: record.frame.channelId(),
-          ...(currentImageId ? {currentImageId} : {}),
-          fit: record.frame.fit(),
-          height: record.height,
-          id: record.id,
-          intervalSeconds: record.frame.intervalSeconds(),
-          pose: {
-            position: {x: position.x, y: position.y, z: position.z},
-            quaternion: {
-              w: quaternion.w,
-              x: quaternion.x,
-              y: quaternion.y,
-              z: quaternion.z,
-            },
-          },
-          rotation: record.rotation,
-        };
-      }),
-    ];
-    const televisionChannels: Record<string, string> = {};
-    const televisionVolumes: Record<string, number> = {};
-    for (const [saveId, savedTelevision] of this.#televisionsBySaveId) {
-      const channelId = savedTelevision.selectedChannelId();
-      if (channelId) televisionChannels[saveId] = channelId;
-      televisionVolumes[saveId] = savedTelevision.volumeLevel();
-    }
-    // Every movable prop persists. Asset-backed props live in modelProps;
-    // the plain props list only carries legacy pose-only leftovers from
-    // pre-seeding saves that no registration has claimed yet.
-    const props: WorldPropSave[] = [
-      ...[...this.#pendingPropSaves.values()].filter(
-        (savedProp) => !this.#movableProps.has(savedProp.id),
-      ),
-    ];
-    const modelProps: WorldModelPropSave[] = [
-      ...this.#pendingModelPropSaves.filter(
-        (savedProp) => !this.#movableProps.has(savedProp.id),
-      ),
-      ...[...this.#movableProps.values()].flatMap((record) => {
-        const assetId = record.spawnAssetId;
-        if (!assetId) return [];
-        const animationClip = record.modelAnimations
-          ? (record.modelAnimations[record.modelAnimationIndex ?? 0]?.name ??
-            null)
-          : undefined;
-        record.object.updateWorldMatrix(true, false);
-        const position = record.object.getWorldPosition(new Vector3());
-        const quaternion = record.object.getWorldQuaternion(new Quaternion());
-        return [
-          {
-            ...(animationClip === undefined ? {} : {animationClip}),
-            assetId,
-            id: record.id,
-            ...(record.locked ? {locked: true} : {}),
-            pose: {
-              position: {x: position.x, y: position.y, z: position.z},
-              quaternion: {
-                w: quaternion.w,
-                x: quaternion.x,
-                y: quaternion.y,
-                z: quaternion.z,
-              },
-            },
-            scale: record.modelScale ?? 1,
-          },
-        ];
-      }),
-    ];
-    return {
-      aisleSigns,
-      books,
-      catalog: {
-        catalogContentHash: catalog.catalogContentHash,
-        packId: catalog.packId,
-        ...(catalog.snapshotId === undefined
-          ? {}
-          : {snapshotId: catalog.snapshotId}),
-      },
-      // From here on the world owns its default props: this version stops
-      // the boot-time seed passes from re-creating deleted or moved
-      // defaults.
-      seedingVersion: WORLD_SEEDING_VERSION,
-      ...(modelProps.length > 0 ? {modelProps} : {}),
-      digitalArtFrames,
-      player: {
-        position: {
-          x: this.#camera.position.x,
-          y: this.#camera.position.y,
-          z: this.#camera.position.z,
-        },
-        quaternion: {
-          w: playerQuaternion.w,
-          x: playerQuaternion.x,
-          y: playerQuaternion.y,
-          z: playerQuaternion.z,
-        },
-      },
-      posters,
-      props,
-      savedAt: new Date().toISOString(),
-      schemaVersion: WORLD_SAVE_SCHEMA_VERSION,
-      shelfSigns,
-      // Default movable props live in modelProps; the top-level pose field
-      // only existed for the pre-seeding movable television.
-      televisionChannels,
-      televisionModelVersion: 2,
-      televisionVolumes,
-      trashcan: {
-        x: this.#discardBin.position.x,
-        y: 0,
-        z: this.#discardBin.position.z,
-      },
-    };
-  }
-
   readonly #scheduleWorldSave = () => {
     if (
       this.#disposed ||
@@ -9111,7 +8882,22 @@ export class ShopScene {
       return;
     this.#worldStateDirty = false;
     try {
-      const persisted = this.#onWorldSave(this.#createWorldSave());
+      const persisted = this.#onWorldSave(
+        createWorldSave({
+          artFrames: this.#artFrames,
+          books: this.#booksById,
+          camera: this.#camera,
+          catalogIdentity: () => this.#catalogIdentity(),
+          discardedPublicationIds: this.#discardedPublicationIds,
+          discardBin: this.#discardBin,
+          movableProps: this.#movableProps,
+          pendingModelPropSaves: this.#pendingModelPropSaves,
+          pendingPropSaves: this.#pendingPropSaves,
+          posters: this.#posters,
+          signs: this.#signs,
+          televisionsBySaveId: this.#televisionsBySaveId,
+        }),
+      );
       if (!(persisted instanceof Promise)) {
         if (persisted === false) this.#worldStateDirty = true;
         return;
