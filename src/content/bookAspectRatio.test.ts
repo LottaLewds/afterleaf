@@ -1,8 +1,5 @@
 import {expect, test} from "bun:test";
-import {
-  bookAspectRatioSamplePageIndices,
-  inferRepresentativeBookAspectRatio,
-} from "~/content/bookAspectRatio";
+import {bookAspectRatioSamplePageIndices, inferRepresentativeBookAspectRatio} from "~/content/bookAspectRatio";
 
 test("samples early interior pages plus two adjacent midpoint pages", () => {
   expect(bookAspectRatioSamplePageIndices(20)).toEqual([1, 2, 9, 10]);

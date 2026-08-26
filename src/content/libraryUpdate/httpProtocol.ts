@@ -27,8 +27,7 @@ const MAX_PASTED_TEXT_LENGTH = 16_384;
 const MAX_BLOCKED_TAG_COUNT = 100;
 const MAX_BLOCKED_TAG_LENGTH = 100;
 const MAX_RESPONSE_STRING_LENGTH = 2_048;
-const JOB_ID_PATTERN =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
+const JOB_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
 const PUBLICATION_ID_PATTERN = /^[a-z0-9][a-z0-9._-]{0,199}$/u;
 const PROVIDER_ID_PATTERN = /^[a-z][a-z0-9-]{0,63}$/u;
 
@@ -156,13 +155,9 @@ export type LibraryProvidersHttpSuccess = {
   providers: readonly LibraryProviderDescriptor[];
 };
 
-export type LibraryProvidersHttpResponse =
-  | LibraryOperationHttpFailure
-  | LibraryProvidersHttpSuccess;
+export type LibraryProvidersHttpResponse = LibraryOperationHttpFailure | LibraryProvidersHttpSuccess;
 
-export type LibraryPasteResolveHttpResponse =
-  | LibraryOperationHttpFailure
-  | LibraryPasteResolveHttpSuccess;
+export type LibraryPasteResolveHttpResponse = LibraryOperationHttpFailure | LibraryPasteResolveHttpSuccess;
 
 export type LibrarySourceStatusHttpSuccess = {
   ok: true;
@@ -170,20 +165,13 @@ export type LibrarySourceStatusHttpSuccess = {
   unavailableBookPathCount: number;
 };
 
-export type LibrarySourceStatusHttpResponse =
-  | LibraryOperationHttpFailure
-  | LibrarySourceStatusHttpSuccess;
+export type LibrarySourceStatusHttpResponse = LibraryOperationHttpFailure | LibrarySourceStatusHttpSuccess;
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
-const requireExactKeys = (
-  value: unknown,
-  expectedKeys: readonly string[],
-  operation: string,
-) => {
-  if (!isRecord(value))
-    throw new Error(`Library ${operation} request must be an object`);
+const requireExactKeys = (value: unknown, expectedKeys: readonly string[], operation: string) => {
+  if (!isRecord(value)) throw new Error(`Library ${operation} request must be an object`);
   const actualKeys = Object.keys(value).sort();
   const sortedExpectedKeys = [...expectedKeys].sort();
   if (
@@ -195,11 +183,7 @@ const requireExactKeys = (
 };
 
 const boundedString = (value: unknown, field: string) => {
-  if (
-    typeof value !== "string" ||
-    value.length === 0 ||
-    value.length > MAX_RESPONSE_STRING_LENGTH
-  )
+  if (typeof value !== "string" || value.length === 0 || value.length > MAX_RESPONSE_STRING_LENGTH)
     throw new Error(`${field} must be a non-empty bounded string`);
   return value;
 };
@@ -217,8 +201,7 @@ const providerId = (value: unknown) => {
 };
 
 export const parseLibraryJobId = (value: unknown) => {
-  if (typeof value !== "string" || !JOB_ID_PATTERN.test(value))
-    throw new Error("jobId must be a UUID");
+  if (typeof value !== "string" || !JOB_ID_PATTERN.test(value)) throw new Error("jobId must be a UUID");
   return value;
 };
 
@@ -228,12 +211,9 @@ const nonNegativeInteger = (value: unknown, field: string) => {
   return Number(value);
 };
 
-const parseFailure = (
-  value: Record<string, unknown>,
-): LibraryOperationHttpFailure | undefined => {
+const parseFailure = (value: Record<string, unknown>): LibraryOperationHttpFailure | undefined => {
   if (value.ok !== false) return;
-  if (!isRecord(value.error))
-    throw new Error("Library operation error response is malformed");
+  if (!isRecord(value.error)) throw new Error("Library operation error response is malformed");
   return {
     error: {
       code: boundedString(value.error.code, "error.code"),
@@ -244,60 +224,40 @@ const parseFailure = (
 };
 
 export const parseLibraryScanRequest = (value: unknown): LibraryScanRequest => {
-  if (!isRecord(value))
-    throw new Error("Library scan request must be an object");
+  if (!isRecord(value)) throw new Error("Library scan request must be an object");
   const expectedKeys = [
-    ...(value.redownloadProviderAssets === undefined
-      ? []
-      : ["redownloadProviderAssets"]),
+    ...(value.redownloadProviderAssets === undefined ? [] : ["redownloadProviderAssets"]),
     ...(value.repair === undefined ? [] : ["repair"]),
-    ...(value.repairProviderMetadata === undefined
-      ? []
-      : ["repairProviderMetadata"]),
+    ...(value.repairProviderMetadata === undefined ? [] : ["repairProviderMetadata"]),
   ];
   const request = requireExactKeys(value, expectedKeys, "scan");
   const parseFlag = (field: string): boolean | undefined => {
     const flag = request[field];
     if (flag === undefined) return undefined;
-    if (typeof flag !== "boolean")
-      throw new Error(`Library scan ${field} must be a boolean`);
+    if (typeof flag !== "boolean") throw new Error(`Library scan ${field} must be a boolean`);
     return flag;
   };
   const redownloadProviderAssets = parseFlag("redownloadProviderAssets");
   const repair = parseFlag("repair");
   const repairProviderMetadata = parseFlag("repairProviderMetadata");
-  if (
-    repair !== true &&
-    (repairProviderMetadata === true || redownloadProviderAssets === true)
-  )
+  if (repair !== true && (repairProviderMetadata === true || redownloadProviderAssets === true))
     throw new Error("Remote repair options require a deep repair scan");
   return {
-    ...(redownloadProviderAssets === undefined
-      ? {}
-      : {redownloadProviderAssets}),
+    ...(redownloadProviderAssets === undefined ? {} : {redownloadProviderAssets}),
     ...(repair === undefined ? {} : {repair}),
     ...(repairProviderMetadata === undefined ? {} : {repairProviderMetadata}),
   };
 };
 
-export const parseLibraryPasteResolveRequest = (
-  value: unknown,
-): LibraryPasteResolveRequest => {
+export const parseLibraryPasteResolveRequest = (value: unknown): LibraryPasteResolveRequest => {
   const request = requireExactKeys(value, ["text"], "resolve-paste");
-  if (
-    typeof request.text !== "string" ||
-    request.text.length === 0 ||
-    request.text.length > MAX_PASTED_TEXT_LENGTH
-  )
+  if (typeof request.text !== "string" || request.text.length === 0 || request.text.length > MAX_PASTED_TEXT_LENGTH)
     throw new Error("Pasted text must be a non-empty bounded string");
   return {text: request.text};
 };
 
-export const parseLibraryFetchMoreRequest = (
-  value: unknown,
-): LibraryFetchMoreRequest => {
-  if (!isRecord(value))
-    throw new Error("Library fetch-more request must be an object");
+export const parseLibraryFetchMoreRequest = (value: unknown): LibraryFetchMoreRequest => {
+  if (!isRecord(value)) throw new Error("Library fetch-more request must be an object");
   const expectedKeys = [
     ...(value.blockedTags === undefined ? [] : ["blockedTags"]),
     ...(value.limit === undefined ? [] : ["limit"]),
@@ -313,25 +273,16 @@ export const parseLibraryFetchMoreRequest = (
       blockedTags.length > MAX_BLOCKED_TAG_COUNT ||
       !blockedTags.every(
         (tag) =>
-          typeof tag === "string" &&
-          tag.length > 0 &&
-          tag.length <= MAX_BLOCKED_TAG_LENGTH &&
-          !/[\p{Cc}]/u.test(tag),
+          typeof tag === "string" && tag.length > 0 && tag.length <= MAX_BLOCKED_TAG_LENGTH && !/[\p{Cc}]/u.test(tag),
       ))
   )
-    throw new Error(
-      `blockedTags must contain at most ${MAX_BLOCKED_TAG_COUNT} bounded tags`,
-    );
+    throw new Error(`blockedTags must contain at most ${MAX_BLOCKED_TAG_COUNT} bounded tags`);
   const limit = request.limit;
   if (
     limit !== undefined &&
-    (!Number.isSafeInteger(limit) ||
-      Number(limit) < MIN_LIBRARY_FETCH_LIMIT ||
-      Number(limit) > MAX_LIBRARY_FETCH_LIMIT)
+    (!Number.isSafeInteger(limit) || Number(limit) < MIN_LIBRARY_FETCH_LIMIT || Number(limit) > MAX_LIBRARY_FETCH_LIMIT)
   )
-    throw new Error(
-      `limit must be an integer from ${MIN_LIBRARY_FETCH_LIMIT} to ${MAX_LIBRARY_FETCH_LIMIT}`,
-    );
+    throw new Error(`limit must be an integer from ${MIN_LIBRARY_FETCH_LIMIT} to ${MAX_LIBRARY_FETCH_LIMIT}`);
   const maxSearchPages = request.maxSearchPages;
   if (
     maxSearchPages !== undefined &&
@@ -342,39 +293,24 @@ export const parseLibraryFetchMoreRequest = (
     throw new Error(
       `maxSearchPages must be an integer from ${MIN_LIBRARY_SEARCH_PAGE_LIMIT} to ${MAX_LIBRARY_SEARCH_PAGE_LIMIT}`,
     );
-  const query =
-    typeof request.query === "string" ? request.query.trim() : undefined;
-  if (
-    query !== undefined &&
-    (query.length === 0 || query.length > 100 || /[\p{Cc}]/u.test(query))
-  )
+  const query = typeof request.query === "string" ? request.query.trim() : undefined;
+  if (query !== undefined && (query.length === 0 || query.length > 100 || /[\p{Cc}]/u.test(query)))
     throw new Error("query must be a non-empty bounded query");
-  const normalizedProviderId =
-    request.providerId === undefined
-      ? undefined
-      : providerId(request.providerId);
+  const normalizedProviderId = request.providerId === undefined ? undefined : providerId(request.providerId);
   return {
     ...(blockedTags === undefined ? {} : {blockedTags: [...blockedTags]}),
     ...(limit === undefined ? {} : {limit: Number(limit)}),
-    ...(maxSearchPages === undefined
-      ? {}
-      : {maxSearchPages: Number(maxSearchPages)}),
-    ...(normalizedProviderId === undefined
-      ? {}
-      : {providerId: normalizedProviderId}),
+    ...(maxSearchPages === undefined ? {} : {maxSearchPages: Number(maxSearchPages)}),
+    ...(normalizedProviderId === undefined ? {} : {providerId: normalizedProviderId}),
     ...(query === undefined ? {} : {query}),
   };
 };
 
-export const parseLibraryProvidersHttpResponse = (
-  value: unknown,
-): LibraryProvidersHttpResponse => {
-  if (!isRecord(value))
-    throw new Error("Library providers response must be an object");
+export const parseLibraryProvidersHttpResponse = (value: unknown): LibraryProvidersHttpResponse => {
+  if (!isRecord(value)) throw new Error("Library providers response must be an object");
   const failure = parseFailure(value);
   if (failure) return failure;
-  if (value.ok !== true || !Array.isArray(value.providers))
-    throw new Error("Library providers response is malformed");
+  if (value.ok !== true || !Array.isArray(value.providers)) throw new Error("Library providers response is malformed");
   return {
     ok: true,
     providers: value.providers.map((provider, index) =>
@@ -383,18 +319,13 @@ export const parseLibraryProvidersHttpResponse = (
   };
 };
 
-export const parseLibraryPasteResolveHttpResponse = (
-  value: unknown,
-): LibraryPasteResolveHttpResponse => {
-  if (!isRecord(value))
-    throw new Error("Library paste resolution response must be an object");
+export const parseLibraryPasteResolveHttpResponse = (value: unknown): LibraryPasteResolveHttpResponse => {
+  if (!isRecord(value)) throw new Error("Library paste resolution response must be an object");
   const failure = parseFailure(value);
   if (failure) return failure;
-  if (value.ok !== true)
-    throw new Error("Library paste resolution response is malformed");
+  if (value.ok !== true) throw new Error("Library paste resolution response is malformed");
   if (value.match === undefined) return {ok: true};
-  if (!isRecord(value.match))
-    throw new Error("Library paste resolution match must be an object");
+  if (!isRecord(value.match)) throw new Error("Library paste resolution match must be an object");
   const match = value.match;
   const query = typeof match.query === "string" ? match.query.trim() : "";
   if (!query || query.length > 100 || /[\p{Cc}]/u.test(query))
@@ -402,46 +333,31 @@ export const parseLibraryPasteResolveHttpResponse = (
   return {
     match: {
       providerId: providerId(match.providerId),
-      ...(match.publicationId === undefined
-        ? {}
-        : {publicationId: publicationId(match.publicationId)}),
+      ...(match.publicationId === undefined ? {} : {publicationId: publicationId(match.publicationId)}),
       query,
     },
     ok: true,
   };
 };
 
-export const parseLibrarySourceStatusHttpResponse = (
-  value: unknown,
-): LibrarySourceStatusHttpResponse => {
-  if (!isRecord(value))
-    throw new Error("Library source-status response must be an object");
+export const parseLibrarySourceStatusHttpResponse = (value: unknown): LibrarySourceStatusHttpResponse => {
+  if (!isRecord(value)) throw new Error("Library source-status response must be an object");
   const failure = parseFailure(value);
   if (failure) return failure;
-  if (value.ok !== true)
-    throw new Error("Library source-status response is malformed");
+  if (value.ok !== true) throw new Error("Library source-status response is malformed");
   if (
     !Array.isArray(value.reenrollableBookPaths) ||
-    !value.reenrollableBookPaths.every(
-      (path) => typeof path === "string" && path.length > 0,
-    )
+    !value.reenrollableBookPaths.every((path) => typeof path === "string" && path.length > 0)
   )
-    throw new Error(
-      "Library source-status reenrollableBookPaths must be an array of paths",
-    );
+    throw new Error("Library source-status reenrollableBookPaths must be an array of paths");
   return {
     ok: true,
     reenrollableBookPaths: value.reenrollableBookPaths,
-    unavailableBookPathCount: nonNegativeInteger(
-      value.unavailableBookPathCount,
-      "unavailableBookPathCount",
-    ),
+    unavailableBookPathCount: nonNegativeInteger(value.unavailableBookPathCount, "unavailableBookPathCount"),
   };
 };
 
-export const parseLibraryBlacklistRequest = (
-  value: unknown,
-): LibraryBlacklistRequest => {
+export const parseLibraryBlacklistRequest = (value: unknown): LibraryBlacklistRequest => {
   const request = requireExactKeys(value, ["publicationId"], "blacklist");
   return {publicationId: publicationId(request.publicationId)};
 };
@@ -449,8 +365,7 @@ export const parseLibraryBlacklistRequest = (
 export const parseLibrarySnapshotHttpResponse = (
   value: unknown,
 ): LibraryOperationHttpFailure | LibrarySnapshotHttpSuccess => {
-  if (!isRecord(value))
-    throw new Error("Library snapshot response must be an object");
+  if (!isRecord(value)) throw new Error("Library snapshot response must be an object");
   const failure = parseFailure(value);
   if (failure) return failure;
   if (
@@ -462,39 +377,18 @@ export const parseLibrarySnapshotHttpResponse = (
     throw new Error("Library snapshot success response is malformed");
   return {
     changes: {
-      addedCount: nonNegativeInteger(
-        value.changes.addedCount,
-        "changes.addedCount",
-      ),
-      removedCount: nonNegativeInteger(
-        value.changes.removedCount,
-        "changes.removedCount",
-      ),
-      unchangedCount: nonNegativeInteger(
-        value.changes.unchangedCount,
-        "changes.unchangedCount",
-      ),
-      updatedCount: nonNegativeInteger(
-        value.changes.updatedCount,
-        "changes.updatedCount",
-      ),
+      addedCount: nonNegativeInteger(value.changes.addedCount, "changes.addedCount"),
+      removedCount: nonNegativeInteger(value.changes.removedCount, "changes.removedCount"),
+      unchangedCount: nonNegativeInteger(value.changes.unchangedCount, "changes.unchangedCount"),
+      updatedCount: nonNegativeInteger(value.changes.updatedCount, "changes.updatedCount"),
     },
     ok: true,
     operation: value.operation,
     snapshot: {
-      catalogContentHash: boundedString(
-        value.snapshot.catalogContentHash,
-        "snapshot.catalogContentHash",
-      ),
+      catalogContentHash: boundedString(value.snapshot.catalogContentHash, "snapshot.catalogContentHash"),
       packId: boundedString(value.snapshot.packId, "snapshot.packId"),
-      publicationCount: nonNegativeInteger(
-        value.snapshot.publicationCount,
-        "snapshot.publicationCount",
-      ),
-      snapshotId: boundedString(
-        value.snapshot.snapshotId,
-        "snapshot.snapshotId",
-      ),
+      publicationCount: nonNegativeInteger(value.snapshot.publicationCount, "snapshot.publicationCount"),
+      snapshotId: boundedString(value.snapshot.snapshotId, "snapshot.snapshotId"),
     },
   };
 };
@@ -502,8 +396,7 @@ export const parseLibrarySnapshotHttpResponse = (
 export const parseLibraryOperationStartHttpResponse = (
   value: unknown,
 ): LibraryOperationStartHttpSuccess | LibraryOperationHttpFailure => {
-  if (!isRecord(value))
-    throw new Error("Library operation-start response must be an object");
+  if (!isRecord(value)) throw new Error("Library operation-start response must be an object");
   const failure = parseFailure(value);
   if (failure) return failure;
   if (
@@ -523,41 +416,25 @@ export const parseLibraryOperationStartHttpResponse = (
 export const parseLibraryOperationStatusHttpResponse = (
   value: unknown,
 ): LibraryOperationStatusHttpSuccess | LibraryOperationHttpFailure => {
-  if (!isRecord(value))
-    throw new Error("Library operation-status response must be an object");
+  if (!isRecord(value)) throw new Error("Library operation-status response must be an object");
   const failure = parseFailure(value);
   if (failure) return failure;
   if (
     value.ok !== true ||
-    (value.state !== "running" &&
-      value.state !== "succeeded" &&
-      value.state !== "failed") ||
+    (value.state !== "running" && value.state !== "succeeded" && value.state !== "failed") ||
     (value.operation !== "scan" && value.operation !== "fetch-more")
   )
     throw new Error("Library operation-status response is malformed");
-  const completedSteps = nonNegativeInteger(
-    value.completedSteps,
-    "completedSteps",
-  );
+  const completedSteps = nonNegativeInteger(value.completedSteps, "completedSteps");
   const totalSteps = nonNegativeInteger(value.totalSteps, "totalSteps");
-  if (completedSteps > totalSteps)
-    throw new Error("completedSteps cannot exceed totalSteps");
+  if (completedSteps > totalSteps) throw new Error("completedSteps cannot exceed totalSteps");
   let subProgress: LibraryOperationStatusBase["subProgress"];
   if (value.subProgress !== undefined) {
-    if (!isRecord(value.subProgress))
-      throw new Error("subProgress must be an object");
-    const subCompleted = nonNegativeInteger(
-      value.subProgress.completed,
-      "subProgress.completed",
-    );
-    const subTotal = nonNegativeInteger(
-      value.subProgress.total,
-      "subProgress.total",
-    );
-    if (subTotal <= 0)
-      throw new Error("subProgress.total must be a positive integer");
-    if (subCompleted > subTotal)
-      throw new Error("subProgress.completed cannot exceed subProgress.total");
+    if (!isRecord(value.subProgress)) throw new Error("subProgress must be an object");
+    const subCompleted = nonNegativeInteger(value.subProgress.completed, "subProgress.completed");
+    const subTotal = nonNegativeInteger(value.subProgress.total, "subProgress.total");
+    if (subTotal <= 0) throw new Error("subProgress.total must be a positive integer");
+    if (subCompleted > subTotal) throw new Error("subProgress.completed cannot exceed subProgress.total");
     subProgress = {completed: subCompleted, total: subTotal};
   }
   const base: LibraryOperationStatusBase = {
@@ -571,8 +448,7 @@ export const parseLibraryOperationStatusHttpResponse = (
   };
   if (value.state === "running") return {...base, state: "running"};
   if (value.state === "failed") {
-    if (!isRecord(value.error))
-      throw new Error("Library operation failed status is malformed");
+    if (!isRecord(value.error)) throw new Error("Library operation failed status is malformed");
     return {
       ...base,
       error: {
@@ -591,18 +467,14 @@ export const parseLibraryOperationStatusHttpResponse = (
 export const parseLibraryBlacklistHttpResponse = (
   value: unknown,
 ): LibraryBlacklistHttpSuccess | LibraryOperationHttpFailure => {
-  if (!isRecord(value))
-    throw new Error("Library blacklist response must be an object");
+  if (!isRecord(value)) throw new Error("Library blacklist response must be an object");
   const failure = parseFailure(value);
   if (failure) return failure;
   if (value.ok !== true || typeof value.added !== "boolean")
     throw new Error("Library blacklist success response is malformed");
   return {
     added: value.added,
-    blacklistedCount: nonNegativeInteger(
-      value.blacklistedCount,
-      "blacklistedCount",
-    ),
+    blacklistedCount: nonNegativeInteger(value.blacklistedCount, "blacklistedCount"),
     ok: true,
     publicationId: publicationId(value.publicationId),
   };
@@ -611,19 +483,12 @@ export const parseLibraryBlacklistHttpResponse = (
 export const parseLibraryBlacklistListHttpResponse = (
   value: unknown,
 ): LibraryBlacklistListHttpSuccess | LibraryOperationHttpFailure => {
-  if (!isRecord(value))
-    throw new Error("Library blacklist-list response must be an object");
+  if (!isRecord(value)) throw new Error("Library blacklist-list response must be an object");
   const failure = parseFailure(value);
   if (failure) return failure;
-  if (
-    value.ok !== true ||
-    !Array.isArray(value.publicationIds) ||
-    value.publicationIds.length > MAX_BLACKLIST_COUNT
-  )
+  if (value.ok !== true || !Array.isArray(value.publicationIds) || value.publicationIds.length > MAX_BLACKLIST_COUNT)
     throw new Error("Library blacklist-list success response is malformed");
-  const publicationIds = value.publicationIds.map((id, index) =>
-    publicationId(id, `publicationIds[${index}]`),
-  );
+  const publicationIds = value.publicationIds.map((id, index) => publicationId(id, `publicationIds[${index}]`));
   if (new Set(publicationIds).size !== publicationIds.length)
     throw new Error("Library blacklist-list response contains duplicate IDs");
   return {ok: true, publicationIds};
@@ -639,8 +504,7 @@ export const summarizeLibrarySnapshotResult = (
   const diff = value.diff;
   const arrayLength = (field: string) => {
     const entries = diff[field];
-    if (!Array.isArray(entries))
-      throw new Error(`Library snapshot result diff.${field} must be an array`);
+    if (!Array.isArray(entries)) throw new Error(`Library snapshot result diff.${field} must be an array`);
     return entries.length;
   };
   const result = parseLibrarySnapshotHttpResponse({
@@ -654,42 +518,26 @@ export const summarizeLibrarySnapshotResult = (
     operation,
     snapshot: value.snapshot,
   });
-  if (!result.ok)
-    throw new Error(`Library ${operation} command returned an error result`);
+  if (!result.ok) throw new Error(`Library ${operation} command returned an error result`);
   return result;
 };
 
-export const summarizeLibraryBlacklistResult = (
-  value: unknown,
-): LibraryBlacklistHttpSuccess => {
-  const result = parseLibraryBlacklistHttpResponse(
-    isRecord(value) ? {...value, ok: true} : value,
-  );
-  if (!result.ok)
-    throw new Error("Library blacklist command returned an error result");
+export const summarizeLibraryBlacklistResult = (value: unknown): LibraryBlacklistHttpSuccess => {
+  const result = parseLibraryBlacklistHttpResponse(isRecord(value) ? {...value, ok: true} : value);
+  if (!result.ok) throw new Error("Library blacklist command returned an error result");
   return result;
 };
 
-export const summarizeLibraryBlacklistListResult = (
-  value: unknown,
-): LibraryBlacklistListHttpSuccess => {
-  const result = parseLibraryBlacklistListHttpResponse(
-    isRecord(value) ? {...value, ok: true} : value,
-  );
-  if (!result.ok)
-    throw new Error("Library blacklist-list command returned an error result");
+export const summarizeLibraryBlacklistListResult = (value: unknown): LibraryBlacklistListHttpSuccess => {
+  const result = parseLibraryBlacklistListHttpResponse(isRecord(value) ? {...value, ok: true} : value);
+  if (!result.ok) throw new Error("Library blacklist-list command returned an error result");
   return result;
 };
 
-export const libraryOperationFailure = (
-  code: string,
-  message: string,
-): LibraryOperationHttpFailure => ({
+export const libraryOperationFailure = (code: string, message: string): LibraryOperationHttpFailure => ({
   error: {
     code: code.slice(0, MAX_RESPONSE_STRING_LENGTH) || "operation_failed",
-    message:
-      message.slice(0, MAX_RESPONSE_STRING_LENGTH) ||
-      "Library operation failed",
+    message: message.slice(0, MAX_RESPONSE_STRING_LENGTH) || "Library operation failed",
   },
   ok: false,
 });

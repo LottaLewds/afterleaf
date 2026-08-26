@@ -1,22 +1,12 @@
 import {getAdjacentSpreadStart} from "~/reader/pagination";
 import type {CatalogItem} from "~/catalog";
 import {formatKeyboardCode} from "~/game/input/bindings";
-import {
-  buildInteractionPrompts,
-  formatInteractionRowKey,
-} from "~/game/input/hints";
+import {buildInteractionPrompts, formatInteractionRowKey} from "~/game/input/hints";
 import type {GamepadStyle, ShortcutsConfig} from "~/game/input/bindings";
 import type {InteractionPromptToken} from "~/game/input/hints";
 import {formatInteractionKey} from "~/game/keyboardLayout";
-import type {
-  ArcadeSessionStatus,
-  ShopArcadeCabinet,
-} from "~/game/ShopArcadeCabinet";
-import type {
-  InspectionMode,
-  ShopGameSnapshot,
-  ShopInteraction,
-} from "~/game/shopTypes";
+import type {ArcadeSessionStatus, ShopArcadeCabinet} from "~/game/ShopArcadeCabinet";
+import type {InspectionMode, ShopGameSnapshot, ShopInteraction} from "~/game/shopTypes";
 
 type DisplayedInteraction = ShopInteraction & {
   prompts?: readonly InteractionPromptToken[];
@@ -44,32 +34,20 @@ export const formatDisplayedInteractions = ({
     // never wired to the bindings table and will never show pad glyphs.
     // Only single capital letters ("R", "Q / E") count - words like
     // "Wheel" or "Esc" are intentionally literal.
-    if (
-      import.meta.env.DEV &&
-      !interaction.actions &&
-      /^[A-Z](?: \/ [A-Z])*$/u.test(interaction.key)
-    )
+    if (import.meta.env.DEV && !interaction.actions && /^[A-Z](?: \/ [A-Z])*$/u.test(interaction.key))
       console.warn(
         `[afterleaf] Interaction row ${JSON.stringify(interaction.key)} (${interaction.label}) has no action refs; controller prompts will not render.`,
       );
     const row = {
       ...interaction,
       key:
-        formatInteractionRowKey(
-          interaction.actions,
-          shortcutsConfig,
-          resolveKeyboardLabel,
-        ) ?? formatInteractionKey(interaction.key, keyboardLayout),
+        formatInteractionRowKey(interaction.actions, shortcutsConfig, resolveKeyboardLabel) ??
+        formatInteractionKey(interaction.key, keyboardLayout),
     };
     // Pad-active rows carry prompt tokens so the viewport can draw real
     // controller button icons; keyboard rows keep plain keycap strings.
     if (!padStyle) return row;
-    const prompts = buildInteractionPrompts(
-      row.key,
-      interaction.actions,
-      shortcutsConfig,
-      padStyle,
-    );
+    const prompts = buildInteractionPrompts(row.key, interaction.actions, shortcutsConfig, padStyle);
     return prompts ? {...row, prompts} : row;
   });
 };
@@ -113,17 +91,12 @@ type SnapshotInput = {
   tvVideoImportMessage: string | undefined;
 };
 
-const when = <T extends object>(condition: boolean, value: T): T | object =>
-  condition ? value : {};
+const when = <T extends object>(condition: boolean, value: T): T | object => (condition ? value : {});
 
-const whenDefined = <T>(
-  value: T | undefined,
-  create: (value: T) => object,
-): object => (value === undefined ? {} : create(value));
+const whenDefined = <T>(value: T | undefined, create: (value: T) => object): object =>
+  value === undefined ? {} : create(value);
 
-const inspectionSnapshot = (
-  input: SnapshotInput,
-): Partial<ShopGameSnapshot> => {
+const inspectionSnapshot = (input: SnapshotInput): Partial<ShopGameSnapshot> => {
   const publication = input.inspectionPublication;
   if (input.inspectionMode !== "spread" || !publication) return {};
   return {
@@ -168,9 +141,7 @@ const arcadeSnapshot = (input: SnapshotInput): Partial<ShopGameSnapshot> => {
   };
 };
 
-export const createShopGameSnapshot = (
-  input: SnapshotInput,
-): ShopGameSnapshot => ({
+export const createShopGameSnapshot = (input: SnapshotInput): ShopGameSnapshot => ({
   ...whenDefined(input.interactionContext, (interactionContext) => ({
     interactionContext,
   })),

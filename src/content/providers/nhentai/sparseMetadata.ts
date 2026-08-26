@@ -10,10 +10,7 @@ export interface NhentaiSparseMetadata {
   schemaVersion: 1;
 }
 
-export const createNhentaiSparseMetadata = (
-  gallery: NhentaiGallery,
-  metadataHash: string,
-): NhentaiSparseMetadata => ({
+export const createNhentaiSparseMetadata = (gallery: NhentaiGallery, metadataHash: string): NhentaiSparseMetadata => ({
   galleryId: gallery.id,
   mediaId: gallery.mediaId,
   metadataHash,
@@ -21,11 +18,8 @@ export const createNhentaiSparseMetadata = (
   schemaVersion: 1,
 });
 
-export const parseNhentaiSparseMetadata = (
-  value: unknown,
-): NhentaiSparseMetadata => {
-  if (typeof value !== "object" || value === null)
-    throw new Error("nHentai sparse metadata must be an object");
+export const parseNhentaiSparseMetadata = (value: unknown): NhentaiSparseMetadata => {
+  if (typeof value !== "object" || value === null) throw new Error("nHentai sparse metadata must be an object");
   const metadata = value as Partial<NhentaiSparseMetadata>;
   if (
     metadata.schemaVersion !== 1 ||

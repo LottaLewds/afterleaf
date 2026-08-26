@@ -22,13 +22,9 @@ export const KeyCap: ParentComponent<{class?: string}> = (props) => (
 export const keycapParts = (key: string): readonly string[] =>
   key
     .split(/\s*(?:\/|\+)\s*/)
-    .flatMap((part) =>
-      part.startsWith("Hold ") ? ["Hold", part.slice("Hold ".length)] : [part],
-    );
+    .flatMap((part) => (part.startsWith("Hold ") ? ["Hold", part.slice("Hold ".length)] : [part]));
 
 /** Label span matching the text style of interaction rows. */
 export const InteractionLabel: ParentComponent<{class?: string}> = (props) => (
-  <span class={cn("text-[11px] text-[#c4cec8]", props.class)}>
-    {props.children}
-  </span>
+  <span class={cn("text-[11px] text-[#c4cec8]", props.class)}>{props.children}</span>
 );

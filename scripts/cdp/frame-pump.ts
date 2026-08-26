@@ -18,9 +18,7 @@ export type FramePump = {
   stop: () => Promise<void>;
 };
 
-export const startFramePump = async (
-  session: CdpSession,
-): Promise<FramePump> => {
+export const startFramePump = async (session: CdpSession): Promise<FramePump> => {
   await session.request("Page.enable");
   let framesPumped = 0;
   const unsubscribe = session.onEvent((method, params) => {
@@ -28,10 +26,7 @@ export const startFramePump = async (
     framesPumped += 1;
     const {sessionId} = params as {sessionId?: number};
     // Unacknowledged screencast frames stall delivery; ack and drop.
-    if (sessionId !== undefined)
-      void session
-        .request("Page.screencastFrameAck", {sessionId})
-        .catch(() => {});
+    if (sessionId !== undefined) void session.request("Page.screencastFrameAck", {sessionId}).catch(() => {});
   });
   await session.request("Page.startScreencast", {
     everyNthFrame: 30,

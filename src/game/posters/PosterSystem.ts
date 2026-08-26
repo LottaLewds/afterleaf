@@ -58,9 +58,7 @@ export type PosterSystemHost = {
   abortSignal: AbortSignal;
   camera: PerspectiveCamera;
   emitGameState: () => void;
-  importPoster?:
-    | ((image: Blob, signal: AbortSignal) => Promise<PosterAsset>)
-    | undefined;
+  importPoster?: ((image: Blob, signal: AbortSignal) => Promise<PosterAsset>) | undefined;
   isDisposed: () => boolean;
   isPointerLocked: () => boolean;
   markWorldStateDirty: () => void;
@@ -84,9 +82,7 @@ export class PosterSystem {
   readonly #targetMeshes: Mesh[] = [];
   readonly #texturePromises = new Map<string, Promise<Texture>>();
   readonly #host: PosterSystemHost;
-  readonly #importPosterFn:
-    | ((image: Blob, signal: AbortSignal) => Promise<PosterAsset>)
-    | undefined;
+  readonly #importPosterFn: ((image: Blob, signal: AbortSignal) => Promise<PosterAsset>) | undefined;
   readonly #maxTextureAnisotropy: number;
   readonly #localPoint = new Vector3();
   readonly #placementPosition = new Vector3();
@@ -185,19 +181,13 @@ export class PosterSystem {
 
   applyPosterCatalog(assets: readonly PosterAsset[]) {
     if (this.#catalogMatches(assets)) return;
-    const activeAssetId = this.#placement
-      ? this.#assets[this.#placement.assetIndex]?.id
-      : undefined;
+    const activeAssetId = this.#placement ? this.#assets[this.#placement.assetIndex]?.id : undefined;
     const selectedAssetId = this.#assets[this.#assetIndex]?.id;
     this.#assets = assets;
-    const selectedIndex = selectedAssetId
-      ? assets.findIndex((asset) => asset.id === selectedAssetId)
-      : -1;
+    const selectedIndex = selectedAssetId ? assets.findIndex((asset) => asset.id === selectedAssetId) : -1;
     this.#assetIndex = Math.max(0, selectedIndex);
     if (this.#placement && activeAssetId) {
-      const activeIndex = assets.findIndex(
-        (asset) => asset.id === activeAssetId,
-      );
+      const activeIndex = assets.findIndex((asset) => asset.id === activeAssetId);
       if (activeIndex < 0) this.cancelPosterPlacement();
       else {
         this.#placement.assetIndex = activeIndex;
@@ -210,21 +200,14 @@ export class PosterSystem {
   async restoreSavedPosters(assets: readonly PosterAsset[]) {
     const assetsById = new Map(assets.map((asset) => [asset.id, asset]));
     const restoredIds = new Set<string>();
-    this.#nextDepthLayer = Math.max(
-      this.#nextDepthLayer,
-      this.#pendingSaves.length + 1,
-    );
+    this.#nextDepthLayer = Math.max(this.#nextDepthLayer, this.#pendingSaves.length + 1);
     await Promise.all(
       this.#pendingSaves.map(async (savedPoster, index) => {
         const asset = assetsById.get(savedPoster.assetId);
         if (!asset) return;
         try {
           const depthLayer = index + 1;
-          const mesh = await this.#createPosterMesh(
-            asset,
-            savedPoster.height,
-            depthLayer,
-          );
+          const mesh = await this.#createPosterMesh(asset, savedPoster.height, depthLayer);
           if (this.#host.isDisposed()) {
             this.#disposePosterMesh(mesh);
             return;
@@ -244,16 +227,11 @@ export class PosterSystem {
           this.#targetMeshes.push(mesh);
           restoredIds.add(savedPoster.id);
         } catch (error) {
-          if (DEV)
-            console.warn(
-              `Afterleaf could not restore poster ${savedPoster.assetId}.`,
-              error,
-            );
+          if (DEV) console.warn(`Afterleaf could not restore poster ${savedPoster.assetId}.`, error);
         }
       }),
     );
-    if (restoredIds.size !== this.#pendingSaves.length)
-      this.#host.markWorldStateDirty();
+    if (restoredIds.size !== this.#pendingSaves.length) this.#host.markWorldStateDirty();
     this.#pendingSaves = [];
     this.#saveRestoreCompleted = true;
   }
@@ -261,30 +239,20 @@ export class PosterSystem {
   #posterTexture(asset: PosterAsset) {
     const cached = this.#texturePromises.get(asset.id);
     if (cached) return cached;
-    const pending = this.#host.textureLoader
-      .loadAsync(asset.url)
-      .then((texture) => {
-        texture.colorSpace = SRGBColorSpace;
-        texture.anisotropy = Math.min(8, this.#maxTextureAnisotropy);
-        return texture;
-      });
+    const pending = this.#host.textureLoader.loadAsync(asset.url).then((texture) => {
+      texture.colorSpace = SRGBColorSpace;
+      texture.anisotropy = Math.min(8, this.#maxTextureAnisotropy);
+      return texture;
+    });
     this.#texturePromises.set(asset.id, pending);
     void pending.catch(() => this.#texturePromises.delete(asset.id));
     return pending;
   }
 
-  #setPosterDepthLayer(
-    mesh: Mesh<PlaneGeometry, MeshStandardMaterial>,
-    depthLayer: number,
-  ) {
+  #setPosterDepthLayer(mesh: Mesh<PlaneGeometry, MeshStandardMaterial>, depthLayer: number) {
     const previousOffset = mesh.userData.posterDepthOffset;
-    const localOffset =
-      (depthLayer * POSTER_DEPTH_LAYER_SPACING) / mesh.scale.z;
-    mesh.geometry.translate(
-      0,
-      0,
-      localOffset - (typeof previousOffset === "number" ? previousOffset : 0),
-    );
+    const localOffset = (depthLayer * POSTER_DEPTH_LAYER_SPACING) / mesh.scale.z;
+    mesh.geometry.translate(0, 0, localOffset - (typeof previousOffset === "number" ? previousOffset : 0));
     mesh.userData.posterDepthOffset = localOffset;
     mesh.userData.posterDepthLayer = depthLayer;
     mesh.material.polygonOffset = true;
@@ -294,9 +262,7 @@ export class PosterSystem {
   }
 
   #compactPosterDepthLayers() {
-    const records = [...this.#records.values()].sort(
-      (left, right) => left.depthLayer - right.depthLayer,
-    );
+    const records = [...this.#records.values()].sort((left, right) => left.depthLayer - right.depthLayer);
     for (const [index, record] of records.entries()) {
       record.depthLayer = index + 1;
       this.#setPosterDepthLayer(record.mesh, record.depthLayer);
@@ -304,11 +270,7 @@ export class PosterSystem {
     this.#nextDepthLayer = records.length + 1;
   }
 
-  async #createPosterMesh(
-    asset: PosterAsset,
-    height: number,
-    depthLayer: number,
-  ) {
+  async #createPosterMesh(asset: PosterAsset, height: number, depthLayer: number) {
     const texture = await this.#posterTexture(asset);
     const mesh = new Mesh(
       new PlaneGeometry(asset.aspectRatio, 1),
@@ -340,8 +302,7 @@ export class PosterSystem {
     rotation = 0,
   ) {
     if (this.#assets.length === 0) return;
-    const normalizedIndex =
-      (assetIndex + this.#assets.length) % this.#assets.length;
+    const normalizedIndex = (assetIndex + this.#assets.length) % this.#assets.length;
     const asset = this.#assets[normalizedIndex];
     if (!asset) return;
     const revision = (this.#placementRevision += 1);
@@ -362,11 +323,7 @@ export class PosterSystem {
     this.#targetedId = undefined;
     this.#host.emitGameState();
     try {
-      const preview = await this.#createPosterMesh(
-        asset,
-        desiredHeight,
-        depthLayer,
-      );
+      const preview = await this.#createPosterMesh(asset, desiredHeight, depthLayer);
       if (
         this.#host.isDisposed() ||
         revision !== this.#placementRevision ||
@@ -384,8 +341,7 @@ export class PosterSystem {
       this.#scene.add(preview);
       this.updatePosterPlacementTarget();
     } catch (error) {
-      if (DEV)
-        console.warn(`Afterleaf could not load poster ${asset.id}.`, error);
+      if (DEV) console.warn(`Afterleaf could not load poster ${asset.id}.`, error);
       if (revision === this.#placementRevision) this.cancelPosterPlacement();
     }
   }
@@ -453,21 +409,15 @@ export class PosterSystem {
     const framedHeight = 1 + border;
     const cosine = Math.abs(Math.cos(rotation));
     const sine = Math.abs(Math.sin(rotation));
-    const boundingWidthPerHeight =
-      cosine * framedAspectRatio + sine * framedHeight;
-    const boundingHeightPerHeight =
-      sine * framedAspectRatio + cosine * framedHeight;
+    const boundingWidthPerHeight = cosine * framedAspectRatio + sine * framedHeight;
+    const boundingHeightPerHeight = sine * framedAspectRatio + cosine * framedHeight;
     const maximumHeight = Math.min(
       MAX_POSTER_HEIGHT,
       (surface.height - POSTER_SURFACE_MARGIN) / boundingHeightPerHeight,
       (surface.width - POSTER_SURFACE_MARGIN) / boundingWidthPerHeight,
     );
     if (maximumHeight < MIN_POSTER_HEIGHT) return;
-    const height = MathUtils.clamp(
-      desiredHeight,
-      MIN_POSTER_HEIGHT,
-      maximumHeight,
-    );
+    const height = MathUtils.clamp(desiredHeight, MIN_POSTER_HEIGHT, maximumHeight);
     const halfWidth = (boundingWidthPerHeight * height) / 2;
     const halfHeight = (boundingHeightPerHeight * height) / 2;
     const point = this.#localPoint.copy(worldPoint);
@@ -510,18 +460,10 @@ export class PosterSystem {
     }
     const asset = this.#assets[placement.assetIndex];
     if (!asset) return;
-    const intersection = this.#raycaster.intersectObjects(
-      this.#raycastMeshes,
-      false,
-    )[0];
+    const intersection = this.#raycaster.intersectObjects(this.#raycastMeshes, false)[0];
     const surfaceId = intersection?.object.userData.posterSurfaceId;
-    const surface =
-      typeof surfaceId === "string" ? this.#surfaces.get(surfaceId) : undefined;
-    if (
-      !intersection ||
-      intersection.distance > POSTER_PLACEMENT_DISTANCE ||
-      !surface
-    ) {
+    const surface = typeof surfaceId === "string" ? this.#surfaces.get(surfaceId) : undefined;
+    if (!intersection || intersection.distance > POSTER_PLACEMENT_DISTANCE || !surface) {
       preview.visible = false;
       this.#setPosterPlacementSelection();
       return;
@@ -554,14 +496,11 @@ export class PosterSystem {
     const selection = this.#placementSelection;
     const preview = this.#preview;
     const asset = placement ? this.#assets[placement.assetIndex] : undefined;
-    if (!placement || !selection || !preview || !asset || !preview.visible)
-      return;
+    if (!placement || !selection || !preview || !asset || !preview.visible) return;
     preview.material.opacity = 1;
     preview.material.transparent = asset.hasAlpha;
     preview.material.depthWrite = true;
-    const existing = placement.movingPosterId
-      ? this.#records.get(placement.movingPosterId)
-      : undefined;
+    const existing = placement.movingPosterId ? this.#records.get(placement.movingPosterId) : undefined;
     if (existing) {
       const targetIndex = this.#targetMeshes.indexOf(existing.mesh);
       this.#disposePosterMesh(existing.mesh);
@@ -626,33 +565,22 @@ export class PosterSystem {
       const asset = await importPoster(image, this.#host.abortSignal);
       if (this.#host.isDisposed()) return;
       this.applyPosterCatalog(
-        [
-          ...this.#assets.filter((candidate) => candidate.id !== asset.id),
-          asset,
-        ].sort((left, right) => left.id.localeCompare(right.id)),
+        [...this.#assets.filter((candidate) => candidate.id !== asset.id), asset].sort((left, right) =>
+          left.id.localeCompare(right.id),
+        ),
       );
-      const assetIndex = this.#assets.findIndex(
-        (candidate) => candidate.id === asset.id,
-      );
+      const assetIndex = this.#assets.findIndex((candidate) => candidate.id === asset.id);
       if (assetIndex >= 0) this.#assetIndex = assetIndex;
       const placement = this.#placement;
       if (!placement) return;
       const desiredHeight = placement.desiredHeight;
       const rotation = placement.rotation;
       this.cancelPosterPlacement();
-      if (assetIndex >= 0)
-        void this.startPosterPlacement(
-          assetIndex,
-          undefined,
-          desiredHeight,
-          rotation,
-        );
+      if (assetIndex >= 0) void this.startPosterPlacement(assetIndex, undefined, desiredHeight, rotation);
     } catch (error) {
       if (this.#host.abortSignal.aborted) return;
       this.#importError =
-        error instanceof Error && error.message
-          ? error.message
-          : "Pasted poster could not be imported";
+        error instanceof Error && error.message ? error.message : "Pasted poster could not be imported";
     } finally {
       this.#importCount = Math.max(0, this.#importCount - 1);
       if (!this.#host.isDisposed()) this.#host.emitGameState();

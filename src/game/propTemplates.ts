@@ -43,32 +43,31 @@ export type BuiltinPropTemplate = {
   width: number;
 };
 
-export const BUILTIN_SPAWNABLE_PROP_ASSETS: readonly BuiltinSpawnablePropAsset[] =
-  [
-    {id: BUILTIN_CRT_TV_ASSET_ID, kind: "builtin", label: "CRT television"},
-    {
-      id: BUILTIN_READING_TABLE_ASSET_ID,
-      kind: "builtin",
-      label: "reading table",
-    },
-    {
-      id: BUILTIN_READING_CHAIR_ASSET_ID,
-      kind: "builtin",
-      label: "reading chair",
-    },
-    {id: BUILTIN_TRASH_CAN_ASSET_ID, kind: "builtin", label: "trash can"},
-    {id: BUILTIN_DESK_LAMP_ASSET_ID, kind: "builtin", label: "desk lamp"},
-    {
-      id: BUILTIN_ARCADE_CABINET_ASSET_ID,
-      kind: "builtin",
-      label: "arcade cabinet",
-    },
-    {
-      id: BUILTIN_CEILING_LIGHT_ASSET_ID,
-      kind: "builtin",
-      label: "ceiling light",
-    },
-  ];
+export const BUILTIN_SPAWNABLE_PROP_ASSETS: readonly BuiltinSpawnablePropAsset[] = [
+  {id: BUILTIN_CRT_TV_ASSET_ID, kind: "builtin", label: "CRT television"},
+  {
+    id: BUILTIN_READING_TABLE_ASSET_ID,
+    kind: "builtin",
+    label: "reading table",
+  },
+  {
+    id: BUILTIN_READING_CHAIR_ASSET_ID,
+    kind: "builtin",
+    label: "reading chair",
+  },
+  {id: BUILTIN_TRASH_CAN_ASSET_ID, kind: "builtin", label: "trash can"},
+  {id: BUILTIN_DESK_LAMP_ASSET_ID, kind: "builtin", label: "desk lamp"},
+  {
+    id: BUILTIN_ARCADE_CABINET_ASSET_ID,
+    kind: "builtin",
+    label: "arcade cabinet",
+  },
+  {
+    id: BUILTIN_CEILING_LIGHT_ASSET_ID,
+    kind: "builtin",
+    label: "ceiling light",
+  },
+];
 
 /**
  * Builtin props that spawn through cached templates instead of dedicated
@@ -156,22 +155,14 @@ export class PropTemplateCache {
     object.position.set(0, 0, 0);
     object.quaternion.identity();
     this.#templates.set(registration.spawnAssetId, {
-      ...(registration.colliderParts
-        ? {colliderParts: registration.colliderParts}
-        : {}),
-      ...(registration.density === undefined
-        ? {}
-        : {density: registration.density}),
+      ...(registration.colliderParts ? {colliderParts: registration.colliderParts} : {}),
+      ...(registration.density === undefined ? {} : {density: registration.density}),
       depth: registration.depth,
       height: registration.height,
       heldLocalPosition: registration.heldLocalPosition.clone(),
       object,
-      ...(registration.rotationSnapStep === undefined
-        ? {}
-        : {rotationSnapStep: registration.rotationSnapStep}),
-      ...(registration.staticWhenPlaced === undefined
-        ? {}
-        : {staticWhenPlaced: registration.staticWhenPlaced}),
+      ...(registration.rotationSnapStep === undefined ? {} : {rotationSnapStep: registration.rotationSnapStep}),
+      ...(registration.staticWhenPlaced === undefined ? {} : {staticWhenPlaced: registration.staticWhenPlaced}),
       width: registration.width,
     });
     return true;

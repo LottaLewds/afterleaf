@@ -21,9 +21,7 @@ export const ReadingDirectionControl = (props: {
       <FiBookOpen size={15} />
     </span>
     <div class="min-w-0 sm:w-52">
-      <p class="text-[10px] font-semibold tracking-[0.12em] text-[#c5cec9] uppercase">
-        Reading direction
-      </p>
+      <p class="text-[10px] font-semibold tracking-[0.12em] text-[#c5cec9] uppercase">Reading direction</p>
       <p class="mt-1 text-[9px] leading-4 text-[#65716c]">
         The default applies when metadata is unavailable or overridden.
       </p>
@@ -66,8 +64,7 @@ export const ReadingDirectionControl = (props: {
             <button
               class="min-h-10 px-3 py-2 text-[9px] font-semibold tracking-[0.08em] uppercase transition"
               classList={{
-                "bg-[#ece6d8] text-[#1b2321]":
-                  props.defaultDirection === option.value,
+                "bg-[#ece6d8] text-[#1b2321]": props.defaultDirection === option.value,
                 "bg-[#1b2422] text-[#7f8b86] hover:bg-[#202b28] hover:text-white":
                   props.defaultDirection !== option.value,
               }}

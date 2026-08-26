@@ -4,11 +4,7 @@ import {tmpdir} from "node:os";
 import {join, resolve} from "node:path";
 import sharp from "sharp";
 import {BOOK_ASPECT_RATIO_INFERENCE_VERSION} from "~/content/bookAspectRatio";
-import {
-  NhentaiClient,
-  parseNhentaiGallery,
-  type NhentaiRequestRetryEvent,
-} from "~/content/providers/nhentai/client";
+import {NhentaiClient, parseNhentaiGallery, type NhentaiRequestRetryEvent} from "~/content/providers/nhentai/client";
 import {parseNhentaiSyncCliOptions} from "~/content/providers/nhentai/cli";
 import {createNhentaiProvider} from "~/content/providers/nhentai/plugin";
 import {syncNhentaiCatalog} from "~/content/providers/nhentai/sync";
@@ -20,11 +16,7 @@ import {stubFetch} from "~/test/fetchStub";
 const temporaryDirectories: string[] = [];
 
 afterEach(async () => {
-  await Promise.all(
-    temporaryDirectories
-      .splice(0)
-      .map((directory) => rm(directory, {recursive: true, force: true})),
-  );
+  await Promise.all(temporaryDirectories.splice(0).map((directory) => rm(directory, {recursive: true, force: true})));
 });
 
 const gallery = (id: number, language: string, extraTags: string[] = []) => ({
@@ -86,10 +78,7 @@ const galleryDetail = (value: GalleryFixture) => ({
   upload_date: value.upload_date,
 });
 
-const createFetcher = async (
-  galleries: GalleryFixture[],
-  searchPageSize = galleries.length,
-) => {
+const createFetcher = async (galleries: GalleryFixture[], searchPageSize = galleries.length) => {
   const jpeg = await sharp({
     create: {width: 16, height: 24, channels: 3, background: "#702040"},
   })
@@ -104,24 +93,18 @@ const createFetcher = async (
   const galleryDetailRequestIds: number[] = [];
   const searchQueries: string[] = [];
   const fetcher = stubFetch(async (input) => {
-    const url = new URL(
-      typeof input === "string" || input instanceof URL ? input : input.url,
-    );
+    const url = new URL(typeof input === "string" || input instanceof URL ? input : input.url);
     if (url.pathname === "/api/v2/search") {
       searchQueries.push(url.searchParams.get("query") ?? "");
       const page = Number(url.searchParams.get("page") ?? "1");
       const offset = (page - 1) * searchPageSize;
-      const result = galleries
-        .slice(offset, offset + searchPageSize)
-        .map(gallerySearchResult);
+      const result = galleries.slice(offset, offset + searchPageSize).map(gallerySearchResult);
       return Response.json({
         result,
       });
     }
     if (url.pathname === "/api/v2/tags/ids") {
-      const requestedIds = new Set(
-        url.searchParams.get("ids")?.split(",").map(Number) ?? [],
-      );
+      const requestedIds = new Set(url.searchParams.get("ids")?.split(",").map(Number) ?? []);
       const tags = new Map(
         galleries
           .flatMap(({tags}) => tags)
@@ -165,9 +148,7 @@ describe("nHentai response validation", () => {
   test("rejects unsupported remote page media before acquisition", () => {
     const invalid = gallery(1, "english");
     invalid.images.pages[0] = {t: "g", w: 800, h: 1_200};
-    expect(() => parseNhentaiGallery(invalid)).toThrow(
-      "unsupported media type g",
-    );
+    expect(() => parseNhentaiGallery(invalid)).toThrow("unsupported media type g");
   });
 
   test("sends configured authentication and User-Agent headers", async () => {
@@ -186,9 +167,7 @@ describe("nHentai response validation", () => {
     await client.search('tag:"big breasts"', 1);
 
     expect(requestHeaders?.get("Cookie")).toBe("session=authenticated");
-    expect(requestHeaders?.get("User-Agent")).toBe(
-      "Afterleaf authenticated client",
-    );
+    expect(requestHeaders?.get("User-Agent")).toBe("Afterleaf authenticated client");
   });
 
   test("honors Retry-After when nHentai rate limits a request", async () => {
@@ -239,8 +218,7 @@ describe("nHentai response validation", () => {
             headers: {"Retry-After": "30"},
             status: 429,
           });
-        if (requestCount === 2)
-          return new Response("rate limited", {status: 429});
+        if (requestCount === 2) return new Response("rate limited", {status: 429});
         return Response.json({result: []});
       }),
       onRetry: (event) => retryEvents.push(event),
@@ -249,13 +227,8 @@ describe("nHentai response validation", () => {
     });
 
     await expect(client.search("books", 1)).resolves.toEqual([]);
-    expect(retryEvents.map((event) => event.delayMilliseconds)).toEqual([
-      30_000, 2_000,
-    ]);
-    expect(retryEvents.map((event) => event.delaySource)).toEqual([
-      "retry-after",
-      "backoff",
-    ]);
+    expect(retryEvents.map((event) => event.delayMilliseconds)).toEqual([30_000, 2_000]);
+    expect(retryEvents.map((event) => event.delaySource)).toEqual(["retry-after", "backoff"]);
   });
 
   test("does not fail a successful API request when the cache is unwritable", async () => {
@@ -294,12 +267,8 @@ describe("nHentai response validation", () => {
 
     expect(first).toEqual(second);
     expect(remote.searchQueries()).toEqual(["books"]);
-    expect(cacheHits).toContain(
-      "https://example.test/api/v2/search?query=books&sort=date&page=1",
-    );
-    expect(cacheHits).toContain(
-      "https://example.test/api/v2/tags/ids?ids=120%2C121",
-    );
+    expect(cacheHits).toContain("https://example.test/api/v2/search?query=books&sort=date&page=1");
+    expect(cacheHits).toContain("https://example.test/api/v2/tags/ids?ids=120%2C121");
   });
 });
 
@@ -307,10 +276,7 @@ describe("syncNhentaiCatalog", () => {
   test("imports the exact gallery from an nHentai URL without searching", async () => {
     const root = await mkdtemp(join(tmpdir(), "afterleaf-nhentai-"));
     temporaryDirectories.push(root);
-    const remote = await createFetcher([
-      gallery(7, "english"),
-      gallery(8, "english"),
-    ]);
+    const remote = await createFetcher([gallery(7, "english"), gallery(8, "english")]);
     const client = new NhentaiClient({
       apiOrigin: "https://example.test",
       imageOrigin: "https://images.example.test",
@@ -360,10 +326,7 @@ describe("syncNhentaiCatalog", () => {
   test("does not implicitly block tags", async () => {
     const root = await mkdtemp(join(tmpdir(), "afterleaf-nhentai-"));
     temporaryDirectories.push(root);
-    const remote = await createFetcher([
-      gallery(1, "english", ["lolicon"]),
-      gallery(2, "japanese", ["shotacon"]),
-    ]);
+    const remote = await createFetcher([gallery(1, "english", ["lolicon"]), gallery(2, "japanese", ["shotacon"])]);
     const client = new NhentaiClient({
       apiOrigin: "https://example.test",
       imageOrigin: "https://images.example.test",
@@ -374,9 +337,7 @@ describe("syncNhentaiCatalog", () => {
     const report = await syncNhentaiCatalog(defaultOptions(root), {client});
 
     expect(report.selectedGalleryIds).toEqual([1, 2]);
-    expect(report.diagnostics.map(({code}) => code)).not.toContain(
-      "blocked-tag",
-    );
+    expect(report.diagnostics.map(({code}) => code)).not.toContain("blocked-tag");
   });
 
   test("prefers English, allows Japanese, and rejects Chinese or blocked galleries", async () => {
@@ -424,18 +385,13 @@ describe("syncNhentaiCatalog", () => {
     expect(progressMessages.at(-1)).toBe(
       "Import complete: 2/2 new, 0/0 repairs; searched 4 unique galleries; filtered/skipped (unsupported-language: 1, blocked-tag: 1)",
     );
-    expect(report.diagnostics.map(({code}) => code)).toEqual([
-      "unsupported-language",
-      "blocked-tag",
-    ]);
+    expect(report.diagnostics.map(({code}) => code)).toEqual(["unsupported-language", "blocked-tag"]);
     expect(remote.searchQueries()).toEqual([
       'tag:"big breasts" -language:"chinese" -tag:"blocked-test"',
       'tag:"big breasts" -language:"chinese" -tag:"blocked-test"',
     ]);
     const englishDocument = parseLocalPublicationDocument(
-      JSON.parse(
-        await readFile(resolve(root, "nhentai-4/publication.json"), "utf8"),
-      ) as unknown,
+      JSON.parse(await readFile(resolve(root, "nhentai-4/publication.json"), "utf8")) as unknown,
       "publication.json",
     );
     expect(englishDocument).toMatchObject({
@@ -449,9 +405,7 @@ describe("syncNhentaiCatalog", () => {
       physical: {readingDirection: "rtl"},
     });
     const japaneseDocument = parseLocalPublicationDocument(
-      JSON.parse(
-        await readFile(resolve(root, "nhentai-2/publication.json"), "utf8"),
-      ) as unknown,
+      JSON.parse(await readFile(resolve(root, "nhentai-2/publication.json"), "utf8")) as unknown,
       "publication.json",
     );
     expect(japaneseDocument).toMatchObject({
@@ -465,23 +419,15 @@ describe("syncNhentaiCatalog", () => {
   test("replaces a gallery with invalid detail metadata from the candidate pool", async () => {
     const root = await mkdtemp(join(tmpdir(), "afterleaf-nhentai-"));
     temporaryDirectories.push(root);
-    const remote = await createFetcher([
-      gallery(1, "english"),
-      gallery(2, "english"),
-    ]);
+    const remote = await createFetcher([gallery(1, "english"), gallery(2, "english")]);
     const fetcher = stubFetch(async (input, init) => {
-      const url = new URL(
-        typeof input === "string" || input instanceof URL ? input : input.url,
-      );
-      if (url.pathname !== "/api/v2/galleries/1")
-        return remote.fetcher(input, init);
+      const url = new URL(typeof input === "string" || input instanceof URL ? input : input.url);
+      if (url.pathname !== "/api/v2/galleries/1") return remote.fetcher(input, init);
       const invalid = galleryDetail(gallery(1, "english"));
       return Response.json({
         ...invalid,
         pages: invalid.pages.map((page, index) =>
-          index === 0
-            ? {height: page.height, number: page.number, width: page.width}
-            : page,
+          index === 0 ? {height: page.height, number: page.number, width: page.width} : page,
         ),
       });
     });
@@ -512,10 +458,7 @@ describe("syncNhentaiCatalog", () => {
   test("downloads resolved galleries while the next API request is rate limited", async () => {
     const root = await mkdtemp(join(tmpdir(), "afterleaf-nhentai-"));
     temporaryDirectories.push(root);
-    const remote = await createFetcher([
-      gallery(1, "english"),
-      gallery(2, "english"),
-    ]);
+    const remote = await createFetcher([gallery(1, "english"), gallery(2, "english")]);
     let activeFirstGalleryDownloads = 0;
     let overlapObserved = false;
     let rateLimited = false;
@@ -528,9 +471,7 @@ describe("syncNhentaiCatalog", () => {
       noteFirstGalleryDownloadStarted = resolvePromise;
     });
     const fetcher = stubFetch(async (input, init) => {
-      const url = new URL(
-        typeof input === "string" || input instanceof URL ? input : input.url,
-      );
+      const url = new URL(typeof input === "string" || input instanceof URL ? input : input.url);
       if (url.pathname.includes("/galleries/8001/")) {
         activeFirstGalleryDownloads += 1;
         noteFirstGalleryDownloadStarted();
@@ -551,8 +492,7 @@ describe("syncNhentaiCatalog", () => {
       apiOrigin: "https://example.test",
       fetcher,
       imageOrigin: "https://images.example.test",
-      onRetry: (event) =>
-        progressMessages.push(`retry:${event.status}:${event.url}`),
+      onRetry: (event) => progressMessages.push(`retry:${event.status}:${event.url}`),
       retryCount: 1,
       sleep: async () => {
         await firstGalleryDownloadStarted;
@@ -561,25 +501,17 @@ describe("syncNhentaiCatalog", () => {
       },
     });
 
-    const report = await syncNhentaiCatalog(
-      {...defaultOptions(root), limit: 2, maxSearchPages: 1},
-      {client},
-    );
+    const report = await syncNhentaiCatalog({...defaultOptions(root), limit: 2, maxSearchPages: 1}, {client});
 
     expect(report.selectedGalleryIds).toEqual([1, 2]);
     expect(overlapObserved).toBe(true);
-    expect(progressMessages).toContain(
-      "retry:429:https://example.test/api/v2/galleries/2",
-    );
+    expect(progressMessages).toContain("retry:429:https://example.test/api/v2/galleries/2");
   });
 
   test("starts image downloads before requesting the next search page", async () => {
     const root = await mkdtemp(join(tmpdir(), "afterleaf-nhentai-"));
     temporaryDirectories.push(root);
-    const remote = await createFetcher(
-      [gallery(1, "english"), gallery(2, "english")],
-      1,
-    );
+    const remote = await createFetcher([gallery(1, "english"), gallery(2, "english")], 1);
     let activeFirstGalleryDownloads = 0;
     let overlapObserved = false;
     let releaseFirstGalleryDownloads = () => {};
@@ -587,18 +519,13 @@ describe("syncNhentaiCatalog", () => {
       releaseFirstGalleryDownloads = resolvePromise;
     });
     const fetcher = stubFetch(async (input, init) => {
-      const url = new URL(
-        typeof input === "string" || input instanceof URL ? input : input.url,
-      );
+      const url = new URL(typeof input === "string" || input instanceof URL ? input : input.url);
       if (url.pathname.includes("/galleries/8001/")) {
         activeFirstGalleryDownloads += 1;
         await firstGalleryDownloadGate;
         activeFirstGalleryDownloads -= 1;
       }
-      if (
-        url.pathname === "/api/v2/search" &&
-        url.searchParams.get("page") === "2"
-      ) {
+      if (url.pathname === "/api/v2/search" && url.searchParams.get("page") === "2") {
         overlapObserved = activeFirstGalleryDownloads > 0;
         releaseFirstGalleryDownloads();
       }
@@ -645,11 +572,7 @@ describe("syncNhentaiCatalog", () => {
     temporaryDirectories.push(root);
     const sourceDirectory = resolve(root, "source");
     const sparseGallery = gallery(9, "english");
-    sparseGallery.images.pages.push(
-      {t: "w", w: 800, h: 1_200},
-      {t: "j", w: 800, h: 1_200},
-      {t: "p", w: 800, h: 1_200},
-    );
+    sparseGallery.images.pages.push({t: "w", w: 800, h: 1_200}, {t: "j", w: 800, h: 1_200}, {t: "p", w: 800, h: 1_200});
     sparseGallery.num_pages = sparseGallery.images.pages.length;
     const remote = await createFetcher([sparseGallery]);
     const client = new NhentaiClient({
@@ -659,76 +582,49 @@ describe("syncNhentaiCatalog", () => {
       retryCount: 0,
     });
 
-    await syncNhentaiCatalog(
-      {...defaultOptions(sourceDirectory), limit: 1, previewPageCount: 3},
-      {client},
-    );
+    await syncNhentaiCatalog({...defaultOptions(sourceDirectory), limit: 1, previewPageCount: 3}, {client});
     const document = parseLocalPublicationDocument(
-      JSON.parse(
-        await readFile(
-          resolve(sourceDirectory, "nhentai-9/publication.json"),
-          "utf8",
-        ),
-      ) as unknown,
+      JSON.parse(await readFile(resolve(sourceDirectory, "nhentai-9/publication.json"), "utf8")) as unknown,
       "publication.json",
     );
-    const seeded = await seedContentPack(
-      new LocalCatalogSource(sourceDirectory),
-      {
-        dryRun: false,
-        excludedTags: [],
-        languages: ["english"],
-        limit: 1,
-        match: "all",
-        outputDirectory: resolve(root, "revision"),
-        packId: "sparse-test",
-        persistentAssetDirectory: root,
-        seed: "sparse-test",
-        tags: [],
-      },
-    );
+    const seeded = await seedContentPack(new LocalCatalogSource(sourceDirectory), {
+      dryRun: false,
+      excludedTags: [],
+      languages: ["english"],
+      limit: 1,
+      match: "all",
+      outputDirectory: resolve(root, "revision"),
+      packId: "sparse-test",
+      persistentAssetDirectory: root,
+      seed: "sparse-test",
+      tags: [],
+    });
 
     expect(document.pageCount).toBe(5);
-    expect(document.aspectRatioInferenceVersion).toBe(
-      BOOK_ASPECT_RATIO_INFERENCE_VERSION,
-    );
+    expect(document.aspectRatioInferenceVersion).toBe(BOOK_ASPECT_RATIO_INFERENCE_VERSION);
     expect(document.physical?.aspectRatio).toBeCloseTo(2 / 3);
     expect(document.assets.pages).toHaveLength(3);
     expect(document.assets.back).toBe("pages/005.png");
     expect(remote.imageRequestCount()).toBe(5);
-    expect(
-      await sharp(
-        resolve(sourceDirectory, "nhentai-9/pages/005.png"),
-      ).metadata(),
-    ).toMatchObject({format: "png"});
+    expect(await sharp(resolve(sourceDirectory, "nhentai-9/pages/005.png")).metadata()).toMatchObject({format: "png"});
     const sparsePublication = seeded.catalog?.publications[0];
     expect(sparsePublication).toMatchObject({
       id: "nhentai-9",
       pageCount: 5,
     });
-    expect(sparsePublication?.assets.back).toStartWith(
-      "assets/publications/nhentai-9/back-",
-    );
+    expect(sparsePublication?.assets.back).toStartWith("assets/publications/nhentai-9/back-");
     // Interior pages stay unpooled; the reader streams them on demand.
     expect(sparsePublication?.assets.pages).toEqual([]);
     if (!sparsePublication) throw new Error("Sparse publication is missing");
-    const packedBackStats = await sharp(
-      resolve(root, sparsePublication.assets.back),
-    ).stats();
-    expect(packedBackStats.channels[2]?.mean).toBeGreaterThan(
-      (packedBackStats.channels[0]?.mean ?? 0) * 1.5,
-    );
+    const packedBackStats = await sharp(resolve(root, sparsePublication.assets.back)).stats();
+    expect(packedBackStats.channels[2]?.mean).toBeGreaterThan((packedBackStats.channels[0]?.mean ?? 0) * 1.5);
   });
 
   test("produces a supported-language catalog that seeds into runtime-ready assets", async () => {
     const root = await mkdtemp(join(tmpdir(), "afterleaf-nhentai-pack-"));
     temporaryDirectories.push(root);
     const sourceDirectory = resolve(root, "source");
-    const remote = await createFetcher([
-      gallery(11, "chinese"),
-      gallery(12, "japanese"),
-      gallery(13, "english"),
-    ]);
+    const remote = await createFetcher([gallery(11, "chinese"), gallery(12, "japanese"), gallery(13, "english")]);
     const client = new NhentaiClient({
       apiOrigin: "https://example.test",
       imageOrigin: "https://images.example.test",
@@ -737,38 +633,29 @@ describe("syncNhentaiCatalog", () => {
     });
 
     await syncNhentaiCatalog(defaultOptions(sourceDirectory), {client});
-    const result = await seedContentPack(
-      new LocalCatalogSource(sourceDirectory),
-      {
-        dryRun: false,
-        excludedTags: [],
-        languages: ["english", "japanese"],
-        limit: 20,
-        match: "all",
-        outputDirectory: resolve(root, "revision"),
-        packId: "afterleaf-integration",
-        persistentAssetDirectory: root,
-        seed: "afterleaf-integration-v1",
-        tags: ["big-breasts"],
-      },
-    );
+    const result = await seedContentPack(new LocalCatalogSource(sourceDirectory), {
+      dryRun: false,
+      excludedTags: [],
+      languages: ["english", "japanese"],
+      limit: 20,
+      match: "all",
+      outputDirectory: resolve(root, "revision"),
+      packId: "afterleaf-integration",
+      persistentAssetDirectory: root,
+      seed: "afterleaf-integration-v1",
+      tags: ["big-breasts"],
+    });
 
-    expect(result.catalog?.publications.map(({id}) => id)).toEqual([
-      "nhentai-13",
-      "nhentai-12",
-    ]);
+    expect(result.catalog?.publications.map(({id}) => id)).toEqual(["nhentai-13", "nhentai-12"]);
     expect(await readdir(sourceDirectory)).not.toContain("nhentai-11");
-    const englishPublication = result.catalog?.publications.find(
-      ({id}) => id === "nhentai-13",
-    );
-    const japanesePublication = result.catalog?.publications.find(
-      ({id}) => id === "nhentai-12",
-    );
-    if (!englishPublication || !japanesePublication)
-      throw new Error("Seeded publications are missing");
-    await expect(
-      sharp(resolve(root, englishPublication.assets.front)).metadata(),
-    ).resolves.toMatchObject({format: "webp", height: 384, width: 256});
+    const englishPublication = result.catalog?.publications.find(({id}) => id === "nhentai-13");
+    const japanesePublication = result.catalog?.publications.find(({id}) => id === "nhentai-12");
+    if (!englishPublication || !japanesePublication) throw new Error("Seeded publications are missing");
+    await expect(sharp(resolve(root, englishPublication.assets.front)).metadata()).resolves.toMatchObject({
+      format: "webp",
+      height: 384,
+      width: 256,
+    });
     // Interior pages are not pooled anymore, so nothing is written for them.
     expect(japanesePublication.assets.pages).toEqual([]);
   });
@@ -790,12 +677,7 @@ describe("syncNhentaiCatalog", () => {
     );
 
     const remote = await createFetcher(
-      [
-        gallery(1, "english"),
-        gallery(2, "english"),
-        gallery(3, "english"),
-        gallery(4, "english"),
-      ],
+      [gallery(1, "english"), gallery(2, "english"), gallery(3, "english"), gallery(4, "english")],
       1,
     );
     const report = await syncNhentaiCatalog(
@@ -819,10 +701,7 @@ describe("syncNhentaiCatalog", () => {
     expect(report.selectedGalleryIds).toEqual([3, 4]);
     expect(report.addedCount).toBe(2);
     expect(remote.galleryDetailRequestIds()).toEqual([3, 4]);
-    expect(report.diagnostics.map(({code}) => code)).toEqual([
-      "existing-complete",
-      "blacklisted",
-    ]);
+    expect(report.diagnostics.map(({code}) => code)).toEqual(["existing-complete", "blacklisted"]);
   });
 
   test("fetch-more repairs cached galleries outside the new-publication limit", async () => {
@@ -854,10 +733,7 @@ describe("syncNhentaiCatalog", () => {
     delete manifest.assets.back;
     await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
 
-    const remote = await createFetcher(
-      [existingGallery, gallery(2, "english"), gallery(3, "english")],
-      1,
-    );
+    const remote = await createFetcher([existingGallery, gallery(2, "english"), gallery(3, "english")], 1);
     const progressMessages: string[] = [];
     const report = await syncNhentaiCatalog(
       {
@@ -911,9 +787,7 @@ describe("syncNhentaiCatalog", () => {
     });
     const result = await syncNhentaiCatalog(options, {client: changedClient});
     const document = parseLocalPublicationDocument(
-      JSON.parse(
-        await readFile(resolve(root, "nhentai-6/publication.json"), "utf8"),
-      ) as unknown,
+      JSON.parse(await readFile(resolve(root, "nhentai-6/publication.json"), "utf8")) as unknown,
       "publication.json",
     );
 
@@ -935,20 +809,14 @@ describe("syncNhentaiCatalog", () => {
         retryCount: 0,
       }),
     });
-    const originalManifest = await readFile(
-      resolve(root, "nhentai-7/publication.json"),
-      "utf8",
-    );
+    const originalManifest = await readFile(resolve(root, "nhentai-7/publication.json"), "utf8");
 
     const changedGallery = gallery(7, "english");
     changedGallery.title.english = "Interrupted Replacement";
     const changedRemote = await createFetcher([changedGallery]);
     const failingFetcher = stubFetch(async (input, init) => {
-      const url = new URL(
-        typeof input === "string" || input instanceof URL ? input : input.url,
-      );
-      if (url.pathname.endsWith("/2.png"))
-        return new Response("temporary failure", {status: 503});
+      const url = new URL(typeof input === "string" || input instanceof URL ? input : input.url);
+      if (url.pathname.endsWith("/2.png")) return new Response("temporary failure", {status: 503});
       return changedRemote.fetcher(input, init);
     });
 
@@ -972,12 +840,8 @@ describe("syncNhentaiCatalog", () => {
     expect(progressMessages).toContain(
       "Failed to import nhentai-7: Request failed with HTTP 503: https://images.example.test/galleries/8007/2.png.",
     );
-    expect(
-      await readFile(resolve(root, "nhentai-7/publication.json"), "utf8"),
-    ).toBe(originalManifest);
-    expect(
-      (await readdir(root)).some((name) => name.includes(".staging-")),
-    ).toBe(false);
+    expect(await readFile(resolve(root, "nhentai-7/publication.json"), "utf8")).toBe(originalManifest);
+    expect((await readdir(root)).some((name) => name.includes(".staging-"))).toBe(false);
   });
 });
 
@@ -1025,9 +889,7 @@ test("nHentai provider reports HTTP retries through import progress", async () =
   const remote = await createFetcher([gallery(9, "english")]);
   let rateLimited = false;
   const fetcher = stubFetch(async (input, init) => {
-    const url = new URL(
-      typeof input === "string" || input instanceof URL ? input : input.url,
-    );
+    const url = new URL(typeof input === "string" || input instanceof URL ? input : input.url);
     if (!rateLimited && url.pathname === "/api/v2/search") {
       rateLimited = true;
       return new Response("slow down", {
@@ -1060,9 +922,7 @@ test("nHentai provider reports HTTP retries through import progress", async () =
       summary: "Adult doujinshi from nHentai",
     },
   });
-  expect(
-    await provider.resolvePastedImport?.("Read https://nhentai.net/g/9/ next"),
-  ).toEqual({
+  expect(await provider.resolvePastedImport?.("Read https://nhentai.net/g/9/ next")).toEqual({
     publicationId: "nhentai-9",
     query: "https://nhentai.net/g/9/",
   });
@@ -1095,38 +955,24 @@ test("nHentai CLI defaults to a non-writing 20-item English/Japanese preview", (
     languages: ["english", "japanese"],
     limit: 20,
     maxSearchPages: 10,
-    outputDirectory: resolve(
-      "/work/afterleaf/afterleaf-data/providers/nhentai",
-    ),
+    outputDirectory: resolve("/work/afterleaf/afterleaf-data/providers/nhentai"),
     query: 'tag:"big breasts"',
     write: false,
   });
 });
 
 test("nHentai CLI accepts a FlareSolverr fallback URL", () => {
-  const parsed = parseNhentaiSyncCliOptions(
-    ["--flaresolverr-url", "http://127.0.0.1:8191/v1"],
-    "/work/afterleaf",
-  );
+  const parsed = parseNhentaiSyncCliOptions(["--flaresolverr-url", "http://127.0.0.1:8191/v1"], "/work/afterleaf");
   expect(parsed.flaresolverrUrl).toBe("http://127.0.0.1:8191/v1");
 });
 
 test("nHentai CLI accepts explicit blocked tags", () => {
-  const parsed = parseNhentaiSyncCliOptions(
-    ["--blocked-tags", "School Girl,glasses"],
-    "/work/afterleaf",
-  );
+  const parsed = parseNhentaiSyncCliOptions(["--blocked-tags", "School Girl,glasses"], "/work/afterleaf");
   expect(parsed.syncOptions.blockedTags).toEqual(["school-girl", "glasses"]);
 });
 
 test("nHentai CLI accepts an exact JSON blocked-tag list", () => {
-  const parsed = parseNhentaiSyncCliOptions(
-    ["--blocked-tags-json", '["full color","group, female"]'],
-    "/tmp",
-  );
+  const parsed = parseNhentaiSyncCliOptions(["--blocked-tags-json", '["full color","group, female"]'], "/tmp");
 
-  expect(parsed.syncOptions.blockedTags).toEqual([
-    "full-color",
-    "group-female",
-  ]);
+  expect(parsed.syncOptions.blockedTags).toEqual(["full-color", "group-female"]);
 });

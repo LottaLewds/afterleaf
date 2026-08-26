@@ -11,9 +11,7 @@ export type ShopCatalogSyncHost = {
   observedArrivalIds: Set<string>;
   selectedPublicationId: () => string | null | undefined;
   lastSelectedPublicationId: () => string | null | undefined;
-  setLastSelectedPublicationId: (
-    publicationId: string | null | undefined,
-  ) => void;
+  setLastSelectedPublicationId: (publicationId: string | null | undefined) => void;
   booksById: () => ReadonlyMap<string, BookRecord>;
   bookActions: () => BookCarryActions;
   bookLifecycle: () => ShopBookLifecycle;
@@ -39,14 +37,8 @@ export class ShopCatalogSync {
     const arrivalsChanged = newPublicationIds !== this.#lastNewPublicationIds;
     if (itemsChanged || arrivalsChanged) {
       const hasUnobservedArrivals =
-        arrivalsChanged &&
-        newPublicationIds.some(
-          (publicationId) => !host.observedArrivalIds.has(publicationId),
-        );
-      const discardOnlyUpdate =
-        itemsChanged &&
-        !hasUnobservedArrivals &&
-        this.#isDiscardOnlyCatalogUpdate(items);
+        arrivalsChanged && newPublicationIds.some((publicationId) => !host.observedArrivalIds.has(publicationId));
+      const discardOnlyUpdate = itemsChanged && !hasUnobservedArrivals && this.#isDiscardOnlyCatalogUpdate(items);
       this.#lastItems = items;
       this.#lastNewPublicationIds = newPublicationIds;
       if ((itemsChanged || hasUnobservedArrivals) && !discardOnlyUpdate)
@@ -56,13 +48,9 @@ export class ShopCatalogSync {
     const selectedPublicationId = host.selectedPublicationId();
     if (selectedPublicationId === host.lastSelectedPublicationId()) return;
     host.setLastSelectedPublicationId(selectedPublicationId);
-    const record = selectedPublicationId
-      ? host.booksById().get(selectedPublicationId)
-      : undefined;
+    const record = selectedPublicationId ? host.booksById().get(selectedPublicationId) : undefined;
     if (record && selectedPublicationId)
-      host
-        .bookTextures()
-        .ensureStandaloneBookTextures(selectedPublicationId, record);
+      host.bookTextures().ensureStandaloneBookTextures(selectedPublicationId, record);
     host.bookLifecycle().applyBookStates();
   }
 
@@ -81,13 +69,8 @@ export class ShopCatalogSync {
       }
 
       const bookActions = this.#host.bookActions();
-      const discardPending =
-        previousItem.id === bookActions.pendingDiscardPublicationId;
-      if (
-        !discardPending &&
-        !bookActions.discardedPublicationIds.has(previousItem.id)
-      )
-        return false;
+      const discardPending = previousItem.id === bookActions.pendingDiscardPublicationId;
+      if (!discardPending && !bookActions.discardedPublicationIds.has(previousItem.id)) return false;
       removedCount += 1;
     }
 

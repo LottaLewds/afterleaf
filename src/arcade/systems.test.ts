@@ -53,9 +53,7 @@ describe("arcadeSystemSupportsFileName", () => {
   test("accepts emulator-decompressed archives on every system", () => {
     const gba = findArcadeSystem("gba");
     if (!gba) throw new Error("missing gba system");
-    expect(
-      arcadeSystemSupportsFileName(gba, "Celeste Classic (v1.0).zip"),
-    ).toBe(true);
+    expect(arcadeSystemSupportsFileName(gba, "Celeste Classic (v1.0).zip")).toBe(true);
     expect(arcadeSystemSupportsFileName(gba, "rom.7z")).toBe(true);
     expect(arcadeSystemSupportsFileName(gba, "backup.rar")).toBe(false);
   });
@@ -63,9 +61,7 @@ describe("arcadeSystemSupportsFileName", () => {
 
 describe("arcadeGameId", () => {
   test("is stable for identical inputs", () => {
-    expect(arcadeGameId("nes", "Alter Ego.nes")).toBe(
-      arcadeGameId("nes", "Alter Ego.nes"),
-    );
+    expect(arcadeGameId("nes", "Alter Ego.nes")).toBe(arcadeGameId("nes", "Alter Ego.nes"));
   });
 
   test("differs across systems and roms while staying a safe int32", () => {

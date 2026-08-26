@@ -1,10 +1,7 @@
 import {expect, test} from "bun:test";
 import {Group, Mesh, BoxGeometry, MeshBasicMaterial, Vector3} from "three";
 import type {ShopPhysicsWorld} from "~/game/ShopPhysicsWorld";
-import {
-  MovablePropLifecycle,
-  type MovablePropLifecycleHost,
-} from "~/game/movablePropSystem";
+import {MovablePropLifecycle, type MovablePropLifecycleHost} from "~/game/movablePropSystem";
 
 test("movable prop registration records targets and registers physics dimensions", () => {
   const physicsDefinitions: unknown[] = [];

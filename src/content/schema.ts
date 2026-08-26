@@ -5,12 +5,7 @@ export type SupportedLanguage = (typeof SUPPORTED_LANGUAGES)[number];
 
 export type MatchMode = "all" | "any";
 
-export const PUBLICATION_KINDS = [
-  "anthology",
-  "commercial-volume",
-  "doujinshi",
-  "magazine",
-] as const;
+export const PUBLICATION_KINDS = ["anthology", "commercial-volume", "doujinshi", "magazine"] as const;
 export type PublicationKind = (typeof PUBLICATION_KINDS)[number];
 
 export interface PublicationIssue {
@@ -122,12 +117,8 @@ export interface PublicationSource {
   readonly diagnostics: readonly ContentSeedDiagnostic[];
   readonly name: string;
   search(query: PublicationSearchQuery): Promise<PublicationSourceReference[]>;
-  getMetadata(
-    reference: PublicationSourceReference,
-  ): Promise<PublicationCandidate>;
-  materialize(
-    reference: PublicationSourceReference,
-  ): Promise<PublicationMaterial>;
+  getMetadata(reference: PublicationSourceReference): Promise<PublicationCandidate>;
+  materialize(reference: PublicationSourceReference): Promise<PublicationMaterial>;
 }
 
 export interface SeedContentPackOptions extends PublicationSearchQuery {

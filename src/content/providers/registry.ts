@@ -1,15 +1,8 @@
 import {isDeepStrictEqual} from "node:util";
 import {existsSync, readFileSync, readdirSync, statSync} from "node:fs";
 import {basename, delimiter, dirname, resolve} from "node:path";
-import {
-  createBunProviderModuleLoader,
-  type LibraryProviderModuleLocation,
-} from "./bunRuntime";
-import {
-  LIBRARY_PROVIDER_MANIFEST_NAME,
-  parseLibraryProviderDescriptor,
-  parseLibraryProviderManifest,
-} from "./manifest";
+import {createBunProviderModuleLoader, type LibraryProviderModuleLocation} from "./bunRuntime";
+import {LIBRARY_PROVIDER_MANIFEST_NAME, parseLibraryProviderDescriptor, parseLibraryProviderManifest} from "./manifest";
 import type {
   LibraryProvider,
   LibraryProviderDescriptor,
@@ -44,69 +37,46 @@ export interface LibraryProviderRegistry {
   load(providerId: string): Promise<LibraryProvider>;
 }
 
-export type LibraryProviderModuleLoader = (
-  location: LibraryProviderModuleLocation,
-) => Promise<unknown>;
+export type LibraryProviderModuleLoader = (location: LibraryProviderModuleLocation) => Promise<unknown>;
 
 const manifestPathsIn = (parentDirectory: string) => {
   if (!existsSync(parentDirectory)) return [];
-  return readdirSync(parentDirectory, {withFileTypes: true}).flatMap(
-    (entry) => {
-      if (!entry.isDirectory() || entry.isSymbolicLink()) return [];
-      const manifestPath = resolve(
-        parentDirectory,
-        entry.name,
-        LIBRARY_PROVIDER_MANIFEST_NAME,
-      );
-      return existsSync(manifestPath) ? [manifestPath] : [];
-    },
-  );
+  return readdirSync(parentDirectory, {withFileTypes: true}).flatMap((entry) => {
+    if (!entry.isDirectory() || entry.isSymbolicLink()) return [];
+    const manifestPath = resolve(parentDirectory, entry.name, LIBRARY_PROVIDER_MANIFEST_NAME);
+    return existsSync(manifestPath) ? [manifestPath] : [];
+  });
 };
 
 const manifestPathsFromExplicitPath = (path: string) => {
   const resolvedPath = resolve(path);
-  if (!existsSync(resolvedPath))
-    throw new Error(
-      `Content provider plugin path does not exist: ${resolvedPath}`,
-    );
+  if (!existsSync(resolvedPath)) throw new Error(`Content provider plugin path does not exist: ${resolvedPath}`);
   if (statSync(resolvedPath).isFile()) {
     if (basename(resolvedPath) !== LIBRARY_PROVIDER_MANIFEST_NAME)
-      throw new Error(
-        `Content provider manifest must be named ${LIBRARY_PROVIDER_MANIFEST_NAME}: ${resolvedPath}`,
-      );
+      throw new Error(`Content provider manifest must be named ${LIBRARY_PROVIDER_MANIFEST_NAME}: ${resolvedPath}`);
     return [resolvedPath];
   }
   const directManifest = resolve(resolvedPath, LIBRARY_PROVIDER_MANIFEST_NAME);
   if (existsSync(directManifest)) return [directManifest];
   const nestedManifests = manifestPathsIn(resolvedPath);
   if (nestedManifests.length > 0) return nestedManifests;
-  throw new Error(
-    `No ${LIBRARY_PROVIDER_MANIFEST_NAME} found under ${resolvedPath}`,
-  );
+  throw new Error(`No ${LIBRARY_PROVIDER_MANIFEST_NAME} found under ${resolvedPath}`);
 };
 
-const readProviderManifest = (
-  manifestPath: string,
-  projectDirectory: string,
-): DiscoveredLibraryProvider => {
+const readProviderManifest = (manifestPath: string, projectDirectory: string): DiscoveredLibraryProvider => {
   let value: unknown;
   try {
     value = JSON.parse(readFileSync(manifestPath, "utf8")) as unknown;
   } catch (error) {
-    throw new Error(
-      `Could not parse content provider manifest ${manifestPath}`,
-      {
-        cause: error,
-      },
-    );
+    throw new Error(`Could not parse content provider manifest ${manifestPath}`, {
+      cause: error,
+    });
   }
   const manifest = parseLibraryProviderManifest(value, manifestPath);
   const pluginDirectory = dirname(manifestPath);
   const entryPath = resolve(pluginDirectory, manifest.entry);
   if (!existsSync(entryPath) || !statSync(entryPath).isFile())
-    throw new Error(
-      `Content provider ${manifest.descriptor.id} entry does not exist: ${entryPath}`,
-    );
+    throw new Error(`Content provider ${manifest.descriptor.id} entry does not exist: ${entryPath}`);
   return {
     entryPath,
     manifest,
@@ -121,10 +91,7 @@ const environmentPluginPaths = () =>
     .map((path) => path.trim())
     .filter(Boolean) ?? [];
 
-const discoverProviders = (
-  options: LibraryProviderRegistryOptions,
-  rootDirectory: string,
-) => {
+const discoverProviders = (options: LibraryProviderRegistryOptions, rootDirectory: string) => {
   const manifestLocations: readonly (readonly [string, string])[] = [
     ...manifestPathsIn(resolve(rootDirectory, "src/content/providers")).map(
       (manifestPath) => [manifestPath, rootDirectory] as const,
@@ -148,32 +115,19 @@ const discoverProviders = (
     const id = provider.manifest.descriptor.id;
     const existing = providers.get(id);
     if (existing)
-      throw new Error(
-        `Duplicate content provider ${id}: ${existing.manifestPath} and ${provider.manifestPath}`,
-      );
+      throw new Error(`Duplicate content provider ${id}: ${existing.manifestPath} and ${provider.manifestPath}`);
     providers.set(id, provider);
   }
   return providers;
 };
 
-const validateLoadedProvider = (
-  value: unknown,
-  discovered: DiscoveredLibraryProvider,
-) => {
-  if (typeof value !== "object" || value === null)
-    throw new Error("createProvider() must return an object");
+const validateLoadedProvider = (value: unknown, discovered: DiscoveredLibraryProvider) => {
+  if (typeof value !== "object" || value === null) throw new Error("createProvider() must return an object");
   const provider = value as Partial<LibraryProvider>;
-  if (typeof provider.sync !== "function")
-    throw new Error("createProvider() must return a sync function");
-  if (
-    provider.materializePage !== undefined &&
-    typeof provider.materializePage !== "function"
-  )
+  if (typeof provider.sync !== "function") throw new Error("createProvider() must return a sync function");
+  if (provider.materializePage !== undefined && typeof provider.materializePage !== "function")
     throw new Error("materializePage must be a function when provided");
-  if (
-    provider.resolvePastedImport !== undefined &&
-    typeof provider.resolvePastedImport !== "function"
-  )
+  if (provider.resolvePastedImport !== undefined && typeof provider.resolvePastedImport !== "function")
     throw new Error("resolvePastedImport must be a function when provided");
   const descriptor = parseLibraryProviderDescriptor(
     provider.descriptor,
@@ -186,10 +140,7 @@ const validateLoadedProvider = (
   return provider as LibraryProvider;
 };
 
-const loadProvider = async (
-  discovered: DiscoveredLibraryProvider,
-  loadModule: LibraryProviderModuleLoader,
-) => {
+const loadProvider = async (discovered: DiscoveredLibraryProvider, loadModule: LibraryProviderModuleLoader) => {
   try {
     const loadedModule = await loadModule({
       entryPath: discovered.entryPath,
@@ -224,29 +175,20 @@ export const createLibraryProviderRegistry = (
       resolve(rootDirectory, "src/content/providers/bunRuntimeHost.mjs"),
       resolve(rootDirectory, "src/content/providers/publicSdk.ts"),
     );
-  const providers = new Map(
-    options.providers?.map((provider) => [provider.descriptor.id, provider]) ??
-      [],
-  );
+  const providers = new Map(options.providers?.map((provider) => [provider.descriptor.id, provider]) ?? []);
   const loadPromises = new Map<string, Promise<LibraryProvider>>();
-  const descriptors = new Map(
-    [...discovered].map(([id, provider]) => [id, provider.manifest.descriptor]),
-  );
-  for (const [id, provider] of providers)
-    descriptors.set(id, provider.descriptor);
-  const orderedDescriptors = [...descriptors.values()].toSorted(
-    (first, second) => {
-      if (first.id === DEFAULT_LIBRARY_PROVIDER_ID) return -1;
-      if (second.id === DEFAULT_LIBRARY_PROVIDER_ID) return 1;
-      return first.name.localeCompare(second.name);
-    },
-  );
+  const descriptors = new Map([...discovered].map(([id, provider]) => [id, provider.manifest.descriptor]));
+  for (const [id, provider] of providers) descriptors.set(id, provider.descriptor);
+  const orderedDescriptors = [...descriptors.values()].toSorted((first, second) => {
+    if (first.id === DEFAULT_LIBRARY_PROVIDER_ID) return -1;
+    if (second.id === DEFAULT_LIBRARY_PROVIDER_ID) return 1;
+    return first.name.localeCompare(second.name);
+  });
   return {
     descriptors: () => orderedDescriptors,
     getDescriptor: (providerId) => {
       const descriptor = descriptors.get(providerId);
-      if (!descriptor)
-        throw new Error(`Unknown library provider: ${providerId}`);
+      if (!descriptor) throw new Error(`Unknown library provider: ${providerId}`);
       return descriptor;
     },
     load: (providerId) => {
@@ -255,10 +197,7 @@ export const createLibraryProviderRegistry = (
       const pending = loadPromises.get(providerId);
       if (pending) return pending;
       const plugin = discovered.get(providerId);
-      if (!plugin)
-        return Promise.reject(
-          new Error(`Unknown library provider: ${providerId}`),
-        );
+      if (!plugin) return Promise.reject(new Error(`Unknown library provider: ${providerId}`));
       const next = loadProvider(plugin, loadModule);
       loadPromises.set(providerId, next);
       return next;
@@ -266,6 +205,5 @@ export const createLibraryProviderRegistry = (
   };
 };
 
-export const getLibraryProviderDescriptors = (
-  options: LibraryProviderRegistryOptions = {},
-) => createLibraryProviderRegistry(options).descriptors();
+export const getLibraryProviderDescriptors = (options: LibraryProviderRegistryOptions = {}) =>
+  createLibraryProviderRegistry(options).descriptors();

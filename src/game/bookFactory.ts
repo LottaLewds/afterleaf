@@ -23,21 +23,13 @@ import {physicalBookDepth, physicalBookWidth} from "~/game/bookDimensions";
 import type {ShelfPresentation} from "~/game/shelfPlacement";
 import type {BookInteractionState} from "~/game/shopGameplay";
 import {BOOK_HEIGHT} from "~/game/bookTuning";
-import {
-  FACE_DISPLAY_COLUMNS,
-  FACE_DISPLAY_COLUMN_SPACING,
-  FACE_DISPLAY_ROWS,
-  FACE_SHELF_ID,
-} from "~/game/shopLayout";
+import {FACE_DISPLAY_COLUMNS, FACE_DISPLAY_COLUMN_SPACING, FACE_DISPLAY_ROWS, FACE_SHELF_ID} from "~/game/shopLayout";
 
-export const faceDisplayShelfId = (row: number) =>
-  `${FACE_SHELF_ID}:row:${row}`;
+export const faceDisplayShelfId = (row: number) => `${FACE_SHELF_ID}:row:${row}`;
 
 export const faceDisplayShelfOffset = (slotIndex: number) => {
   const column = slotIndex % FACE_DISPLAY_COLUMNS;
-  return (
-    (column - (FACE_DISPLAY_COLUMNS - 1) / 2) * FACE_DISPLAY_COLUMN_SPACING
-  );
+  return (column - (FACE_DISPLAY_COLUMNS - 1) / 2) * FACE_DISPLAY_COLUMN_SPACING;
 };
 
 import {
@@ -239,11 +231,8 @@ const createBookRecord = ({
   sceneEmissive: new Color(),
   sceneEmissiveIntensity: 0.2,
   shelfPosition: new Vector3(),
-  shelfOffset:
-    retainedGameplay?.shelfOffset ??
-    (initialTaskBook ? 0 : faceDisplayShelfOffset(slotIndex)),
-  shelfPresentation:
-    retainedGameplay?.shelfPresentation ?? (initialTaskBook ? "spine" : "face"),
+  shelfOffset: retainedGameplay?.shelfOffset ?? (initialTaskBook ? 0 : faceDisplayShelfOffset(slotIndex)),
+  shelfPresentation: retainedGameplay?.shelfPresentation ?? (initialTaskBook ? "spine" : "face"),
   signature,
   slotIndex: retainedGameplay?.slotIndex ?? slotIndex,
   spineNormalSign,
@@ -256,9 +245,7 @@ const createBookRecord = ({
     (initialTaskBook
       ? {status: "floor"}
       : {
-          shelfId: faceDisplayShelfId(
-            Math.floor(slotIndex / FACE_DISPLAY_COLUMNS) % FACE_DISPLAY_ROWS,
-          ),
+          shelfId: faceDisplayShelfId(Math.floor(slotIndex / FACE_DISPLAY_COLUMNS) % FACE_DISPLAY_ROWS),
           slotIndex: slotIndex % FACE_DISPLAY_COLUMNS,
           status: "shelved",
         }),
@@ -277,29 +264,18 @@ export const createBook = (
   slotIndex: number,
   initialTaskBook: boolean,
   retainedGameplay: RetainedBookGameplay | undefined,
-  placeBookOnFloor: (
-    record: BookRecord,
-    floorIndex: number,
-    seedValue: string,
-  ) => void,
+  placeBookOnFloor: (record: BookRecord, floorIndex: number, seedValue: string) => void,
 ): BookRecord => {
   const accent = new Color(item.accent);
   const spineNormalSign = item.direction === "LTR" ? -1 : 1;
-  const {material: exteriorMaterial, uniforms: exteriorUniforms} =
-    createBookExteriorMaterial(accent, spineNormalSign);
+  const {material: exteriorMaterial, uniforms: exteriorUniforms} = createBookExteriorMaterial(accent, spineNormalSign);
   const width = physicalBookWidth(item.aspectRatio, BOOK_HEIGHT);
   const thickness = physicalBookDepth(item.thicknessMm, BOOK_HEIGHT);
-  const mesh = new Mesh(
-    new BoxGeometry(width, BOOK_HEIGHT, thickness),
-    exteriorMaterial,
-  );
+  const mesh = new Mesh(new BoxGeometry(width, BOOK_HEIGHT, thickness), exteriorMaterial);
   mesh.castShadow = true;
   mesh.receiveShadow = true;
   mesh.userData.publicationId = item.id;
-  const hoverTarget = new Mesh(
-    new BoxGeometry(1, 1, 1),
-    new MeshBasicMaterial(),
-  );
+  const hoverTarget = new Mesh(new BoxGeometry(1, 1, 1), new MeshBasicMaterial());
   hoverTarget.name = "shelved-book-hover-target";
   hoverTarget.visible = false;
   hoverTarget.userData.publicationId = item.id;
@@ -332,22 +308,13 @@ export const createBook = (
   });
   const paperBlockDepth = Math.max(0.012, thickness);
   const pageCenterOffset = width / 2 + INSPECTION_PAGE_GUTTER / 2;
-  const inspectionLeftBlock = new Mesh(
-    new BoxGeometry(width, BOOK_HEIGHT, paperBlockDepth),
-    inspectionPaperMaterial,
-  );
-  const inspectionRightBlock = new Mesh(
-    new BoxGeometry(width, BOOK_HEIGHT, paperBlockDepth),
-    inspectionPaperMaterial,
-  );
+  const inspectionLeftBlock = new Mesh(new BoxGeometry(width, BOOK_HEIGHT, paperBlockDepth), inspectionPaperMaterial);
+  const inspectionRightBlock = new Mesh(new BoxGeometry(width, BOOK_HEIGHT, paperBlockDepth), inspectionPaperMaterial);
   inspectionLeftBlock.name = "inspection-left-paper-block";
   inspectionRightBlock.name = "inspection-right-paper-block";
   inspectionLeftBlock.position.x = -pageCenterOffset;
   inspectionRightBlock.position.x = pageCenterOffset;
-  const inspectionFrontCover = new Mesh(
-    new PlaneGeometry(width, BOOK_HEIGHT),
-    inspectionFrontCoverMaterial,
-  );
+  const inspectionFrontCover = new Mesh(new PlaneGeometry(width, BOOK_HEIGHT), inspectionFrontCoverMaterial);
   inspectionFrontCover.name = "inspection-front-cover-art";
   inspectionFrontCover.castShadow = true;
   inspectionFrontCover.receiveShadow = true;
@@ -357,10 +324,7 @@ export const createBook = (
     0,
     -paperBlockDepth / 2 - INSPECTION_SURFACE_GAP * 2,
   );
-  const inspectionBackCover = new Mesh(
-    new PlaneGeometry(width, BOOK_HEIGHT),
-    inspectionBackCoverMaterial,
-  );
+  const inspectionBackCover = new Mesh(new PlaneGeometry(width, BOOK_HEIGHT), inspectionBackCoverMaterial);
   inspectionBackCover.name = "inspection-back-cover-art";
   inspectionBackCover.castShadow = true;
   inspectionBackCover.receiveShadow = true;
@@ -379,12 +343,8 @@ export const createBook = (
     side: DoubleSide,
     toneMapped: false,
   } as const;
-  const inspectionLeftMaterial = new MeshBasicMaterial(
-    inspectionMaterialOptions,
-  );
-  const inspectionRightMaterial = new MeshBasicMaterial(
-    inspectionMaterialOptions,
-  );
+  const inspectionLeftMaterial = new MeshBasicMaterial(inspectionMaterialOptions);
+  const inspectionRightMaterial = new MeshBasicMaterial(inspectionMaterialOptions);
   const inspectionTurningFrontMaterial = new MeshBasicMaterial({
     ...inspectionMaterialOptions,
     polygonOffsetFactor: -4,
@@ -397,14 +357,8 @@ export const createBook = (
     polygonOffsetUnits: -4,
     side: BackSide,
   });
-  const inspectionLeftPage = new Mesh(
-    new PlaneGeometry(width, BOOK_HEIGHT),
-    inspectionLeftMaterial,
-  );
-  const inspectionRightPage = new Mesh(
-    new PlaneGeometry(width, BOOK_HEIGHT),
-    inspectionRightMaterial,
-  );
+  const inspectionLeftPage = new Mesh(new PlaneGeometry(width, BOOK_HEIGHT), inspectionLeftMaterial);
+  const inspectionRightPage = new Mesh(new PlaneGeometry(width, BOOK_HEIGHT), inspectionRightMaterial);
   const inspectionTurningGeometry = new PlaneGeometry(
     width,
     BOOK_HEIGHT,
@@ -420,23 +374,15 @@ export const createBook = (
     inspectionTurningBackMaterial,
   ]);
   const turningUvArray = inspectionTurningGeometry.getAttribute("uv").array;
-  const turningPositionArray =
-    inspectionTurningGeometry.getAttribute("position").array;
+  const turningPositionArray = inspectionTurningGeometry.getAttribute("position").array;
   const inspectionTurningUvs =
-    turningUvArray instanceof Float32Array
-      ? new Float32Array(turningUvArray.length)
-      : new Float32Array();
+    turningUvArray instanceof Float32Array ? new Float32Array(turningUvArray.length) : new Float32Array();
   const inspectionTurningPositions =
-    turningPositionArray instanceof Float32Array
-      ? turningPositionArray
-      : new Float32Array();
-  const inspectionTurningTargets = new Float32Array(
-    inspectionTurningPositions.length,
-  );
+    turningPositionArray instanceof Float32Array ? turningPositionArray : new Float32Array();
+  const inspectionTurningTargets = new Float32Array(inspectionTurningPositions.length);
   for (let index = 0; index < inspectionTurningUvs.length; index += 2) {
     const textureU = turningUvArray[index] ?? 0;
-    inspectionTurningUvs[index] =
-      item.direction === "LTR" ? textureU : 1 - textureU;
+    inspectionTurningUvs[index] = item.direction === "LTR" ? textureU : 1 - textureU;
     inspectionTurningUvs[index + 1] = turningUvArray[index + 1] ?? 0;
   }
   inspectionLeftPage.name = "inspection-left-page";
@@ -444,29 +390,16 @@ export const createBook = (
   inspectionTurningPage.name = "inspection-turning-page";
   inspectionTurningPage.frustumCulled = false;
   inspectionTurningPage.visible = false;
-  inspectionLeftPage.position.set(
-    -pageCenterOffset,
-    0,
-    thickness / 2 + INSPECTION_SURFACE_GAP,
-  );
-  inspectionRightPage.position.set(
-    pageCenterOffset,
-    0,
-    thickness / 2 + INSPECTION_SURFACE_GAP,
-  );
+  inspectionLeftPage.position.set(-pageCenterOffset, 0, thickness / 2 + INSPECTION_SURFACE_GAP);
+  inspectionRightPage.position.set(pageCenterOffset, 0, thickness / 2 + INSPECTION_SURFACE_GAP);
   inspectionLeftPage.renderOrder = 20;
   inspectionRightPage.renderOrder = 20;
   inspectionTurningPage.renderOrder = 30;
   inspectionLeftAssembly.add(inspectionLeftBlock, inspectionLeftPage);
   inspectionRightAssembly.add(inspectionRightBlock, inspectionRightPage);
-  const inspectionOuterCoverAssembly =
-    item.direction === "LTR" ? inspectionLeftAssembly : inspectionRightAssembly;
+  const inspectionOuterCoverAssembly = item.direction === "LTR" ? inspectionLeftAssembly : inspectionRightAssembly;
   inspectionOuterCoverAssembly.add(inspectionFrontCover, inspectionBackCover);
-  inspectionGroup.add(
-    inspectionLeftAssembly,
-    inspectionRightAssembly,
-    inspectionTurningPage,
-  );
+  inspectionGroup.add(inspectionLeftAssembly, inspectionRightAssembly, inspectionTurningPage);
   mesh.add(inspectionGroup);
 
   const record = createBookRecord({
@@ -513,8 +446,7 @@ export const createBook = (
   if (retainedGameplay) {
     record.basePosition.copy(retainedGameplay.basePosition);
     record.baseRotation.copy(retainedGameplay.baseRotation);
-  } else if (record.state.status === "floor")
-    placeBookOnFloor(record, slotIndex, item.id);
+  } else if (record.state.status === "floor") placeBookOnFloor(record, slotIndex, item.id);
 
   return record;
 };

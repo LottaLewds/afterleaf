@@ -18,10 +18,7 @@ import floorNormalUrl from "~/assets/materials/laminate-floor-normal.webp";
 import floorSurfaceUrl from "~/assets/materials/laminate-floor-surface.webp";
 import moonriseSkyUrl from "~/assets/materials/qwantani-moonrise-sky.webp";
 import type {MovablePropLifecycle} from "~/game/movablePropSystem";
-import {
-  addInteriorBox,
-  createPosterSurface,
-} from "~/game/interior/interiorPrimitives";
+import {addInteriorBox, createPosterSurface} from "~/game/interior/interiorPrimitives";
 import {createDeskLamps} from "~/game/interior/lightingProps";
 import {createReadingChairInstance} from "~/game/interior/readingFurniture";
 import {READING_FURNITURE_BOXES} from "~/game/shopLayout";
@@ -38,11 +35,7 @@ export type ShopInteriorAssetsHost = {
   textureLoader: () => TextureLoader;
 };
 
-export const cloneFloorMaterial = (
-  source: MeshStandardMaterial,
-  repeatX: number,
-  repeatY: number,
-) => {
+export const cloneFloorMaterial = (source: MeshStandardMaterial, repeatX: number, repeatY: number) => {
   const material = source.clone();
   const clones = new Map<Texture, Texture>();
   const cloneTexture = (texture: Texture | null) => {
@@ -71,14 +64,8 @@ export class ShopInteriorAssets {
   }
 
   createFloorMaterial() {
-    const anisotropy = Math.min(
-      8,
-      this.#host.renderer().capabilities.getMaxAnisotropy(),
-    );
-    const loadTexture = (
-      url: string,
-      colorSpace: ColorSpace = NoColorSpace,
-    ) => {
+    const anisotropy = Math.min(8, this.#host.renderer().capabilities.getMaxAnisotropy());
+    const loadTexture = (url: string, colorSpace: ColorSpace = NoColorSpace) => {
       const texture = this.#host.textureLoader().load(url);
       texture.colorSpace = colorSpace;
       texture.wrapS = RepeatWrapping;
@@ -115,15 +102,9 @@ export class ShopInteriorAssets {
     furnitureMaterials: ReadingFurnitureMaterials,
   ) {
     const host = this.#host;
-    const chairTemplate = READING_FURNITURE_BOXES.filter(
-      (box) => box.movableId === "reading-chair-1",
-    );
-    const chairMinY = Math.min(
-      ...chairTemplate.map((box) => box.position.y - box.halfExtents.y),
-    );
-    const chairMaxY = Math.max(
-      ...chairTemplate.map((box) => box.position.y + box.halfExtents.y),
-    );
+    const chairTemplate = READING_FURNITURE_BOXES.filter((box) => box.movableId === "reading-chair-1");
+    const chairMinY = Math.min(...chairTemplate.map((box) => box.position.y - box.halfExtents.y));
+    const chairMaxY = Math.max(...chairTemplate.map((box) => box.position.y + box.halfExtents.y));
     const chairCenterY = SHOP_UPPER_FLOOR_Y + (chairMinY + chairMaxY) / 2;
     for (const table of [
       {id: "west", x: -8.25},
@@ -133,13 +114,7 @@ export class ShopInteriorAssets {
       this.addBox(parent, [2.7, 0.14, 1.3], [x, 5.72, 23], woodMaterial, true);
       for (const offsetX of [-1.08, 1.08])
         for (const offsetZ of [-0.43, 0.43])
-          this.addBox(
-            parent,
-            [0.09, 0.78, 0.09],
-            [x + offsetX, 5.29, 23 + offsetZ],
-            furnitureMaterials.leg,
-            true,
-          );
+          this.addBox(parent, [0.09, 0.78, 0.09], [x + offsetX, 5.29, 23 + offsetZ], furnitureMaterials.leg, true);
       for (const z of [21.95, 24.05]) {
         createReadingChairInstance(
           parent,
@@ -149,22 +124,18 @@ export class ShopInteriorAssets {
           {
             addBox: (parent2, size, position2, material, castShadow) =>
               this.addBox(parent2, size, position2, material, castShadow),
-            cacheBuiltinPropTemplate: (registration) =>
-              host.props().cacheBuiltinPropTemplate(registration),
+            cacheBuiltinPropTemplate: (registration) => host.props().cacheBuiltinPropTemplate(registration),
             createDeskLamps: async (parent2) => {
               await createDeskLamps(parent2, {
-                cacheBuiltinPropTemplate: (registration) =>
-                  host.props().cacheBuiltinPropTemplate(registration),
+                cacheBuiltinPropTemplate: (registration) => host.props().cacheBuiltinPropTemplate(registration),
                 isDisposed: () => host.disposed(),
                 modelMixers: host.props().modelMixers,
                 needsSeedPass: (version) => host.props().needsSeedPass(version),
-                registerMovableProp: (registration) =>
-                  host.props().registerMovableProp(registration),
+                registerMovableProp: (registration) => host.props().registerMovableProp(registration),
               });
             },
             needsSeedPass: (version) => host.props().needsSeedPass(version),
-            registerMovableProp: (registration) =>
-              host.props().registerMovableProp(registration),
+            registerMovableProp: (registration) => host.props().registerMovableProp(registration),
           },
           [x, chairCenterY, z],
           z < 23 ? -Math.PI / 2 : Math.PI / 2,
@@ -180,14 +151,7 @@ export class ShopInteriorAssets {
     material: MeshStandardMaterial,
     castShadow = false,
   ) {
-    return addInteriorBox(
-      parent,
-      size,
-      position,
-      material,
-      castShadow,
-      this.#host.posterRaycastMeshes,
-    );
+    return addInteriorBox(parent, size, position, material, castShadow, this.#host.posterRaycastMeshes);
   }
 
   createPosterSurface(

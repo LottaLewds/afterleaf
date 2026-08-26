@@ -5,15 +5,9 @@ import {
   READING_TABLE_Z_POSITIONS,
   type ReadingFurnitureBox,
 } from "~/game/shopLayout";
-import {
-  BUILTIN_READING_CHAIR_ASSET_ID,
-  BUILTIN_READING_TABLE_ASSET_ID,
-} from "~/game/propAssetIds";
+import {BUILTIN_READING_CHAIR_ASSET_ID, BUILTIN_READING_TABLE_ASSET_ID} from "~/game/propAssetIds";
 import type {AddBox} from "~/game/interior/interiorPrimitives";
-import type {
-  MovablePropRegistration,
-  ReadingFurnitureMaterials,
-} from "~/game/propRegistration";
+import type {MovablePropRegistration, ReadingFurnitureMaterials} from "~/game/propRegistration";
 import {INITIAL_WORLD_SEEDING_VERSION} from "~/game/worldSave";
 
 /** Scene hooks the reading-furniture builders need while assembling props. */
@@ -40,11 +34,7 @@ export const assembleReadingTable = (
     addBox(
       table,
       [box.halfExtents.x * 2, box.halfExtents.y * 2, box.halfExtents.z * 2],
-      [
-        box.position.x,
-        box.position.y - READING_TABLE_SIZE.height / 2,
-        box.position.z - tableZ,
-      ],
+      [box.position.x, box.position.y - READING_TABLE_SIZE.height / 2, box.position.z - tableZ],
       furnitureMaterials[box.material],
       true,
     );
@@ -69,16 +59,8 @@ export const assembleReadingChair = (
   const min = new Vector3();
   const max = new Vector3();
   for (const box of chairBoxes) {
-    min.set(
-      box.position.x - box.halfExtents.x,
-      box.position.y - box.halfExtents.y,
-      box.position.z - box.halfExtents.z,
-    );
-    max.set(
-      box.position.x + box.halfExtents.x,
-      box.position.y + box.halfExtents.y,
-      box.position.z + box.halfExtents.z,
-    );
+    min.set(box.position.x - box.halfExtents.x, box.position.y - box.halfExtents.y, box.position.z - box.halfExtents.z);
+    max.set(box.position.x + box.halfExtents.x, box.position.y + box.halfExtents.y, box.position.z + box.halfExtents.z);
     bounds.expandByPoint(min);
     bounds.expandByPoint(max);
   }
@@ -101,11 +83,7 @@ export const assembleReadingChair = (
     const mesh = addBox(
       chair,
       [box.halfExtents.x * 2, box.halfExtents.y * 2, box.halfExtents.z * 2],
-      [
-        box.position.x - center.x,
-        box.position.y - center.y,
-        box.position.z - center.z,
-      ],
+      [box.position.x - center.x, box.position.y - center.y, box.position.z - center.z],
       furnitureMaterials[box.material],
       true,
     );
@@ -128,14 +106,7 @@ export const createReadingChairInstance = (
     group: chair,
     seat,
     size,
-  } = assembleReadingChair(
-    chairBoxes,
-    furnitureMaterials,
-    id,
-    host.addBox,
-    position,
-    rotationY,
-  );
+  } = assembleReadingChair(chairBoxes, furnitureMaterials, id, host.addBox, position, rotationY);
   parent.add(chair);
   host.registerMovableProp({
     colliderParts: chairBoxes.map((box) => ({
@@ -204,9 +175,7 @@ export const createReadingTables = (
       furnitureMaterials,
       host.addBox,
     );
-    const tableBoxes = READING_FURNITURE_BOXES.filter(
-      (box) => box.movableId === `reading-table-1`,
-    );
+    const tableBoxes = READING_FURNITURE_BOXES.filter((box) => box.movableId === `reading-table-1`);
     host.cacheBuiltinPropTemplate({
       colliderParts: tableBoxes.map((box) => ({
         halfExtents: box.halfExtents,
@@ -229,20 +198,13 @@ export const createReadingTables = (
       width: 2.4,
     });
   }
-  const templateChairBoxes = READING_FURNITURE_BOXES.filter(
-    (box) => box.movableId === "reading-chair-1",
-  );
+  const templateChairBoxes = READING_FURNITURE_BOXES.filter((box) => box.movableId === "reading-chair-1");
   if (templateChairBoxes.length > 0) {
     const {
       center,
       group: templateChair,
       size,
-    } = assembleReadingChair(
-      templateChairBoxes,
-      furnitureMaterials,
-      "reading-chair-template",
-      host.addBox,
-    );
+    } = assembleReadingChair(templateChairBoxes, furnitureMaterials, "reading-chair-template", host.addBox);
     host.cacheBuiltinPropTemplate({
       colliderParts: templateChairBoxes.map((box) => ({
         halfExtents: box.halfExtents,
@@ -269,17 +231,9 @@ export const createReadingTables = (
   if (host.needsSeedPass(INITIAL_WORLD_SEEDING_VERSION))
     for (const [tableIndex, tableZ] of READING_TABLE_Z_POSITIONS.entries()) {
       const id = `reading-table-${tableIndex + 1}`;
-      const table = assembleReadingTable(
-        id,
-        id,
-        tableZ,
-        furnitureMaterials,
-        host.addBox,
-      );
+      const table = assembleReadingTable(id, id, tableZ, furnitureMaterials, host.addBox);
       parent.add(table);
-      const tableBoxes = READING_FURNITURE_BOXES.filter(
-        (box) => box.movableId === id,
-      );
+      const tableBoxes = READING_FURNITURE_BOXES.filter((box) => box.movableId === id);
       host.registerMovableProp({
         colliderParts: tableBoxes.map((box) => ({
           halfExtents: box.halfExtents,
@@ -305,21 +259,11 @@ export const createReadingTables = (
 
   if (host.needsSeedPass(INITIAL_WORLD_SEEDING_VERSION)) {
     const chairIds = new Set(
-      READING_FURNITURE_BOXES.flatMap((box) =>
-        box.movableId?.startsWith("reading-chair-") ? [box.movableId] : [],
-      ),
+      READING_FURNITURE_BOXES.flatMap((box) => (box.movableId?.startsWith("reading-chair-") ? [box.movableId] : [])),
     );
     for (const id of chairIds) {
-      const chairBoxes = READING_FURNITURE_BOXES.filter(
-        (box) => box.movableId === id,
-      );
-      createReadingChairInstance(
-        parent,
-        id,
-        chairBoxes,
-        furnitureMaterials,
-        host,
-      );
+      const chairBoxes = READING_FURNITURE_BOXES.filter((box) => box.movableId === id);
+      createReadingChairInstance(parent, id, chairBoxes, furnitureMaterials, host);
     }
   }
 

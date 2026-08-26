@@ -1,5 +1,4 @@
-export const CONTROL_PREFERENCES_STORAGE_KEY =
-  "afterleaf-control-preferences-v1";
+export const CONTROL_PREFERENCES_STORAGE_KEY = "afterleaf-control-preferences-v1";
 export const DEFAULT_MOUSE_SENSITIVITY = 0.75;
 export const MIN_MOUSE_SENSITIVITY = 0.2;
 export const MAX_MOUSE_SENSITIVITY = 2;
@@ -21,23 +20,13 @@ export type ControlPreferences = {
   tvScreenLighting: boolean;
 };
 
-const normalizeSensitivity = (
-  value: number,
-  min: number,
-  max: number,
-  fallback: number,
-) => {
+const normalizeSensitivity = (value: number, min: number, max: number, fallback: number) => {
   if (!Number.isFinite(value)) return fallback;
   return Math.min(Math.max(value, min), max);
 };
 
 export const normalizeMouseSensitivity = (value: number) =>
-  normalizeSensitivity(
-    value,
-    MIN_MOUSE_SENSITIVITY,
-    MAX_MOUSE_SENSITIVITY,
-    DEFAULT_MOUSE_SENSITIVITY,
-  );
+  normalizeSensitivity(value, MIN_MOUSE_SENSITIVITY, MAX_MOUSE_SENSITIVITY, DEFAULT_MOUSE_SENSITIVITY);
 
 export const normalizeGamepadLookSensitivity = (value: number) =>
   normalizeSensitivity(
@@ -47,21 +36,15 @@ export const normalizeGamepadLookSensitivity = (value: number) =>
     DEFAULT_GAMEPAD_LOOK_SENSITIVITY,
   );
 
-const parseControlPreferences = (
-  value: unknown,
-): ControlPreferences | undefined => {
-  if (typeof value !== "object" || value === null || Array.isArray(value))
-    return;
+const parseControlPreferences = (value: unknown): ControlPreferences | undefined => {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return;
   const preferences = value as Partial<ControlPreferences> & {
     readingDirection?: unknown;
   };
   if (typeof preferences.mouseSensitivity !== "number") return;
   const legacyReadingDirection = preferences.readingDirection;
   let defaultReadingDirection: ReadingDirection = DEFAULT_READING_DIRECTION;
-  if (
-    preferences.defaultReadingDirection === "LTR" ||
-    preferences.defaultReadingDirection === "RTL"
-  )
+  if (preferences.defaultReadingDirection === "LTR" || preferences.defaultReadingDirection === "RTL")
     defaultReadingDirection = preferences.defaultReadingDirection;
   else if (legacyReadingDirection === "LTR" || legacyReadingDirection === "RTL")
     defaultReadingDirection = legacyReadingDirection;
@@ -69,12 +52,9 @@ const parseControlPreferences = (
   let respectBookReadingDirection = DEFAULT_RESPECT_BOOK_READING_DIRECTION;
   if (typeof preferences.respectBookReadingDirection === "boolean")
     respectBookReadingDirection = preferences.respectBookReadingDirection;
-  else if (legacyReadingDirection === "LTR" || legacyReadingDirection === "RTL")
-    respectBookReadingDirection = false;
+  else if (legacyReadingDirection === "LTR" || legacyReadingDirection === "RTL") respectBookReadingDirection = false;
   const tvScreenLighting =
-    typeof preferences.tvScreenLighting === "boolean"
-      ? preferences.tvScreenLighting
-      : DEFAULT_TV_SCREEN_LIGHTING;
+    typeof preferences.tvScreenLighting === "boolean" ? preferences.tvScreenLighting : DEFAULT_TV_SCREEN_LIGHTING;
   return {
     defaultReadingDirection,
     gamepadLookSensitivity:
@@ -95,16 +75,11 @@ const defaultControlPreferences = (): ControlPreferences => ({
   tvScreenLighting: DEFAULT_TV_SCREEN_LIGHTING,
 });
 
-export const loadControlPreferences = (
-  storage: Pick<Storage, "getItem"> = localStorage,
-): ControlPreferences => {
+export const loadControlPreferences = (storage: Pick<Storage, "getItem"> = localStorage): ControlPreferences => {
   try {
     const stored = storage.getItem(CONTROL_PREFERENCES_STORAGE_KEY);
     if (!stored) return defaultControlPreferences();
-    return (
-      parseControlPreferences(JSON.parse(stored) as unknown) ??
-      defaultControlPreferences()
-    );
+    return parseControlPreferences(JSON.parse(stored) as unknown) ?? defaultControlPreferences();
   } catch {
     return defaultControlPreferences();
   }
@@ -116,18 +91,13 @@ export const saveControlPreferences = (
 ) => {
   const normalizedPreferences = {
     defaultReadingDirection: preferences.defaultReadingDirection,
-    gamepadLookSensitivity: normalizeGamepadLookSensitivity(
-      preferences.gamepadLookSensitivity,
-    ),
+    gamepadLookSensitivity: normalizeGamepadLookSensitivity(preferences.gamepadLookSensitivity),
     mouseSensitivity: normalizeMouseSensitivity(preferences.mouseSensitivity),
     respectBookReadingDirection: preferences.respectBookReadingDirection,
     tvScreenLighting: preferences.tvScreenLighting,
   };
   try {
-    storage.setItem(
-      CONTROL_PREFERENCES_STORAGE_KEY,
-      JSON.stringify(normalizedPreferences),
-    );
+    storage.setItem(CONTROL_PREFERENCES_STORAGE_KEY, JSON.stringify(normalizedPreferences));
   } catch {
     // Controls remain usable for this session when storage is unavailable.
   }

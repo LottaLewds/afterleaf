@@ -1,45 +1,21 @@
 import {afterEach, expect, test} from "bun:test";
-import {
-  mkdtemp,
-  mkdir,
-  readFile,
-  rename,
-  rm,
-  stat,
-  writeFile,
-} from "node:fs/promises";
+import {mkdtemp, mkdir, readFile, rename, rm, stat, writeFile} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {resolve} from "node:path";
 import {zipSync} from "fflate";
 import sharp from "sharp";
-import {
-  parseLibraryUpdateCliOptions,
-  runLibraryBlacklistCli,
-  runLibraryScanCli,
-} from "~/content/libraryUpdate/cli";
+import {parseLibraryUpdateCliOptions, runLibraryBlacklistCli, runLibraryScanCli} from "~/content/libraryUpdate/cli";
 import {parseLocalPublicationDocument} from "~/content/validation";
 
 const temporaryDirectories: string[] = [];
 
 afterEach(async () => {
-  await Promise.all(
-    temporaryDirectories
-      .splice(0)
-      .map((directory) => rm(directory, {force: true, recursive: true})),
-  );
+  await Promise.all(temporaryDirectories.splice(0).map((directory) => rm(directory, {force: true, recursive: true})));
 });
 
 test("library update CLI separates snapshot storage from the acquisition catalog", () => {
   const parsed = parseLibraryUpdateCliOptions(
-    [
-      "--library",
-      "packs/library",
-      "--catalog-root",
-      "sources",
-      "--limit",
-      "20",
-      "--write",
-    ],
+    ["--library", "packs/library", "--catalog-root", "sources", "--limit", "20", "--write"],
     "/workspace/afterleaf",
   );
 
@@ -61,40 +37,21 @@ test("library update CLI accepts repeatable media paths", () => {
     "/workspace/afterleaf",
   );
 
-  expect(parsed.mediaPaths).toEqual([
-    resolve("/workspace/comics"),
-    resolve("/workspace/afterleaf/single-book.cbr"),
-  ]);
+  expect(parsed.mediaPaths).toEqual([resolve("/workspace/comics"), resolve("/workspace/afterleaf/single-book.cbr")]);
 });
 
 test("library update CLI distinguishes quick and repair scans", () => {
-  expect(
-    parseLibraryUpdateCliOptions(["--write"], "/workspace/afterleaf").sync
-      .repair,
-  ).toBe(false);
-  expect(
-    parseLibraryUpdateCliOptions(
-      ["--write", "--repair"],
-      "/workspace/afterleaf",
-    ).sync.repair,
-  ).toBe(true);
+  expect(parseLibraryUpdateCliOptions(["--write"], "/workspace/afterleaf").sync.repair).toBe(false);
+  expect(parseLibraryUpdateCliOptions(["--write", "--repair"], "/workspace/afterleaf").sync.repair).toBe(true);
   const remoteRepair = parseLibraryUpdateCliOptions(
-    [
-      "--write",
-      "--repair",
-      "--repair-provider-metadata",
-      "--redownload-provider-assets",
-    ],
+    ["--write", "--repair", "--repair-provider-metadata", "--redownload-provider-assets"],
     "/workspace/afterleaf",
   ).sync;
   expect(remoteRepair.repairProviderMetadata).toBe(true);
   expect(remoteRepair.redownloadProviderAssets).toBe(true);
-  expect(() =>
-    parseLibraryUpdateCliOptions(
-      ["--write", "--repair-provider-metadata"],
-      "/workspace/afterleaf",
-    ),
-  ).toThrow("require --repair");
+  expect(() => parseLibraryUpdateCliOptions(["--write", "--repair-provider-metadata"], "/workspace/afterleaf")).toThrow(
+    "require --repair",
+  );
 });
 
 test("library scan imports new archives before activating the combined catalog", async () => {
@@ -117,24 +74,16 @@ test("library scan imports new archives before activating the combined catalog",
   })
     .png()
     .toBuffer();
-  const archivePath = resolve(
-    archiveDirectory,
-    "New Local Comic [English].cbz",
-  );
+  const archivePath = resolve(archiveDirectory, "New Local Comic [English].cbz");
   await writeFile(archivePath, zipSync({"001.png": page, "002.png": page}));
 
   const result = await runLibraryScanCli(["--write"], root);
 
   expect(result?.snapshot.publicationCount).toBe(1);
   expect(result?.diff.addedPublicationIds).toEqual(["new-local-comic"]);
-  const publicationDirectory = resolve(
-    root,
-    "afterleaf-data/game/.cache/prepared/New Local Comic [English]",
-  );
+  const publicationDirectory = resolve(root, "afterleaf-data/game/.cache/prepared/New Local Comic [English]");
   const manifest = parseLocalPublicationDocument(
-    JSON.parse(
-      await readFile(resolve(publicationDirectory, "publication.json"), "utf8"),
-    ) as unknown,
+    JSON.parse(await readFile(resolve(publicationDirectory, "publication.json"), "utf8")) as unknown,
     "publication.json",
   );
   expect(manifest).toMatchObject({
@@ -165,16 +114,10 @@ test("library scan removes missing archives from a verified configured media pat
   })
     .png()
     .toBuffer();
-  const removedArchive = resolve(
-    externalDirectory,
-    "External One [English].cbz",
-  );
+  const removedArchive = resolve(externalDirectory, "External One [English].cbz");
   await Promise.all([
     writeFile(removedArchive, zipSync({"001.png": page})),
-    writeFile(
-      resolve(externalDirectory, "External Two [English].cbz"),
-      zipSync({"001.png": page}),
-    ),
+    writeFile(resolve(externalDirectory, "External Two [English].cbz"), zipSync({"001.png": page})),
     writeFile(
       resolve(root, "afterleaf.library.json"),
       `${JSON.stringify({mediaPaths: ["external-books"]}, null, 2)}
@@ -189,14 +132,7 @@ test("library scan removes missing archives from a verified configured media pat
   const second = await runLibraryScanCli(["--write"], root);
   expect(second?.snapshot.publicationCount).toBe(1);
   expect(second?.diff.removedPublicationIds).toEqual(["external-one"]);
-  await expect(
-    stat(
-      resolve(
-        root,
-        "afterleaf-data/game/.cache/prepared/External One [English]",
-      ),
-    ),
-  ).rejects.toThrow();
+  await expect(stat(resolve(root, "afterleaf-data/game/.cache/prepared/External One [English]"))).rejects.toThrow();
 });
 
 test("library scan treats an archive rename as the same publication", async () => {
@@ -228,14 +164,7 @@ test("library scan treats an archive rename as the same publication", async () =
   expect(first?.diff.addedPublicationIds).toEqual(["original-name"]);
   if (!first) throw new Error("First archive scan result is missing");
   const firstCatalog = JSON.parse(
-    await readFile(
-      resolve(
-        root,
-        "afterleaf-data/game/.cache/library",
-        first.snapshot.catalogPath,
-      ),
-      "utf8",
-    ),
+    await readFile(resolve(root, "afterleaf-data/game/.cache/library", first.snapshot.catalogPath), "utf8"),
   ) as {publications: Array<{assets: unknown; shelfAtlasIndex?: number}>};
   await rename(originalPath, renamedPath);
 
@@ -244,13 +173,7 @@ test("library scan treats an archive rename as the same publication", async () =
   expect(second?.diff.removedPublicationIds).toEqual([]);
   expect(second?.diff.updatedPublicationIds).toEqual(["original-name"]);
   const document = JSON.parse(
-    await readFile(
-      resolve(
-        root,
-        "afterleaf-data/game/.cache/prepared/Original Name/publication.json",
-      ),
-      "utf8",
-    ),
+    await readFile(resolve(root, "afterleaf-data/game/.cache/prepared/Original Name/publication.json"), "utf8"),
   ) as {id?: string; source?: {remoteId?: string}};
   expect(document).toMatchObject({
     id: "original-name",
@@ -258,21 +181,10 @@ test("library scan treats an archive rename as the same publication", async () =
   });
   if (!second) throw new Error("Second archive scan result is missing");
   const secondCatalog = JSON.parse(
-    await readFile(
-      resolve(
-        root,
-        "afterleaf-data/game/.cache/library",
-        second.snapshot.catalogPath,
-      ),
-      "utf8",
-    ),
+    await readFile(resolve(root, "afterleaf-data/game/.cache/library", second.snapshot.catalogPath), "utf8"),
   ) as {publications: Array<{assets: unknown; shelfAtlasIndex?: number}>};
-  expect(secondCatalog.publications[0]?.assets).toEqual(
-    firstCatalog.publications[0]?.assets,
-  );
-  expect(secondCatalog.publications[0]?.shelfAtlasIndex).toBe(
-    firstCatalog.publications[0]?.shelfAtlasIndex,
-  );
+  expect(secondCatalog.publications[0]?.assets).toEqual(firstCatalog.publications[0]?.assets);
+  expect(secondCatalog.publications[0]?.shelfAtlasIndex).toBe(firstCatalog.publications[0]?.shelfAtlasIndex);
 });
 
 test("library scan prepares configured image folders without a separate command", async () => {
@@ -301,12 +213,7 @@ test("library scan prepares configured image folders without a separate command"
   expect(result?.diff.addedPublicationIds).toEqual(["folder-comic"]);
   expect(
     parseLocalPublicationDocument(
-      JSON.parse(
-        await readFile(
-          resolve(publicationDirectory, "publication.json"),
-          "utf8",
-        ),
-      ) as unknown,
+      JSON.parse(await readFile(resolve(publicationDirectory, "publication.json"), "utf8")) as unknown,
       "publication.json",
     ),
   ).toMatchObject({
@@ -327,12 +234,7 @@ test("library scan prepares configured image folders without a separate command"
   await runLibraryScanCli(["--write"], root);
   expect(
     parseLocalPublicationDocument(
-      JSON.parse(
-        await readFile(
-          resolve(publicationDirectory, "publication.json"),
-          "utf8",
-        ),
-      ) as unknown,
+      JSON.parse(await readFile(resolve(publicationDirectory, "publication.json"), "utf8")) as unknown,
       "publication.json",
     ).assets.pages,
   ).toEqual(["001.png", "002.png"]);
@@ -364,14 +266,7 @@ test("library scan preserves an image-folder publication ID when its folder move
   expect(first?.diff.addedPublicationIds).toEqual(["original-folder"]);
   if (!first) throw new Error("First folder scan result is missing");
   const firstCatalog = JSON.parse(
-    await readFile(
-      resolve(
-        root,
-        "afterleaf-data/game/.cache/library",
-        first.snapshot.catalogPath,
-      ),
-      "utf8",
-    ),
+    await readFile(resolve(root, "afterleaf-data/game/.cache/library", first.snapshot.catalogPath), "utf8"),
   ) as {publications: Array<{assets: unknown; shelfAtlasIndex?: number}>};
   await rename(originalDirectory, renamedDirectory);
 
@@ -381,29 +276,16 @@ test("library scan preserves an image-folder publication ID when its folder move
   expect(second?.diff.updatedPublicationIds).toEqual(["original-folder"]);
   expect(
     parseLocalPublicationDocument(
-      JSON.parse(
-        await readFile(resolve(renamedDirectory, "publication.json"), "utf8"),
-      ) as unknown,
+      JSON.parse(await readFile(resolve(renamedDirectory, "publication.json"), "utf8")) as unknown,
       "publication.json",
     ),
   ).toMatchObject({id: "original-folder", title: "Original Folder"});
   if (!second) throw new Error("Second folder scan result is missing");
   const secondCatalog = JSON.parse(
-    await readFile(
-      resolve(
-        root,
-        "afterleaf-data/game/.cache/library",
-        second.snapshot.catalogPath,
-      ),
-      "utf8",
-    ),
+    await readFile(resolve(root, "afterleaf-data/game/.cache/library", second.snapshot.catalogPath), "utf8"),
   ) as {publications: Array<{assets: unknown; shelfAtlasIndex?: number}>};
-  expect(secondCatalog.publications[0]?.assets).toEqual(
-    firstCatalog.publications[0]?.assets,
-  );
-  expect(secondCatalog.publications[0]?.shelfAtlasIndex).toBe(
-    firstCatalog.publications[0]?.shelfAtlasIndex,
-  );
+  expect(secondCatalog.publications[0]?.assets).toEqual(firstCatalog.publications[0]?.assets);
+  expect(secondCatalog.publications[0]?.shelfAtlasIndex).toBe(firstCatalog.publications[0]?.shelfAtlasIndex);
 });
 
 test("library scan removes the last book from an enrolled empty root", async () => {
@@ -439,30 +321,21 @@ test("library blacklist CLI returns the stable mutation response without scannin
   const root = await mkdtemp(resolve(tmpdir(), "afterleaf-library-cli-"));
   temporaryDirectories.push(root);
 
-  expect(
-    await runLibraryBlacklistCli(
-      ["--library", "packs/library", "--publication-id", "nhentai-123"],
-      root,
-    ),
-  ).toEqual({
-    added: true,
-    blacklistedCount: 1,
-    publicationId: "nhentai-123",
+  expect(await runLibraryBlacklistCli(["--library", "packs/library", "--publication-id", "nhentai-123"], root)).toEqual(
+    {
+      added: true,
+      blacklistedCount: 1,
+      publicationId: "nhentai-123",
+    },
+  );
+  expect(await runLibraryBlacklistCli(["--library", "packs/library", "--publication-id", "nhentai-123"], root)).toEqual(
+    {
+      added: false,
+      blacklistedCount: 1,
+      publicationId: "nhentai-123",
+    },
+  );
+  expect(await runLibraryBlacklistCli(["--library", "packs/library", "--list"], root)).toEqual({
+    publicationIds: ["nhentai-123"],
   });
-  expect(
-    await runLibraryBlacklistCli(
-      ["--library", "packs/library", "--publication-id", "nhentai-123"],
-      root,
-    ),
-  ).toEqual({
-    added: false,
-    blacklistedCount: 1,
-    publicationId: "nhentai-123",
-  });
-  expect(
-    await runLibraryBlacklistCli(
-      ["--library", "packs/library", "--list"],
-      root,
-    ),
-  ).toEqual({publicationIds: ["nhentai-123"]});
 });

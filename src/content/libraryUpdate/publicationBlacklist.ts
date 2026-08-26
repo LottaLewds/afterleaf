@@ -28,20 +28,13 @@ export const assertStablePublicationId = (publicationId: string) => {
   return publicationId;
 };
 
-const parseDocument = (
-  value: unknown,
-  path: string,
-): PublicationBlacklistDocument => {
+const parseDocument = (value: unknown, path: string): PublicationBlacklistDocument => {
   if (!isRecord(value)) throw new Error(`${path} must contain an object`);
   if (value.schemaVersion !== BLACKLIST_SCHEMA_VERSION)
-    throw new Error(
-      `${path}.schemaVersion must be ${BLACKLIST_SCHEMA_VERSION}`,
-    );
-  if (!Array.isArray(value.publicationIds))
-    throw new Error(`${path}.publicationIds must be an array`);
+    throw new Error(`${path}.schemaVersion must be ${BLACKLIST_SCHEMA_VERSION}`);
+  if (!Array.isArray(value.publicationIds)) throw new Error(`${path}.publicationIds must be an array`);
   const publicationIds = value.publicationIds.map((entry, index) => {
-    if (typeof entry !== "string")
-      throw new Error(`${path}.publicationIds[${index}] must be a string`);
+    if (typeof entry !== "string") throw new Error(`${path}.publicationIds[${index}] must be a string`);
     return assertStablePublicationId(entry);
   });
   if (new Set(publicationIds).size !== publicationIds.length)
@@ -54,10 +47,7 @@ const parseDocument = (
 
 const assertSafeRoot = (path: string) => {
   const root = resolve(path);
-  if (root === parse(root).root)
-    throw new Error(
-      "The publication blacklist root cannot be a filesystem root",
-    );
+  if (root === parse(root).root) throw new Error("The publication blacklist root cannot be a filesystem root");
   if (basename(root) === "." || basename(root) === "..")
     throw new Error("The publication blacklist root must be a named directory");
   return root;
@@ -82,8 +72,7 @@ export class PublicationBlacklistStore {
   async read(): Promise<PublicationBlacklistDocument> {
     try {
       const fileStat = await stat(this.#path);
-      if (!fileStat.isFile())
-        throw new Error(`Publication blacklist is not a file: ${this.#path}`);
+      if (!fileStat.isFile()) throw new Error(`Publication blacklist is not a file: ${this.#path}`);
       const value = JSON.parse(await readFile(this.#path, "utf8")) as unknown;
       return parseDocument(value, this.#path);
     } catch (error) {
@@ -99,9 +88,7 @@ export class PublicationBlacklistStore {
 
   add(publicationId: string) {
     const stablePublicationId = assertStablePublicationId(publicationId);
-    const mutation = this.#mutationQueue.then(() =>
-      this.#add(stablePublicationId),
-    );
+    const mutation = this.#mutationQueue.then(() => this.#add(stablePublicationId));
     this.#mutationQueue = mutation.then(
       () => undefined,
       () => undefined,
@@ -123,16 +110,9 @@ export class PublicationBlacklistStore {
       schemaVersion: BLACKLIST_SCHEMA_VERSION,
     };
     await mkdir(this.#root, {recursive: true});
-    const temporaryPath = resolve(
-      this.#root,
-      `.${BLACKLIST_FILE_NAME}.staging-${randomUUID()}`,
-    );
+    const temporaryPath = resolve(this.#root, `.${BLACKLIST_FILE_NAME}.staging-${randomUUID()}`);
     try {
-      await writeFile(
-        temporaryPath,
-        `${JSON.stringify(nextDocument, null, 2)}\n`,
-        {flag: "wx"},
-      );
+      await writeFile(temporaryPath, `${JSON.stringify(nextDocument, null, 2)}\n`, {flag: "wx"});
       await rename(temporaryPath, this.#path);
     } catch (error) {
       await rm(temporaryPath, {force: true});

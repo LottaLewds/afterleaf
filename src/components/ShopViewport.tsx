@@ -1,11 +1,4 @@
-import {
-  FiCheck,
-  FiChevronLeft,
-  FiChevronRight,
-  FiLoader,
-  FiTrash2,
-  FiX,
-} from "solid-icons/fi";
+import {FiCheck, FiChevronLeft, FiChevronRight, FiLoader, FiTrash2, FiX} from "solid-icons/fi";
 import {
   DEV,
   For,
@@ -80,8 +73,7 @@ export type ShopViewportProps = {
  * in Solid; the Three runtime samples only the two narrow accessors it needs.
  */
 export const ShopViewport = (props: ShopViewportProps) => {
-  const [mediaChannelEditor, setMediaChannelEditor] =
-    createSignal<MediaChannelKind>();
+  const [mediaChannelEditor, setMediaChannelEditor] = createSignal<MediaChannelKind>();
   const [mediaChannelError, setMediaChannelError] = createSignal<string>();
   const [mediaChannelName, setMediaChannelName] = createSignal("");
   const [error, setError] = createSignal<string>();
@@ -107,8 +99,7 @@ export const ShopViewport = (props: ShopViewportProps) => {
   // Pointer-lock intent is a property of the exclusive mode: free roam and a
   // live emulator session capture the cursor; surfaces that need it visible
   // (ROM picker, dialogs, menus, inspection) keep it released.
-  const shouldBePointerLocked = () =>
-    uiMode.mode() === "walk" || uiMode.mode() === "arcade-live";
+  const shouldBePointerLocked = () => uiMode.mode() === "walk" || uiMode.mode() === "arcade-live";
   const controls: ShopViewportControls = {
     requestPointerLock: () => shopScene?.requestPointerLock(),
   };
@@ -118,8 +109,7 @@ export const ShopViewport = (props: ShopViewportProps) => {
   createEffect(() => {
     uiMode.reportViewport({
       arcadeStatus: gameState().arcadeStatus,
-      dialogOpen:
-        signEditor() !== undefined || mediaChannelEditor() !== undefined,
+      dialogOpen: signEditor() !== undefined || mediaChannelEditor() !== undefined,
       error: error() !== undefined,
       inspectionSpread: gameState().inspectionMode === "spread",
       ready: ready(),
@@ -160,12 +150,7 @@ export const ShopViewport = (props: ShopViewportProps) => {
   const saveSign = () => {
     const request = signEditor();
     if (!request || !signTitle().trim()) return;
-    shopScene?.setSignContent(
-      request.kind,
-      request.id,
-      signTitle(),
-      signSubtitle(),
-    );
+    shopScene?.setSignContent(request.kind, request.id, signTitle(), signSubtitle());
     closeSignEditor();
   };
 
@@ -186,9 +171,7 @@ export const ShopViewport = (props: ShopViewportProps) => {
   const closeMediaChannelEditor = () => setMediaChannelEditor(undefined);
 
   const mediaChannelId = () =>
-    mediaChannelEditor() === "tv"
-      ? tvChannelId(mediaChannelName())
-      : artFrameChannelId(mediaChannelName());
+    mediaChannelEditor() === "tv" ? tvChannelId(mediaChannelName()) : artFrameChannelId(mediaChannelName());
 
   const pasteIntoMediaChannel = (event: ClipboardEvent) => {
     const kind = mediaChannelEditor();
@@ -203,28 +186,19 @@ export const ShopViewport = (props: ShopViewportProps) => {
     if (kind === "art-frame") {
       const image =
         Array.from(event.clipboardData?.items ?? [])
-          .find(
-            (item) => item.kind === "file" && item.type.startsWith("image/"),
-          )
+          .find((item) => item.kind === "file" && item.type.startsWith("image/"))
           ?.getAsFile() ?? undefined;
       if (image)
         importChannel = () =>
-          shopScene?.importArtFrameChannelImage(mediaChannelName(), image) ??
-          Promise.resolve(undefined);
+          shopScene?.importArtFrameChannelImage(mediaChannelName(), image) ?? Promise.resolve(undefined);
     } else {
-      const text =
-        event.clipboardData?.getData("text/plain") ||
-        event.clipboardData?.getData("text/uri-list");
+      const text = event.clipboardData?.getData("text/plain") || event.clipboardData?.getData("text/uri-list");
       if (text && tvVideoImportUrl(text))
-        importChannel = () =>
-          shopScene?.importTvChannelVideo(mediaChannelName(), text) ??
-          Promise.resolve(undefined);
+        importChannel = () => shopScene?.importTvChannelVideo(mediaChannelName(), text) ?? Promise.resolve(undefined);
     }
     if (!importChannel) {
       setMediaChannelError(
-        kind === "tv"
-          ? "Paste a valid HTTP or HTTPS video URL."
-          : "Paste an image to create this channel.",
+        kind === "tv" ? "Paste a valid HTTP or HTTPS video URL." : "Paste an image to create this channel.",
       );
       return;
     }
@@ -240,9 +214,7 @@ export const ShopViewport = (props: ShopViewportProps) => {
 
     void (async () => {
       try {
-        const loadedWorldSave = await loadServerWorldSave(
-          worldSaveAbortController.signal,
-        ).catch((cause: unknown) => {
+        const loadedWorldSave = await loadServerWorldSave(worldSaveAbortController.signal).catch((cause: unknown) => {
           throw new Error(
             "The shared world save could not be loaded. The shop was not opened to protect your saved state.",
             {cause},
@@ -252,10 +224,7 @@ export const ShopViewport = (props: ShopViewportProps) => {
         const initialWorldSave: WorldSaveV1 | undefined = loadedWorldSave.save;
         const worldSaveServerInstanceId = loadedWorldSave.serverInstanceId;
         let worldSaveRevision = loadedWorldSave.revision;
-        setWorldSaveWritable(
-          worldSaveServerInstanceId !== undefined &&
-            worldSaveRevision !== undefined,
-        );
+        setWorldSaveWritable(worldSaveServerInstanceId !== undefined && worldSaveRevision !== undefined);
         if (DEV && (!worldSaveServerInstanceId || !worldSaveRevision))
           console.warn(
             "Afterleaf loaded the shared world save from an older server process; the shop is read-only until the server and page are restarted.",
@@ -269,47 +238,27 @@ export const ShopViewport = (props: ShopViewportProps) => {
           catalogItems: props.publications,
           ...(initialWorldSave === undefined ? {} : {initialWorldSave}),
           worldSaveWritable,
-          ...(props.pageIndexForPublication === undefined
-            ? {}
-            : {initialPageIndex: props.pageIndexForPublication}),
-          ...(props.gamepadLookSensitivity === undefined
-            ? {}
-            : {gamepadLookSensitivity: props.gamepadLookSensitivity}),
-          ...(props.mouseSensitivity === undefined
-            ? {}
-            : {mouseSensitivity: props.mouseSensitivity}),
-          ...(props.newPublicationIds === undefined
-            ? {}
-            : {newPublicationIds: props.newPublicationIds}),
-          ...(props.tvScreenLighting === undefined
-            ? {}
-            : {tvScreenLighting: props.tvScreenLighting}),
+          ...(props.pageIndexForPublication === undefined ? {} : {initialPageIndex: props.pageIndexForPublication}),
+          ...(props.gamepadLookSensitivity === undefined ? {} : {gamepadLookSensitivity: props.gamepadLookSensitivity}),
+          ...(props.mouseSensitivity === undefined ? {} : {mouseSensitivity: props.mouseSensitivity}),
+          ...(props.newPublicationIds === undefined ? {} : {newPublicationIds: props.newPublicationIds}),
+          ...(props.tvScreenLighting === undefined ? {} : {tvScreenLighting: props.tvScreenLighting}),
           selectedPublicationId: props.selectedPublicationId,
           onGameStateChange: setGameState,
           onTextPaste: (text) => props.onPasteText?.(text) ?? false,
-          onPageIndexChange: (publicationId, pageIndex) =>
-            props.onPageIndexChange?.(publicationId, pageIndex),
+          onPageIndexChange: (publicationId, pageIndex) => props.onPageIndexChange?.(publicationId, pageIndex),
           onDiscardPublication: (publicationId) =>
-            props.onDiscardPublication?.(publicationId) ??
-            Promise.resolve(false),
-          onSelectPublication: (publicationId) =>
-            props.onSelectPublication?.(publicationId),
+            props.onDiscardPublication?.(publicationId) ?? Promise.resolve(false),
+          onSelectPublication: (publicationId) => props.onSelectPublication?.(publicationId),
           onMediaChannelCreateRequest: openMediaChannelEditor,
           onSignEditRequest: openSignEditor,
           onWorldSave: async (save) => {
             if (!worldSaveServerInstanceId || !worldSaveRevision) return false;
             try {
-              worldSaveRevision = await queueServerWorldSave(
-                save,
-                worldSaveServerInstanceId,
-                worldSaveRevision,
-              );
+              worldSaveRevision = await queueServerWorldSave(save, worldSaveServerInstanceId, worldSaveRevision);
               return;
             } catch (cause) {
-              if (
-                cause instanceof WorldSaveServerChangedError ||
-                cause instanceof WorldSaveConflictError
-              ) {
+              if (cause instanceof WorldSaveServerChangedError || cause instanceof WorldSaveConflictError) {
                 setWorldSaveWritable(false);
                 setError(
                   cause instanceof WorldSaveConflictError
@@ -329,18 +278,10 @@ export const ShopViewport = (props: ShopViewportProps) => {
             error() !== undefined ||
             signEditor() !== undefined ||
             mediaChannelEditor() !== undefined,
-          ...(props.shortcutsConfig === undefined
-            ? {}
-            : {shortcutsConfig: props.shortcutsConfig}),
-          ...(props.padMappingOverrides === undefined
-            ? {}
-            : {padMappingOverrides: props.padMappingOverrides}),
-          ...(props.onOpenMenu === undefined
-            ? {}
-            : {onPauseRequest: props.onOpenMenu}),
-          ...(props.onCloseMenu === undefined
-            ? {}
-            : {onResumeRequest: props.onCloseMenu}),
+          ...(props.shortcutsConfig === undefined ? {} : {shortcutsConfig: props.shortcutsConfig}),
+          ...(props.padMappingOverrides === undefined ? {} : {padMappingOverrides: props.padMappingOverrides}),
+          ...(props.onOpenMenu === undefined ? {} : {onPauseRequest: props.onOpenMenu}),
+          ...(props.onCloseMenu === undefined ? {} : {onResumeRequest: props.onCloseMenu}),
           mode: uiMode.mode,
           onReady: () => setReady(true),
         });
@@ -349,11 +290,7 @@ export const ShopViewport = (props: ShopViewportProps) => {
       } catch (cause) {
         if (worldSaveAbortController.signal.aborted) return;
         console.error("Afterleaf 3D shop could not be initialized.", cause);
-        setError(
-          cause instanceof Error
-            ? cause.message
-            : "The 3D shop could not be initialized.",
-        );
+        setError(cause instanceof Error ? cause.message : "The 3D shop could not be initialized.");
       }
     })();
   });
@@ -385,22 +322,17 @@ export const ShopViewport = (props: ShopViewportProps) => {
   const carriedTitle = () => {
     const publicationId = gameState().carriedPublicationId;
     if (!publicationId) return;
-    return props.publications().find((item) => item.id === publicationId)
-      ?.title;
+    return props.publications().find((item) => item.id === publicationId)?.title;
   };
   const carriedBookCount = () => gameState().carriedBookCount ?? 1;
 
   // Interaction affordances belong to input-owned surfaces only: free-roam
   // targeting rows and live emulator control hints. The scene's emitter drops
   // them for other modes too, keyed off the same shared policy set.
-  const interactionRows = () =>
-    INTERACTION_ROW_MODES.has(uiMode.mode())
-      ? gameState().interactions
-      : undefined;
+  const interactionRows = () => (INTERACTION_ROW_MODES.has(uiMode.mode()) ? gameState().interactions : undefined);
   // Free roam keeps the panel up even with nothing targeted so the
   // keyboard-only menu affordance always has a home.
-  const showInteractionPanel = () =>
-    uiMode.mode() === "walk" || interactionRows() !== undefined;
+  const showInteractionPanel = () => uiMode.mode() === "walk" || interactionRows() !== undefined;
 
   return (
     <section
@@ -416,20 +348,13 @@ export const ShopViewport = (props: ShopViewportProps) => {
 
       <div class="pointer-events-none absolute inset-x-0 top-0 flex items-start p-4 pb-16 sm:p-5 sm:pb-20">
         <div class="border-l-2 border-[#d94c3f] bg-[#0b1312]/75 px-3 py-2 backdrop-blur-sm">
-          <p class="text-[9px] font-bold tracking-[0.22em] text-[#d9cabd] uppercase">
-            Closing shift · aisle 01
-          </p>
-          <p class="mt-1 text-xs font-semibold text-[#f1eadc]">
-            Shelve the loose stock
-          </p>
+          <p class="text-[9px] font-bold tracking-[0.22em] text-[#d9cabd] uppercase">Closing shift · aisle 01</p>
+          <p class="mt-1 text-xs font-semibold text-[#f1eadc]">Shelve the loose stock</p>
           <p class="mt-1 text-[9px] tracking-[0.08em] text-[#8da098] uppercase tabular-nums">
-            {gameState().shelvedCount} shelved · {gameState().looseCount}{" "}
-            remaining
+            {gameState().shelvedCount} shelved · {gameState().looseCount} remaining
           </p>
           <p class="mt-1 text-[8px] tracking-[0.12em] text-[#657a72] uppercase">
-            {gameState().physicsReady
-              ? "Physical stock active"
-              : "Waking stock…"}
+            {gameState().physicsReady ? "Physical stock active" : "Waking stock…"}
           </p>
         </div>
       </div>
@@ -455,14 +380,10 @@ export const ShopViewport = (props: ShopViewportProps) => {
               </span>
             </Show>
             <Show when={gameState().modelImportError}>
-              {(message) => (
-                <span class="block max-w-80 text-[#dc7167]">{message()}</span>
-              )}
+              {(message) => <span class="block max-w-80 text-[#dc7167]">{message()}</span>}
             </Show>
             <Show when={gameState().posterImportError}>
-              {(message) => (
-                <span class="block max-w-80 text-[#dc7167]">{message()}</span>
-              )}
+              {(message) => <span class="block max-w-80 text-[#dc7167]">{message()}</span>}
             </Show>
             <Show when={gameState().digitalArtFrameImporting}>
               <span class="flex items-center gap-2 text-[#cbd5d0]">
@@ -471,9 +392,7 @@ export const ShopViewport = (props: ShopViewportProps) => {
               </span>
             </Show>
             <Show when={gameState().digitalArtFrameImportError}>
-              {(message) => (
-                <span class="block max-w-80 text-[#dc7167]">{message()}</span>
-              )}
+              {(message) => <span class="block max-w-80 text-[#dc7167]">{message()}</span>}
             </Show>
             <Show when={gameState().tvVideoImporting}>
               <span class="flex items-center gap-2 text-[#cbd5d0]">
@@ -482,9 +401,7 @@ export const ShopViewport = (props: ShopViewportProps) => {
               </span>
             </Show>
             <Show when={gameState().tvVideoImportError}>
-              {(message) => (
-                <span class="block max-w-80 text-[#dc7167]">{message()}</span>
-              )}
+              {(message) => <span class="block max-w-80 text-[#dc7167]">{message()}</span>}
             </Show>
             <Show when={gameState().tvVideoImportMessage}>
               {(message) => (
@@ -512,9 +429,7 @@ export const ShopViewport = (props: ShopViewportProps) => {
 
         <Show when={showInteractionPanel()}>
           <div class="pointer-events-none absolute bottom-5 left-4 z-10 w-max max-w-[min(18rem,calc(100vw-2rem))] border-l-2 border-[#d94c3f] bg-[#08100f]/88 px-3 py-2 text-sm text-[#e5e0d5] shadow-lg backdrop-blur-sm sm:bottom-6 sm:left-5">
-            <p class="mb-1 text-[8px] font-bold tracking-[0.18em] text-[#8da098] uppercase">
-              Interact
-            </p>
+            <p class="mb-1 text-[8px] font-bold tracking-[0.18em] text-[#8da098] uppercase">Interact</p>
             <Show when={gameState().interactionContext}>
               {(context) => (
                 <p class="mb-1 max-w-56 truncate text-[10px] font-semibold tracking-[0.04em] text-[#e7dcc4] normal-case">
@@ -526,17 +441,10 @@ export const ShopViewport = (props: ShopViewportProps) => {
               <For each={interactionRows() ?? []}>
                 {(interaction: ShopInteraction) => (
                   <div class="flex items-center gap-2 leading-tight">
-                    <span
-                      class="flex shrink-0 items-center gap-1"
-                      aria-label={interaction.key}
-                    >
+                    <span class="flex shrink-0 items-center gap-1" aria-label={interaction.key}>
                       <Show
                         when={interaction.prompts}
-                        fallback={
-                          <For each={keycapParts(interaction.key)}>
-                            {(key) => <KeyCap>{key}</KeyCap>}
-                          </For>
-                        }
+                        fallback={<For each={keycapParts(interaction.key)}>{(key) => <KeyCap>{key}</KeyCap>}</For>}
                       >
                         {(tokens) => (
                           <For each={tokens()}>
@@ -549,18 +457,14 @@ export const ShopViewport = (props: ShopViewportProps) => {
                                   class="size-7 shrink-0 drop-shadow-[0_1px_2px_rgb(0_0_0_/_0.65)]"
                                 />
                               ) : (
-                                <span class="px-0.5 text-[10px] font-bold text-[#c4cec8]">
-                                  {token.text}
-                                </span>
+                                <span class="px-0.5 text-[10px] font-bold text-[#c4cec8]">{token.text}</span>
                               )
                             }
                           </For>
                         )}
                       </Show>
                     </span>
-                    <span class="text-[11px] text-[#c4cec8]">
-                      {interaction.label}
-                    </span>
+                    <span class="text-[11px] text-[#c4cec8]">{interaction.label}</span>
                   </div>
                 )}
               </For>
@@ -592,9 +496,7 @@ export const ShopViewport = (props: ShopViewportProps) => {
             <div class="absolute bottom-24 left-1/2 w-[min(24rem,72vw)] -translate-x-1/2 border border-[#d9b96f]/35 bg-[#08100f]/85 p-1.5 shadow-lg backdrop-blur-sm">
               <div class="mb-1 flex items-center justify-between px-0.5 text-[8px] font-bold tracking-[0.16em] text-[#d9cabd] uppercase">
                 <span>Throw charge</span>
-                <span class="tabular-nums">
-                  {Math.round((gameState().throwCharge ?? 0) * 100)}%
-                </span>
+                <span class="tabular-nums">{Math.round((gameState().throwCharge ?? 0) * 100)}%</span>
               </div>
               <div class="h-2 overflow-hidden bg-black/45">
                 <div
@@ -620,9 +522,7 @@ export const ShopViewport = (props: ShopViewportProps) => {
             {(pageCount) => (
               <div class="pointer-events-none absolute top-4 left-1/2 z-10 -translate-x-1/2 sm:top-5">
                 <div class="pointer-events-auto flex items-center gap-2 border border-white/10 bg-[#08100f]/80 px-3 py-2 text-[8px] font-semibold tracking-[0.1em] text-[#aeb9b4] uppercase shadow-lg backdrop-blur-sm">
-                  <span class="min-w-5 text-right tabular-nums">
-                    {(gameState().inspectionPageIndex ?? 0) + 1}
-                  </span>
+                  <span class="min-w-5 text-right tabular-nums">{(gameState().inspectionPageIndex ?? 0) + 1}</span>
                   <button
                     aria-label="Previous page"
                     class="grid size-5 shrink-0 place-items-center text-[#7f8d87] transition-colors hover:bg-white/8 hover:text-white disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent"
@@ -638,11 +538,7 @@ export const ShopViewport = (props: ShopViewportProps) => {
                     class="h-1 w-44 cursor-pointer accent-[#d94c3f] sm:w-60"
                     max={Math.max(0, pageCount() - 1)}
                     min="0"
-                    onInput={(event) =>
-                      shopScene?.seekInspectionPage(
-                        event.currentTarget.valueAsNumber,
-                      )
-                    }
+                    onInput={(event) => shopScene?.seekInspectionPage(event.currentTarget.valueAsNumber)}
                     step="1"
                     type="range"
                     value={gameState().inspectionPageIndex ?? 0}
@@ -659,23 +555,12 @@ export const ShopViewport = (props: ShopViewportProps) => {
                   </button>
                   <span
                     class="grid min-w-5 shrink-0 place-items-center tabular-nums"
-                    aria-label={
-                      gameState().inspectionPagesLoading
-                        ? "Streaming pages"
-                        : undefined
-                    }
+                    aria-label={gameState().inspectionPagesLoading ? "Streaming pages" : undefined}
                     aria-live="polite"
                     role="status"
-                    title={
-                      gameState().inspectionPagesLoading
-                        ? "Streaming pages…"
-                        : undefined
-                    }
+                    title={gameState().inspectionPagesLoading ? "Streaming pages…" : undefined}
                   >
-                    <Show
-                      when={gameState().inspectionPagesLoading}
-                      fallback={pageCount()}
-                    >
+                    <Show when={gameState().inspectionPagesLoading} fallback={pageCount()}>
                       <FiLoader class="size-3 animate-spin text-[#d94c3f]" />
                     </Show>
                   </span>
@@ -720,9 +605,7 @@ export const ShopViewport = (props: ShopViewportProps) => {
 
               <div class="space-y-4 px-5 py-5">
                 <label class="block">
-                  <span class="text-[9px] font-bold tracking-[0.14em] text-[#8f9b96] uppercase">
-                    Channel name
-                  </span>
+                  <span class="text-[9px] font-bold tracking-[0.14em] text-[#8f9b96] uppercase">Channel name</span>
                   <input
                     ref={(element) => {
                       mediaChannelInput = element;
@@ -733,28 +616,21 @@ export const ShopViewport = (props: ShopViewportProps) => {
                       setMediaChannelName(event.currentTarget.value);
                       setMediaChannelError(undefined);
                     }}
-                    placeholder={
-                      kind() === "tv" ? "Late Night" : "Night Scenes"
-                    }
+                    placeholder={kind() === "tv" ? "Late Night" : "Night Scenes"}
                     value={mediaChannelName()}
                   />
                 </label>
                 <div class="border border-white/8 bg-[#0b1211] px-4 py-3">
-                  <p class="text-[8px] font-semibold tracking-[0.12em] text-[#89958f] uppercase">
-                    Folder ID
-                  </p>
-                  <p class="mt-1 font-mono text-xs text-[#d9d2c6]">
-                    {mediaChannelId() || "channel-name"}
-                  </p>
+                  <p class="text-[8px] font-semibold tracking-[0.12em] text-[#89958f] uppercase">Folder ID</p>
+                  <p class="mt-1 font-mono text-xs text-[#d9d2c6]">{mediaChannelId() || "channel-name"}</p>
                 </div>
                 <div class="border border-dashed border-[#c7554b]/45 bg-[#c7554b]/6 px-4 py-4 text-center">
                   <p class="text-xs font-semibold text-[#eee8dc]">
-                    Paste {kind() === "tv" ? "a video URL" : "an image"} to
-                    create the channel
+                    Paste {kind() === "tv" ? "a video URL" : "an image"} to create the channel
                   </p>
                   <p class="mt-1 text-[10px] leading-4 text-[#8f9b96]">
-                    The import continues in the background and tunes this{" "}
-                    {kind() === "tv" ? "TV" : "frame"} when it is ready.
+                    The import continues in the background and tunes this {kind() === "tv" ? "TV" : "frame"} when it is
+                    ready.
                   </p>
                 </div>
                 <Show when={mediaChannelError()}>
@@ -798,13 +674,9 @@ export const ShopViewport = (props: ShopViewportProps) => {
               <header class="flex items-start gap-4 border-b border-white/8 px-5 py-4">
                 <div class="min-w-0">
                   <p class="text-[9px] font-bold tracking-[0.2em] text-[#d05b50] uppercase">
-                    {request().kind === "aisle"
-                      ? "Aisle-level sign"
-                      : "Shelf-column sign"}
+                    {request().kind === "aisle" ? "Aisle-level sign" : "Shelf-column sign"}
                   </p>
-                  <h2 class="mt-1 truncate font-serif text-xl text-[#eee8dc]">
-                    {request().label}
-                  </h2>
+                  <h2 class="mt-1 truncate font-serif text-xl text-[#eee8dc]">{request().label}</h2>
                 </div>
                 <button
                   class="ml-auto grid size-9 shrink-0 place-items-center text-[#87938e] transition hover:bg-white/5 hover:text-white"
@@ -818,9 +690,7 @@ export const ShopViewport = (props: ShopViewportProps) => {
 
               <div class="space-y-5 px-5 py-5">
                 <label class="block">
-                  <span class="text-[9px] font-bold tracking-[0.14em] text-[#8f9b96] uppercase">
-                    Title
-                  </span>
+                  <span class="text-[9px] font-bold tracking-[0.14em] text-[#8f9b96] uppercase">Title</span>
                   <input
                     ref={(element) => {
                       signTitleInput = element;
@@ -833,15 +703,11 @@ export const ShopViewport = (props: ShopViewportProps) => {
                   />
                 </label>
                 <label class="block">
-                  <span class="text-[9px] font-bold tracking-[0.14em] text-[#8f9b96] uppercase">
-                    Subtitle
-                  </span>
+                  <span class="text-[9px] font-bold tracking-[0.14em] text-[#8f9b96] uppercase">Subtitle</span>
                   <input
                     class="mt-2 h-11 w-full border border-white/12 bg-[#0a1110] px-3 text-sm text-[#f0ebdf] transition outline-none placeholder:text-[#4f5b57] focus:border-[#c7554b]"
                     maxLength={72}
-                    onInput={(event) =>
-                      setSignSubtitle(event.currentTarget.value)
-                    }
+                    onInput={(event) => setSignSubtitle(event.currentTarget.value)}
                     placeholder="Aisle 01 · New releases"
                     value={signSubtitle()}
                   />
@@ -897,11 +763,7 @@ export const ShopViewport = (props: ShopViewportProps) => {
                   {gameState().arcadeDetail ?? "Warming up the cabinet…"}
                 </p>
                 <Show when={gameState().arcadeRomName}>
-                  {(name) => (
-                    <p class="mt-1 max-w-72 truncate text-xs text-[#d9d2c6]">
-                      {name()}
-                    </p>
-                  )}
+                  {(name) => <p class="mt-1 max-w-72 truncate text-xs text-[#d9d2c6]">{name()}</p>}
                 </Show>
                 <button
                   class="pointer-events-auto mt-4 border border-white/15 px-3 py-2 text-[9px] font-bold tracking-[0.12em] text-[#98a39e] uppercase transition hover:bg-white/5 hover:text-white"
@@ -940,9 +802,7 @@ export const ShopViewport = (props: ShopViewportProps) => {
         {(message) => (
           <div class="absolute inset-0 grid place-items-center bg-[#101716] p-6 text-center">
             <div class="max-w-sm border border-[#a44238]/40 bg-[#191f1e] p-6">
-              <p class="font-serif text-lg text-[#eee8dc]">
-                The shop lights stayed off.
-              </p>
+              <p class="font-serif text-lg text-[#eee8dc]">The shop lights stayed off.</p>
               <p class="mt-2 text-xs leading-5 text-[#9ba6a2]">{message()}</p>
             </div>
           </div>

@@ -19,20 +19,9 @@ import {
   type ArcadePadMappingOverrides,
 } from "~/arcade/controllerMappings";
 import {ControllerDiagram} from "~/arcade/ControllerDiagram";
-import {
-  findArcadeSystem,
-  ARCADE_SYSTEMS,
-  type ArcadeSystemId,
-} from "~/arcade/systems";
+import {findArcadeSystem, ARCADE_SYSTEMS, type ArcadeSystemId} from "~/arcade/systems";
 import {GamepadBindingGlyph} from "~/components/shortcuts/GamepadBindingGlyph";
-import {
-  createEffect,
-  createSignal,
-  For,
-  onCleanup,
-  onMount,
-  Show,
-} from "solid-js";
+import {createEffect, createSignal, For, onCleanup, onMount, Show} from "solid-js";
 
 /** First connected pad id, or undefined. */
 const connectedGamepadId = (): string | undefined => {
@@ -58,25 +47,18 @@ export const ShortcutsPanel = (props: {
 }) => {
   const [listening, setListening] = createSignal<CaptureTarget | undefined>();
   // Emulated system whose controller layout is being configured.
-  const [selectedSystemId, setSelectedSystemId] =
-    createSignal<ArcadeSystemId>("nes");
+  const [selectedSystemId, setSelectedSystemId] = createSignal<ArcadeSystemId>("nes");
   const selectedSystem = () => findArcadeSystem(selectedSystemId());
   // Detected controller family for pad glyph display; undefined while no pad
   // has been seen yet.
   const [padStyle, setPadStyle] = createSignal<GamepadStyle | undefined>();
 
   /** Fully-resolved pad mapping (defaults + overrides) for a system. */
-  const resolvedPadMapping = (systemId: ArcadeSystemId) =>
-    resolvePadMapping(systemId, props.padMappingOverrides);
+  const resolvedPadMapping = (systemId: ArcadeSystemId) => resolvePadMapping(systemId, props.padMappingOverrides);
 
   /** Standard-gamepad button bound to a console control, if any. */
-  const buttonForControl = (
-    systemId: ArcadeSystemId,
-    controlId: number,
-  ): GamepadButtonName | undefined =>
-    GAMEPAD_BUTTON_NAMES.find(
-      (button) => resolvedPadMapping(systemId)[button] === controlId,
-    );
+  const buttonForControl = (systemId: ArcadeSystemId, controlId: number): GamepadButtonName | undefined =>
+    GAMEPAD_BUTTON_NAMES.find((button) => resolvedPadMapping(systemId)[button] === controlId);
 
   /** Console control currently waiting for a pad press, if any. */
   const capturingControlId = () => {
@@ -89,14 +71,9 @@ export const ShortcutsPanel = (props: {
    * complete per-system mapping so unsetting stays expressible; any other
    * button previously bound to the control is released first.
    */
-  const setPadBinding = (
-    systemId: ArcadeSystemId,
-    controlId: number,
-    button: GamepadButtonName,
-  ) => {
+  const setPadBinding = (systemId: ArcadeSystemId, controlId: number, button: GamepadButtonName) => {
     const mapping = {...resolvedPadMapping(systemId)};
-    for (const name of GAMEPAD_BUTTON_NAMES)
-      if (mapping[name] === controlId) delete mapping[name];
+    for (const name of GAMEPAD_BUTTON_NAMES) if (mapping[name] === controlId) delete mapping[name];
     mapping[button] = controlId;
     props.onPadMappingChange({
       ...props.padMappingOverrides,
@@ -106,21 +83,12 @@ export const ShortcutsPanel = (props: {
   };
 
   const resetSystemPadMapping = (systemId: ArcadeSystemId) =>
-    props.onPadMappingChange(
-      resetPadMapping(props.padMappingOverrides, systemId),
-    );
+    props.onPadMappingChange(resetPadMapping(props.padMappingOverrides, systemId));
 
-  const updateBinding = (
-    action: ShortcutAction,
-    device: ShortcutBinding["device"],
-    code: string,
-  ) => {
+  const updateBinding = (action: ShortcutAction, device: ShortcutBinding["device"], code: string) => {
     // Keyboard codes are stored verbatim; gamepad codes arrive already
     // resolved to standard-mapping button names by the capture loops.
-    const binding: ShortcutBinding =
-      device === "keyboard"
-        ? {device, code}
-        : {device, code: code as GamepadButtonName};
+    const binding: ShortcutBinding = device === "keyboard" ? {device, code} : {device, code: code as GamepadButtonName};
     const next: ShortcutsConfig = {...props.config};
     const existing = next[action];
     const others = existing.filter((item) => item.device !== device);
@@ -143,8 +111,7 @@ export const ShortcutsPanel = (props: {
           setListening(undefined);
           return;
         }
-        if (current.kind !== "shortcut" || current.device !== "keyboard")
-          return;
+        if (current.kind !== "shortcut" || current.device !== "keyboard") return;
         event.preventDefault();
         updateBinding(current.action, "keyboard", event.code);
       },
@@ -185,9 +152,7 @@ export const ShortcutsPanel = (props: {
       const gamepads = navigator.getGamepads?.() ?? [];
       for (const gamepad of gamepads) {
         if (!gamepad?.connected || gamepad.buttons.length === 0) continue;
-        const pressed = Array.from(gamepad.buttons, (button) =>
-          Boolean(button?.pressed || (button?.value ?? 0) > 0.5),
-        );
+        const pressed = Array.from(gamepad.buttons, (button) => Boolean(button?.pressed || (button?.value ?? 0) > 0.5));
         // The first frame only records a baseline so a held button from
         // before the click is not mistaken for a fresh press.
         if (previousButtons !== undefined) {
@@ -201,8 +166,7 @@ export const ShortcutsPanel = (props: {
               frameHandle = requestAnimationFrame(poll);
               return;
             }
-            if (current.kind === "padControl")
-              setPadBinding(current.systemId, current.controlId, name);
+            if (current.kind === "padControl") setPadBinding(current.systemId, current.controlId, name);
             else updateBinding(current.action, "gamepad", name);
             return;
           }
@@ -218,21 +182,14 @@ export const ShortcutsPanel = (props: {
   return (
     <section class="min-w-0 overflow-y-auto px-4 pt-7 pb-12 sm:px-7 lg:px-10 lg:pt-9 xl:col-span-2">
       <div class="mx-auto max-w-4xl">
-        <p class="text-[10px] font-semibold tracking-[0.2em] text-[#d55247] uppercase">
-          Controls
-        </p>
-        <h2 class="mt-2 font-serif text-3xl tracking-[-0.04em] text-[#f0ecdf] sm:text-4xl">
-          Shortcuts
-        </h2>
+        <p class="text-[10px] font-semibold tracking-[0.2em] text-[#d55247] uppercase">Controls</p>
+        <h2 class="mt-2 font-serif text-3xl tracking-[-0.04em] text-[#f0ecdf] sm:text-4xl">Shortcuts</h2>
         <p class="mt-2 max-w-xl text-xs leading-5 text-[#6e7974]">
-          Click any binding to remap it. Keyboard codes are physical keys; press
-          Escape while capturing to cancel.
+          Click any binding to remap it. Keyboard codes are physical keys; press Escape while capturing to cancel.
         </p>
 
         <div class="mt-8 flex items-center justify-between gap-4">
-          <span class="text-[9px] font-bold tracking-[0.2em] text-[#59645f] uppercase">
-            Action
-          </span>
+          <span class="text-[9px] font-bold tracking-[0.2em] text-[#59645f] uppercase">Action</span>
           <div class="flex items-center gap-2">
             <span class="min-w-[4.5rem] text-center text-[9px] font-bold tracking-[0.2em] text-[#59645f] uppercase">
               Keyboard
@@ -248,40 +205,25 @@ export const ShortcutsPanel = (props: {
         <For each={Object.values(SHORTCUT_CATEGORIES)}>
           {(category) => (
             <div class="mt-8">
-              <p class="mb-3 text-[9px] font-bold tracking-[0.2em] text-[#59645f] uppercase">
-                {category.label}
-              </p>
+              <p class="mb-3 text-[9px] font-bold tracking-[0.2em] text-[#59645f] uppercase">{category.label}</p>
               <div class="space-y-2">
                 <For each={category.actions}>
                   {(action) => {
-                    const keyboard = () =>
-                      props.config[action].find(
-                        (binding) => binding.device === "keyboard",
-                      );
-                    const gamepad = () =>
-                      props.config[action].find(
-                        (binding) => binding.device === "gamepad",
-                      );
+                    const keyboard = () => props.config[action].find((binding) => binding.device === "keyboard");
+                    const gamepad = () => props.config[action].find((binding) => binding.device === "gamepad");
                     const isListening = (device: ShortcutBinding["device"]) => {
                       const current = listening();
-                      return (
-                        current?.kind === "shortcut" &&
-                        current.action === action &&
-                        current.device === device
-                      );
+                      return current?.kind === "shortcut" && current.action === action && current.device === device;
                     };
 
                     return (
                       <div class="flex items-center justify-between gap-4 border border-white/8 bg-[#151e1c] px-4 py-3">
-                        <span class="text-xs text-[#b8c1bc]">
-                          {SHORTCUT_LABELS[action]}
-                        </span>
+                        <span class="text-xs text-[#b8c1bc]">{SHORTCUT_LABELS[action]}</span>
                         <div class="flex items-center gap-2">
                           <button
                             class="flex h-9 min-w-[4.5rem] items-center justify-center border border-white/10 bg-[#121918] px-2.5 text-center text-[10px] font-semibold tracking-wider text-[#e2ded4] uppercase transition hover:border-[#d94c3f]/40 hover:text-white"
                             classList={{
-                              "animate-pulse border-[#d94c3f]/60 text-[#d94c3f]":
-                                isListening("keyboard"),
+                              "animate-pulse border-[#d94c3f]/60 text-[#d94c3f]": isListening("keyboard"),
                             }}
                             onClick={() =>
                               setListening(
@@ -303,8 +245,7 @@ export const ShortcutsPanel = (props: {
                           <button
                             class="flex h-9 min-w-[4.5rem] items-center justify-center border border-white/10 bg-[#121918] px-2.5 text-center text-[10px] font-semibold tracking-wider text-[#e2ded4] uppercase transition hover:border-[#d94c3f]/40 hover:text-white"
                             classList={{
-                              "animate-pulse border-[#d94c3f]/60 text-[#d94c3f]":
-                                isListening("gamepad"),
+                              "animate-pulse border-[#d94c3f]/60 text-[#d94c3f]": isListening("gamepad"),
                             }}
                             onClick={() =>
                               setListening(
@@ -320,12 +261,7 @@ export const ShortcutsPanel = (props: {
                             type="button"
                           >
                             <Show when={gamepad()} fallback={"—" as string}>
-                              {(binding) => (
-                                <GamepadBindingGlyph
-                                  code={binding().code}
-                                  style={padStyle()}
-                                />
-                              )}
+                              {(binding) => <GamepadBindingGlyph code={binding().code} style={padStyle()} />}
                             </Show>
                           </button>
                         </div>
@@ -339,30 +275,21 @@ export const ShortcutsPanel = (props: {
         </For>
 
         <div class="mt-10">
-          <p class="mb-3 text-[9px] font-bold tracking-[0.2em] text-[#59645f] uppercase">
-            Emulator controllers
-          </p>
+          <p class="mb-3 text-[9px] font-bold tracking-[0.2em] text-[#59645f] uppercase">Emulator controllers</p>
           <p class="mb-4 max-w-xl text-xs leading-5 text-[#6e7974]">
-            Map your controller to each retro system. Click a console button
-            below, then press the controller button you want to use for it.
+            Map your controller to each retro system. Click a console button below, then press the controller button you
+            want to use for it.
           </p>
           <div class="border border-white/8 bg-[#151e1c] p-4 sm:p-5">
             <div class="flex flex-wrap items-center gap-3">
               <select
                 class="h-8 border border-white/10 bg-[#0c1312] px-2 text-xs text-[#e2ded4] [color-scheme:dark]"
                 value={selectedSystemId()}
-                onChange={(event) =>
-                  setSelectedSystemId(
-                    event.currentTarget.value as ArcadeSystemId,
-                  )
-                }
+                onChange={(event) => setSelectedSystemId(event.currentTarget.value as ArcadeSystemId)}
               >
                 <For each={ARCADE_SYSTEMS}>
                   {(system) => (
-                    <option
-                      value={system.id}
-                      class="bg-[#1b2422] text-[#f0ecdf]"
-                    >
+                    <option value={system.id} class="bg-[#1b2422] text-[#f0ecdf]">
                       {system.label}
                     </option>
                   )}
@@ -382,9 +309,7 @@ export const ShortcutsPanel = (props: {
                 <div class="mt-5 flex flex-col gap-6 xl:flex-row xl:items-start">
                   <ControllerDiagram
                     controls={() => SYSTEM_CONTROLLER_CONTROLS[system().id]}
-                    mappedIds={() =>
-                      new Set(Object.values(resolvedPadMapping(system().id)))
-                    }
+                    mappedIds={() => new Set(Object.values(resolvedPadMapping(system().id)))}
                     capturingControlId={capturingControlId}
                     onSelect={(controlId) =>
                       setListening(
@@ -402,20 +327,14 @@ export const ShortcutsPanel = (props: {
                   <div class="min-w-0 flex-1 space-y-2">
                     <For each={SYSTEM_CONTROLLER_CONTROLS[system().id]}>
                       {(control) => {
-                        const boundButton = () =>
-                          buttonForControl(system().id, control.id);
+                        const boundButton = () => buttonForControl(system().id, control.id);
                         const isCapturing = () => {
                           const current = listening();
-                          return (
-                            current?.kind === "padControl" &&
-                            current.controlId === control.id
-                          );
+                          return current?.kind === "padControl" && current.controlId === control.id;
                         };
                         return (
                           <div class="flex items-center justify-between gap-3 border border-white/8 bg-[#121918] px-3 py-2">
-                            <span class="text-xs text-[#b8c1bc]">
-                              {control.label}
-                            </span>
+                            <span class="text-xs text-[#b8c1bc]">{control.label}</span>
                             <span
                               class="font-mono text-[10px] tracking-wider text-[#59645f]"
                               title="Default keyboard binding"
@@ -425,8 +344,7 @@ export const ShortcutsPanel = (props: {
                             <button
                               class="flex h-9 min-w-[4.5rem] items-center justify-center border border-white/10 bg-[#151e1c] px-2.5 text-center transition hover:border-[#d94c3f]/40"
                               classList={{
-                                "animate-pulse border-[#d94c3f]/60":
-                                  isCapturing(),
+                                "animate-pulse border-[#d94c3f]/60": isCapturing(),
                               }}
                               title="Click, then press a controller button"
                               type="button"
@@ -450,12 +368,7 @@ export const ShortcutsPanel = (props: {
                                   </span>
                                 }
                               >
-                                {(button) => (
-                                  <GamepadBindingGlyph
-                                    code={button()}
-                                    style={padStyle()}
-                                  />
-                                )}
+                                {(button) => <GamepadBindingGlyph code={button()} style={padStyle()} />}
                               </Show>
                             </button>
                           </div>
@@ -467,8 +380,8 @@ export const ShortcutsPanel = (props: {
               )}
             </Show>
             <p class="mt-4 text-[10px] leading-4 tracking-[0.04em] text-[#59645f]">
-              The left stick also acts as the d-pad. Keyboard bindings for the
-              emulators stay on their defaults shown above.
+              The left stick also acts as the d-pad. Keyboard bindings for the emulators stay on their defaults shown
+              above.
             </p>
           </div>
         </div>
@@ -477,8 +390,7 @@ export const ShortcutsPanel = (props: {
           {(() => {
             const current = listening();
             if (!current) return undefined;
-            if (current.kind === "padControl")
-              return "Press any controller button to bind it";
+            if (current.kind === "padControl") return "Press any controller button to bind it";
             if (current.device === "gamepad")
               return padStyle() !== undefined
                 ? "Press any controller button to bind it"

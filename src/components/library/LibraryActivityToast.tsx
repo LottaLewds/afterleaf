@@ -16,16 +16,9 @@ export const LibraryActivityToast = (props: {
   // bar advancing during long single-step phases such as provider syncs.
   const progressPercent = () => {
     const subFraction = props.subProgress
-      ? Math.min(
-          1,
-          Math.max(0, props.subProgress.completed / props.subProgress.total),
-        )
+      ? Math.min(1, Math.max(0, props.subProgress.completed / props.subProgress.total))
       : 0;
-    return Math.min(
-      100,
-      ((props.completedSteps + subFraction) / Math.max(1, props.totalSteps)) *
-        100,
-    );
+    return Math.min(100, ((props.completedSteps + subFraction) / Math.max(1, props.totalSteps)) * 100);
   };
   return (
     <Show when={props.busy || props.notice}>
@@ -59,9 +52,7 @@ export const LibraryActivityToast = (props: {
                 >
                   Library update
                 </p>
-                <p class="mt-1 text-[11px] leading-5 text-[#c2cbc6]">
-                  {props.notice}
-                </p>
+                <p class="mt-1 text-[11px] leading-5 text-[#c2cbc6]">{props.notice}</p>
               </div>
               <button
                 class="grid size-7 shrink-0 place-items-center text-[#68736e] hover:bg-white/5 hover:text-white"
@@ -79,22 +70,13 @@ export const LibraryActivityToast = (props: {
             </span>
             <div class="min-w-0 flex-1">
               <div class="flex items-center justify-between gap-3">
-                <p class="text-[9px] font-bold tracking-[0.16em] text-[#d66a60] uppercase">
-                  Background library job
-                </p>
-                <span
-                  class="text-[9px] text-[#69746f] tabular-nums"
-                  aria-hidden="true"
-                >
+                <p class="text-[9px] font-bold tracking-[0.16em] text-[#d66a60] uppercase">Background library job</p>
+                <span class="text-[9px] text-[#69746f] tabular-nums" aria-hidden="true">
                   {Math.round(progressPercent())}% · {props.elapsedSeconds}s
                 </span>
               </div>
-              <p class="mt-1 text-[11px] leading-5 text-[#c2cbc6]">
-                {props.status}
-              </p>
-              <p class="mt-1 text-[9px] text-[#66716d]">
-                Keep shelving—the shop will update when stock is ready.
-              </p>
+              <p class="mt-1 text-[11px] leading-5 text-[#c2cbc6]">{props.status}</p>
+              <p class="mt-1 text-[9px] text-[#66716d]">Keep shelving—the shop will update when stock is ready.</p>
             </div>
           </div>
           <div class="mt-3 h-0.5 overflow-hidden bg-white/6">

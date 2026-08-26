@@ -2,10 +2,7 @@ import type {AnimationClip, Object3D, Quaternion, Vector3} from "three";
 
 import type {InteractionPromptToken} from "~/game/input/hints";
 import type {ShortcutAction} from "~/game/input/bindings";
-import type {
-  ShelfPresentation,
-  SpineShelfPlacement,
-} from "~/game/shelfPlacement";
+import type {ShelfPresentation, SpineShelfPlacement} from "~/game/shelfPlacement";
 import type {ArcadeSessionStatus} from "~/game/ShopArcadeCabinet";
 import type {PropMaterialSwap} from "~/game/propRegistration";
 import type {ModelAsset} from "~/models/protocol";

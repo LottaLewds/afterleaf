@@ -9,11 +9,7 @@ import type {LibraryProviderPluginContext} from "~/content/providers/types";
 const temporaryDirectories: string[] = [];
 
 afterEach(async () => {
-  await Promise.all(
-    temporaryDirectories
-      .splice(0)
-      .map((directory) => rm(directory, {force: true, recursive: true})),
-  );
+  await Promise.all(temporaryDirectories.splice(0).map((directory) => rm(directory, {force: true, recursive: true})));
 });
 
 const descriptor = {
@@ -83,17 +79,13 @@ const packedPublication: PackedPublication = {
 };
 
 test("discovers descriptors without importing provider code", async () => {
-  const {pluginDirectory} = await createPlugin(
-    'throw new Error("provider entry was imported eagerly");\n',
-  );
+  const {pluginDirectory} = await createPlugin('throw new Error("provider entry was imported eagerly");\n');
   const registry = createLibraryProviderRegistry({
     pluginPaths: [pluginDirectory],
   });
 
   expect(registry.getDescriptor(descriptor.id)).toEqual(descriptor);
-  await expect(registry.load(descriptor.id)).rejects.toThrow(
-    "Could not load content provider fixture-provider",
-  );
+  await expect(registry.load(descriptor.id)).rejects.toThrow("Could not load content provider fixture-provider");
 });
 
 test("loads a dynamically discovered provider once requested", async () => {
@@ -173,9 +165,7 @@ test("loads built-in TypeScript providers with the Afterleaf project config", as
 });
 
 test("delegates provider entry loading to the host module loader", async () => {
-  const {pluginDirectory} = await createPlugin(
-    'throw new Error("native import should not run");\n',
-  );
+  const {pluginDirectory} = await createPlugin('throw new Error("native import should not run");\n');
   const moduleLocations: unknown[] = [];
   const contexts: LibraryProviderPluginContext[] = [];
   const registry = createLibraryProviderRegistry({
@@ -219,10 +209,7 @@ test("delegates provider entry loading to the host module loader", async () => {
 });
 
 test("runs a cloned TypeScript plugin with its own tsconfig and binary pages", async () => {
-  const {pluginDirectory} = await createPlugin(
-    'export {createProvider} from "@fixture/provider";\n',
-    "plugin.ts",
-  );
+  const {pluginDirectory} = await createPlugin('export {createProvider} from "@fixture/provider";\n', "plugin.ts");
   await mkdir(resolve(pluginDirectory, "lib"));
   await Promise.all([
     writeFile(
@@ -320,12 +307,8 @@ export const createProvider = (context: LibraryProviderPluginContext) => ({
 });
 
 test("rejects duplicate provider IDs", async () => {
-  const first = await createPlugin(
-    "export const createProvider = () => ({});\n",
-  );
-  const second = await createPlugin(
-    "export const createProvider = () => ({});\n",
-  );
+  const first = await createPlugin("export const createProvider = () => ({});\n");
+  const second = await createPlugin("export const createProvider = () => ({});\n");
 
   expect(() =>
     createLibraryProviderRegistry({

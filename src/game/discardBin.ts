@@ -1,22 +1,10 @@
-import {
-  Box3,
-  BoxGeometry,
-  Group,
-  Mesh,
-  MeshBasicMaterial,
-  Vector3,
-  type AnimationMixer,
-  type Object3D,
-} from "three";
+import {Box3, BoxGeometry, Group, Mesh, MeshBasicMaterial, Vector3, type AnimationMixer, type Object3D} from "three";
 import {GLTFLoader} from "three/examples/jsm/loaders/GLTFLoader.js";
 import {DEV} from "solid-js";
 import trashCanModelUrl from "~/assets/models/trash_can.glb?url";
 import {BUILTIN_TRASH_CAN_ASSET_ID} from "~/game/propAssetIds";
 import {DEFAULT_MODEL_SCALE} from "~/game/propTuning";
-import {
-  createSignVisual,
-  SIGN_TEXTURE_MAX_ANISOTROPY,
-} from "~/game/signs/ShopSignSystem";
+import {createSignVisual, SIGN_TEXTURE_MAX_ANISOTROPY} from "~/game/signs/ShopSignSystem";
 import {playModelAnimations} from "~/game/interior/lightingProps";
 import {INITIAL_WORLD_SEEDING_VERSION} from "~/game/worldSave";
 import {
@@ -73,11 +61,7 @@ export type DiscardBinHost = {
  */
 export class DiscardBin {
   readonly group = new Group();
-  readonly position = new Vector3(
-    SHOP_PHYSICS_TRASH_POSITION_X,
-    TRASH_CAN_HEIGHT / 2,
-    SHOP_PHYSICS_TRASH_POSITION_Z,
-  );
+  readonly position = new Vector3(SHOP_PHYSICS_TRASH_POSITION_X, TRASH_CAN_HEIGHT / 2, SHOP_PHYSICS_TRASH_POSITION_Z);
   /** Live raycast target list; treat as read-only outside the class. */
   volumeMeshes: Mesh[] = [];
   readonly #volumes = new Map<string, Mesh>();
@@ -116,11 +100,7 @@ export class DiscardBin {
       heldLocalPosition: new Vector3(0, -0.65, -1.8),
       id: TRASH_CAN_PROP_ID,
       label: "trash can",
-      modelBaseSize: new Vector3(
-        TRASH_CAN_SIZE,
-        TRASH_CAN_HEIGHT,
-        TRASH_CAN_SIZE,
-      ),
+      modelBaseSize: new Vector3(TRASH_CAN_SIZE, TRASH_CAN_HEIGHT, TRASH_CAN_SIZE),
       modelScale: DEFAULT_MODEL_SCALE,
       object: trashcan,
       // Matches the spawn-menu trash can: a dynamic body that can be
@@ -148,11 +128,7 @@ export class DiscardBin {
       const scale = TRASH_CAN_HEIGHT / height;
       const center = bounds.getCenter(new Vector3());
       gltf.scene.scale.setScalar(scale);
-      gltf.scene.position.set(
-        -center.x * scale,
-        -bounds.min.y * scale - TRASH_CAN_HEIGHT / 2,
-        -center.z * scale,
-      );
+      gltf.scene.position.set(-center.x * scale, -bounds.min.y * scale - TRASH_CAN_HEIGHT / 2, -center.z * scale);
       gltf.scene.name = "trash-can-model";
       gltf.scene.traverse((object) => {
         if (!(object instanceof Mesh)) return;
@@ -163,21 +139,16 @@ export class DiscardBin {
       playModelAnimations(this.#host.modelMixers, gltf.scene, gltf.animations);
       const trashcanProp = this.#host.getMovableProp(TRASH_CAN_PROP_ID);
       if (trashcanProp && this.#host.isCarried(trashcanProp))
-        trashcanProp.ghostMaterialSwaps.push(
-          ...this.#host.ghostObject(gltf.scene),
-        );
+        trashcanProp.ghostMaterialSwaps.push(...this.#host.ghostObject(gltf.scene));
     } catch (error) {
-      if (DEV && !this.#host.isDisposed())
-        console.warn("Afterleaf could not load the trash can model.", error);
+      if (DEV && !this.#host.isDisposed()) console.warn("Afterleaf could not load the trash can model.", error);
     }
   }
 
   setPosition(x: number, z: number, markDirty = true) {
     this.position.set(x, TRASH_CAN_HEIGHT / 2, z);
     this.group.position.copy(this.position);
-    this.#host
-      .getMovableProp(TRASH_CAN_PROP_ID)
-      ?.currentPosition.copy(this.position);
+    this.#host.getMovableProp(TRASH_CAN_PROP_ID)?.currentPosition.copy(this.position);
     this.#host.updatePropPose(TRASH_CAN_PROP_ID, {
       position: this.position,
       rotation: this.group.quaternion,

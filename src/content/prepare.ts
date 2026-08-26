@@ -1,13 +1,5 @@
 import {createHash, randomUUID} from "node:crypto";
-import {
-  access,
-  mkdir,
-  readFile,
-  readdir,
-  rename,
-  rm,
-  writeFile,
-} from "node:fs/promises";
+import {access, mkdir, readFile, readdir, rename, rm, writeFile} from "node:fs/promises";
 import {basename, dirname, extname, relative, resolve, sep} from "node:path";
 import {discoverLocalMedia} from "~/content/localMediaDiscovery";
 import {normalizeTag, normalizeTags} from "~/content/normalize";
@@ -37,13 +29,11 @@ const LANGUAGE_HINTS: readonly {
 }[] = [
   {
     label: "Chinese",
-    pattern:
-      /(?:[[(]\s*(?:chinese|中文|汉化|漢化)\s*[\])]|(?:chinese|中文|汉化|漢化)\s*$)/iu,
+    pattern: /(?:[[(]\s*(?:chinese|中文|汉化|漢化)\s*[\])]|(?:chinese|中文|汉化|漢化)\s*$)/iu,
   },
   {
     label: "Korean",
-    pattern:
-      /(?:[[(]\s*(?:korean|한국어|한글)\s*[\])]|(?:korean|한국어|한글)\s*$)/iu,
+    pattern: /(?:[[(]\s*(?:korean|한국어|한글)\s*[\])]|(?:korean|한국어|한글)\s*$)/iu,
   },
   {
     label: "other language",
@@ -65,13 +55,11 @@ const LANGUAGE_HINTS: readonly {
 const READING_DIRECTION_HINTS = [
   {
     direction: "ltr",
-    pattern:
-      /(?:[[(]\s*(?:ltr|left[ ._-]*to[ ._-]*right)\s*[\])]|(?:ltr|left[ ._-]*to[ ._-]*right)\s*$)/iu,
+    pattern: /(?:[[(]\s*(?:ltr|left[ ._-]*to[ ._-]*right)\s*[\])]|(?:ltr|left[ ._-]*to[ ._-]*right)\s*$)/iu,
   },
   {
     direction: "rtl",
-    pattern:
-      /(?:[[(]\s*(?:rtl|right[ ._-]*to[ ._-]*left)\s*[\])]|(?:rtl|right[ ._-]*to[ ._-]*left)\s*$)/iu,
+    pattern: /(?:[[(]\s*(?:rtl|right[ ._-]*to[ ._-]*left)\s*[\])]|(?:rtl|right[ ._-]*to[ ._-]*left)\s*$)/iu,
   },
 ] as const;
 
@@ -81,8 +69,7 @@ const YEAR_MONTH_COMIC_PATTERN =
   /^(?<group>comic\s+.+?)[\s._/-]+(?<year>(?:19|20)\d{2})(?:\s*[-._/年]\s*|\s+)(?<month>0?[1-9]|1[0-2])(?:\s*月)?(?:\s*号)?$/iu;
 const NUMBERED_COMIC_PATTERN =
   /^(?<group>comic\s+.+?)(?:[\s._-]+(?:(?:issue|no\.?|vol(?:ume)?)\s*)?)(?<number>\d{1,4})$/iu;
-const EDGE_BRACKET_GROUPS_PATTERN =
-  /^(?:\s*\[[^\]]+\])+|(?:\s*\[[^\]]+\])+\s*$/gu;
+const EDGE_BRACKET_GROUPS_PATTERN = /^(?:\s*\[[^\]]+\])+|(?:\s*\[[^\]]+\])+\s*$/gu;
 
 export interface PreparedPublicationIdentity {
   groupId?: string;
@@ -153,12 +140,9 @@ const prettifyDirectoryName = (directoryName: string) =>
     .trim();
 
 const parseComicIssue = (title: string) => {
-  const undecoratedTitle = title
-    .replace(EDGE_BRACKET_GROUPS_PATTERN, "")
-    .trim();
+  const undecoratedTitle = title.replace(EDGE_BRACKET_GROUPS_PATTERN, "").trim();
   const comicIndex = undecoratedTitle.search(/\bcomic\s+/iu);
-  const candidateTitle =
-    comicIndex < 0 ? undecoratedTitle : undecoratedTitle.slice(comicIndex);
+  const candidateTitle = comicIndex < 0 ? undecoratedTitle : undecoratedTitle.slice(comicIndex);
   const datedMatch = YEAR_MONTH_COMIC_PATTERN.exec(candidateTitle);
   if (datedMatch?.groups) {
     const group = datedMatch.groups.group?.trim();
@@ -173,8 +157,7 @@ const parseComicIssue = (title: string) => {
   const group = numberedMatch.groups.group?.trim();
   const value = Number(numberedMatch.groups.number);
   if (!group || !Number.isSafeInteger(value)) return undefined;
-  const issue: PublicationIssue =
-    value >= 1900 && value <= 2200 ? {year: value} : {number: value};
+  const issue: PublicationIssue = value >= 1900 && value <= 2200 ? {year: value} : {number: value};
   return {group, issue};
 };
 
@@ -195,28 +178,17 @@ export const inferPreparedPublicationIdentity = (
   };
 };
 
-export const detectPreparedPublicationLanguage = (
-  directoryName: string,
-  defaultLanguage: SupportedLanguage,
-) => {
-  const hint = LANGUAGE_HINTS.find((candidate) =>
-    candidate.pattern.test(directoryName),
-  );
+export const detectPreparedPublicationLanguage = (directoryName: string, defaultLanguage: SupportedLanguage) => {
+  const hint = LANGUAGE_HINTS.find((candidate) => candidate.pattern.test(directoryName));
   if (!hint) return {language: defaultLanguage};
   if (hint.language) return {language: hint.language};
   return {unsupportedLabel: hint.label};
 };
 
-export const detectPreparedPublicationReadingDirection = (
-  directoryName: string,
-) =>
-  READING_DIRECTION_HINTS.find((hint) => hint.pattern.test(directoryName))
-    ?.direction;
+export const detectPreparedPublicationReadingDirection = (directoryName: string) =>
+  READING_DIRECTION_HINTS.find((hint) => hint.pattern.test(directoryName))?.direction;
 
-const findImages = async (
-  publicationDirectory: string,
-  diagnostics: ContentPrepareDiagnostic[],
-) => {
+const findImages = async (publicationDirectory: string, diagnostics: ContentPrepareDiagnostic[]) => {
   const pendingDirectories = [publicationDirectory];
   const paths: string[] = [];
 
@@ -224,17 +196,13 @@ const findImages = async (
     const directory = pendingDirectories.pop();
     if (!directory) break;
     const entries = await readdir(directory, {withFileTypes: true});
-    entries.sort((left, right) =>
-      NATURAL_COLLATOR.compare(left.name, right.name),
-    );
+    entries.sort((left, right) => NATURAL_COLLATOR.compare(left.name, right.name));
     for (const entry of entries) {
       const path = resolve(directory, entry.name);
       if (entry.isSymbolicLink()) {
         diagnostics.push({
           code: "skipped-symlink",
-          directory: toPortablePath(
-            relative(publicationDirectory, dirname(path)),
-          ),
+          directory: toPortablePath(relative(publicationDirectory, dirname(path))),
           message: `Skipped symbolic link ${toPortablePath(relative(publicationDirectory, path))}`,
         });
         continue;
@@ -243,11 +211,7 @@ const findImages = async (
         pendingDirectories.push(path);
         continue;
       }
-      if (
-        entry.isFile() &&
-        IMAGE_EXTENSIONS.has(extname(entry.name).toLowerCase())
-      )
-        paths.push(path);
+      if (entry.isFile() && IMAGE_EXTENSIONS.has(extname(entry.name).toLowerCase())) paths.push(path);
     }
   }
 
@@ -273,14 +237,10 @@ const createDocument = (
   const back = findNamedImage(images, BACK_FILE_NAMES);
   const spine = findNamedImage(images, SPINE_FILE_NAMES);
   const pageImages = images.filter((path) => path !== back && path !== spine);
-  const toRelativeAsset = (path: string) =>
-    toPortablePath(relative(publicationDirectory, path));
+  const toRelativeAsset = (path: string) => toPortablePath(relative(publicationDirectory, path));
   let id = normalizeTag(identity.title);
   if (!id || !VALID_ID_PATTERN.test(id)) {
-    const fallbackHash = createHash("sha256")
-      .update(publicationDirectory)
-      .digest("hex")
-      .slice(0, 10);
+    const fallbackHash = createHash("sha256").update(publicationDirectory).digest("hex").slice(0, 10);
     id = `untitled-${fallbackHash}`;
   }
   return {
@@ -302,10 +262,7 @@ const createDocument = (
   };
 };
 
-const writeManifestAtomically = async (
-  manifestPath: string,
-  document: LocalPublicationDocument,
-) => {
+const writeManifestAtomically = async (manifestPath: string, document: LocalPublicationDocument) => {
   const temporaryPath = `${manifestPath}.staging-${randomUUID()}`;
   await writeFile(temporaryPath, `${JSON.stringify(document, null, 2)}\n`, {
     flag: "wx",
@@ -318,9 +275,7 @@ const writeManifestAtomically = async (
   }
 };
 
-export const prepareLocalCatalog = async (
-  options: ContentPrepareOptions,
-): Promise<ContentPrepareReport> => {
+export const prepareLocalCatalog = async (options: ContentPrepareOptions): Promise<ContentPrepareReport> => {
   const rootDirectory = resolve(options.rootDirectory);
   const diagnostics: ContentPrepareDiagnostic[] = [];
   const publications: PreparedPublication[] = [];
@@ -345,20 +300,14 @@ export const prepareLocalCatalog = async (
     if (!(await fileExists(manifestPath))) continue;
     try {
       claimedPublicationIds.add(
-        parseLocalPublicationDocument(
-          JSON.parse(await readFile(manifestPath, "utf8")) as unknown,
-          manifestPath,
-        ).id,
+        parseLocalPublicationDocument(JSON.parse(await readFile(manifestPath, "utf8")) as unknown, manifestPath).id,
       );
     } catch {
       continue;
     }
   }
 
-  const processPublicationDirectory = async (
-    publicationDirectory: string,
-    portableDirectory: string,
-  ) => {
+  const processPublicationDirectory = async (publicationDirectory: string, portableDirectory: string) => {
     const manifestPath = resolve(publicationDirectory, "publication.json");
     const manifestExists = await fileExists(manifestPath);
     if (manifestExists && !options.force && !options.refreshExisting) {
@@ -370,10 +319,7 @@ export const prepareLocalCatalog = async (
       });
       return;
     }
-    const detectedLanguage = detectPreparedPublicationLanguage(
-      basename(publicationDirectory),
-      options.defaultLanguage,
-    );
+    const detectedLanguage = detectPreparedPublicationLanguage(basename(publicationDirectory), options.defaultLanguage);
     if (!detectedLanguage.language) {
       skippedCount += 1;
       diagnostics.push({
@@ -397,10 +343,7 @@ export const prepareLocalCatalog = async (
       });
       return;
     }
-    const identity = inferPreparedPublicationIdentity(
-      basename(publicationDirectory),
-      options.tags,
-    );
+    const identity = inferPreparedPublicationIdentity(basename(publicationDirectory), options.tags);
     if (identity.kind === "magazine")
       diagnostics.push({
         code: "inferred-magazine",
@@ -413,9 +356,7 @@ export const prepareLocalCatalog = async (
         directory: portableDirectory,
         message: `Assigned the fallback tag "unclassified" to ${portableDirectory}`,
       });
-    const filenameReadingDirection = detectPreparedPublicationReadingDirection(
-      basename(publicationDirectory),
-    );
+    const filenameReadingDirection = detectPreparedPublicationReadingDirection(basename(publicationDirectory));
     if (
       options.readingDirection !== undefined &&
       filenameReadingDirection !== undefined &&
@@ -429,21 +370,11 @@ export const prepareLocalCatalog = async (
       });
       return;
     }
-    const readingDirection =
-      filenameReadingDirection ?? options.readingDirection;
-    let document = createDocument(
-      publicationDirectory,
-      images,
-      detectedLanguage.language,
-      readingDirection,
-      identity,
-    );
+    const readingDirection = filenameReadingDirection ?? options.readingDirection;
+    let document = createDocument(publicationDirectory, images, detectedLanguage.language, readingDirection, identity);
     if (!manifestExists) {
       if (claimedPublicationIds.has(document.id)) {
-        const suffix = createHash("sha256")
-          .update(publicationDirectory)
-          .digest("hex")
-          .slice(0, 10);
+        const suffix = createHash("sha256").update(publicationDirectory).digest("hex").slice(0, 10);
         document.id = `${document.id.slice(0, 189)}-${suffix}`;
       }
       claimedPublicationIds.add(document.id);
@@ -463,13 +394,8 @@ export const prepareLocalCatalog = async (
         return;
       }
       const readingDirectionChanged =
-        existingDocument.physical?.readingDirection !==
-        document.physical?.readingDirection;
-      if (
-        JSON.stringify(existingDocument.assets) ===
-          JSON.stringify(document.assets) &&
-        !readingDirectionChanged
-      ) {
+        existingDocument.physical?.readingDirection !== document.physical?.readingDirection;
+      if (JSON.stringify(existingDocument.assets) === JSON.stringify(document.assets) && !readingDirectionChanged) {
         skippedCount += 1;
         diagnostics.push({
           code: "existing-manifest",
@@ -479,11 +405,9 @@ export const prepareLocalCatalog = async (
         return;
       }
       const physical = {...(existingDocument.physical ?? {})};
-      if (document.physical?.readingDirection === undefined)
-        delete physical.readingDirection;
+      if (document.physical?.readingDirection === undefined) delete physical.readingDirection;
       else physical.readingDirection = document.physical.readingDirection;
-      const {physical: _physical, ...existingDocumentWithoutPhysical} =
-        existingDocument;
+      const {physical: _physical, ...existingDocumentWithoutPhysical} = existingDocument;
       document = {
         ...existingDocumentWithoutPhysical,
         assets: document.assets,
@@ -498,8 +422,7 @@ export const prepareLocalCatalog = async (
           await writeManifestAtomically(manifestPath, document);
           await rm(backupPath, {force: true});
         } catch (error) {
-          if (await fileExists(manifestPath))
-            await rm(manifestPath, {force: true});
+          if (await fileExists(manifestPath)) await rm(manifestPath, {force: true});
           await rename(backupPath, manifestPath);
           throw error;
         }
@@ -520,22 +443,15 @@ export const prepareLocalCatalog = async (
   };
 
   for (const publicationDirectory of publicationDirectories) {
-    const portableDirectory = toPortablePath(
-      relative(rootDirectory, publicationDirectory) || ".",
-    );
+    const portableDirectory = toPortablePath(relative(rootDirectory, publicationDirectory) || ".");
     try {
-      await processPublicationDirectory(
-        publicationDirectory,
-        portableDirectory,
-      );
+      await processPublicationDirectory(publicationDirectory, portableDirectory);
     } catch (error) {
       skippedCount += 1;
       diagnostics.push({
         code: "processing-failed",
         directory: portableDirectory,
-        message: `Failed to process ${portableDirectory}: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
+        message: `Failed to process ${portableDirectory}: ${error instanceof Error ? error.message : String(error)}`,
       });
     }
   }

@@ -14,8 +14,7 @@ export const SHOP_UPPER_CEILING_Y = SHOP_STOREY_HEIGHT * 2;
 const UPPER_WALL_HEIGHT = SHOP_UPPER_CEILING_Y - SHOP_UPPER_FLOOR_Y;
 const UPPER_WALL_CENTER_Y = SHOP_UPPER_FLOOR_Y + UPPER_WALL_HEIGHT / 2;
 const UPPER_DOOR_HEADER_HEIGHT = UPPER_WALL_HEIGHT - SHOP_STAIR_DOOR_HEIGHT;
-const UPPER_DOOR_HEADER_CENTER_Y =
-  SHOP_UPPER_FLOOR_Y + SHOP_STAIR_DOOR_HEIGHT + UPPER_DOOR_HEADER_HEIGHT / 2;
+const UPPER_DOOR_HEADER_CENTER_Y = SHOP_UPPER_FLOOR_Y + SHOP_STAIR_DOOR_HEIGHT + UPPER_DOOR_HEADER_HEIGHT / 2;
 
 export const SHOP_ATRIUM = Object.freeze({
   maxX: 5.4,
@@ -64,18 +63,14 @@ const TV_CAVE_MAX_X = SHOP_TV_CAVE.centerX + SHOP_TV_CAVE.width / 2;
 const TV_CAVE_MAX_Z = SHOP_TV_CAVE.centerZ + SHOP_TV_CAVE.depth / 2;
 const TV_CAVE_MIN_X = SHOP_TV_CAVE.centerX - SHOP_TV_CAVE.width / 2;
 const TV_CAVE_MIN_Z = SHOP_TV_CAVE.centerZ - SHOP_TV_CAVE.depth / 2;
-const TV_CAVE_DOOR_MAX_Z =
-  SHOP_TV_CAVE_DOOR_CENTER_Z + SHOP_TV_CAVE_DOOR_WIDTH / 2;
-const TV_CAVE_DOOR_MIN_Z =
-  SHOP_TV_CAVE_DOOR_CENTER_Z - SHOP_TV_CAVE_DOOR_WIDTH / 2;
+const TV_CAVE_DOOR_MAX_Z = SHOP_TV_CAVE_DOOR_CENTER_Z + SHOP_TV_CAVE_DOOR_WIDTH / 2;
+const TV_CAVE_DOOR_MIN_Z = SHOP_TV_CAVE_DOOR_CENTER_Z - SHOP_TV_CAVE_DOOR_WIDTH / 2;
 const THEATRE_DOOR_MAX_Z = SHOP_THEATRE.centerZ + SHOP_THEATRE_DOOR_WIDTH / 2;
 const THEATRE_DOOR_MIN_Z = SHOP_THEATRE.centerZ - SHOP_THEATRE_DOOR_WIDTH / 2;
 const THEATRE_MAX_X = SHOP_THEATRE.centerX + SHOP_THEATRE.width / 2;
 const THEATRE_MAX_Y = 15.9;
-const THEATRE_DOOR_HEADER_HEIGHT =
-  THEATRE_MAX_Y - SHOP_UPPER_FLOOR_Y - SHOP_STAIR_DOOR_HEIGHT;
-const THEATRE_DOOR_HEADER_CENTER_Y =
-  SHOP_UPPER_FLOOR_Y + SHOP_STAIR_DOOR_HEIGHT + THEATRE_DOOR_HEADER_HEIGHT / 2;
+const THEATRE_DOOR_HEADER_HEIGHT = THEATRE_MAX_Y - SHOP_UPPER_FLOOR_Y - SHOP_STAIR_DOOR_HEIGHT;
+const THEATRE_DOOR_HEADER_CENTER_Y = SHOP_UPPER_FLOOR_Y + SHOP_STAIR_DOOR_HEIGHT + THEATRE_DOOR_HEADER_HEIGHT / 2;
 
 export type ShopExpansionBox = {
   position: readonly [x: number, y: number, z: number];
@@ -95,8 +90,7 @@ const STAIR_STEP_COUNT = 11;
 const STAIR_FLIGHT_RISE = SHOP_STOREY_HEIGHT / 2;
 const STAIR_STEP_RISE = STAIR_FLIGHT_RISE / STAIR_STEP_COUNT;
 const STAIR_STEP_RUN = 4.6 / STAIR_STEP_COUNT;
-const STAIR_TURN_CENTER_Z =
-  (SHOP_STAIR_LOWER_FLIGHT_CENTER_Z + SHOP_STAIR_UPPER_FLIGHT_CENTER_Z) / 2;
+const STAIR_TURN_CENTER_Z = (SHOP_STAIR_LOWER_FLIGHT_CENTER_Z + SHOP_STAIR_UPPER_FLIGHT_CENTER_Z) / 2;
 
 export const SHOP_UPPER_STACK_CENTER_X = 9.5;
 export const SHOP_UPPER_STACK_LENGTH = 4.6;
@@ -114,29 +108,19 @@ export const SHOP_STAIR_ROOM = Object.freeze({
  * it. Reusing the same footprint for another integer level lets the stair
  * tower grow in either direction without changing the surrounding rooms.
  */
-export const createStackableStairBoxes = (
-  level: number,
-): readonly ShopExpansionBox[] => {
+export const createStackableStairBoxes = (level: number): readonly ShopExpansionBox[] => {
   const baseY = level * SHOP_STOREY_HEIGHT;
   const firstFlight = Array.from({length: STAIR_STEP_COUNT}, (_, index) => {
     const height = STAIR_STEP_RISE * (index + 1);
     return {
-      position: [
-        13 + STAIR_STEP_RUN * (index + 0.5),
-        baseY + height / 2,
-        SHOP_STAIR_LOWER_FLIGHT_CENTER_Z,
-      ],
+      position: [13 + STAIR_STEP_RUN * (index + 0.5), baseY + height / 2, SHOP_STAIR_LOWER_FLIGHT_CENTER_Z],
       size: [STAIR_STEP_RUN + 0.015, height, 2.1],
     } as const;
   });
   const secondFlight = Array.from({length: STAIR_STEP_COUNT}, (_, index) => {
     const height = STAIR_FLIGHT_RISE + STAIR_STEP_RISE * (index + 1);
     return {
-      position: [
-        17.6 - STAIR_STEP_RUN * (index + 0.5),
-        baseY + height / 2,
-        SHOP_STAIR_UPPER_FLIGHT_CENTER_Z,
-      ],
+      position: [17.6 - STAIR_STEP_RUN * (index + 0.5), baseY + height / 2, SHOP_STAIR_UPPER_FLIGHT_CENTER_Z],
       size: [STAIR_STEP_RUN + 0.015, height, 2.1],
     } as const;
   });
@@ -148,19 +132,13 @@ export const createStackableStairBoxes = (
     },
     ...secondFlight,
     {
-      position: [
-        12.85,
-        baseY + SHOP_STOREY_HEIGHT - 0.09,
-        SHOP_STAIR_UPPER_FLIGHT_CENTER_Z,
-      ],
+      position: [12.85, baseY + SHOP_STOREY_HEIGHT - 0.09, SHOP_STAIR_UPPER_FLIGHT_CENTER_Z],
       size: [1.3, 0.18, 2.4],
     },
   ];
 };
 
-export const createStackableStairRailBoxes = (
-  level: number,
-): readonly ShopExpansionBox[] => {
+export const createStackableStairRailBoxes = (level: number): readonly ShopExpansionBox[] => {
   const stairs = createStackableStairBoxes(level);
   const railHeight = 1.1;
   const railThickness = 0.12;
@@ -173,8 +151,7 @@ export const createStackableStairRailBoxes = (
           position: [
             step.position[0],
             stepTop + railHeight / 2,
-            step.position[2] +
-              side * (step.size[2] / 2 - SHOP_STAIR_RAIL_INSET),
+            step.position[2] + side * (step.size[2] / 2 - SHOP_STAIR_RAIL_INSET),
           ],
           size: [step.size[0], railHeight, railThickness],
         });
@@ -185,31 +162,20 @@ export const createStackableStairRailBoxes = (
     const top = turnLanding.position[1] + turnLanding.size[1] / 2;
     rails.push({
       position: [
-        turnLanding.position[0] +
-          turnLanding.size[0] / 2 -
-          SHOP_STAIR_RAIL_INSET,
+        turnLanding.position[0] + turnLanding.size[0] / 2 - SHOP_STAIR_RAIL_INSET,
         top + railHeight / 2,
         turnLanding.position[2],
       ],
-      size: [
-        railThickness,
-        railHeight,
-        turnLanding.size[2] - SHOP_STAIR_RAIL_INSET * 2,
-      ],
+      size: [railThickness, railHeight, turnLanding.size[2] - SHOP_STAIR_RAIL_INSET * 2],
     });
     for (const side of [-1, 1] as const)
       rails.push({
         position: [
           turnLanding.position[0],
           top + railHeight / 2,
-          turnLanding.position[2] +
-            side * (turnLanding.size[2] / 2 - SHOP_STAIR_RAIL_INSET),
+          turnLanding.position[2] + side * (turnLanding.size[2] / 2 - SHOP_STAIR_RAIL_INSET),
         ],
-        size: [
-          turnLanding.size[0] - SHOP_STAIR_RAIL_INSET * 2,
-          railHeight,
-          railThickness,
-        ],
+        size: [turnLanding.size[0] - SHOP_STAIR_RAIL_INSET * 2, railHeight, railThickness],
       });
   }
 
@@ -221,14 +187,9 @@ export const createStackableStairRailBoxes = (
         position: [
           topLanding.position[0],
           top + railHeight / 2,
-          topLanding.position[2] +
-            side * (topLanding.size[2] / 2 - SHOP_STAIR_RAIL_INSET),
+          topLanding.position[2] + side * (topLanding.size[2] / 2 - SHOP_STAIR_RAIL_INSET),
         ],
-        size: [
-          topLanding.size[0] - SHOP_STAIR_RAIL_INSET * 2,
-          railHeight,
-          railThickness,
-        ],
+        size: [topLanding.size[0] - SHOP_STAIR_RAIL_INSET * 2, railHeight, railThickness],
       });
   }
   return rails;
@@ -260,35 +221,19 @@ export const SHOP_UPPER_FLOOR_BOXES: readonly ShopExpansionBox[] = [
 export const SHOP_ATRIUM_RAIL_BOXES: readonly ShopExpansionBox[] = [
   {
     position: [SHOP_ATRIUM.minX - SHOP_ATRIUM_RAIL_FLOOR_INSET, 5.53, 9.75],
-    size: [
-      0.14,
-      1.26,
-      SHOP_ATRIUM.maxZ - SHOP_ATRIUM.minZ + SHOP_ATRIUM_RAIL_FLOOR_INSET * 2,
-    ],
+    size: [0.14, 1.26, SHOP_ATRIUM.maxZ - SHOP_ATRIUM.minZ + SHOP_ATRIUM_RAIL_FLOOR_INSET * 2],
   },
   {
     position: [SHOP_ATRIUM.maxX + SHOP_ATRIUM_RAIL_FLOOR_INSET, 5.53, 9.75],
-    size: [
-      0.14,
-      1.26,
-      SHOP_ATRIUM.maxZ - SHOP_ATRIUM.minZ + SHOP_ATRIUM_RAIL_FLOOR_INSET * 2,
-    ],
+    size: [0.14, 1.26, SHOP_ATRIUM.maxZ - SHOP_ATRIUM.minZ + SHOP_ATRIUM_RAIL_FLOOR_INSET * 2],
   },
   {
     position: [0, 5.53, SHOP_ATRIUM.minZ - SHOP_ATRIUM_RAIL_FLOOR_INSET],
-    size: [
-      SHOP_ATRIUM.maxX - SHOP_ATRIUM.minX + SHOP_ATRIUM_RAIL_FLOOR_INSET * 2,
-      1.26,
-      0.14,
-    ],
+    size: [SHOP_ATRIUM.maxX - SHOP_ATRIUM.minX + SHOP_ATRIUM_RAIL_FLOOR_INSET * 2, 1.26, 0.14],
   },
   {
     position: [0, 5.53, SHOP_ATRIUM.maxZ + SHOP_ATRIUM_RAIL_FLOOR_INSET],
-    size: [
-      SHOP_ATRIUM.maxX - SHOP_ATRIUM.minX + SHOP_ATRIUM_RAIL_FLOOR_INSET * 2,
-      1.26,
-      0.14,
-    ],
+    size: [SHOP_ATRIUM.maxX - SHOP_ATRIUM.minX + SHOP_ATRIUM_RAIL_FLOOR_INSET * 2, 1.26, 0.14],
   },
 ];
 
@@ -342,11 +287,7 @@ export const SHOP_EXPANSION_WALL_BOXES: readonly ShopExpansionBox[] = [
     size: [0.22, 11, 26.5 - THEATRE_DOOR_MAX_Z],
   },
   {
-    position: [
-      THEATRE_MAX_X,
-      THEATRE_DOOR_HEADER_CENTER_Y,
-      SHOP_THEATRE.centerZ,
-    ],
+    position: [THEATRE_MAX_X, THEATRE_DOOR_HEADER_CENTER_Y, SHOP_THEATRE.centerZ],
     size: [0.22, THEATRE_DOOR_HEADER_HEIGHT, SHOP_THEATRE_DOOR_WIDTH],
   },
   {
@@ -370,27 +311,15 @@ export const SHOP_EXPANSION_WALL_BOXES: readonly ShopExpansionBox[] = [
     size: [SHOP_TV_CAVE.width, UPPER_WALL_HEIGHT, 0.22],
   },
   {
-    position: [
-      TV_CAVE_MIN_X,
-      UPPER_WALL_CENTER_Y,
-      (TV_CAVE_MIN_Z + TV_CAVE_DOOR_MIN_Z) / 2,
-    ],
+    position: [TV_CAVE_MIN_X, UPPER_WALL_CENTER_Y, (TV_CAVE_MIN_Z + TV_CAVE_DOOR_MIN_Z) / 2],
     size: [0.22, UPPER_WALL_HEIGHT, TV_CAVE_DOOR_MIN_Z - TV_CAVE_MIN_Z],
   },
   {
-    position: [
-      TV_CAVE_MIN_X,
-      UPPER_WALL_CENTER_Y,
-      (TV_CAVE_DOOR_MAX_Z + TV_CAVE_MAX_Z) / 2,
-    ],
+    position: [TV_CAVE_MIN_X, UPPER_WALL_CENTER_Y, (TV_CAVE_DOOR_MAX_Z + TV_CAVE_MAX_Z) / 2],
     size: [0.22, UPPER_WALL_HEIGHT, TV_CAVE_MAX_Z - TV_CAVE_DOOR_MAX_Z],
   },
   {
-    position: [
-      (SHOP_STAIR_ROOM.maxX + TV_CAVE_MAX_X) / 2,
-      UPPER_WALL_CENTER_Y,
-      TV_CAVE_MAX_Z,
-    ],
+    position: [(SHOP_STAIR_ROOM.maxX + TV_CAVE_MAX_X) / 2, UPPER_WALL_CENTER_Y, TV_CAVE_MAX_Z],
     size: [TV_CAVE_MAX_X - SHOP_STAIR_ROOM.maxX, UPPER_WALL_HEIGHT, 0.22],
   },
   {
@@ -398,11 +327,7 @@ export const SHOP_EXPANSION_WALL_BOXES: readonly ShopExpansionBox[] = [
     size: [0.18, UPPER_DOOR_HEADER_HEIGHT, SHOP_THEATRE_DOOR_WIDTH],
   },
   {
-    position: [
-      12.5,
-      UPPER_DOOR_HEADER_CENTER_Y,
-      SHOP_STAIR_UPPER_FLIGHT_CENTER_Z,
-    ],
+    position: [12.5, UPPER_DOOR_HEADER_CENTER_Y, SHOP_STAIR_UPPER_FLIGHT_CENTER_Z],
     size: [0.18, UPPER_DOOR_HEADER_HEIGHT, SHOP_STAIR_OPENING_WIDTH],
   },
   {
@@ -410,50 +335,28 @@ export const SHOP_EXPANSION_WALL_BOXES: readonly ShopExpansionBox[] = [
     size: [0.18, UPPER_DOOR_HEADER_HEIGHT, SHOP_TV_CAVE_DOOR_WIDTH],
   },
   {
-    position: [
-      TV_CAVE_MIN_X,
-      UPPER_DOOR_HEADER_CENTER_Y,
-      SHOP_TV_CAVE_DOOR_CENTER_Z,
-    ],
+    position: [TV_CAVE_MIN_X, UPPER_DOOR_HEADER_CENTER_Y, SHOP_TV_CAVE_DOOR_CENTER_Z],
     size: [0.22, UPPER_DOOR_HEADER_HEIGHT, SHOP_TV_CAVE_DOOR_WIDTH],
   },
   {
-    position: [
-      12.5,
-      (SHOP_STAIR_DOOR_HEIGHT + 4.8) / 2,
-      SHOP_STAIR_LOWER_FLIGHT_CENTER_Z,
-    ],
+    position: [12.5, (SHOP_STAIR_DOOR_HEIGHT + 4.8) / 2, SHOP_STAIR_LOWER_FLIGHT_CENTER_Z],
     size: [0.18, 4.8 - SHOP_STAIR_DOOR_HEIGHT, SHOP_STAIR_OPENING_WIDTH],
   },
   {
-    position: [
-      SHOP_STAIR_ROOM.maxX,
-      4.9,
-      (SHOP_STAIR_ROOM.minZ + SHOP_STAIR_ROOM.maxZ) / 2,
-    ],
+    position: [SHOP_STAIR_ROOM.maxX, 4.9, (SHOP_STAIR_ROOM.minZ + SHOP_STAIR_ROOM.maxZ) / 2],
     size: [0.18, 9.8, SHOP_STAIR_ROOM.maxZ - SHOP_STAIR_ROOM.minZ],
   },
   {
-    position: [
-      (SHOP_STAIR_ROOM.minX + SHOP_STAIR_ROOM.maxX) / 2,
-      4.9,
-      SHOP_STAIR_ROOM.maxZ,
-    ],
+    position: [(SHOP_STAIR_ROOM.minX + SHOP_STAIR_ROOM.maxX) / 2, 4.9, SHOP_STAIR_ROOM.maxZ],
     size: [SHOP_STAIR_ROOM.maxX - SHOP_STAIR_ROOM.minX, 9.8, 0.18],
   },
   {
-    position: [
-      (SHOP_STAIR_ROOM.minX + SHOP_STAIR_ROOM.maxX) / 2,
-      4.9,
-      SHOP_STAIR_ROOM.minZ,
-    ],
+    position: [(SHOP_STAIR_ROOM.minX + SHOP_STAIR_ROOM.maxX) / 2, 4.9, SHOP_STAIR_ROOM.minZ],
     size: [SHOP_STAIR_ROOM.maxX - SHOP_STAIR_ROOM.minX, 9.8, 0.18],
   },
 ];
 
-const expansionBoxFromCollision = (
-  box: ShopCollisionBox,
-): ShopExpansionBox => ({
+const expansionBoxFromCollision = (box: ShopCollisionBox): ShopExpansionBox => ({
   position: [box.position.x, box.position.y, box.position.z],
   size: [box.halfExtents.x * 2, box.halfExtents.y * 2, box.halfExtents.z * 2],
 });
@@ -504,11 +407,7 @@ const upperFixtureBoxes: readonly ShopExpansionBox[] = [
     {height: 0.12, platformCenterX: -30.7, platformWidth: 6},
   ].flatMap((row) =>
     [14, 23].map((z) => ({
-      position: [
-        row.platformCenterX,
-        SHOP_UPPER_FLOOR_Y + row.height / 2,
-        z,
-      ] as const,
+      position: [row.platformCenterX, SHOP_UPPER_FLOOR_Y + row.height / 2, z] as const,
       size: [row.platformWidth, row.height, 6.4] as const,
     })),
   ),

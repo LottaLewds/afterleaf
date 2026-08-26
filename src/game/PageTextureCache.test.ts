@@ -51,9 +51,7 @@ describe("PageTextureCache", () => {
     const prefetched = cache.prefetch("page-1");
 
     expect(loadCount).toBe(0);
-    expect(cache.inspect().entries).toEqual([
-      {lastUsed: 3, refCount: 2, state: "loading", url: "page-1"},
-    ]);
+    expect(cache.inspect().entries).toEqual([{lastUsed: 3, refCount: 2, state: "loading", url: "page-1"}]);
 
     const resource = createResource("page-1");
     pending.resolve(resource);
@@ -107,10 +105,7 @@ describe("PageTextureCache", () => {
     cache.release("page-1");
     await cache.prefetch("page-3");
 
-    expect(cache.inspect().entries.map((entry) => entry.url)).toEqual([
-      "page-1",
-      "page-3",
-    ]);
+    expect(cache.inspect().entries.map((entry) => entry.url)).toEqual(["page-1", "page-3"]);
     expect(resources.get("page-1")?.disposeCount).toBe(0);
     expect(resources.get("page-2")?.disposeCount).toBe(1);
   });
@@ -128,9 +123,7 @@ describe("PageTextureCache", () => {
     expect(cache.inspect().size).toBe(2);
 
     cache.release("page-1");
-    expect(cache.inspect().entries.map((entry) => entry.url)).toEqual([
-      "page-2",
-    ]);
+    expect(cache.inspect().entries.map((entry) => entry.url)).toEqual(["page-2"]);
     expect(first.disposeCount).toBe(1);
     expect(second.disposeCount).toBe(0);
   });
@@ -159,8 +152,7 @@ describe("PageTextureCache", () => {
     const ready = createResource("ready");
     const late = createResource("late");
     const cache = new PageTextureCache({
-      load: (url) =>
-        url === "ready" ? Promise.resolve(ready) : lateLoad.promise,
+      load: (url) => (url === "ready" ? Promise.resolve(ready) : lateLoad.promise),
       maxEntries: 2,
     });
 
@@ -172,9 +164,7 @@ describe("PageTextureCache", () => {
 
     expect(ready.disposeCount).toBe(1);
     expect(cache.inspect()).toMatchObject({disposed: true, size: 0});
-    expect(() => cache.acquire("another")).toThrow(
-      "PageTextureCache has been disposed",
-    );
+    expect(() => cache.acquire("another")).toThrow("PageTextureCache has been disposed");
 
     lateLoad.resolve(late);
     expect(await pending).toBe(late);
@@ -188,16 +178,13 @@ describe("PageTextureCache", () => {
     const firstLoad = deferred<TestResource>();
     const second = createResource("page-2");
     const cache = new PageTextureCache({
-      load: (url) =>
-        url === "page-1" ? firstLoad.promise : Promise.resolve(second),
+      load: (url) => (url === "page-1" ? firstLoad.promise : Promise.resolve(second)),
       maxEntries: 1,
     });
 
     const firstPrefetch = cache.prefetch("page-1");
     await cache.prefetch("page-2");
-    expect(cache.inspect().entries.map((entry) => entry.url)).toEqual([
-      "page-2",
-    ]);
+    expect(cache.inspect().entries.map((entry) => entry.url)).toEqual(["page-2"]);
 
     const first = createResource("page-1");
     firstLoad.resolve(first);
@@ -221,8 +208,7 @@ describe("PageTextureCache", () => {
     const secondLoad = deferred<TestResource>();
     const loadingCounts: number[] = [];
     const cache = new PageTextureCache({
-      load: (url) =>
-        url === "page-1" ? firstLoad.promise : secondLoad.promise,
+      load: (url) => (url === "page-1" ? firstLoad.promise : secondLoad.promise),
       maxEntries: 3,
       onLoadingChange: (count) => loadingCounts.push(count),
     });

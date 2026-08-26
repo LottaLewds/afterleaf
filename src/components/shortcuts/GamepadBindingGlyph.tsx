@@ -1,30 +1,16 @@
-import {
-  gamepadButtonIcon,
-  formatGamepadButton,
-  type GamepadButtonName,
-  type GamepadStyle,
-} from "~/game/input/bindings";
+import {gamepadButtonIcon, formatGamepadButton, type GamepadButtonName, type GamepadStyle} from "~/game/input/bindings";
 import {promptIconUrl} from "~/game/input/prompts";
 import {Show} from "solid-js";
 
-export const GamepadBindingGlyph = (props: {
-  code: string;
-  style: GamepadStyle | undefined;
-}) => {
+export const GamepadBindingGlyph = (props: {code: string; style: GamepadStyle | undefined}) => {
   const info = () => {
     if (!props.style) return undefined;
-    const icon = gamepadButtonIcon(
-      props.code as GamepadButtonName,
-      props.style,
-    );
+    const icon = gamepadButtonIcon(props.code as GamepadButtonName, props.style);
     const url = icon ? promptIconUrl(icon) : undefined;
     return url
       ? {
           url,
-          alt: formatGamepadButton(
-            props.code as GamepadButtonName,
-            props.style,
-          ),
+          alt: formatGamepadButton(props.code as GamepadButtonName, props.style),
         }
       : undefined;
   };

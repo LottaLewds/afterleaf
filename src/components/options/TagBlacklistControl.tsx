@@ -1,9 +1,6 @@
 import {FiPlus, FiSearch, FiTag, FiTrash2, FiX} from "solid-icons/fi";
 import {createMemo, createSignal, For, Show} from "solid-js";
-import {
-  normalizeTag,
-  normalizeTagBlacklist,
-} from "~/content/tagBlacklistPreference";
+import {normalizeTag, normalizeTagBlacklist} from "~/content/tagBlacklistPreference";
 
 export const TagBlacklistControl = (props: {
   availableTags: readonly string[];
@@ -23,10 +20,7 @@ export const TagBlacklistControl = (props: {
     return props.availableTags
       .filter((tag) => {
         const normalizedTag = normalizeTag(tag);
-        return (
-          !blacklistedTagSet().has(normalizedTag) &&
-          (!search || normalizedTag.includes(search))
-        );
+        return !blacklistedTagSet().has(normalizedTag) && (!search || normalizedTag.includes(search));
       })
       .slice(0, 8);
   });
@@ -43,9 +37,7 @@ export const TagBlacklistControl = (props: {
     setOpen(true);
   };
   const removeTag = (tag: string) =>
-    props.onChange(
-      props.blacklistedTags.filter((blacklistedTag) => blacklistedTag !== tag),
-    );
+    props.onChange(props.blacklistedTags.filter((blacklistedTag) => blacklistedTag !== tag));
 
   return (
     <div class="flex flex-col gap-4 border border-white/8 bg-[#151e1c] px-4 py-4 sm:px-5">
@@ -54,12 +46,10 @@ export const TagBlacklistControl = (props: {
           <FiTag size={15} />
         </span>
         <div class="min-w-0 flex-1">
-          <p class="text-[10px] font-semibold tracking-[0.12em] text-[#c5cec9] uppercase">
-            Blacklisted tags
-          </p>
+          <p class="text-[10px] font-semibold tracking-[0.12em] text-[#c5cec9] uppercase">Blacklisted tags</p>
           <p class="mt-1 text-[9px] leading-4 text-[#65716c]">
-            Skip matching publications during future downloads. Books already in
-            your library stay catalogued until purged.
+            Skip matching publications during future downloads. Books already in your library stay catalogued until
+            purged.
           </p>
         </div>
         <button
@@ -86,11 +76,7 @@ export const TagBlacklistControl = (props: {
         onFocusIn={() => setOpen(true)}
         onFocusOut={(event) => {
           const nextTarget = event.relatedTarget;
-          if (
-            nextTarget instanceof Node &&
-            event.currentTarget.contains(nextTarget)
-          )
-            return;
+          if (nextTarget instanceof Node && event.currentTarget.contains(nextTarget)) return;
           setOpen(false);
         }}
       >
@@ -143,19 +129,13 @@ export const TagBlacklistControl = (props: {
                   onClick={() => addTag(suggestion)}
                 >
                   <span>{suggestion}</span>
-                  <span class="text-[8px] tracking-[0.1em] text-[#59645f] uppercase">
-                    Library tag
-                  </span>
+                  <span class="text-[8px] tracking-[0.1em] text-[#59645f] uppercase">Library tag</span>
                 </button>
               )}
             </For>
             <Show
               when={
-                canAddCustomTag() &&
-                !suggestions().some(
-                  (suggestion) =>
-                    normalizeTag(suggestion) === normalizedQuery(),
-                )
+                canAddCustomTag() && !suggestions().some((suggestion) => normalizeTag(suggestion) === normalizedQuery())
               }
             >
               <button

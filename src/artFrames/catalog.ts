@@ -1,23 +1,11 @@
 import {randomUUID} from "node:crypto";
-import {
-  lstat,
-  mkdir,
-  readdir,
-  realpath,
-  rename,
-  rm,
-  writeFile,
-} from "node:fs/promises";
+import {lstat, mkdir, readdir, realpath, rename, rm, writeFile} from "node:fs/promises";
 import {basename, extname, relative, resolve, sep} from "node:path";
 import sharp, {type Metadata} from "../media/sharpRuntime";
 
 import {ART_FRAME_MAX_DIMENSION} from "./image";
 import type {ArtFrameChannel, ArtFrameImage} from "./protocol";
-import {
-  renderCachedWebpImage,
-  renderWebpImage,
-  type WebpDerivativeCreator,
-} from "../media/webp";
+import {renderCachedWebpImage, renderWebpImage, type WebpDerivativeCreator} from "../media/webp";
 
 export type ArtFrameMediaUrlBuilder = (imageId: string) => string;
 export type ArtFrameDerivativeCreator = WebpDerivativeCreator;
@@ -38,11 +26,9 @@ type ArtFrameMetadataCacheEntry = {
 
 const metadataCache = new Map<string, ArtFrameMetadataCacheEntry>();
 
-const compareNames = (left: string, right: string) =>
-  left < right ? -1 : left > right ? 1 : 0;
+const compareNames = (left: string, right: string) => (left < right ? -1 : left > right ? 1 : 0);
 
-const isSafeChannelId = (value: string) =>
-  /^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/u.test(value);
+const isSafeChannelId = (value: string) => /^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/u.test(value);
 
 const displayLabel = (value: string) =>
   basename(value, extname(value))
@@ -53,11 +39,8 @@ const displayLabel = (value: string) =>
 
 const metadataAspectRatio = (metadata: Metadata) => {
   if (!metadata.width || !metadata.height) return;
-  const rotated =
-    metadata.orientation !== undefined && metadata.orientation >= 5;
-  return rotated
-    ? metadata.height / metadata.width
-    : metadata.width / metadata.height;
+  const rotated = metadata.orientation !== undefined && metadata.orientation >= 5;
+  return rotated ? metadata.height / metadata.width : metadata.width / metadata.height;
 };
 
 const discoverArtFrameChannelsIn = async (
@@ -75,12 +58,7 @@ const discoverArtFrameChannelsIn = async (
   }
   const channels = await Promise.all(
     entries
-      .filter(
-        (entry) =>
-          !entry.name.startsWith(".") &&
-          !entry.isSymbolicLink() &&
-          entry.isDirectory(),
-      )
+      .filter((entry) => !entry.name.startsWith(".") && !entry.isSymbolicLink() && entry.isDirectory())
       .sort((left, right) => compareNames(left.name, right.name))
       .map(async (entry): Promise<DiscoveredArtFrameChannel | undefined> => {
         const channelDirectory = resolve(root, entry.name);
@@ -96,51 +74,37 @@ const discoverArtFrameChannelsIn = async (
         }
         const imageEntries = entries
           .filter(
-            (imageEntry) =>
-              !imageEntry.name.startsWith(".") &&
-              !imageEntry.isSymbolicLink() &&
-              imageEntry.isFile(),
+            (imageEntry) => !imageEntry.name.startsWith(".") && !imageEntry.isSymbolicLink() && imageEntry.isFile(),
           )
           .sort((left, right) => compareNames(left.name, right.name));
         const images = await Promise.all(
-          imageEntries.map(
-            async (
-              imageEntry,
-            ): Promise<DiscoveredArtFrameImage | undefined> => {
-              const filePath = resolve(channelDirectory, imageEntry.name);
-              try {
-                const file = await lstat(filePath);
-                const cached = metadataCache.get(filePath);
-                let aspectRatio =
-                  cached?.modifiedAt === file.mtimeMs &&
-                  cached.size === file.size
-                    ? cached.aspectRatio
-                    : undefined;
-                if (
-                  !cached ||
-                  cached.modifiedAt !== file.mtimeMs ||
-                  cached.size !== file.size
-                ) {
-                  const metadata = await sharp(filePath, {
-                    limitInputPixels: 100_000_000,
-                  }).metadata();
-                  aspectRatio = metadataAspectRatio(metadata);
-                  metadataCache.set(filePath, {
-                    ...(aspectRatio === undefined ? {} : {aspectRatio}),
-                    modifiedAt: file.mtimeMs,
-                    size: file.size,
-                  });
-                }
-                if (!aspectRatio || !Number.isFinite(aspectRatio)) return;
-                const id = relative(root, filePath).split(sep).join("/");
-                const label = displayLabel(imageEntry.name);
-                if (!label) return;
-                return {aspectRatio, filePath, id, label, url: mediaUrl(id)};
-              } catch {
-                return;
+          imageEntries.map(async (imageEntry): Promise<DiscoveredArtFrameImage | undefined> => {
+            const filePath = resolve(channelDirectory, imageEntry.name);
+            try {
+              const file = await lstat(filePath);
+              const cached = metadataCache.get(filePath);
+              let aspectRatio =
+                cached?.modifiedAt === file.mtimeMs && cached.size === file.size ? cached.aspectRatio : undefined;
+              if (!cached || cached.modifiedAt !== file.mtimeMs || cached.size !== file.size) {
+                const metadata = await sharp(filePath, {
+                  limitInputPixels: 100_000_000,
+                }).metadata();
+                aspectRatio = metadataAspectRatio(metadata);
+                metadataCache.set(filePath, {
+                  ...(aspectRatio === undefined ? {} : {aspectRatio}),
+                  modifiedAt: file.mtimeMs,
+                  size: file.size,
+                });
               }
-            },
-          ),
+              if (!aspectRatio || !Number.isFinite(aspectRatio)) return;
+              const id = relative(root, filePath).split(sep).join("/");
+              const label = displayLabel(imageEntry.name);
+              if (!label) return;
+              return {aspectRatio, filePath, id, label, url: mediaUrl(id)};
+            } catch {
+              return;
+            }
+          }),
         );
         const validImages = images.filter((image) => image !== undefined);
         const label = displayLabel(entry.name);
@@ -163,10 +127,7 @@ export const discoverArtFrameChannels = async (
     }
   >();
   for (const framesDirectory of framesDirectories) {
-    const discovered = await discoverArtFrameChannelsIn(
-      framesDirectory,
-      mediaUrl,
-    );
+    const discovered = await discoverArtFrameChannelsIn(framesDirectory, mediaUrl);
     for (const discoveredChannel of discovered) {
       const existing = channels.get(discoveredChannel.id);
       const channel =
@@ -195,10 +156,7 @@ export const discoverArtFrameChannels = async (
   }));
 };
 
-export const resolveArtFrameImagePath = async (
-  framesDirectories: readonly string[],
-  imageId: string,
-) => {
+export const resolveArtFrameImagePath = async (framesDirectories: readonly string[], imageId: string) => {
   for (const framesDirectory of framesDirectories) {
     const root = resolve(framesDirectory);
     const candidate = resolve(root, ...imageId.split("/"));
@@ -210,10 +168,7 @@ export const resolveArtFrameImagePath = async (
     )
       continue;
     try {
-      const [realRoot, realCandidate] = await Promise.all([
-        realpath(root),
-        realpath(candidate),
-      ]);
+      const [realRoot, realCandidate] = await Promise.all([realpath(root), realpath(candidate)]);
       const realCandidateRelativePath = relative(realRoot, realCandidate);
       if (
         realCandidateRelativePath.length === 0 ||
@@ -236,13 +191,7 @@ export const renderArtFrameImage = async (
   cacheDirectory?: string,
 ) => {
   if (cacheDirectory)
-    return renderCachedWebpImage(
-      filePath,
-      createDerivative,
-      ART_FRAME_MAX_DIMENSION,
-      cacheDirectory,
-      "art-frame-v1",
-    );
+    return renderCachedWebpImage(filePath, createDerivative, ART_FRAME_MAX_DIMENSION, cacheDirectory, "art-frame-v1");
   return renderWebpImage(filePath, createDerivative, ART_FRAME_MAX_DIMENSION);
 };
 
@@ -253,23 +202,15 @@ export const importArtFrameImage = async (
   createDerivative: ArtFrameDerivativeCreator,
   mediaUrl: ArtFrameMediaUrlBuilder,
 ) => {
-  if (!isSafeChannelId(channelId))
-    throw new Error("Art frame channel name is invalid");
+  if (!isSafeChannelId(channelId)) throw new Error("Art frame channel name is invalid");
   const derivative = await createDerivative(source);
-  const timestamp = new Date()
-    .toISOString()
-    .replaceAll(":", "-")
-    .replace("T", "-")
-    .replace("Z", "");
+  const timestamp = new Date().toISOString().replaceAll(":", "-").replace("T", "-").replace("Z", "");
   const imageName = `pasted-${timestamp}-${randomUUID().slice(0, 8)}.webp`;
   const id = `${channelId}/${imageName}`;
   const root = resolve(framesDirectory);
   const channelDirectory = resolve(root, channelId);
   await mkdir(channelDirectory, {recursive: true});
-  const [realRoot, realChannelDirectory] = await Promise.all([
-    realpath(root),
-    realpath(channelDirectory),
-  ]);
+  const [realRoot, realChannelDirectory] = await Promise.all([realpath(root), realpath(channelDirectory)]);
   const channelRelativePath = relative(realRoot, realChannelDirectory);
   if (
     channelRelativePath.length === 0 ||
@@ -289,7 +230,6 @@ export const importArtFrameImage = async (
   const image = (await discoverArtFrameChannels([framesDirectory], mediaUrl))
     .flatMap((channel) => channel.images)
     .find((candidate) => candidate.id === id);
-  if (!image)
-    throw new Error("Converted art frame image could not be catalogued");
+  if (!image) throw new Error("Converted art frame image could not be catalogued");
   return {derivative, image};
 };

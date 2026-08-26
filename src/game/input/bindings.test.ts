@@ -42,26 +42,17 @@ describe("bindings", () => {
 
   test("standard button names map one-to-one onto spec indices", () => {
     expect(GAMEPAD_BUTTON_NAMES).toHaveLength(16);
-    for (const [index, name] of GAMEPAD_BUTTON_NAMES.entries())
-      expect(gamepadButtonIndex(name)).toBe(index);
+    for (const [index, name] of GAMEPAD_BUTTON_NAMES.entries()) expect(gamepadButtonIndex(name)).toBe(index);
   });
 
   test("keyboard bindings never bind bare modifier keys", () => {
     // InputManager reserves Ctrl/Meta/Alt combos for browser shortcuts
     // (e.g. Ctrl+V paste), so a binding on a modifier key itself would
     // silently never dispatch.
-    const modifierCodes = new Set([
-      "ControlLeft",
-      "ControlRight",
-      "MetaLeft",
-      "MetaRight",
-      "AltLeft",
-      "AltRight",
-    ]);
+    const modifierCodes = new Set(["ControlLeft", "ControlRight", "MetaLeft", "MetaRight", "AltLeft", "AltRight"]);
     for (const bindings of Object.values(DEFAULT_SHORTCUTS))
       for (const binding of bindings)
-        if (binding.device === "keyboard")
-          expect(modifierCodes.has(binding.code)).toBe(false);
+        if (binding.device === "keyboard") expect(modifierCodes.has(binding.code)).toBe(false);
   });
 
   test("loads default shortcuts when storage is empty", () => {
@@ -74,9 +65,7 @@ describe("bindings", () => {
       interact: [{device: "keyboard", code: "KeyH"}],
     };
     saveShortcuts(custom);
-    expect(loadShortcuts().interact).toEqual([
-      {device: "keyboard", code: "KeyH"},
-    ]);
+    expect(loadShortcuts().interact).toEqual([{device: "keyboard", code: "KeyH"}]);
     // Untouched actions keep their defaults.
     expect(loadShortcuts().jump).toEqual(DEFAULT_SHORTCUTS.jump);
   });
@@ -84,15 +73,9 @@ describe("bindings", () => {
   test("falls back to defaults on corrupt or invalid payloads", () => {
     globalThis.localStorage.setItem(STORAGE_KEY, "{not json");
     expect(loadShortcuts()).toEqual(DEFAULT_SHORTCUTS);
-    globalThis.localStorage.setItem(
-      STORAGE_KEY,
-      JSON.stringify({interact: [{device: "gamepad", code: "Turbo"}]}),
-    );
+    globalThis.localStorage.setItem(STORAGE_KEY, JSON.stringify({interact: [{device: "gamepad", code: "Turbo"}]}));
     expect(loadShortcuts()).toEqual(DEFAULT_SHORTCUTS);
-    globalThis.localStorage.setItem(
-      STORAGE_KEY,
-      JSON.stringify({interact: "nope"}),
-    );
+    globalThis.localStorage.setItem(STORAGE_KEY, JSON.stringify({interact: "nope"}));
     expect(loadShortcuts()).toEqual(DEFAULT_SHORTCUTS);
   });
 
@@ -107,9 +90,7 @@ describe("bindings", () => {
 
   test("dispatch order covers every action exactly once", () => {
     const actions = Object.keys(DEFAULT_SHORTCUTS) as ShortcutAction[];
-    expect(new Set(ACTION_DISPATCH_ORDER).size).toBe(
-      ACTION_DISPATCH_ORDER.length,
-    );
+    expect(new Set(ACTION_DISPATCH_ORDER).size).toBe(ACTION_DISPATCH_ORDER.length);
     // Held-state actions are queried per frame, not dispatched on edges, so
     // they are the only ones allowed outside the dispatch order.
     const heldActions = new Set<ShortcutAction>([
@@ -122,8 +103,7 @@ describe("bindings", () => {
     ]);
     for (const action of actions) {
       const priority = actionDispatchPriority(action);
-      if (priority === Number.MAX_SAFE_INTEGER)
-        expect(heldActions.has(action)).toBe(true);
+      if (priority === Number.MAX_SAFE_INTEGER) expect(heldActions.has(action)).toBe(true);
     }
   });
 

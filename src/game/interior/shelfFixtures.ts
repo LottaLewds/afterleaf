@@ -1,11 +1,4 @@
-import {
-  Mesh,
-  MeshBasicMaterial,
-  PlaneGeometry,
-  Vector3,
-  type MeshStandardMaterial,
-  type Object3D,
-} from "three";
+import {Mesh, MeshBasicMaterial, PlaneGeometry, Vector3, type MeshStandardMaterial, type Object3D} from "three";
 import type {Group} from "three";
 import {BOOK_HEIGHT} from "~/game/bookTuning";
 import {
@@ -84,14 +77,7 @@ const createShelfEndPosterSurfaces = (
         },
       ];
   for (const end of ends)
-    createPosterSurface(
-      parent,
-      `${fixtureId}:end:${end.id}`,
-      1,
-      3.96,
-      end.position,
-      end.rotation,
-    );
+    createPosterSurface(parent, `${fixtureId}:end:${end.id}`, 1, 3.96, end.position, end.rotation);
 };
 
 const createSpineShelfSignTargets = (
@@ -249,9 +235,7 @@ export const createSpineShelfFixture = (
   const alongX = axis === "x";
   deps.addBox(
     parent,
-    alongX
-      ? [length, SPINE_SHELF_HEIGHT, backingThickness]
-      : [backingThickness, SPINE_SHELF_HEIGHT, length],
+    alongX ? [length, SPINE_SHELF_HEIGHT, backingThickness] : [backingThickness, SPINE_SHELF_HEIGHT, length],
     [x, elevation + SPINE_SHELF_HEIGHT / 2, z],
     backingMaterial,
   );
@@ -274,39 +258,14 @@ export const createSpineShelfFixture = (
     deps.addBox(
       parent,
       alongX
-        ? [
-            SPINE_SHELF_DIVIDER_THICKNESS,
-            SPINE_SHELF_DIVIDER_HEIGHT,
-            SPINE_SHELF_DIVIDER_DEPTH,
-          ]
-        : [
-            SPINE_SHELF_DIVIDER_DEPTH,
-            SPINE_SHELF_DIVIDER_HEIGHT,
-            SPINE_SHELF_DIVIDER_THICKNESS,
-          ],
+        ? [SPINE_SHELF_DIVIDER_THICKNESS, SPINE_SHELF_DIVIDER_HEIGHT, SPINE_SHELF_DIVIDER_DEPTH]
+        : [SPINE_SHELF_DIVIDER_DEPTH, SPINE_SHELF_DIVIDER_HEIGHT, SPINE_SHELF_DIVIDER_THICKNESS],
       alongX
-        ? [
-            x - length / 2 + divider * bayWidth,
-            elevation + SPINE_SHELF_DIVIDER_HEIGHT / 2,
-            z,
-          ]
-        : [
-            x,
-            elevation + SPINE_SHELF_DIVIDER_HEIGHT / 2,
-            z - length / 2 + divider * bayWidth,
-          ],
+        ? [x - length / 2 + divider * bayWidth, elevation + SPINE_SHELF_DIVIDER_HEIGHT / 2, z]
+        : [x, elevation + SPINE_SHELF_DIVIDER_HEIGHT / 2, z - length / 2 + divider * bayWidth],
       shelfEdgeMaterial,
     );
-  createShelfEndPosterSurfaces(
-    parent,
-    fixtureId,
-    x,
-    z,
-    length,
-    elevation,
-    alongX,
-    deps.createPosterSurface,
-  );
+  createShelfEndPosterSurfaces(parent, fixtureId, x, z, length, elevation, alongX, deps.createPosterSurface);
 
   for (const normal of faceNormals) {
     createSpineShelfFace(
@@ -385,12 +344,7 @@ export const createFaceOutDisplay = (
   backingMaterial: MeshStandardMaterial,
   deps: FaceOutDisplayDeps,
 ) => {
-  deps.addBox(
-    parent,
-    FACE_OUT_DISPLAY.backingSize,
-    FACE_OUT_DISPLAY.backingCenter,
-    backingMaterial,
-  );
+  deps.addBox(parent, FACE_OUT_DISPLAY.backingSize, FACE_OUT_DISPLAY.backingCenter, backingMaterial);
   for (const x of FACE_OUT_DISPLAY.sideOffsetXs)
     deps.addBox(
       parent,
@@ -410,17 +364,10 @@ export const createFaceOutDisplay = (
     deps.registerPropPlacementSupport(shelf);
   }
 
-  const targetGeometry = new PlaneGeometry(
-    FACE_DISPLAY_SHELF_HALF_WIDTH * 2,
-    0.76,
-  );
+  const targetGeometry = new PlaneGeometry(FACE_DISPLAY_SHELF_HALF_WIDTH * 2, 0.76);
   for (let row = 0; row < FACE_DISPLAY_ROWS; row += 1) {
     const shelfId = faceDisplayShelfId(row);
-    const frontCenter = new Vector3(
-      -2,
-      0.595 + row * 0.9,
-      FACE_DISPLAY_SHELF_FRONT_Z,
-    );
+    const frontCenter = new Vector3(-2, 0.595 + row * 0.9, FACE_DISPLAY_SHELF_FRONT_Z);
     deps.spineShelfDefinitions.set(shelfId, {
       axis: new Vector3(1, 0, 0),
       backInset: 0.55,
@@ -449,10 +396,7 @@ export const createFaceOutDisplay = (
     deps.shelfTargetMeshes.push(target);
   }
   const signPreviewTarget = new Mesh(
-    new PlaneGeometry(
-      FACE_DISPLAY_SHELF_HALF_WIDTH * 2,
-      FACE_OUT_DISPLAY.sideSize[1],
-    ),
+    new PlaneGeometry(FACE_DISPLAY_SHELF_HALF_WIDTH * 2, FACE_OUT_DISPLAY.sideSize[1]),
     new MeshBasicMaterial({
       depthWrite: false,
       opacity: 0,
@@ -495,11 +439,7 @@ export const createWallPosterSurfaces = (
         `${id}:${side < 0 ? "north" : "south"}`,
         surfaceWidth,
         surfaceHeight,
-        [
-          wall.position[0],
-          wall.position[1],
-          wall.position[2] + side * (depth / 2 + POSTER_SURFACE_OFFSET),
-        ],
+        [wall.position[0], wall.position[1], wall.position[2] + side * (depth / 2 + POSTER_SURFACE_OFFSET)],
         side < 0 ? Math.PI : 0,
       );
     return;
@@ -512,11 +452,7 @@ export const createWallPosterSurfaces = (
       `${id}:${side < 0 ? "west" : "east"}`,
       surfaceWidth,
       surfaceHeight,
-      [
-        wall.position[0] + side * (width / 2 + POSTER_SURFACE_OFFSET),
-        wall.position[1],
-        wall.position[2],
-      ],
+      [wall.position[0] + side * (width / 2 + POSTER_SURFACE_OFFSET), wall.position[1], wall.position[2]],
       side < 0 ? -Math.PI / 2 : Math.PI / 2,
     );
 };

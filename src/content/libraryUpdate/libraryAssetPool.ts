@@ -4,8 +4,7 @@ import type {Dirent} from "node:fs";
 import {scheduleSnapshotGarbageCollection} from "~/content/libraryUpdate/snapshotGarbageCollector";
 import type {ContentPackCatalog} from "~/content/schema";
 
-const isMissing = (error: unknown) =>
-  error instanceof Error && "code" in error && error.code === "ENOENT";
+const isMissing = (error: unknown) => error instanceof Error && "code" in error && error.code === "ENOENT";
 
 const catalogAssetPaths = (catalog: ContentPackCatalog) => [
   ...catalog.publications.flatMap((publication) => [
@@ -20,8 +19,7 @@ const catalogAssetPaths = (catalog: ContentPackCatalog) => [
   ...catalog.atlases.spine.map(({path}) => path),
 ];
 
-export const referencedLibraryAssetPaths = (catalog: ContentPackCatalog) =>
-  new Set(catalogAssetPaths(catalog));
+export const referencedLibraryAssetPaths = (catalog: ContentPackCatalog) => new Set(catalogAssetPaths(catalog));
 
 /**
  * Retires every pooled asset the given catalog does not reference. Pool
@@ -33,9 +31,7 @@ export const referencedLibraryAssetPaths = (catalog: ContentPackCatalog) =>
 export const retireUnreferencedLibraryAssets = async (
   libraryDirectory: string,
   catalog: ContentPackCatalog,
-  scheduleGarbageCollection: (
-    directory: string,
-  ) => void = scheduleSnapshotGarbageCollection,
+  scheduleGarbageCollection: (directory: string) => void = scheduleSnapshotGarbageCollection,
 ) => {
   const assetPoolDirectory = resolve(libraryDirectory, "assets");
   const garbageDirectory = resolve(libraryDirectory, "asset-garbage");
@@ -50,24 +46,16 @@ export const retireUnreferencedLibraryAssets = async (
   await mkdir(garbageDirectory, {recursive: true});
   const retiredPaths: string[] = [];
   // Returns true when the directory ended up empty and can be pruned.
-  const walk = async (
-    entries: Dirent[],
-    relativeDirectory: string,
-  ): Promise<boolean> => {
+  const walk = async (entries: Dirent[], relativeDirectory: string): Promise<boolean> => {
     const results = await Promise.allSettled(
       entries.map(async (entry): Promise<boolean> => {
-        const relativePath = relativeDirectory
-          ? `${relativeDirectory}/${entry.name}`
-          : entry.name;
+        const relativePath = relativeDirectory ? `${relativeDirectory}/${entry.name}` : entry.name;
         if (entry.isDirectory()) {
           let childEntries: Dirent[];
           try {
-            childEntries = await readdir(
-              resolve(assetPoolDirectory, relativePath),
-              {
-                withFileTypes: true,
-              },
-            );
+            childEntries = await readdir(resolve(assetPoolDirectory, relativePath), {
+              withFileTypes: true,
+            });
           } catch (error) {
             if (!isMissing(error)) throw error;
             return true;
@@ -93,9 +81,7 @@ export const retireUnreferencedLibraryAssets = async (
     for (const result of results) {
       if (result.status === "rejected") throw result.reason;
     }
-    return results.every(
-      (result) => result.status === "fulfilled" && result.value,
-    );
+    return results.every((result) => result.status === "fulfilled" && result.value);
   };
   try {
     await walk(poolEntries, "");

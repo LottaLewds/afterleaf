@@ -8,10 +8,7 @@ import type {MovablePropLifecycle} from "~/game/movablePropSystem";
 import type {PosterSystem} from "~/game/posters/PosterSystem";
 import type {ShopArcadeCabinet} from "~/game/ShopArcadeCabinet";
 import type {ShopSignSystem} from "~/game/signs/ShopSignSystem";
-import type {
-  ShopTelevision,
-  ShopTelevisionInteraction,
-} from "~/game/ShopTelevision";
+import type {ShopTelevision, ShopTelevisionInteraction} from "~/game/ShopTelevision";
 import type {MovablePropRecord} from "~/game/shopTypes";
 
 export type ShopInteractionCommandsHost = {
@@ -44,9 +41,7 @@ export type ShopInteractionCommands = {
 };
 
 /** Routes player interaction to the already-owned book, prop, and media systems. */
-export const createShopInteractionCommands = (
-  commandHost: ShopInteractionCommandsHost,
-): ShopInteractionCommands => {
+export const createShopInteractionCommands = (commandHost: ShopInteractionCommandsHost): ShopInteractionCommands => {
   const cycleCarriedBook = (direction: number) => {
     const host = commandHost;
     if (
@@ -66,11 +61,8 @@ export const createShopInteractionCommands = (
     }
     const carriedPublicationId = host.carriedPublicationIds()[0];
     host.setCarriedPublicationId(carriedPublicationId);
-    const record = carriedPublicationId
-      ? host.booksById().get(carriedPublicationId)
-      : undefined;
-    if (record && carriedPublicationId)
-      host.bookTextures().promoteBookCoverTexture(carriedPublicationId, record);
+    const record = carriedPublicationId ? host.booksById().get(carriedPublicationId) : undefined;
+    if (record && carriedPublicationId) host.bookTextures().promoteBookCoverTexture(carriedPublicationId, record);
     host.syncCarriedBookPresentation();
     host.updateHeldPhysicsTarget();
     host.scanner().update();
@@ -99,12 +91,9 @@ export const createShopInteractionCommands = (
     const host = commandHost;
     if (!host.carriedPublicationId()) return false;
     const hoveredPublicationId = host.hoveredPublicationId();
-    if (hoveredPublicationId)
-      host.bookActions().pickUpBook(hoveredPublicationId);
-    else if (host.scanner().trashTargeted)
-      void host.bookActions().discardCarriedBook();
-    else if (host.scanner().shelfTargeted)
-      host.bookActions().shelveCarriedBook();
+    if (hoveredPublicationId) host.bookActions().pickUpBook(hoveredPublicationId);
+    else if (host.scanner().trashTargeted) void host.bookActions().discardCarriedBook();
+    else if (host.scanner().shelfTargeted) host.bookActions().shelveCarriedBook();
     return true;
   };
 
@@ -112,9 +101,7 @@ export const createShopInteractionCommands = (
     const host = commandHost;
     if (!host.televisionTargeted()) return false;
     const targetedTelevision = host.targetedTelevision();
-    const televisionProp = targetedTelevision
-      ? host.props().televisionProps.get(targetedTelevision)
-      : undefined;
+    const televisionProp = targetedTelevision ? host.props().televisionProps.get(targetedTelevision) : undefined;
     if (host.televisionInteraction() === "body" && televisionProp) {
       if (allowNonBookPropPickup) host.props().pickUpProp(televisionProp);
       return true;
@@ -138,13 +125,8 @@ export const createShopInteractionCommands = (
     const record = host.artFrames().records.get(targetedArtFrameId);
     const imageId =
       record?.frame.currentImageId() ??
-      host
-        .artFrames()
-        .channels.find((channel) => channel.id === record?.frame.channelId())
-        ?.images[0]?.id;
-    const assetIndex = imageId
-      ? host.artFrames().assets.findIndex((asset) => asset.id === imageId)
-      : -1;
+      host.artFrames().channels.find((channel) => channel.id === record?.frame.channelId())?.images[0]?.id;
+    const assetIndex = imageId ? host.artFrames().assets.findIndex((asset) => asset.id === imageId) : -1;
     if (record && assetIndex >= 0)
       host
         .artFrames()
@@ -165,25 +147,15 @@ export const createShopInteractionCommands = (
     const targetedPosterId = host.posters().targetedId;
     if (!targetedPosterId) return false;
     const record = host.posters().records.get(targetedPosterId);
-    const assetIndex = record
-      ? host.posters().assets.findIndex((asset) => asset.id === record.asset.id)
-      : -1;
+    const assetIndex = record ? host.posters().assets.findIndex((asset) => asset.id === record.asset.id) : -1;
     if (record && assetIndex >= 0)
-      void host
-        .posters()
-        .startPosterPlacement(
-          assetIndex,
-          record.id,
-          record.height,
-          record.rotation,
-        );
+      void host.posters().startPosterPlacement(assetIndex, record.id, record.height, record.rotation);
     return true;
   };
 
   const interact = (allowNonBookPropPickup = true) => {
     const host = commandHost;
-    if (host.bookActions().discardBusy || host.bookActions().shelveAnimation)
-      return;
+    if (host.bookActions().discardBusy || host.bookActions().shelveAnimation) return;
     if (interactPlacement() || interactCarriedBook()) return;
     const targetedArcadeCabinet = host.targetedArcadeCabinet();
     if (targetedArcadeCabinet) {
@@ -199,8 +171,7 @@ export const createShopInteractionCommands = (
     if (interactDigitalArtFrame()) return;
     if (interactPoster()) return;
     const hoveredPublicationId = host.hoveredPublicationId();
-    if (hoveredPublicationId)
-      host.bookActions().pickUpBook(hoveredPublicationId);
+    if (hoveredPublicationId) host.bookActions().pickUpBook(hoveredPublicationId);
   };
 
   return {cycleCarriedBook, interact};

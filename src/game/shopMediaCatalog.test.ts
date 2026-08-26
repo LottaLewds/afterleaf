@@ -1,9 +1,6 @@
 import {describe, expect, test} from "bun:test";
 
-import {
-  parseShopMediaCatalog,
-  SHOP_MEDIA_CATALOG_ENDPOINT,
-} from "~/game/shopMediaCatalog";
+import {parseShopMediaCatalog, SHOP_MEDIA_CATALOG_ENDPOINT} from "~/game/shopMediaCatalog";
 
 describe("shop media catalog protocol", () => {
   test("parses the catalogs from one response", () => {

@@ -49,9 +49,7 @@ describe("TV channel catalog", () => {
 
   test("returns an empty manifest when the channel root is absent", async () => {
     const root = await createRoot();
-    expect(
-      await discoverTvChannels([resolve(root, "missing")], tvMediaUrl),
-    ).toEqual({channels: []});
+    expect(await discoverTvChannels([resolve(root, "missing")], tvMediaUrl)).toEqual({channels: []});
   });
 
   test("discovers videos added after the first scan", async () => {
@@ -59,18 +57,15 @@ describe("TV channel catalog", () => {
     await mkdir(resolve(root, "afterleaf"));
     await writeFile(resolve(root, "afterleaf", "first.webm"), "video");
 
-    expect(
-      (await discoverTvChannels([root], tvMediaUrl)).channels[0]?.videos.map(
-        (video) => video.id,
-      ),
-    ).toEqual(["first.webm"]);
+    expect((await discoverTvChannels([root], tvMediaUrl)).channels[0]?.videos.map((video) => video.id)).toEqual([
+      "first.webm",
+    ]);
 
     await writeFile(resolve(root, "afterleaf", "second.mp4"), "video");
-    expect(
-      (await discoverTvChannels([root], tvMediaUrl)).channels[0]?.videos.map(
-        (video) => video.id,
-      ),
-    ).toEqual(["first.webm", "second.mp4"]);
+    expect((await discoverTvChannels([root], tvMediaUrl)).channels[0]?.videos.map((video) => video.id)).toEqual([
+      "first.webm",
+      "second.mp4",
+    ]);
   });
 
   test("includes analyzed active-picture metadata", async () => {
@@ -79,19 +74,12 @@ describe("TV channel catalog", () => {
     await writeFile(resolve(root, "afterleaf", "sample.mp4"), "video");
     const analyzedPaths: string[] = [];
 
-    const manifest = await discoverTvChannels(
-      [root],
-      tvMediaUrl,
-      async (filePath, cacheKey) => {
-        analyzedPaths.push(filePath, cacheKey);
-        return {height: 1, width: 0.75, x: 0.125, y: 0};
-      },
-    );
+    const manifest = await discoverTvChannels([root], tvMediaUrl, async (filePath, cacheKey) => {
+      analyzedPaths.push(filePath, cacheKey);
+      return {height: 1, width: 0.75, x: 0.125, y: 0};
+    });
 
-    expect(analyzedPaths).toEqual([
-      resolve(root, "afterleaf", "sample.mp4"),
-      resolve(root, "afterleaf", "sample.mp4"),
-    ]);
+    expect(analyzedPaths).toEqual([resolve(root, "afterleaf", "sample.mp4"), resolve(root, "afterleaf", "sample.mp4")]);
     expect(manifest.channels[0]?.videos[0]?.activePicture).toEqual({
       height: 1,
       width: 0.75,
@@ -105,21 +93,12 @@ describe("TV channel catalog", () => {
     await mkdir(resolve(root, "afterleaf"));
     await writeFile(resolve(root, "afterleaf", "sample.mp4"), "video");
     if (process.platform !== "win32")
-      await symlink(
-        resolve(root, "afterleaf", "sample.mp4"),
-        resolve(root, "afterleaf", "linked.mp4"),
-      );
+      await symlink(resolve(root, "afterleaf", "sample.mp4"), resolve(root, "afterleaf", "linked.mp4"));
 
-    expect(
-      await resolveTvVideoPath([root], "afterleaf", "sample.mp4"),
-    ).toMatchObject({size: 5});
+    expect(await resolveTvVideoPath([root], "afterleaf", "sample.mp4")).toMatchObject({size: 5});
     if (process.platform !== "win32")
-      expect(await resolveTvVideoPath([root], "afterleaf", "linked.mp4")).toBe(
-        undefined,
-      );
-    expect(await resolveTvVideoPath([root], "..", "sample.mp4")).toBe(
-      undefined,
-    );
+      expect(await resolveTvVideoPath([root], "afterleaf", "linked.mp4")).toBe(undefined);
+    expect(await resolveTvVideoPath([root], "..", "sample.mp4")).toBe(undefined);
   });
 
   test("merges channels across optional roots and sees a later mount", async () => {
@@ -128,28 +107,16 @@ describe("TV channel catalog", () => {
     await mkdir(resolve(root, "default-channel"));
     await writeFile(resolve(root, "default-channel", "default.mp4"), "video");
 
-    expect(
-      (await discoverTvChannels([root, mountedRoot], tvMediaUrl)).channels.map(
-        (channel) => channel.id,
-      ),
-    ).toEqual(["default-channel"]);
+    expect((await discoverTvChannels([root, mountedRoot], tvMediaUrl)).channels.map((channel) => channel.id)).toEqual([
+      "default-channel",
+    ]);
 
     await mkdir(resolve(mountedRoot, "external-channel"), {recursive: true});
-    await writeFile(
-      resolve(mountedRoot, "external-channel", "external.webm"),
-      "video",
-    );
-    expect(
-      (await discoverTvChannels([root, mountedRoot], tvMediaUrl)).channels.map(
-        (channel) => channel.id,
-      ),
-    ).toEqual(["default-channel", "external-channel"]);
-    expect(
-      await resolveTvVideoPath(
-        [root, mountedRoot],
-        "external-channel",
-        "external.webm",
-      ),
-    ).toMatchObject({size: 5});
+    await writeFile(resolve(mountedRoot, "external-channel", "external.webm"), "video");
+    expect((await discoverTvChannels([root, mountedRoot], tvMediaUrl)).channels.map((channel) => channel.id)).toEqual([
+      "default-channel",
+      "external-channel",
+    ]);
+    expect(await resolveTvVideoPath([root, mountedRoot], "external-channel", "external.webm")).toMatchObject({size: 5});
   });
 });

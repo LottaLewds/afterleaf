@@ -66,8 +66,7 @@ test("clearing the hovered publication also clears shelf browsing", () => {
     trashTargeted: false,
   } as unknown as InteractionScanner;
   const host = {
-    bookLifecycle: () =>
-      ({applyBookStates: () => {}}) as unknown as ShopBookLifecycle,
+    bookLifecycle: () => ({applyBookStates: () => {}}) as unknown as ShopBookLifecycle,
     bookTextures: () => ({}) as BookTextureRuntime,
     booksById: () => new Map(),
     currentArcadeCabinet: () => undefined,

@@ -1,10 +1,5 @@
 import type {PlanarMovementInput} from "~/game/shopGameplay";
-import {
-  detectGamepadStyle,
-  gamepadButtonIndex,
-  type GamepadButtonName,
-  type GamepadStyle,
-} from "~/game/input/bindings";
+import {detectGamepadStyle, gamepadButtonIndex, type GamepadButtonName, type GamepadStyle} from "~/game/input/bindings";
 
 /**
  * Zero-allocation per-frame gamepad polling.
@@ -84,18 +79,14 @@ export class GamepadMonitor {
     if (axes.length >= 2) {
       const x = axes[STANDARD_AXES.leftX] ?? 0;
       const y = axes[STANDARD_AXES.leftY] ?? 0;
-      if (x > LEFT_STICK_DEADZONE || x < -LEFT_STICK_DEADZONE)
-        this.movement.right += x;
-      if (y > LEFT_STICK_DEADZONE || y < -LEFT_STICK_DEADZONE)
-        this.movement.forward -= y;
+      if (x > LEFT_STICK_DEADZONE || x < -LEFT_STICK_DEADZONE) this.movement.right += x;
+      if (y > LEFT_STICK_DEADZONE || y < -LEFT_STICK_DEADZONE) this.movement.forward -= y;
     }
     // D-pad contributes to look while R2 is held; otherwise it moves. A
     // diagonal D-pad press never turns and pitches simultaneously.
     if (this.pressed[GAMEPAD_BUTTON_INDEX_R2] === 0) {
-      this.movement.forward +=
-        Number(this.pressed[12] !== 0) - Number(this.pressed[13] !== 0);
-      this.movement.right +=
-        Number(this.pressed[15] !== 0) - Number(this.pressed[14] !== 0);
+      this.movement.forward += Number(this.pressed[12] !== 0) - Number(this.pressed[13] !== 0);
+      this.movement.right += Number(this.pressed[15] !== 0) - Number(this.pressed[14] !== 0);
     }
     if (this.movement.forward > 1) this.movement.forward = 1;
     else if (this.movement.forward < -1) this.movement.forward = -1;
@@ -105,10 +96,8 @@ export class GamepadMonitor {
 
   #readLook(axes: readonly number[]) {
     if (this.pressed[GAMEPAD_BUTTON_INDEX_R2] !== 0) {
-      const vertical =
-        Number(this.pressed[13] !== 0) - Number(this.pressed[12] !== 0);
-      const horizontal =
-        Number(this.pressed[15] !== 0) - Number(this.pressed[14] !== 0);
+      const vertical = Number(this.pressed[13] !== 0) - Number(this.pressed[12] !== 0);
+      const horizontal = Number(this.pressed[15] !== 0) - Number(this.pressed[14] !== 0);
       if (vertical !== 0 && horizontal !== 0) return;
       this.look.pitch += vertical;
       this.look.yaw += horizontal;
@@ -116,10 +105,8 @@ export class GamepadMonitor {
     if (axes.length >= 4) {
       const x = axes[STANDARD_AXES.rightX] ?? 0;
       const y = axes[STANDARD_AXES.rightY] ?? 0;
-      if (x > RIGHT_STICK_DEADZONE || x < -RIGHT_STICK_DEADZONE)
-        this.look.yaw += x;
-      if (y > RIGHT_STICK_DEADZONE || y < -RIGHT_STICK_DEADZONE)
-        this.look.pitch += y;
+      if (x > RIGHT_STICK_DEADZONE || x < -RIGHT_STICK_DEADZONE) this.look.yaw += x;
+      if (y > RIGHT_STICK_DEADZONE || y < -RIGHT_STICK_DEADZONE) this.look.pitch += y;
     }
   }
 
@@ -150,8 +137,7 @@ const findGamepad = (): Gamepad | undefined => {
   if (!gamepads) return undefined;
   for (let index = 0; index < gamepads.length; index++) {
     const gamepad = gamepads[index];
-    if (gamepad !== null && gamepad !== undefined && gamepad.connected)
-      return gamepad;
+    if (gamepad !== null && gamepad !== undefined && gamepad.connected) return gamepad;
   }
   return undefined;
 };

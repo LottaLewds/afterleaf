@@ -61,17 +61,11 @@ describe("paper sheet simulation", () => {
 
     const spineCenterOffset = COLUMNS * 3;
     const edgeCenterOffset = (COLUMNS + COLUMNS - 1) * 3;
-    expect(output[spineCenterOffset]).toBeCloseTo(
-      target[spineCenterOffset] ?? 0,
-    );
+    expect(output[spineCenterOffset]).toBeCloseTo(target[spineCenterOffset] ?? 0);
     expect(output[spineCenterOffset + 2]).toBeCloseTo(0);
-    expect(output[edgeCenterOffset + 2] ?? 0).toBeLessThan(
-      target[edgeCenterOffset + 2] ?? 0,
-    );
+    expect(output[edgeCenterOffset + 2] ?? 0).toBeLessThan(target[edgeCenterOffset + 2] ?? 0);
     expect(output[edgeCenterOffset + 2] ?? 0).toBeGreaterThan(0);
-    expect(
-      (target[edgeCenterOffset + 2] ?? 0) - (output[edgeCenterOffset + 2] ?? 0),
-    ).toBeLessThan(WIDTH * 0.025);
+    expect((target[edgeCenterOffset + 2] ?? 0) - (output[edgeCenterOffset + 2] ?? 0)).toBeLessThan(WIDTH * 0.025);
   });
 
   test("pins the grabbed point to the animated hand target", () => {
@@ -91,12 +85,8 @@ describe("paper sheet simulation", () => {
 
     const grabbedOffset = (COLUMNS + COLUMNS - 1) * 3;
     expect(output[grabbedOffset]).toBeCloseTo(lifted[grabbedOffset] ?? 0);
-    expect(output[grabbedOffset + 1]).toBeCloseTo(
-      lifted[grabbedOffset + 1] ?? 0,
-    );
-    expect(output[grabbedOffset + 2]).toBeCloseTo(
-      lifted[grabbedOffset + 2] ?? 0,
-    );
+    expect(output[grabbedOffset + 1]).toBeCloseTo(lifted[grabbedOffset + 1] ?? 0);
+    expect(output[grabbedOffset + 2]).toBeCloseTo(lifted[grabbedOffset + 2] ?? 0);
   });
 
   test("pulls the free edge as a coherent sheet instead of leaving loose corners", () => {
@@ -120,11 +110,7 @@ describe("paper sheet simulation", () => {
     const topEdgeOffset = (COLUMNS * ROWS - 1) * 3;
     expect(output[bottomEdgeOffset + 2] ?? 0).toBeGreaterThan(WIDTH * 0.85);
     expect(output[topEdgeOffset + 2] ?? 0).toBeGreaterThan(WIDTH * 0.85);
-    expect(
-      Math.abs(
-        (output[topEdgeOffset + 2] ?? 0) - (output[bottomEdgeOffset + 2] ?? 0),
-      ),
-    ).toBeLessThan(WIDTH * 0.02);
+    expect(Math.abs((output[topEdgeOffset + 2] ?? 0) - (output[bottomEdgeOffset + 2] ?? 0))).toBeLessThan(WIDTH * 0.02);
   });
 
   test("settles on the destination side after crossing the vertical", () => {

@@ -9,11 +9,7 @@ import {
   SRGBColorSpace,
 } from "three";
 import {disposeObject} from "~/game/threeDisposal";
-import {
-  FACE_DISPLAY_COLUMN_SPACING,
-  FACE_DISPLAY_COLUMNS,
-  RARE_ROOM_DOOR_CENTER_X,
-} from "~/game/shopLayout";
+import {FACE_DISPLAY_COLUMN_SPACING, FACE_DISPLAY_COLUMNS, RARE_ROOM_DOOR_CENTER_X} from "~/game/shopLayout";
 
 export type ShopSignKind = "aisle" | "shelf";
 
@@ -66,10 +62,7 @@ export const createSignVisual = (
   const context = canvas.getContext("2d");
   if (!context) {
     const geometry = new PlaneGeometry(width, height);
-    const front = new Mesh(
-      geometry,
-      new MeshBasicMaterial({color: backgroundColor, side: FrontSide}),
-    );
+    const front = new Mesh(geometry, new MeshBasicMaterial({color: backgroundColor, side: FrontSide}));
     const back = new Mesh(geometry, front.material.clone());
     back.rotation.y = Math.PI;
     sign.add(front, back);
@@ -82,12 +75,7 @@ export const createSignVisual = (
   context.globalAlpha = 0.28;
   context.lineWidth = 5;
   const inset = Math.max(12, Math.round(canvas.height * 0.065));
-  context.strokeRect(
-    inset,
-    inset,
-    canvas.width - inset * 2,
-    canvas.height - inset * 2,
-  );
+  context.strokeRect(inset, inset, canvas.width - inset * 2, canvas.height - inset * 2);
   context.globalAlpha = 1;
   context.fillStyle = textColor;
   context.font = `700 ${Math.round(canvas.height * 0.28)}px "Yu Gothic", "Hiragino Kaku Gothic ProN", sans-serif`;
@@ -183,13 +171,7 @@ export class ShopSignSystem {
     const targetGeometry = new PlaneGeometry(1.02, 0.52);
     for (let column = 0; column < FACE_DISPLAY_COLUMNS; column += 1) {
       const group = new Group();
-      group.position.set(
-        -2 +
-          (column - (FACE_DISPLAY_COLUMNS - 1) / 2) *
-            FACE_DISPLAY_COLUMN_SPACING,
-        4.18,
-        -9.82,
-      );
+      group.position.set(-2 + (column - (FACE_DISPLAY_COLUMNS - 1) / 2) * FACE_DISPLAY_COLUMN_SPACING, 4.18, -9.82);
       const target = new Mesh(
         targetGeometry,
         new MeshBasicMaterial({
@@ -237,9 +219,7 @@ export class ShopSignSystem {
     rotationY: number,
     elevation = 0,
   ) {
-    const column = [...this.#slots.values()].filter(
-      (slot) => slot.kind === "shelf",
-    ).length;
+    const column = [...this.#slots.values()].filter((slot) => slot.kind === "shelf").length;
     const group = new Group();
     group.position.set(x, elevation + 4.2, z);
     group.rotation.y = rotationY;
@@ -280,13 +260,7 @@ export class ShopSignSystem {
     return key;
   }
 
-  createAisleSignSlot(
-    parent: Group,
-    id: string,
-    x: number,
-    title: string,
-    subtitle: string,
-  ) {
+  createAisleSignSlot(parent: Group, id: string, x: number, title: string, subtitle: string) {
     const key = shopSignKey("aisle", id);
     const group = new Group();
     group.position.set(x, 4.35, 0.7);

@@ -8,9 +8,7 @@ import {
 } from "~/game/input/bindings";
 
 /** A rendered piece of an interaction prompt row. */
-export type InteractionPromptToken =
-  | {type: "button"; icon: string; alt: string}
-  | {type: "text"; text: string};
+export type InteractionPromptToken = {type: "button"; icon: string; alt: string} | {type: "text"; text: string};
 
 /**
  * Resolves the pad prompts for one interaction row.
@@ -48,8 +46,7 @@ export const buildInteractionPrompts = (
         continue;
       }
     }
-    for (const word of alternative.split(" "))
-      tokens.push({type: "text", text: word});
+    for (const word of alternative.split(" ")) tokens.push({type: "text", text: word});
   }
   if (!sawButton) return undefined;
   return collapseDuplicates(tokens);
@@ -75,10 +72,7 @@ export const formatInteractionRowKey = (
   for (const action of actions) {
     if (!action) return undefined;
     // Repeated actions ("Click / E" -> interact twice) collapse to one.
-    if (action !== previous)
-      alternatives.push(
-        keyboardBindingLabel(config, action, resolveKeyboardLabel),
-      );
+    if (action !== previous) alternatives.push(keyboardBindingLabel(config, action, resolveKeyboardLabel));
     previous = action;
   }
   return alternatives.length > 0 ? alternatives.join(" / ") : undefined;
@@ -89,27 +83,16 @@ const keyboardBindingLabel = (
   action: ShortcutAction,
   resolveKeyboardLabel: KeyboardLabelResolver,
 ): string => {
-  const binding = config[action]?.find(
-    (candidate) => candidate.device === "keyboard",
-  );
-  return binding?.device === "keyboard"
-    ? resolveKeyboardLabel(binding.code)
-    : "?";
+  const binding = config[action]?.find((candidate) => candidate.device === "keyboard");
+  return binding?.device === "keyboard" ? resolveKeyboardLabel(binding.code) : "?";
 };
 
-const padBindingFor = (
-  config: ShortcutsConfig,
-  action: ShortcutAction,
-): GamepadButtonName | undefined => {
-  const binding = config[action]?.find(
-    (candidate) => candidate.device === "gamepad",
-  );
+const padBindingFor = (config: ShortcutsConfig, action: ShortcutAction): GamepadButtonName | undefined => {
+  const binding = config[action]?.find((candidate) => candidate.device === "gamepad");
   return binding?.device === "gamepad" ? binding.code : undefined;
 };
 
-const collapseDuplicates = (
-  tokens: readonly InteractionPromptToken[],
-): InteractionPromptToken[] => {
+const collapseDuplicates = (tokens: readonly InteractionPromptToken[]): InteractionPromptToken[] => {
   const result: InteractionPromptToken[] = [];
   for (const token of tokens) {
     const previous = result.at(-1);

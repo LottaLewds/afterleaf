@@ -37,11 +37,7 @@ export const getTvContentScale = (
     return {x: 1, y: 1};
 
   const mediaAspect = mediaWidth / mediaHeight;
-  if (
-    Math.abs(mediaAspect - screenAspect) / screenAspect <=
-    ASPECT_MATCH_TOLERANCE
-  )
-    return {x: 1, y: 1};
+  if (Math.abs(mediaAspect - screenAspect) / screenAspect <= ASPECT_MATCH_TOLERANCE) return {x: 1, y: 1};
   if (mediaAspect > screenAspect) return {x: 1, y: screenAspect / mediaAspect};
   return {x: mediaAspect / screenAspect, y: 1};
 };
@@ -64,9 +60,7 @@ export const getTvContentMapping = (
   screenAspect = TV_SCREEN_ASPECT,
   safeArea: TvScreenSafeArea = FULL_TV_SCREEN_SAFE_AREA,
 ): TvContentMapping => {
-  const resolvedSafeArea = isValidSafeArea(safeArea)
-    ? safeArea
-    : FULL_TV_SCREEN_SAFE_AREA;
+  const resolvedSafeArea = isValidSafeArea(safeArea) ? safeArea : FULL_TV_SCREEN_SAFE_AREA;
   const safeWidth = 1 - resolvedSafeArea.left - resolvedSafeArea.right;
   const safeHeight = 1 - resolvedSafeArea.bottom - resolvedSafeArea.top;
   const safeAspect = screenAspect * (safeWidth / safeHeight);

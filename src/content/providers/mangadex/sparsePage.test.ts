@@ -8,9 +8,7 @@ import {createMangaDexSparsePageMaterializer} from "~/content/providers/mangadex
 import {MANGADEX_SPARSE_METADATA_FILE} from "~/content/providers/mangadex/sparseMetadata";
 
 test("MangaDex sparse pages reuse persisted at-home metadata", async () => {
-  const sourceDirectory = await mkdtemp(
-    resolve(tmpdir(), "afterleaf-mangadex-sparse-"),
-  );
+  const sourceDirectory = await mkdtemp(resolve(tmpdir(), "afterleaf-mangadex-sparse-"));
   const metadataHash = "c".repeat(64);
   const publication = {
     pageCount: 2,
@@ -38,8 +36,7 @@ test("MangaDex sparse pages reuse persisted at-home metadata", async () => {
   );
   let serverRequestCount = 0;
   const materialize = createMangaDexSparsePageMaterializer({
-    downloadPage: async (_server, filename) =>
-      Buffer.from(filename === "page-2.webp" ? [2] : [1]),
+    downloadPage: async (_server, filename) => Buffer.from(filename === "page-2.webp" ? [2] : [1]),
     getAtHomeServer: async () => {
       serverRequestCount += 1;
       throw new Error("At-home server should not be requested");

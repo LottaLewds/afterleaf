@@ -1,10 +1,6 @@
 import {readFile} from "node:fs/promises";
 import {resolve} from "node:path";
-import {
-  normalizeTags,
-  parseSupportedLanguage,
-  type SupportedLanguage,
-} from "@afterleaf/provider-sdk";
+import {normalizeTags, parseSupportedLanguage, type SupportedLanguage} from "@afterleaf/provider-sdk";
 import {NhentaiClient} from "./client";
 import {syncNhentaiCatalog, type NhentaiSyncOptions} from "./sync";
 
@@ -40,39 +36,27 @@ const parseArguments = (arguments_: readonly string[]): ParsedArguments => {
   const values = new Map<string, string>();
   for (let index = 0; index < arguments_.length; index += 1) {
     const argument = arguments_[index];
-    if (!argument?.startsWith("--"))
-      throw new Error(`Unexpected positional argument: ${argument ?? ""}`);
+    if (!argument?.startsWith("--")) throw new Error(`Unexpected positional argument: ${argument ?? ""}`);
     const equalsIndex = argument.indexOf("=");
-    const name = argument.slice(
-      2,
-      equalsIndex === -1 ? undefined : equalsIndex,
-    );
-    const inlineValue =
-      equalsIndex === -1 ? undefined : argument.slice(equalsIndex + 1);
+    const name = argument.slice(2, equalsIndex === -1 ? undefined : equalsIndex);
+    const inlineValue = equalsIndex === -1 ? undefined : argument.slice(equalsIndex + 1);
     if (FLAG_OPTIONS.has(name)) {
-      if (inlineValue !== undefined)
-        throw new Error(`--${name} does not accept a value`);
+      if (inlineValue !== undefined) throw new Error(`--${name} does not accept a value`);
       flags.add(name);
       continue;
     }
     if (!VALUE_OPTIONS.has(name)) throw new Error(`Unknown option: --${name}`);
     const value = inlineValue ?? arguments_[index + 1];
-    if (value === undefined || value.startsWith("--"))
-      throw new Error(`--${name} requires a value`);
+    if (value === undefined || value.startsWith("--")) throw new Error(`--${name} requires a value`);
     if (inlineValue === undefined) index += 1;
     values.set(name, value);
   }
   return {flags, values};
 };
 
-const parsePositiveInteger = (
-  value: string | undefined,
-  fallback: number,
-  option: string,
-) => {
+const parsePositiveInteger = (value: string | undefined, fallback: number, option: string) => {
   const parsed = Number(value ?? fallback);
-  if (!Number.isSafeInteger(parsed) || parsed <= 0)
-    throw new Error(`--${option} must be a positive integer`);
+  if (!Number.isSafeInteger(parsed) || parsed <= 0) throw new Error(`--${option} must be a positive integer`);
   return parsed;
 };
 
@@ -86,9 +70,7 @@ const parseBlockedTags = (values: ReadonlyMap<string, string>) => {
   const commaSeparated = values.get("blocked-tags");
   const json = values.get("blocked-tags-json");
   if (commaSeparated !== undefined && json !== undefined)
-    throw new Error(
-      "Pass either --blocked-tags or --blocked-tags-json, not both",
-    );
+    throw new Error("Pass either --blocked-tags or --blocked-tags-json, not both");
   if (json === undefined) return parseCommaSeparated(commaSeparated);
   let parsed: unknown;
   try {
@@ -102,16 +84,11 @@ const parseBlockedTags = (values: ReadonlyMap<string, string>) => {
 };
 
 const parseLanguages = (value: string | undefined): SupportedLanguage[] => {
-  const languages = parseCommaSeparated(value ?? "english,japanese").map(
-    (language) => {
-      const supported = parseSupportedLanguage(language);
-      if (!supported)
-        throw new Error(
-          `Unsupported language ${JSON.stringify(language)}; expected english or japanese`,
-        );
-      return supported;
-    },
-  );
+  const languages = parseCommaSeparated(value ?? "english,japanese").map((language) => {
+    const supported = parseSupportedLanguage(language);
+    if (!supported) throw new Error(`Unsupported language ${JSON.stringify(language)}; expected english or japanese`);
+    return supported;
+  });
   return [...new Set(languages)];
 };
 
@@ -124,9 +101,7 @@ export const parseNhentaiSyncCliOptions = (
   const flaresolverrUrl = parsed.values.get("flaresolverr-url");
   const userAgent = parsed.values.get("user-agent");
   return {
-    ...(cookieFile === undefined
-      ? {}
-      : {cookieFile: resolve(workingDirectory, cookieFile)}),
+    ...(cookieFile === undefined ? {} : {cookieFile: resolve(workingDirectory, cookieFile)}),
     ...(flaresolverrUrl === undefined ? {} : {flaresolverrUrl}),
     help: parsed.flags.has("help"),
     ...(userAgent === undefined ? {} : {userAgent}),
@@ -134,11 +109,7 @@ export const parseNhentaiSyncCliOptions = (
       blockedTags: normalizeTags(parseBlockedTags(parsed.values)),
       languages: parseLanguages(parsed.values.get("languages")),
       limit: parsePositiveInteger(parsed.values.get("limit"), 20, "limit"),
-      maxSearchPages: parsePositiveInteger(
-        parsed.values.get("max-search-pages"),
-        10,
-        "max-search-pages",
-      ),
+      maxSearchPages: parsePositiveInteger(parsed.values.get("max-search-pages"), 10, "max-search-pages"),
       outputDirectory:
         parsed.values.get("out") === undefined
           ? resolve(providersDirectory(workingDirectory), "nhentai")
@@ -173,24 +144,15 @@ using --write.
 `;
 
 import {providersDirectory} from "~/content/dataRoot";
-export const runNhentaiSyncCli = async (
-  arguments_: readonly string[],
-  workingDirectory = process.cwd(),
-) => {
+export const runNhentaiSyncCli = async (arguments_: readonly string[], workingDirectory = process.cwd()) => {
   const options = parseNhentaiSyncCliOptions(arguments_, workingDirectory);
   if (options.help) return undefined;
-  const cookie = options.cookieFile
-    ? (await readFile(options.cookieFile, "utf8")).trim()
-    : undefined;
+  const cookie = options.cookieFile ? (await readFile(options.cookieFile, "utf8")).trim() : undefined;
   return syncNhentaiCatalog(options.syncOptions, {
     client: new NhentaiClient({
       ...(!cookie ? {} : {cookie}),
-      ...(options.flaresolverrUrl === undefined
-        ? {}
-        : {flaresolverrUrl: options.flaresolverrUrl}),
-      ...(options.userAgent === undefined
-        ? {}
-        : {userAgent: options.userAgent}),
+      ...(options.flaresolverrUrl === undefined ? {} : {flaresolverrUrl: options.flaresolverrUrl}),
+      ...(options.userAgent === undefined ? {} : {userAgent: options.userAgent}),
     }),
   });
 };

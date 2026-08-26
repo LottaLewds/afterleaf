@@ -1,7 +1,4 @@
-import {
-  NHENTAI_SYNC_HELP,
-  runNhentaiSyncCli,
-} from "~/content/providers/nhentai/cli";
+import {NHENTAI_SYNC_HELP, runNhentaiSyncCli} from "~/content/providers/nhentai/cli";
 
 try {
   const result = await runNhentaiSyncCli(process.argv.slice(2));

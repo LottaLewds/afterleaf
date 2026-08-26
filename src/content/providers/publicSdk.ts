@@ -1,13 +1,5 @@
-export {
-  normalizeTag,
-  normalizeTags,
-  parseSupportedLanguage,
-} from "../normalize";
-export {
-  CONTENT_SCHEMA_VERSION,
-  PUBLICATION_KINDS,
-  SUPPORTED_LANGUAGES,
-} from "../schema";
+export {normalizeTag, normalizeTags, parseSupportedLanguage} from "../normalize";
+export {CONTENT_SCHEMA_VERSION, PUBLICATION_KINDS, SUPPORTED_LANGUAGES} from "../schema";
 export type {
   LocalPublicationDocument,
   PackedPublication,
@@ -18,10 +10,7 @@ export type {
   PublicationProvenance,
   SupportedLanguage,
 } from "../schema";
-export {
-  inferPreparedPublicationIdentity,
-  type PreparedPublicationIdentity,
-} from "../prepare";
+export {inferPreparedPublicationIdentity, type PreparedPublicationIdentity} from "../prepare";
 export {parseLocalPublicationDocument} from "../validation";
 export {
   createConcurrentAcquisitionPipeline,

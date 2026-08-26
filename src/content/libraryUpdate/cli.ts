@@ -1,9 +1,5 @@
 import {isAbsolute, relative, resolve} from "node:path";
-import {
-  libraryPackDirectory,
-  preparedCatalogDirectory,
-  providersDirectory,
-} from "~/content/dataRoot";
+import {libraryPackDirectory, preparedCatalogDirectory, providersDirectory} from "~/content/dataRoot";
 import {importLocalMedia} from "~/content/libraryMedia";
 import type {LibraryUpdateState} from "~/content/libraryUpdate/protocol";
 import {PublicationBlacklistStore} from "~/content/libraryUpdate/publicationBlacklist";
@@ -33,10 +29,7 @@ export interface LibraryUpdateCliOptions {
   };
 }
 
-const extractLibraryDirectories = (
-  arguments_: readonly string[],
-  workingDirectory: string,
-) => {
+const extractLibraryDirectories = (arguments_: readonly string[], workingDirectory: string) => {
   const remainingArguments: string[] = [];
   let catalogDirectory = providersDirectory(workingDirectory);
   let libraryDirectory = libraryPackDirectory(workingDirectory);
@@ -59,24 +52,21 @@ const extractLibraryDirectories = (
     }
     if (argument === "--catalog-root") {
       const value = arguments_[index + 1];
-      if (!value || value.startsWith("--"))
-        throw new Error("--catalog-root requires a value");
+      if (!value || value.startsWith("--")) throw new Error("--catalog-root requires a value");
       catalogDirectory = value;
       index += 1;
       continue;
     }
     if (argument === "--library") {
       const value = arguments_[index + 1];
-      if (!value || value.startsWith("--"))
-        throw new Error("--library requires a value");
+      if (!value || value.startsWith("--")) throw new Error("--library requires a value");
       libraryDirectory = value;
       index += 1;
       continue;
     }
     if (argument === "--media-path") {
       const value = arguments_[index + 1];
-      if (!value || value.startsWith("--"))
-        throw new Error("--media-path requires a value");
+      if (!value || value.startsWith("--")) throw new Error("--media-path requires a value");
       mediaPaths.push(value);
       index += 1;
       continue;
@@ -102,16 +92,14 @@ const parseProviderId = (arguments_: readonly string[]) => {
     }
     if (argument === "--provider") {
       const value = arguments_[index + 1];
-      if (!value || value.startsWith("--"))
-        throw new Error("--provider requires a value");
+      if (!value || value.startsWith("--")) throw new Error("--provider requires a value");
       providerId = value;
       index += 1;
       continue;
     }
     remainingArguments.push(argument ?? "");
   }
-  if (!/^[a-z][a-z0-9-]{0,63}$/u.test(providerId))
-    throw new Error("--provider must be a portable provider identifier");
+  if (!/^[a-z][a-z0-9-]{0,63}$/u.test(providerId)) throw new Error("--provider must be a portable provider identifier");
   return {providerId, remainingArguments};
 };
 
@@ -140,58 +128,39 @@ const parseGenericProviderSyncOptions = (
   const flags = new Set<string>();
   for (let index = 0; index < arguments_.length; index += 1) {
     const argument = arguments_[index];
-    if (!argument?.startsWith("--"))
-      throw new Error(`Unexpected positional argument: ${argument ?? ""}`);
+    if (!argument?.startsWith("--")) throw new Error(`Unexpected positional argument: ${argument ?? ""}`);
     const equalsIndex = argument.indexOf("=");
-    const name = argument.slice(
-      2,
-      equalsIndex === -1 ? undefined : equalsIndex,
-    );
-    const inlineValue =
-      equalsIndex === -1 ? undefined : argument.slice(equalsIndex + 1);
+    const name = argument.slice(2, equalsIndex === -1 ? undefined : equalsIndex);
+    const inlineValue = equalsIndex === -1 ? undefined : argument.slice(equalsIndex + 1);
     if (genericProviderFlags.has(name)) {
-      if (inlineValue !== undefined)
-        throw new Error(`--${name} does not accept a value`);
+      if (inlineValue !== undefined) throw new Error(`--${name} does not accept a value`);
       flags.add(name);
       continue;
     }
-    if (!genericProviderOptions.has(name))
-      throw new Error(`Unknown option for ${providerId}: --${name}`);
+    if (!genericProviderOptions.has(name)) throw new Error(`Unknown option for ${providerId}: --${name}`);
     const value = inlineValue ?? arguments_[index + 1];
-    if (value === undefined || value.startsWith("--"))
-      throw new Error(`--${name} requires a value`);
+    if (value === undefined || value.startsWith("--")) throw new Error(`--${name} requires a value`);
     if (inlineValue === undefined) index += 1;
     values.set(name, value);
   }
   const parsePositiveInteger = (name: string, fallback: number) => {
     const value = Number(values.get(name) ?? fallback);
-    if (!Number.isSafeInteger(value) || value <= 0)
-      throw new Error(`--${name} must be a positive integer`);
+    if (!Number.isSafeInteger(value) || value <= 0) throw new Error(`--${name} must be a positive integer`);
     return value;
   };
-  const languages = (
-    values.get("languages") ?? descriptor.defaultLanguages.join(",")
-  )
+  const languages = (values.get("languages") ?? descriptor.defaultLanguages.join(","))
     .split(",")
     .map((language) => parseSupportedLanguage(language.trim()))
-    .filter(
-      (language): language is SupportedLanguage => language !== undefined,
-    );
-  if (languages.length === 0)
-    throw new Error("--languages must include english or japanese");
+    .filter((language): language is SupportedLanguage => language !== undefined);
+  if (languages.length === 0) throw new Error("--languages must include english or japanese");
   const blockedTagsValue = values.get("blocked-tags");
   const blockedTagsJson = values.get("blocked-tags-json");
   if (blockedTagsValue !== undefined && blockedTagsJson !== undefined)
-    throw new Error(
-      "Pass either --blocked-tags or --blocked-tags-json, not both",
-    );
+    throw new Error("Pass either --blocked-tags or --blocked-tags-json, not both");
   let blockedTags: string[] = blockedTagsValue?.split(",") ?? [];
   if (blockedTagsJson !== undefined) {
     const parsed = JSON.parse(blockedTagsJson) as unknown;
-    if (
-      !Array.isArray(parsed) ||
-      !parsed.every((tag) => typeof tag === "string")
-    )
+    if (!Array.isArray(parsed) || !parsed.every((tag) => typeof tag === "string"))
       throw new Error("--blocked-tags-json must be an array of strings");
     blockedTags = parsed;
   }
@@ -204,9 +173,7 @@ const parseGenericProviderSyncOptions = (
     help: flags.has("help"),
     sync: {
       blockedTags: normalizeTags(
-        blockedTagsValue === undefined && blockedTagsJson === undefined
-          ? descriptor.defaultBlockedTags
-          : blockedTags,
+        blockedTagsValue === undefined && blockedTagsJson === undefined ? descriptor.defaultBlockedTags : blockedTags,
       ),
       languages: [...new Set(languages)],
       limit: parsePositiveInteger("limit", 20),
@@ -224,10 +191,11 @@ export const parseLibraryUpdateCliOptions = (
   arguments_: readonly string[],
   workingDirectory = process.cwd(),
 ): LibraryUpdateCliOptions => {
-  const {catalogDirectory, libraryDirectory, mediaPaths, remainingArguments} =
-    extractLibraryDirectories(arguments_, workingDirectory);
-  const {providerId, remainingArguments: providerArguments} =
-    parseProviderId(remainingArguments);
+  const {catalogDirectory, libraryDirectory, mediaPaths, remainingArguments} = extractLibraryDirectories(
+    arguments_,
+    workingDirectory,
+  );
+  const {providerId, remainingArguments: providerArguments} = parseProviderId(remainingArguments);
   const parsed = parseGenericProviderSyncOptions(providerArguments, providerId);
   return {
     catalogDirectory,
@@ -244,10 +212,7 @@ const pathIsWithin = (parent: string, candidate: string) => {
   return path === "" || (!path.startsWith("..") && !isAbsolute(path));
 };
 
-const importPendingLocalMedia = async (
-  options: LibraryUpdateCliOptions,
-  workingDirectory: string,
-) => {
+const importPendingLocalMedia = async (options: LibraryUpdateCliOptions, workingDirectory: string) => {
   const result = await importLocalMedia(
     workingDirectory,
     preparedCatalogDirectory(workingDirectory),
@@ -303,10 +268,7 @@ export const runLibraryScanCli = async (
 ) => {
   const options = parseLibraryUpdateCliOptions(arguments_, workingDirectory);
   if (options.help) return undefined;
-  if (!options.sync.write)
-    throw new Error(
-      "Library scans write a new snapshot; pass --write to continue",
-    );
+  if (!options.sync.write) throw new Error("Library scans write a new snapshot; pass --write to continue");
   const localMedia = await importPendingLocalMedia(options, workingDirectory);
   const service = createLibraryUpdateService({
     additionalCatalogDirectories: localMedia.additionalCatalogDirectories,
@@ -318,13 +280,9 @@ export const runLibraryScanCli = async (
   try {
     return await service.scan({
       languages: options.sync.languages,
-      ...(options.sync.redownloadProviderAssets
-        ? {redownloadProviderAssets: true}
-        : {}),
+      ...(options.sync.redownloadProviderAssets ? {redownloadProviderAssets: true} : {}),
       ...(options.sync.repair ? {repair: true} : {}),
-      ...(options.sync.repairProviderMetadata
-        ? {repairProviderMetadata: true}
-        : {}),
+      ...(options.sync.repairProviderMetadata ? {repairProviderMetadata: true} : {}),
     });
   } finally {
     unsubscribe?.();
@@ -339,9 +297,7 @@ export const runLibraryFetchMoreCli = async (
   const options = parseLibraryUpdateCliOptions(arguments_, workingDirectory);
   if (options.help) return undefined;
   if (!options.sync.write)
-    throw new Error(
-      "Fetching more content writes source files and a snapshot; pass --write to continue",
-    );
+    throw new Error("Fetching more content writes source files and a snapshot; pass --write to continue");
   const localMedia = await importPendingLocalMedia(options, workingDirectory);
   const service = createLibraryUpdateService({
     additionalCatalogDirectories: localMedia.additionalCatalogDirectories,
@@ -368,41 +324,23 @@ export const runLibraryFetchMoreCli = async (
   }
 };
 
-export const runLibraryBlacklistCli = async (
-  arguments_: readonly string[],
-  workingDirectory = process.cwd(),
-) => {
-  const {libraryDirectory, remainingArguments} = extractLibraryDirectories(
-    arguments_,
-    workingDirectory,
-  );
+export const runLibraryBlacklistCli = async (arguments_: readonly string[], workingDirectory = process.cwd()) => {
+  const {libraryDirectory, remainingArguments} = extractLibraryDirectories(arguments_, workingDirectory);
   const store = new PublicationBlacklistStore(libraryDirectory);
-  const discardManagedSources = remainingArguments.includes(
-    "--discard-managed-sources",
-  );
-  const commandArguments = remainingArguments.filter(
-    (argument) => argument !== "--discard-managed-sources",
-  );
-  if (commandArguments.length === 1 && commandArguments[0] === "--list")
-    return {publicationIds: await store.list()};
+  const discardManagedSources = remainingArguments.includes("--discard-managed-sources");
+  const commandArguments = remainingArguments.filter((argument) => argument !== "--discard-managed-sources");
+  if (commandArguments.length === 1 && commandArguments[0] === "--list") return {publicationIds: await store.list()};
 
   let publicationId: string | undefined;
   if (commandArguments[0]?.startsWith("--publication-id="))
     publicationId = commandArguments[0].slice("--publication-id=".length);
-  else if (commandArguments[0] === "--publication-id")
-    publicationId = commandArguments[1];
+  else if (commandArguments[0] === "--publication-id") publicationId = commandArguments[1];
   else if (commandArguments.length === 1) publicationId = commandArguments[0];
-  const expectedArgumentCount =
-    commandArguments[0] === "--publication-id" ? 2 : 1;
+  const expectedArgumentCount = commandArguments[0] === "--publication-id" ? 2 : 1;
   if (!publicationId || commandArguments.length !== expectedArgumentCount)
-    throw new Error(
-      "Usage: bun run library:blacklist [--library <directory>] (--list | --publication-id <id>)",
-    );
+    throw new Error("Usage: bun run library:blacklist [--library <directory>] (--list | --publication-id <id>)");
   const result = await store.add(publicationId);
   if (!discardManagedSources) return result;
-  const discarded = await discardManagedPublicationSources(
-    workingDirectory,
-    publicationId,
-  );
+  const discarded = await discardManagedPublicationSources(workingDirectory, publicationId);
   return {...result, managedSourceCount: discarded.managedSourceCount};
 };

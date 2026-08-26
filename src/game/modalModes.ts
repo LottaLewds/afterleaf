@@ -21,9 +21,7 @@ class ModalModeStack {
   readonly #scopes: ModalModeScope[] = [];
 
   push(scope: ModalModeScope) {
-    const existingIndex = this.#scopes.findIndex(
-      (entry) => entry.id === scope.id,
-    );
+    const existingIndex = this.#scopes.findIndex((entry) => entry.id === scope.id);
     // Re-pushing an id moves the scope to the top instead of stacking
     // duplicates, so pop(id) always pairs with one push.
     if (existingIndex >= 0) this.#scopes.splice(existingIndex, 1);
@@ -71,11 +69,7 @@ export const modalModes = new ModalModeStack();
  * The scope pops automatically when it deactivates or its owner disposes,
  * so listener registration order never decides Escape priority again.
  */
-export const createEscapeScope = (
-  id: string,
-  active: Accessor<unknown>,
-  onEscape: () => boolean,
-) => {
+export const createEscapeScope = (id: string, active: Accessor<unknown>, onEscape: () => boolean) => {
   createEffect(
     on(
       () => Boolean(active()),

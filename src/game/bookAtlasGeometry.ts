@@ -15,11 +15,7 @@ export const remapBookGeometryToAtlas = (
   const uv = remapped.getAttribute("uv");
   const sourceUv = geometry.getAttribute("uv");
   const spineUv = new Float32BufferAttribute(new Float32Array(uv.count * 2), 2);
-  const remapSurface = (
-    target: typeof uv,
-    atlas: CatalogShelfAtlas,
-    sourceAspectRatio: number,
-  ) => {
+  const remapSurface = (target: typeof uv, atlas: CatalogShelfAtlas, sourceAspectRatio: number) => {
     const region = atlas.regions?.[cellIndex];
     if (region) {
       const left = region.x + 0.5;
@@ -27,20 +23,15 @@ export const remapBookGeometryToAtlas = (
       for (let index = 0; index < sourceUv.count; index += 1)
         target.setXY(
           index,
-          (left + sourceUv.getX(index) * Math.max(0, region.width - 1)) /
-            atlas.width,
-          (bottom + sourceUv.getY(index) * Math.max(0, region.height - 1)) /
-            atlas.height,
+          (left + sourceUv.getX(index) * Math.max(0, region.width - 1)) / atlas.width,
+          (bottom + sourceUv.getY(index) * Math.max(0, region.height - 1)) / atlas.height,
         );
       target.needsUpdate = true;
       return;
     }
     const column = cellIndex % atlas.columns;
     const row = Math.floor(cellIndex / atlas.columns);
-    const scale = Math.min(
-      atlas.cellWidth / sourceAspectRatio,
-      atlas.cellHeight,
-    );
+    const scale = Math.min(atlas.cellWidth / sourceAspectRatio, atlas.cellHeight);
     const contentWidth = sourceAspectRatio * scale;
     const contentHeight = scale;
     const left = (atlas.cellWidth - contentWidth) / 2 + 0.5;
@@ -58,15 +49,9 @@ export const remapBookGeometryToAtlas = (
     }
     target.needsUpdate = true;
   };
-  const coverWidth = Math.max(
-    1,
-    Math.round(coverAtlas.cellHeight * physicalBookWidth(aspectRatio, 1)),
-  );
+  const coverWidth = Math.max(1, Math.round(coverAtlas.cellHeight * physicalBookWidth(aspectRatio, 1)));
   const spineSourceHeight = spineAtlas.cellHeight * 2;
-  const spineWidth = Math.max(
-    1,
-    Math.round(physicalBookDepth(thicknessMm, spineSourceHeight)),
-  );
+  const spineWidth = Math.max(1, Math.round(physicalBookDepth(thicknessMm, spineSourceHeight)));
   remapSurface(uv, coverAtlas, coverWidth / coverAtlas.cellHeight);
   remapSurface(spineUv, spineAtlas, spineWidth / spineSourceHeight);
   remapped.setAttribute("bookSpineUv", spineUv);

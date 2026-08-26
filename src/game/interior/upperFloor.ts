@@ -1,10 +1,4 @@
-import {
-  Mesh,
-  MeshBasicMaterial,
-  MeshStandardMaterial,
-  PlaneGeometry,
-  type Object3D,
-} from "three";
+import {Mesh, MeshBasicMaterial, MeshStandardMaterial, PlaneGeometry, type Object3D} from "three";
 import type {Group} from "three";
 import {
   createStackableStairBoxes,
@@ -45,42 +39,23 @@ export const createUpperFloorStructures = (
   // Only the underside of each slab is visible from the ground floor; keep
   // the edges (and the covered top) on the cheap unlit gray material.
   const edgeMaterial = new MeshBasicMaterial({color: "#242a28"});
-  const slabMaterials = [
-    edgeMaterial,
-    edgeMaterial,
-    edgeMaterial,
-    ceilingMaterial,
-    edgeMaterial,
-    edgeMaterial,
-  ];
+  const slabMaterials = [edgeMaterial, edgeMaterial, edgeMaterial, ceilingMaterial, edgeMaterial, edgeMaterial];
   for (const box of SHOP_UPPER_FLOOR_BOXES) {
-    const floorStructure = new Mesh(
-      createCeilingBoxGeometry(box.size, box.position),
-      slabMaterials,
-    );
+    const floorStructure = new Mesh(createCeilingBoxGeometry(box.size, box.position), slabMaterials);
     floorStructure.position.set(...box.position);
     parent.add(floorStructure);
     registerPropPlacementSupport(floorStructure);
   }
 };
 
-export const createAtriumRailings = (
-  parent: Group,
-  woodMaterial: MeshStandardMaterial,
-  addBox: AddBox,
-) => {
+export const createAtriumRailings = (parent: Group, woodMaterial: MeshStandardMaterial, addBox: AddBox) => {
   const railY = SHOP_UPPER_FLOOR_Y + 0.72;
   const postY = SHOP_UPPER_FLOOR_Y + 0.61;
   const minX = SHOP_ATRIUM.minX - SHOP_ATRIUM_RAIL_FLOOR_INSET;
   const maxX = SHOP_ATRIUM.maxX + SHOP_ATRIUM_RAIL_FLOOR_INSET;
   const minZ = SHOP_ATRIUM.minZ - SHOP_ATRIUM_RAIL_FLOOR_INSET;
   const maxZ = SHOP_ATRIUM.maxZ + SHOP_ATRIUM_RAIL_FLOOR_INSET;
-  const addRailBars = (
-    start: number,
-    end: number,
-    fixed: number,
-    alongX: boolean,
-  ) => {
+  const addRailBars = (start: number, end: number, fixed: number, alongX: boolean) => {
     const length = end - start;
     const center = (start + end) / 2;
     for (const y of [railY - 0.34, railY + 0.36])
@@ -92,14 +67,8 @@ export const createAtriumRailings = (
         true,
       );
   };
-  const addPost = (x: number, z: number) =>
-    addBox(parent, [0.12, 1.22, 0.12], [x, postY, z], woodMaterial, true);
-  const addIntermediatePosts = (
-    start: number,
-    end: number,
-    fixed: number,
-    alongX: boolean,
-  ) => {
+  const addPost = (x: number, z: number) => addBox(parent, [0.12, 1.22, 0.12], [x, postY, z], woodMaterial, true);
+  const addIntermediatePosts = (start: number, end: number, fixed: number, alongX: boolean) => {
     const length = end - start;
     const postCount = Math.ceil(length / 1.75);
     for (let post = 1; post < postCount; post += 1) {
@@ -119,11 +88,7 @@ export const createAtriumRailings = (
   addIntermediatePosts(minX, maxX, maxZ, true);
 };
 
-export const createStackableStairwell = (
-  parent: Group,
-  woodMaterial: MeshStandardMaterial,
-  addBox: AddBox,
-) => {
+export const createStackableStairwell = (parent: Group, woodMaterial: MeshStandardMaterial, addBox: AddBox) => {
   const stairBoxes = createStackableStairBoxes(0);
   const landingMaterial = woodMaterial.clone();
   landingMaterial.color.offsetHSL(0, -0.08, 0.08);
@@ -142,12 +107,8 @@ export const createStackableStairwell = (
     );
   }
 
-  const addFlightRailings = (
-    flightBoxes: readonly (typeof stairBoxes)[number][],
-  ) => {
-    const ordered = [...flightBoxes].sort(
-      (first, second) => first.position[0] - second.position[0],
-    );
+  const addFlightRailings = (flightBoxes: readonly (typeof stairBoxes)[number][]) => {
+    const ordered = [...flightBoxes].sort((first, second) => first.position[0] - second.position[0]);
     const first = ordered[0];
     const last = ordered.at(-1);
     if (!first || !last) return;
@@ -158,10 +119,7 @@ export const createStackableStairwell = (
     const maxX = last.position[0] + last.size[0] / 2;
     const treadYAt = (x: number) => firstTop + slope * (x - first.position[0]);
     const edgeOffset = first.size[2] / 2 - SHOP_STAIR_RAIL_INSET;
-    for (const z of [
-      first.position[2] - edgeOffset,
-      first.position[2] + edgeOffset,
-    ]) {
+    for (const z of [first.position[2] - edgeOffset, first.position[2] + edgeOffset]) {
       for (const height of [0.55, 1]) {
         const startY = treadYAt(minX) + height;
         const endY = treadYAt(maxX) + height;
@@ -212,9 +170,7 @@ export const createStackableStairwell = (
       addBox(
         parent,
         [0.12, 1, 0.12],
-        alongX
-          ? [position[0] + offset, top + 0.5, position[2]]
-          : [position[0], top + 0.5, position[2] + offset],
+        alongX ? [position[0] + offset, top + 0.5, position[2]] : [position[0], top + 0.5, position[2] + offset],
         woodMaterial,
         true,
       );
@@ -229,9 +185,7 @@ export const createStackableStairwell = (
     addLandingRail(
       railSize,
       [
-        turnLanding.position[0] +
-          turnLanding.size[0] / 2 -
-          SHOP_STAIR_RAIL_INSET,
+        turnLanding.position[0] + turnLanding.size[0] / 2 - SHOP_STAIR_RAIL_INSET,
         turnLanding.position[1],
         turnLanding.position[2],
       ],
@@ -243,8 +197,7 @@ export const createStackableStairwell = (
         [
           turnLanding.position[0],
           turnLanding.position[1],
-          turnLanding.position[2] +
-            side * (turnLanding.size[2] / 2 - SHOP_STAIR_RAIL_INSET),
+          turnLanding.position[2] + side * (turnLanding.size[2] / 2 - SHOP_STAIR_RAIL_INSET),
         ],
         true,
       );
@@ -262,8 +215,7 @@ export const createStackableStairwell = (
         [
           topLanding.position[0],
           topLanding.position[1],
-          topLanding.position[2] +
-            side * (topLanding.size[2] / 2 - SHOP_STAIR_RAIL_INSET),
+          topLanding.position[2] + side * (topLanding.size[2] / 2 - SHOP_STAIR_RAIL_INSET),
         ],
         true,
       );
@@ -279,37 +231,14 @@ const createUpperWindow = (
   glassMaterial: MeshBasicMaterial,
   addBox: AddBox,
 ) => {
-  const glass = new Mesh(
-    new PlaneGeometry(UPPER_WINDOW_WIDTH, UPPER_WINDOW_HEIGHT),
-    glassMaterial,
-  );
+  const glass = new Mesh(new PlaneGeometry(UPPER_WINDOW_WIDTH, UPPER_WINDOW_HEIGHT), glassMaterial);
   glass.position.set(x, 7.35, glassZ);
   glass.rotation.y = rotationY;
   parent.add(glass);
-  for (const frameX of [
-    x - UPPER_WINDOW_WIDTH / 2,
-    x,
-    x + UPPER_WINDOW_WIDTH / 2,
-  ])
-    addBox(
-      parent,
-      [0.09, UPPER_WINDOW_HEIGHT + 0.16, 0.12],
-      [frameX, 7.35, glassZ],
-      frameMaterial,
-      true,
-    );
-  for (const frameY of [
-    7.35 - UPPER_WINDOW_HEIGHT / 2,
-    7.35,
-    7.35 + UPPER_WINDOW_HEIGHT / 2,
-  ])
-    addBox(
-      parent,
-      [UPPER_WINDOW_WIDTH + 0.12, 0.09, 0.12],
-      [x, frameY, glassZ],
-      frameMaterial,
-      true,
-    );
+  for (const frameX of [x - UPPER_WINDOW_WIDTH / 2, x, x + UPPER_WINDOW_WIDTH / 2])
+    addBox(parent, [0.09, UPPER_WINDOW_HEIGHT + 0.16, 0.12], [frameX, 7.35, glassZ], frameMaterial, true);
+  for (const frameY of [7.35 - UPPER_WINDOW_HEIGHT / 2, 7.35, 7.35 + UPPER_WINDOW_HEIGHT / 2])
+    addBox(parent, [UPPER_WINDOW_WIDTH + 0.12, 0.09, 0.12], [x, frameY, glassZ], frameMaterial, true);
 };
 
 export const createUpperWindowWall = (
@@ -334,15 +263,9 @@ export const createUpperWindowWall = (
     {max: openings[2]?.min ?? 0, min: openings[1]?.max ?? 0},
     {max: 12.5, min: openings[2]?.max ?? 12.5},
   ];
-  const windowWallId =
-    z < 0 ? "upper-north-window-wall" : "upper-south-window-wall";
+  const windowWallId = z < 0 ? "upper-north-window-wall" : "upper-south-window-wall";
   for (const [index, run] of solidRuns.entries()) {
-    addBox(
-      parent,
-      [run.max - run.min, 3.5, 0.18],
-      [(run.min + run.max) / 2, 7.35, z],
-      wallMaterial,
-    );
+    addBox(parent, [run.max - run.min, 3.5, 0.18], [(run.min + run.max) / 2, 7.35, z], wallMaterial);
 
     const surfaceWidth = run.max - run.min - 0.12;
     if (surfaceWidth <= MIN_POSTER_HEIGHT) continue;
@@ -358,14 +281,6 @@ export const createUpperWindowWall = (
 
   const glassZ = z + (rotationY === 0 ? 0.105 : -0.105);
   for (const x of UPPER_WINDOW_CENTERS) {
-    createUpperWindow(
-      parent,
-      x,
-      glassZ,
-      rotationY,
-      frameMaterial,
-      glassMaterial,
-      addBox,
-    );
+    createUpperWindow(parent, x, glassZ, rotationY, frameMaterial, glassMaterial, addBox);
   }
 };

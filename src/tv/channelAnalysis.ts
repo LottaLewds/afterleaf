@@ -3,11 +3,7 @@ import {randomUUID} from "node:crypto";
 import {mkdir, readFile, rename, stat, writeFile} from "node:fs/promises";
 import {dirname} from "node:path";
 
-import {
-  detectActivePictureRect,
-  getActivePictureConsensus,
-  type ActivePictureRect,
-} from "./activePicture";
+import {detectActivePictureRect, getActivePictureConsensus, type ActivePictureRect} from "./activePicture";
 import type {TvVideoAnalyzer} from "./channelCatalog";
 
 const CACHE_VERSION = 1;
@@ -40,8 +36,7 @@ export type CachedTvVideoAnalyzerOptions = {
   onError?: (filePath: string, error: unknown) => void;
 };
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null;
+const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null;
 
 const parseActivePictureRect = (value: unknown) => {
   if (!isRecord(value)) return;
@@ -64,23 +59,10 @@ const parseActivePictureRect = (value: unknown) => {
 
 const parseCache = (value: unknown): VideoAnalysisCache => {
   const cache: VideoAnalysisCache = {version: CACHE_VERSION, videos: {}};
-  if (
-    !isRecord(value) ||
-    value.version !== CACHE_VERSION ||
-    !isRecord(value.videos)
-  )
-    return cache;
+  if (!isRecord(value) || value.version !== CACHE_VERSION || !isRecord(value.videos)) return cache;
   for (const [key, record] of Object.entries(value.videos)) {
-    if (
-      !isRecord(record) ||
-      typeof record.modifiedAtMs !== "number" ||
-      typeof record.size !== "number"
-    )
-      continue;
-    const activePicture =
-      record.activePicture === null
-        ? null
-        : parseActivePictureRect(record.activePicture);
+    if (!isRecord(record) || typeof record.modifiedAtMs !== "number" || typeof record.size !== "number") continue;
+    const activePicture = record.activePicture === null ? null : parseActivePictureRect(record.activePicture);
     if (activePicture === undefined) continue;
     cache.videos[key] = {
       activePicture,
@@ -91,11 +73,7 @@ const parseCache = (value: unknown): VideoAnalysisCache => {
   return cache;
 };
 
-const runProcess = (
-  command: string,
-  arguments_: readonly string[],
-  maximumOutputBytes = MAX_PROCESS_OUTPUT_BYTES,
-) =>
+const runProcess = (command: string, arguments_: readonly string[], maximumOutputBytes = MAX_PROCESS_OUTPUT_BYTES) =>
   new Promise<ProcessResult>((resolve, reject) => {
     const child = spawn(command, arguments_, {
       stdio: ["ignore", "pipe", "pipe"],
@@ -140,28 +118,14 @@ const runProcess = (
         return;
       }
       const detail = result.stderr.toString("utf8").trim();
-      reject(
-        new Error(
-          `${command} exited with code ${code ?? "unknown"}${detail ? `: ${detail}` : ""}`,
-        ),
-      );
+      reject(new Error(`${command} exited with code ${code ?? "unknown"}${detail ? `: ${detail}` : ""}`));
     });
   });
 
 const probeVideoSize = async (filePath: string) => {
   const result = await runProcess(
     "ffprobe",
-    [
-      "-v",
-      "error",
-      "-select_streams",
-      "v:0",
-      "-show_entries",
-      "stream=width,height",
-      "-of",
-      "json",
-      filePath,
-    ],
+    ["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height", "-of", "json", filePath],
     64 * 1024,
   );
   const value = JSON.parse(result.stdout.toString("utf8")) as unknown;
@@ -181,11 +145,7 @@ const probeVideoSize = async (filePath: string) => {
 export const analyzeTvVideoActivePicture = async (filePath: string) => {
   const videoSize = await probeVideoSize(filePath);
   if (!videoSize) return;
-  const analysisScale = Math.min(
-    1,
-    ANALYSIS_MAX_WIDTH / videoSize.width,
-    ANALYSIS_MAX_HEIGHT / videoSize.height,
-  );
+  const analysisScale = Math.min(1, ANALYSIS_MAX_WIDTH / videoSize.width, ANALYSIS_MAX_HEIGHT / videoSize.height);
   const width = Math.max(1, Math.round(videoSize.width * analysisScale));
   const height = Math.max(1, Math.round(videoSize.height * analysisScale));
   const result = await runProcess("ffmpeg", [
@@ -212,11 +172,7 @@ export const analyzeTvVideoActivePicture = async (filePath: string) => {
   const samples: ActivePictureRect[] = [];
   for (let frame = 0; frame < frameCount; frame += 1) {
     const offset = frame * frameBytes;
-    const pixels = new Uint8ClampedArray(
-      result.stdout.buffer,
-      result.stdout.byteOffset + offset,
-      frameBytes,
-    );
+    const pixels = new Uint8ClampedArray(result.stdout.buffer, result.stdout.byteOffset + offset, frameBytes);
     const sample = detectActivePictureRect(pixels, width, height);
     if (sample) samples.push(sample);
   }
@@ -240,9 +196,7 @@ const writeCache = async (cachePath: string, cache: VideoAnalysisCache) => {
   await rename(temporaryPath, cachePath);
 };
 
-export const createCachedTvVideoAnalyzer = (
-  options: CachedTvVideoAnalyzerOptions,
-): TvVideoAnalyzer => {
+export const createCachedTvVideoAnalyzer = (options: CachedTvVideoAnalyzerOptions): TvVideoAnalyzer => {
   const analyzeFile = options.analyzeFile ?? analyzeTvVideoActivePicture;
   const cachePromise = readCache(options.cachePath);
   const pending = new Map<string, Promise<ActivePictureRect | undefined>>();
@@ -251,8 +205,7 @@ export const createCachedTvVideoAnalyzer = (
     const file = await stat(filePath);
     const cache = await cachePromise;
     const cached = cache.videos[cacheKey];
-    if (cached?.modifiedAtMs === file.mtimeMs && cached.size === file.size)
-      return cached.activePicture ?? undefined;
+    if (cached?.modifiedAtMs === file.mtimeMs && cached.size === file.size) return cached.activePicture ?? undefined;
 
     const existing = pending.get(cacheKey);
     if (existing) return existing;

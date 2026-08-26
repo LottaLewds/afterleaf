@@ -1,12 +1,4 @@
-import type {
-  AnimationClip,
-  AnimationMixer,
-  Material,
-  Mesh,
-  MeshStandardMaterial,
-  Object3D,
-  Vector3,
-} from "three";
+import type {AnimationClip, AnimationMixer, Material, Mesh, MeshStandardMaterial, Object3D, Vector3} from "three";
 import type {ModelAsset} from "~/models/protocol";
 import type {PhysicsPropColliderDefinition} from "~/game/ShopPhysicsWorld";
 import type {ReadingFurnitureMaterial} from "~/game/shopLayout";
@@ -51,7 +43,4 @@ export type PropMaterialSwap = {
 };
 
 /** Material set shared by reading tables and chairs. */
-export type ReadingFurnitureMaterials = Record<
-  ReadingFurnitureMaterial,
-  MeshStandardMaterial
->;
+export type ReadingFurnitureMaterials = Record<ReadingFurnitureMaterial, MeshStandardMaterial>;

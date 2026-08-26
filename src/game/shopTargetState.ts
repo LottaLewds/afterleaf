@@ -4,10 +4,7 @@ import type {InteractionScanner} from "~/game/interactionScanner";
 import type {ShopBookLifecycle} from "~/game/shopBookLifecycle";
 import type {ShopArcadeCabinet} from "~/game/ShopArcadeCabinet";
 import type {MovablePropRecord} from "~/game/shopTypes";
-import type {
-  ShopTelevision,
-  ShopTelevisionInteraction,
-} from "~/game/ShopTelevision";
+import type {ShopTelevision, ShopTelevisionInteraction} from "~/game/ShopTelevision";
 
 export type ShopTargetStateHost = {
   bookLifecycle: () => ShopBookLifecycle;
@@ -44,9 +41,7 @@ export type ShopTargetState = {
 };
 
 /** Centralizes reticle target transitions and the visual state they trigger. */
-export const createShopTargetState = (
-  targetHost: ShopTargetStateHost,
-): ShopTargetState => {
+export const createShopTargetState = (targetHost: ShopTargetStateHost): ShopTargetState => {
   const setTelevisionTargeted = (
     targeted: boolean,
     interaction?: ShopTelevisionInteraction,
@@ -55,19 +50,10 @@ export const createShopTargetState = (
     const host = targetHost;
     const nextTelevision = targeted ? television : undefined;
     const nextInteraction = targeted ? (interaction ?? "screen") : undefined;
-    if (
-      nextInteraction === host.currentTelevisionInteraction() &&
-      nextTelevision === host.currentTelevision()
-    )
-      return;
-    if (nextTelevision !== host.currentTelevision())
-      host.resetTelevisionWheel();
+    if (nextInteraction === host.currentTelevisionInteraction() && nextTelevision === host.currentTelevision()) return;
+    if (nextTelevision !== host.currentTelevision()) host.resetTelevisionWheel();
     host.currentTelevision()?.setTargeted(undefined);
-    host.setTelevisionState(
-      nextInteraction !== undefined,
-      nextInteraction,
-      nextTelevision,
-    );
+    host.setTelevisionState(nextInteraction !== undefined, nextInteraction, nextTelevision);
     nextTelevision?.setTargeted(nextInteraction);
     host.emitGameState();
   };
@@ -98,15 +84,11 @@ export const createShopTargetState = (
 
   const setHoveredPublicationId = (publicationId: string | undefined) => {
     const host = targetHost;
-    if (publicationId === undefined)
-      host.scanner().shelfBrowsePublicationId = undefined;
+    if (publicationId === undefined) host.scanner().shelfBrowsePublicationId = undefined;
     if (publicationId === host.hoveredPublicationId()) return;
     host.setHoveredPublicationId(publicationId);
-    const record = publicationId
-      ? host.booksById().get(publicationId)
-      : undefined;
-    if (record && publicationId !== undefined)
-      host.bookTextures().ensureStandaloneBookTextures(publicationId, record);
+    const record = publicationId ? host.booksById().get(publicationId) : undefined;
+    if (record && publicationId !== undefined) host.bookTextures().ensureStandaloneBookTextures(publicationId, record);
     host.bookLifecycle().applyBookStates();
     host.emitGameState();
   };

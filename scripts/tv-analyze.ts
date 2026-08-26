@@ -8,8 +8,7 @@ import {tvMediaUrl} from "~/tv/protocol";
 const channelsDirectory = resolve(import.meta.dirname, "../content/channels");
 const channelsDirectories = [
   channelsDirectory,
-  ...readAfterleafLibraryConfigSync(resolve(import.meta.dirname, ".."))
-    .tvChannelPaths,
+  ...readAfterleafLibraryConfigSync(resolve(import.meta.dirname, "..")).tvChannelPaths,
 ];
 const cachePath = resolve(channelsDirectory, ".afterleaf-tv-analysis.json");
 let failureCount = 0;
@@ -20,17 +19,11 @@ const analyzer = createCachedTvVideoAnalyzer({
     console.warn(`Could not analyze ${filePath}`, error);
   },
 });
-const manifest = await discoverTvChannels(
-  channelsDirectories,
-  tvMediaUrl,
-  analyzer,
-);
+const manifest = await discoverTvChannels(channelsDirectories, tvMediaUrl, analyzer);
 const videos = manifest.channels.flatMap((channel) => channel.videos);
 const analyzedCount = videos.filter((video) => video.activePicture).length;
 const croppedCount = videos.filter(
-  (video) =>
-    video.activePicture &&
-    (video.activePicture.width < 1 || video.activePicture.height < 1),
+  (video) => video.activePicture && (video.activePicture.width < 1 || video.activePicture.height < 1),
 ).length;
 
 console.log(

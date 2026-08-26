@@ -9,9 +9,7 @@ import {renderCachedWebpImage, renderWebpImage} from "~/media/webp";
 const temporaryDirectories: string[] = [];
 
 afterAll(async () => {
-  await Promise.all(
-    temporaryDirectories.map((directory) => rm(directory, {recursive: true})),
-  );
+  await Promise.all(temporaryDirectories.map((directory) => rm(directory, {recursive: true})));
 });
 
 const temporaryImage = async (name: string, source: Buffer) => {
@@ -30,21 +28,11 @@ describe("shared WebP rendering", () => {
       .webp()
       .toBuffer();
     const imagePath = await temporaryImage("existing.webp", source);
-    const marginalDerivative = Buffer.alloc(
-      Math.ceil(source.byteLength * 0.95),
-      2,
-    );
-    const smallerDerivative = Buffer.alloc(
-      Math.floor(source.byteLength * 0.8),
-      3,
-    );
+    const marginalDerivative = Buffer.alloc(Math.ceil(source.byteLength * 0.95), 2);
+    const smallerDerivative = Buffer.alloc(Math.floor(source.byteLength * 0.8), 3);
 
-    expect(
-      await renderWebpImage(imagePath, async () => marginalDerivative, 2_048),
-    ).toEqual(source);
-    expect(
-      await renderWebpImage(imagePath, async () => smallerDerivative, 2_048),
-    ).toEqual(smallerDerivative);
+    expect(await renderWebpImage(imagePath, async () => marginalDerivative, 2_048)).toEqual(source);
+    expect(await renderWebpImage(imagePath, async () => smallerDerivative, 2_048)).toEqual(smallerDerivative);
   });
 
   test("always optimizes oversized or mislabeled WebP files", async () => {
@@ -55,13 +43,7 @@ describe("shared WebP rendering", () => {
       .toBuffer();
     const oversizedPath = await temporaryImage("oversized.webp", oversized);
     const oversizedDerivative = Buffer.alloc(oversized.byteLength, 4);
-    expect(
-      await renderWebpImage(
-        oversizedPath,
-        async () => oversizedDerivative,
-        2_048,
-      ),
-    ).toEqual(oversizedDerivative);
+    expect(await renderWebpImage(oversizedPath, async () => oversizedDerivative, 2_048)).toEqual(oversizedDerivative);
 
     const png = await sharp({
       create: {background: "#abcdef", channels: 3, height: 10, width: 10},
@@ -70,9 +52,7 @@ describe("shared WebP rendering", () => {
       .toBuffer();
     const mislabeledPath = await temporaryImage("mislabeled.webp", png);
     const pngDerivative = Buffer.alloc(png.byteLength, 5);
-    expect(
-      await renderWebpImage(mislabeledPath, async () => pngDerivative, 2_048),
-    ).toEqual(pngDerivative);
+    expect(await renderWebpImage(mislabeledPath, async () => pngDerivative, 2_048)).toEqual(pngDerivative);
   });
 
   test("persists derivatives and reuses them across calls", async () => {
@@ -93,24 +73,12 @@ describe("shared WebP rendering", () => {
       return Buffer.from([1, 2, 3]);
     };
 
-    await expect(
-      renderCachedWebpImage(
-        imagePath,
-        createDerivative,
-        2_048,
-        cacheDirectory,
-        "test-v1",
-      ),
-    ).resolves.toEqual(Buffer.from([1, 2, 3]));
-    await expect(
-      renderCachedWebpImage(
-        imagePath,
-        createDerivative,
-        2_048,
-        cacheDirectory,
-        "test-v1",
-      ),
-    ).resolves.toEqual(Buffer.from([1, 2, 3]));
+    await expect(renderCachedWebpImage(imagePath, createDerivative, 2_048, cacheDirectory, "test-v1")).resolves.toEqual(
+      Buffer.from([1, 2, 3]),
+    );
+    await expect(renderCachedWebpImage(imagePath, createDerivative, 2_048, cacheDirectory, "test-v1")).resolves.toEqual(
+      Buffer.from([1, 2, 3]),
+    );
     expect(derivativeCalls).toBe(1);
   });
 
@@ -130,24 +98,10 @@ describe("shared WebP rendering", () => {
       return Buffer.from(input);
     };
 
-    await renderCachedWebpImage(
-      imagePath,
-      createDerivative,
-      2_048,
-      cacheDirectory,
-      "test-v1",
-    );
-    await renderCachedWebpImage(
-      imagePath,
-      createDerivative,
-      2_048,
-      cacheDirectory,
-      "test-v1",
-    );
+    await renderCachedWebpImage(imagePath, createDerivative, 2_048, cacheDirectory, "test-v1");
+    await renderCachedWebpImage(imagePath, createDerivative, 2_048, cacheDirectory, "test-v1");
 
     expect(derivativeCalls).toBe(1);
-    expect(await readdir(cacheDirectory)).toEqual([
-      expect.stringMatching(/\.source$/u),
-    ]);
+    expect(await readdir(cacheDirectory)).toEqual([expect.stringMatching(/\.source$/u)]);
   });
 });

@@ -12,11 +12,7 @@ import {
 const temporaryDirectories: string[] = [];
 
 afterEach(async () => {
-  await Promise.all(
-    temporaryDirectories
-      .splice(0)
-      .map((directory) => rm(directory, {force: true, recursive: true})),
-  );
+  await Promise.all(temporaryDirectories.splice(0).map((directory) => rm(directory, {force: true, recursive: true})));
 });
 
 const snapshot = (snapshotId: string): LibrarySnapshotDescriptor => ({
@@ -37,8 +33,7 @@ describe("LibrarySnapshotIndexStore", () => {
     const scheduledGarbageDirectories: string[] = [];
     const store = new LibrarySnapshotIndexStore(root, {
       createTemporaryId: () => String((temporaryId += 1)),
-      scheduleGarbageCollection: (directory) =>
-        scheduledGarbageDirectories.push(directory),
+      scheduleGarbageCollection: (directory) => scheduledGarbageDirectories.push(directory),
     });
     await Promise.all(
       ["snapshot-1", "snapshot-2", "snapshot-3"].map((snapshotId) =>
@@ -55,24 +50,14 @@ describe("LibrarySnapshotIndexStore", () => {
     const secondIndex = await store.activate(snapshot("snapshot-2"));
 
     expect(secondIndex.revision).toBe(2);
-    expect(secondIndex.snapshots.map((entry) => entry.snapshotId)).toEqual([
-      "snapshot-2",
-    ]);
+    expect(secondIndex.snapshots.map((entry) => entry.snapshotId)).toEqual(["snapshot-2"]);
     expect(activeSnapshotFromIndex(secondIndex)?.snapshotId).toBe("snapshot-2");
-    expect(
-      JSON.parse(await readFile(resolve(root, "index.json"), "utf8")),
-    ).toEqual(secondIndex);
+    expect(JSON.parse(await readFile(resolve(root, "index.json"), "utf8"))).toEqual(secondIndex);
 
     const thirdIndex = await store.activate(snapshot("snapshot-3"));
-    expect(thirdIndex.snapshots.map((entry) => entry.snapshotId)).toEqual([
-      "snapshot-3",
-    ]);
-    await expect(
-      access(resolve(root, "snapshots/snapshot-1")),
-    ).rejects.toThrow();
-    await expect(
-      access(resolve(root, "snapshots/snapshot-2")),
-    ).rejects.toThrow();
+    expect(thirdIndex.snapshots.map((entry) => entry.snapshotId)).toEqual(["snapshot-3"]);
+    await expect(access(resolve(root, "snapshots/snapshot-1"))).rejects.toThrow();
+    await expect(access(resolve(root, "snapshots/snapshot-2"))).rejects.toThrow();
     expect(scheduledGarbageDirectories).toEqual([
       resolve(root, "snapshot-garbage"),
       resolve(root, "snapshot-garbage"),

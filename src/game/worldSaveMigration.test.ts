@@ -37,19 +37,13 @@ describe("world save migrations", () => {
 
     const seededSave = {...save, seedingVersion: 1} as WorldSaveV1;
     expect(migrateLegacyTrashcanPosition(seededSave)).toBeUndefined();
-    expect(migrateLegacyPlayerPosition({x: 0, y: 0, z: 0}).migrated).toBe(
-      false,
-    );
+    expect(migrateLegacyPlayerPosition({x: 0, y: 0, z: 0}).migrated).toBe(false);
   });
 
   test("keeps model prop saves that have not been registered yet", () => {
     const modelProp = {id: "unloaded", scale: 1} as WorldModelPropSave;
 
-    expect(adoptLegacyModelPropSaves([modelProp], new Set())).toEqual([
-      modelProp,
-    ]);
-    expect(
-      adoptLegacyModelPropSaves([modelProp], new Set(["unloaded"])),
-    ).toEqual([]);
+    expect(adoptLegacyModelPropSaves([modelProp], new Set())).toEqual([modelProp]);
+    expect(adoptLegacyModelPropSaves([modelProp], new Set(["unloaded"]))).toEqual([]);
   });
 });

@@ -153,9 +153,7 @@ export const ARCADE_SYSTEMS: readonly ArcadeSystem[] = [
   },
 ];
 
-const systemsById = new Map<string, ArcadeSystem>(
-  ARCADE_SYSTEMS.map((system) => [system.id, system]),
-);
+const systemsById = new Map<string, ArcadeSystem>(ARCADE_SYSTEMS.map((system) => [system.id, system]));
 
 /**
  * Archive containers EmulatorJS decompresses for any core. Discovery sources
@@ -170,21 +168,17 @@ const extensionToSystem = (() => {
   for (let index = ARCADE_SYSTEMS.length - 1; index >= 0; index -= 1) {
     const system = ARCADE_SYSTEMS[index];
     if (!system) continue;
-    for (const extension of system.extensions)
-      map.set(extension.toLowerCase(), system);
+    for (const extension of system.extensions) map.set(extension.toLowerCase(), system);
   }
   return map;
 })();
 
 /** File input accept pattern covering every known ROM extension. */
-export const ARCADE_ROM_ACCEPT = ARCADE_SYSTEMS.flatMap(
-  (system) => system.extensions,
-)
+export const ARCADE_ROM_ACCEPT = ARCADE_SYSTEMS.flatMap((system) => system.extensions)
   .map((extension) => `.${extension}`)
   .join(",");
 
-export const findArcadeSystem = (id: string): ArcadeSystem | undefined =>
-  systemsById.get(id);
+export const findArcadeSystem = (id: string): ArcadeSystem | undefined => systemsById.get(id);
 
 export const arcadeFileNameExtension = (fileName: string): string => {
   const dotIndex = fileName.lastIndexOf(".");
@@ -192,22 +186,14 @@ export const arcadeFileNameExtension = (fileName: string): string => {
   return fileName.slice(dotIndex + 1).toLowerCase();
 };
 
-export const guessArcadeSystemByFileName = (
-  fileName: string,
-): ArcadeSystem | undefined =>
+export const guessArcadeSystemByFileName = (fileName: string): ArcadeSystem | undefined =>
   extensionToSystem.get(arcadeFileNameExtension(fileName));
 
-export const arcadeSystemSupportsFileName = (
-  system: ArcadeSystem,
-  fileName: string,
-): boolean => {
+export const arcadeSystemSupportsFileName = (system: ArcadeSystem, fileName: string): boolean => {
   const extension = arcadeFileNameExtension(fileName);
   if (extension === "") return false;
   // Zipped ROMs are playable on every system via EmulatorJS decompression.
-  return (
-    ARCHIVE_EXTENSIONS.includes(extension) ||
-    system.extensions.includes(extension)
-  );
+  return ARCHIVE_EXTENSIONS.includes(extension) || system.extensions.includes(extension);
 };
 
 /**

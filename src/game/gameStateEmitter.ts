@@ -1,7 +1,4 @@
-import {
-  ShopArcadeCabinet,
-  type ArcadeSessionStatus,
-} from "~/game/ShopArcadeCabinet";
+import {ShopArcadeCabinet, type ArcadeSessionStatus} from "~/game/ShopArcadeCabinet";
 import type {ArtFrameSystem} from "~/game/artFrameSystem";
 import type {BookRecord} from "~/game/bookFactory";
 import type {CatalogItem} from "~/catalog";
@@ -18,10 +15,7 @@ import type {
   ShelfTargetSelection,
 } from "~/game/shopTypes";
 import type {ShelveAnimation} from "~/game/bookCarryActions";
-import {
-  createShopGameSnapshot,
-  formatDisplayedInteractions,
-} from "~/game/gameStateSnapshot";
+import {createShopGameSnapshot, formatDisplayedInteractions} from "~/game/gameStateSnapshot";
 import {resolveShopInteractionView} from "~/game/shopInteractionView";
 import {INTERACTION_ROW_MODES, type UiMode} from "~/game/uiMode";
 import type {PosterSystem} from "~/game/posters/PosterSystem";
@@ -85,15 +79,11 @@ export type GameSnapshotInput = {
   tvVideos: () => TvVideoImporter;
 };
 
-const countTaskBooks = (
-  booksById: ReadonlyMap<string, BookRecord>,
-  discardedPublicationIds: ReadonlySet<string>,
-) => {
+const countTaskBooks = (booksById: ReadonlyMap<string, BookRecord>, discardedPublicationIds: ReadonlySet<string>) => {
   let taskBookCount = 0;
   let shelvedCount = 0;
   for (const [publicationId, record] of booksById) {
-    if (discardedPublicationIds.has(publicationId) || !record.taskBook)
-      continue;
+    if (discardedPublicationIds.has(publicationId) || !record.taskBook) continue;
     taskBookCount += 1;
     if (record.state.status === "shelved") shelvedCount += 1;
   }
@@ -151,20 +141,13 @@ export class GameStateEmitter {
     const tvVideos = inp.tvVideos();
     const onStateChange = inp.onGameStateChange();
     if (!onStateChange) return;
-    const {looseCount, shelvedCount} = countTaskBooks(
-      booksById,
-      discardedPublicationIds,
-    );
-    const carriedRecord = carriedPublicationId
-      ? booksById.get(carriedPublicationId)
-      : undefined;
+    const {looseCount, shelvedCount} = countTaskBooks(booksById, discardedPublicationIds);
+    const carriedRecord = carriedPublicationId ? booksById.get(carriedPublicationId) : undefined;
     const inspectionPublication = inp.inspectionPublication();
     const inspectionWidePages = inspectionPublication
       ? getWideReaderPageIndices(inspectionPublication.pages)
       : undefined;
-    const hoveredRecord = hoveredPublicationId
-      ? booksById.get(hoveredPublicationId)
-      : undefined;
+    const hoveredRecord = hoveredPublicationId ? booksById.get(hoveredPublicationId) : undefined;
     const interactionView = resolveShopInteractionView({
       activeArcadeCabinet,
       arcadeProps,

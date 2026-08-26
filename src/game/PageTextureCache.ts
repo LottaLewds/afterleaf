@@ -49,9 +49,7 @@ export class PageTextureCache<Resource extends DisposableResource> {
 
   constructor(options: PageTextureCacheOptions<Resource>) {
     if (!Number.isInteger(options.maxEntries) || options.maxEntries < 1)
-      throw new RangeError(
-        "PageTextureCache maxEntries must be a positive integer",
-      );
+      throw new RangeError("PageTextureCache maxEntries must be a positive integer");
 
     this.#load = options.load;
     this.#maxEntries = options.maxEntries;

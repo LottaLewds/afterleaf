@@ -9,20 +9,10 @@ import {
   type PublicationSource,
   type PublicationSourceReference,
 } from "~/content/schema";
-import {
-  languagePriority,
-  normalizeTags,
-  parseSupportedLanguage,
-} from "~/content/normalize";
-import {
-  discoverLocalMedia,
-  LOCAL_PUBLICATION_MANIFEST,
-} from "~/content/localMediaDiscovery";
+import {languagePriority, normalizeTags, parseSupportedLanguage} from "~/content/normalize";
+import {discoverLocalMedia, LOCAL_PUBLICATION_MANIFEST} from "~/content/localMediaDiscovery";
 import {associatePublicationAlternates} from "~/content/publicationAlternates";
-import {
-  parseLocalPublicationDocument,
-  resolveContainedPath,
-} from "~/content/validation";
+import {parseLocalPublicationDocument, resolveContainedPath} from "~/content/validation";
 
 const FINGERPRINT_STAT_CONCURRENCY = 64;
 
@@ -51,22 +41,14 @@ const toPortablePath = (path: string) => path.split(sep).join("/");
 
 const pathIsWithin = (parent: string, candidate: string) => {
   const path = relative(parent, candidate);
-  return (
-    path === "" ||
-    (!path.startsWith(`..${sep}`) && path !== ".." && !isAbsolute(path))
-  );
+  return path === "" || (!path.startsWith(`..${sep}`) && path !== ".." && !isAbsolute(path));
 };
 
-const matchesQuery = (
-  candidate: PublicationCandidate,
-  query: PublicationSearchQuery,
-) => {
+const matchesQuery = (candidate: PublicationCandidate, query: PublicationSearchQuery) => {
   if (!query.languages.includes(candidate.language)) return false;
-  if (query.excludedTags.some((tag) => candidate.normalizedTags.includes(tag)))
-    return false;
+  if (query.excludedTags.some((tag) => candidate.normalizedTags.includes(tag))) return false;
   if (query.tags.length === 0) return true;
-  if (query.match === "all")
-    return query.tags.every((tag) => candidate.normalizedTags.includes(tag));
+  if (query.match === "all") return query.tags.every((tag) => candidate.normalizedTags.includes(tag));
   return query.tags.some((tag) => candidate.normalizedTags.includes(tag));
 };
 
@@ -77,24 +59,13 @@ const resolveMaterial = (
   sourceDirectory: string,
   assets: PublicationCandidate["document"]["assets"],
 ): PublicationMaterial => ({
-  pages: assets.pages.map((page) =>
-    resolveContainedPath(sourceDirectory, page),
-  ),
-  ...(assets.front === undefined
-    ? {}
-    : {front: resolveContainedPath(sourceDirectory, assets.front)}),
-  ...(assets.back === undefined
-    ? {}
-    : {back: resolveContainedPath(sourceDirectory, assets.back)}),
-  ...(assets.spine === undefined
-    ? {}
-    : {spine: resolveContainedPath(sourceDirectory, assets.spine)}),
+  pages: assets.pages.map((page) => resolveContainedPath(sourceDirectory, page)),
+  ...(assets.front === undefined ? {} : {front: resolveContainedPath(sourceDirectory, assets.front)}),
+  ...(assets.back === undefined ? {} : {back: resolveContainedPath(sourceDirectory, assets.back)}),
+  ...(assets.spine === undefined ? {} : {spine: resolveContainedPath(sourceDirectory, assets.spine)}),
 });
 
-const materialFingerprint = async (
-  sourceDirectory: string,
-  material: PublicationMaterial,
-) => {
+const materialFingerprint = async (sourceDirectory: string, material: PublicationMaterial) => {
   const assets = [
     ...material.pages.map((path, index) => ({role: `page:${index}`, path})),
     ...(material.front ? [{role: "front", path: material.front}] : []),
@@ -106,15 +77,8 @@ const materialFingerprint = async (
     })) ?? []),
   ];
   const hash = createHash("sha256");
-  for (
-    let batchStart = 0;
-    batchStart < assets.length;
-    batchStart += FINGERPRINT_STAT_CONCURRENCY
-  ) {
-    const batch = assets.slice(
-      batchStart,
-      batchStart + FINGERPRINT_STAT_CONCURRENCY,
-    );
+  for (let batchStart = 0; batchStart < assets.length; batchStart += FINGERPRINT_STAT_CONCURRENCY) {
+    const batch = assets.slice(batchStart, batchStart + FINGERPRINT_STAT_CONCURRENCY);
     const metadata = await Promise.all(
       batch.map(async (asset) => ({
         ...asset,
@@ -146,45 +110,29 @@ export class LocalCatalogSource implements PublicationSource {
   readonly #requiresLanguageTag: ((providerId: string) => boolean) | undefined;
   #entries = new Map<string, LocalCatalogEntry>();
 
-  constructor(
-    catalogDirectory: string | readonly string[],
-    options: LocalCatalogSourceOptions = {},
-  ) {
-    const catalogDirectories = Array.isArray(catalogDirectory)
-      ? catalogDirectory
-      : [catalogDirectory];
-    const resolvedDirectories = [
-      ...new Set(catalogDirectories.map((directory) => resolve(directory))),
-    ];
+  constructor(catalogDirectory: string | readonly string[], options: LocalCatalogSourceOptions = {}) {
+    const catalogDirectories = Array.isArray(catalogDirectory) ? catalogDirectory : [catalogDirectory];
+    const resolvedDirectories = [...new Set(catalogDirectories.map((directory) => resolve(directory)))];
     this.#catalogRoots = resolvedDirectories
       .filter(
         (directory) =>
-          !resolvedDirectories.some(
-            (candidate) =>
-              candidate !== directory && pathIsWithin(candidate, directory),
-          ),
+          !resolvedDirectories.some((candidate) => candidate !== directory && pathIsWithin(candidate, directory)),
       )
       .map((directory, index) => ({
         directory,
         sourcePrefix: index === 0 ? "" : `@media-${index}/`,
       }));
-    this.#excludedPublicationIds =
-      options.excludedPublicationIds ?? new Set<string>();
+    this.#excludedPublicationIds = options.excludedPublicationIds ?? new Set<string>();
     this.#requiresLanguageTag = options.requiresLanguageTag;
   }
 
-  async search(
-    query: PublicationSearchQuery,
-  ): Promise<PublicationSourceReference[]> {
+  async search(query: PublicationSearchQuery): Promise<PublicationSourceReference[]> {
     const diagnostics: ContentSeedDiagnostic[] = [];
     const entries = await this.#loadEntries(diagnostics);
     const idCounts = new Map<string, number>();
 
     for (const entry of entries)
-      idCounts.set(
-        entry.candidate.document.id,
-        (idCounts.get(entry.candidate.document.id) ?? 0) + 1,
-      );
+      idCounts.set(entry.candidate.document.id, (idCounts.get(entry.candidate.document.id) ?? 0) + 1);
 
     const uniqueEntries = entries.filter((entry) => {
       const id = entry.candidate.document.id;
@@ -198,60 +146,41 @@ export class LocalCatalogSource implements PublicationSource {
       return false;
     });
 
-    const canonicalEntries = associatePublicationAlternates(
-      uniqueEntries,
-      diagnostics,
-    );
+    const canonicalEntries = associatePublicationAlternates(uniqueEntries, diagnostics);
     const matchedEntries = canonicalEntries
       .filter((entry) => matchesQuery(entry.candidate, query))
       .sort((left, right) => {
         const languageDifference =
-          languagePriority(left.candidate.language) -
-          languagePriority(right.candidate.language);
+          languagePriority(left.candidate.language) - languagePriority(right.candidate.language);
         if (languageDifference !== 0) return languageDifference;
-        const rankDifference = seededRank(
-          query.seed,
-          left.candidate.document.id,
-        ).localeCompare(seededRank(query.seed, right.candidate.document.id));
-        if (rankDifference !== 0) return rankDifference;
-        return left.candidate.document.id.localeCompare(
-          right.candidate.document.id,
+        const rankDifference = seededRank(query.seed, left.candidate.document.id).localeCompare(
+          seededRank(query.seed, right.candidate.document.id),
         );
+        if (rankDifference !== 0) return rankDifference;
+        return left.candidate.document.id.localeCompare(right.candidate.document.id);
       });
 
-    this.#entries = new Map(
-      matchedEntries.map((entry) => [entry.reference.sourceId, entry]),
-    );
+    this.#entries = new Map(matchedEntries.map((entry) => [entry.reference.sourceId, entry]));
     this.diagnostics = diagnostics;
     return matchedEntries.map((entry) => entry.reference);
   }
 
-  async getMetadata(
-    reference: PublicationSourceReference,
-  ): Promise<PublicationCandidate> {
+  async getMetadata(reference: PublicationSourceReference): Promise<PublicationCandidate> {
     return this.#getEntry(reference).candidate;
   }
 
-  async materialize(
-    reference: PublicationSourceReference,
-  ): Promise<PublicationMaterial> {
+  async materialize(reference: PublicationSourceReference): Promise<PublicationMaterial> {
     const entry = this.#getEntry(reference);
     if (entry.candidate.document.source) return entry.material;
     return {
       ...entry.material,
-      fingerprint: await materialFingerprint(
-        entry.candidate.sourceDirectory,
-        entry.material,
-      ),
+      fingerprint: await materialFingerprint(entry.candidate.sourceDirectory, entry.material),
     };
   }
 
   #getEntry(reference: PublicationSourceReference) {
     const entry = this.#entries.get(reference.sourceId);
-    if (!entry)
-      throw new Error(
-        `Unknown local-catalog source reference: ${reference.sourceId}`,
-      );
+    if (!entry) throw new Error(`Unknown local-catalog source reference: ${reference.sourceId}`);
     return entry;
   }
 
@@ -261,13 +190,9 @@ export class LocalCatalogSource implements PublicationSource {
 
     for (const {manifestPath, root} of manifestPaths) {
       const sourceDirectory = dirname(manifestPath);
-      const sourceId = `${root.sourcePrefix}${toPortablePath(
-        relative(root.directory, sourceDirectory),
-      )}`;
+      const sourceId = `${root.sourcePrefix}${toPortablePath(relative(root.directory, sourceDirectory))}`;
       try {
-        const rawDocument: unknown = JSON.parse(
-          await readFile(manifestPath, "utf8"),
-        );
+        const rawDocument: unknown = JSON.parse(await readFile(manifestPath, "utf8"));
         const document = parseLocalPublicationDocument(
           rawDocument,
           toPortablePath(relative(root.directory, manifestPath)),
@@ -348,8 +273,6 @@ export class LocalCatalogSource implements PublicationSource {
         manifestPaths.push({manifestPath, root});
       }
     }
-    return manifestPaths.sort((left, right) =>
-      left.manifestPath.localeCompare(right.manifestPath),
-    );
+    return manifestPaths.sort((left, right) => left.manifestPath.localeCompare(right.manifestPath));
   }
 }

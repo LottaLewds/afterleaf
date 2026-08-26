@@ -8,5 +8,4 @@ export const nhentaiGalleryIdFromText = (text: string) => {
   return Number.isSafeInteger(galleryId) ? galleryId : undefined;
 };
 
-export const nhentaiGalleryUrl = (galleryId: number) =>
-  `https://nhentai.net/g/${galleryId}/`;
+export const nhentaiGalleryUrl = (galleryId: number) => `https://nhentai.net/g/${galleryId}/`;

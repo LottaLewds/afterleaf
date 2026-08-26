@@ -18,9 +18,7 @@ const publication = {
 } as PackedPublication;
 
 test("WeebCentral sparse pages validate metadata and page count", async () => {
-  const sourceDirectory = await mkdtemp(
-    resolve(tmpdir(), "afterleaf-weebcentral-sparse-"),
-  );
+  const sourceDirectory = await mkdtemp(resolve(tmpdir(), "afterleaf-weebcentral-sparse-"));
   const requests: string[] = [];
   const client = new WeebCentralClient({
     fetcher: stubFetch(async (input) => {
@@ -91,9 +89,7 @@ test("WeebCentral sparse pages reject changed remote page counts", async () => {
 });
 
 test("WeebCentral sparse pages reuse persisted page URLs", async () => {
-  const sourceDirectory = await mkdtemp(
-    resolve(tmpdir(), "afterleaf-weebcentral-sparse-"),
-  );
+  const sourceDirectory = await mkdtemp(resolve(tmpdir(), "afterleaf-weebcentral-sparse-"));
   const metadataHash = "b".repeat(64);
   const cachedPublication = {
     pageCount: 2,
@@ -110,8 +106,7 @@ test("WeebCentral sparse pages reuse persisted page URLs", async () => {
   );
   let pageListRequestCount = 0;
   const materialize = createWeebCentralSparsePageMaterializer({
-    downloadPage: async (pageUrl) =>
-      Buffer.from(pageUrl.endsWith("2.webp") ? [2] : [1]),
+    downloadPage: async (pageUrl) => Buffer.from(pageUrl.endsWith("2.webp") ? [2] : [1]),
     getPageList: async () => {
       pageListRequestCount += 1;
       throw new Error("Page list should not be requested");

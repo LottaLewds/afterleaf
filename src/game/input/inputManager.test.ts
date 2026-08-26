@@ -16,10 +16,7 @@ type RecordedEvent = {
 };
 
 /** Minimal window stub; bun tests have no DOM. */
-const keyboardListeners = new Map<
-  string,
-  Array<(event: FakeKeyEvent) => void>
->();
+const keyboardListeners = new Map<string, Array<(event: FakeKeyEvent) => void>>();
 type FakeKeyEvent = {
   code: string;
   repeat: boolean;
@@ -61,14 +58,10 @@ const fakeKeyEvent = (
   },
 });
 const dispatchKey = (event: FakeKeyEvent) => {
-  for (const listener of keyboardListeners.get(event.type) ?? [])
-    listener(event);
+  for (const listener of keyboardListeners.get(event.type) ?? []) listener(event);
 };
 
-const createManager = (
-  config: ShortcutsConfig = DEFAULT_SHORTCUTS,
-  consumedActions?: ReadonlySet<ShortcutAction>,
-) => {
+const createManager = (config: ShortcutsConfig = DEFAULT_SHORTCUTS, consumedActions?: ReadonlySet<ShortcutAction>) => {
   const events: RecordedEvent[] = [];
   const manager = new InputManager({
     getShortcuts: () => config,
@@ -136,9 +129,7 @@ describe("InputManager", () => {
     const {manager, events} = createManager();
     manager.update("shop");
     dispatchKey(fakeKeyEvent("Space"));
-    expect(events).toEqual([
-      {action: "jump", phase: "down", source: "keyboard"},
-    ]);
+    expect(events).toEqual([{action: "jump", phase: "down", source: "keyboard"}]);
     expect(manager.isActionDown("jump")).toBe(true);
     dispatchKey(fakeKeyEvent("Space", "keyup"));
     expect(events[1]).toEqual({
@@ -172,9 +163,7 @@ describe("InputManager", () => {
     // Lower-priority candidates run first and decline; dispatch stops as
     // soon as tvPreviousChannel consumes the press.
     expect(events.at(-1)?.action).toBe("tvPreviousChannel");
-    expect(events.some((event) => event.action === "placementCycleLeft")).toBe(
-      true,
-    );
+    expect(events.some((event) => event.action === "placementCycleLeft")).toBe(true);
 
     // When nothing declines, only the highest-priority candidate sees it.
     const all = createManager(config);
@@ -210,9 +199,7 @@ describe("InputManager", () => {
     manager.attach(new AbortController().signal);
     pressButton(manager, "A");
     expect(events.some((event) => event.source === "gamepad")).toBe(true);
-    expect(
-      events.filter((event) => event.source === "gamepad").map((e) => e.phase),
-    ).toContain("down");
+    expect(events.filter((event) => event.source === "gamepad").map((e) => e.phase)).toContain("down");
   });
 
   test("arcade mode forwards raw gamepad buttons instead of actions", () => {
@@ -407,9 +394,7 @@ describe("InputManager browser-modifier pass-through", () => {
     dispatchKey(fakeKeyEvent("KeyV", "keydown", false, {meta: true}));
     dispatchKey(fakeKeyEvent("KeyV", "keyup", false, {meta: true}));
     dispatchKey(fakeKeyEvent("KeyV"));
-    expect(events).toEqual([
-      {action: "toggleArtFramePlacement", phase: "down", source: "keyboard"},
-    ]);
+    expect(events).toEqual([{action: "toggleArtFramePlacement", phase: "down", source: "keyboard"}]);
   });
 
   test("Shift combos keep dispatching (not a browser-reserved modifier)", () => {
@@ -418,9 +403,7 @@ describe("InputManager browser-modifier pass-through", () => {
     const {manager, events} = createManager();
     manager.update("shop");
     dispatchKey(fakeKeyEvent("KeyV"));
-    expect(events).toEqual([
-      {action: "toggleArtFramePlacement", phase: "down", source: "keyboard"},
-    ]);
+    expect(events).toEqual([{action: "toggleArtFramePlacement", phase: "down", source: "keyboard"}]);
     expect(manager.isActionDown("toggleArtFramePlacement")).toBe(true);
   });
 });

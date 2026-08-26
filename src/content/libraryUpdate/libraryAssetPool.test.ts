@@ -2,43 +2,30 @@ import {afterEach, describe, expect, test} from "bun:test";
 import {access, mkdir, mkdtemp, rm, writeFile} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {join, resolve} from "node:path";
-import {
-  referencedLibraryAssetPaths,
-  retireUnreferencedLibraryAssets,
-} from "~/content/libraryUpdate/libraryAssetPool";
+import {referencedLibraryAssetPaths, retireUnreferencedLibraryAssets} from "~/content/libraryUpdate/libraryAssetPool";
 import type {ContentPackCatalog} from "~/content/schema";
 
 const temporaryDirectories: string[] = [];
 
 afterEach(async () => {
-  await Promise.all(
-    temporaryDirectories
-      .splice(0)
-      .map((directory) => rm(directory, {force: true, recursive: true})),
-  );
+  await Promise.all(temporaryDirectories.splice(0).map((directory) => rm(directory, {force: true, recursive: true})));
 });
 
-const writePooledAsset = async (
-  libraryDirectory: string,
-  relativePath: string,
-) => {
+const writePooledAsset = async (libraryDirectory: string, relativePath: string) => {
   const filePath = resolve(libraryDirectory, "assets", relativePath);
   await mkdir(resolve(filePath, ".."), {recursive: true});
   await writeFile(filePath, relativePath);
 };
 
 const catalogReferencing = (assetPaths: readonly string[]) => {
-  const [front = "", frontDetail = "", back = "", spine = "", page0 = ""] =
-    assetPaths;
+  const [front = "", frontDetail = "", back = "", spine = "", page0 = ""] = assetPaths;
   return {
     atlases: {back: [], front: [], spine: []},
     contentHash: "catalog-hash",
     id: "library",
     publications: [
       {
-        alternates: page0
-          ? [{id: "alt", originalTags: [], page0, title: "Alt"}]
-          : [],
+        alternates: page0 ? [{id: "alt", originalTags: [], page0, title: "Alt"}] : [],
         assets: {
           back,
           front,
@@ -90,9 +77,7 @@ describe("library asset pool", () => {
   });
 
   test("retires only individual pooled files no longer referenced by the active catalog", async () => {
-    const libraryDirectory = await mkdtemp(
-      join(tmpdir(), "afterleaf-asset-pool-"),
-    );
+    const libraryDirectory = await mkdtemp(join(tmpdir(), "afterleaf-asset-pool-"));
     temporaryDirectories.push(libraryDirectory);
     const kept = [
       "assets/publications/book/front-aaaa.webp",
@@ -101,31 +86,20 @@ describe("library asset pool", () => {
       "assets/publications/book/spine-dddd.webp",
     ];
     for (const assetPath of kept) {
-      await writePooledAsset(
-        libraryDirectory,
-        assetPath.slice("assets/".length),
-      );
+      await writePooledAsset(libraryDirectory, assetPath.slice("assets/".length));
     }
     // Superseded derivatives, pooled reader pages, and legacy per-snapshot
     // trees are unreferenced by catalogs that stream their pages.
     await Promise.all([
       writePooledAsset(libraryDirectory, "publications/book/front-ffff.webp"),
       writePooledAsset(libraryDirectory, "publications/book/pages/001.webp"),
-      writePooledAsset(
-        libraryDirectory,
-        "publications/superseded/spine-gggg.webp",
-      ),
-      writePooledAsset(
-        libraryDirectory,
-        "20260801T000000-abcd1234/publications/old/front-hhhh.webp",
-      ),
+      writePooledAsset(libraryDirectory, "publications/superseded/spine-gggg.webp"),
+      writePooledAsset(libraryDirectory, "20260801T000000-abcd1234/publications/old/front-hhhh.webp"),
       writePooledAsset(libraryDirectory, "atlases/front-iijj.webp"),
     ]);
     const catalog = catalogReferencing(kept);
 
-    await expect(
-      retireUnreferencedLibraryAssets(libraryDirectory, catalog, () => {}),
-    ).resolves.toEqual([
+    await expect(retireUnreferencedLibraryAssets(libraryDirectory, catalog, () => {})).resolves.toEqual([
       "assets/20260801T000000-abcd1234/publications/old/front-hhhh.webp",
       "assets/atlases/front-iijj.webp",
       "assets/publications/book/front-ffff.webp",
@@ -144,26 +118,15 @@ describe("library asset pool", () => {
     ]) {
       await access(resolve(libraryDirectory, "asset-garbage", retiredPath));
     }
-    await access(
-      resolve(
-        libraryDirectory,
-        "asset-garbage/20260801T000000-abcd1234/publications/old/front-hhhh.webp",
-      ),
-    );
+    await access(resolve(libraryDirectory, "asset-garbage/20260801T000000-abcd1234/publications/old/front-hhhh.webp"));
     // Emptied pool directories are pruned; referenced ones remain.
     await access(resolve(libraryDirectory, "assets/publications/book"));
-    await expect(
-      access(resolve(libraryDirectory, "assets/publications/superseded")),
-    ).rejects.toThrow();
-    await expect(
-      access(resolve(libraryDirectory, "assets/atlases")),
-    ).rejects.toThrow();
+    await expect(access(resolve(libraryDirectory, "assets/publications/superseded"))).rejects.toThrow();
+    await expect(access(resolve(libraryDirectory, "assets/atlases"))).rejects.toThrow();
   });
 
   test("tolerates a missing pool directory", async () => {
-    const libraryDirectory = await mkdtemp(
-      join(tmpdir(), "afterleaf-asset-pool-"),
-    );
+    const libraryDirectory = await mkdtemp(join(tmpdir(), "afterleaf-asset-pool-"));
     temporaryDirectories.push(libraryDirectory);
     const catalog = catalogReferencing([
       "assets/publications/book/front-aaaa.webp",
@@ -172,8 +135,6 @@ describe("library asset pool", () => {
       "assets/publications/book/spine-dddd.webp",
       "assets/publications/book/pages/001-eeee.webp",
     ]);
-    await expect(
-      retireUnreferencedLibraryAssets(libraryDirectory, catalog, () => {}),
-    ).resolves.toEqual([]);
+    await expect(retireUnreferencedLibraryAssets(libraryDirectory, catalog, () => {})).resolves.toEqual([]);
   });
 });

@@ -2,8 +2,7 @@ import {type Quaternion} from "three";
 
 /** Shared small math/string helpers used across the shop runtime. */
 
-export const clampUnit = (value: number): number =>
-  value > 1 ? 1 : value < -1 ? -1 : value;
+export const clampUnit = (value: number): number => (value > 1 ? 1 : value < -1 ? -1 : value);
 
 export const hashString = (value: string) => {
   let hash = 2166136261;

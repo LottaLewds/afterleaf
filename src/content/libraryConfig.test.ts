@@ -13,19 +13,12 @@ import {
   reenrollLibraryRootPath,
   unavailableLibraryPaths,
 } from "~/content/libraryConfig";
-import {
-  importLocalMedia,
-  UnavailableLibraryMediaPathsError,
-} from "~/content/libraryMedia";
+import {importLocalMedia, UnavailableLibraryMediaPathsError} from "~/content/libraryMedia";
 
 const temporaryDirectories: string[] = [];
 
 afterEach(async () => {
-  await Promise.all(
-    temporaryDirectories
-      .splice(0)
-      .map((directory) => rm(directory, {force: true, recursive: true})),
-  );
+  await Promise.all(temporaryDirectories.splice(0).map((directory) => rm(directory, {force: true, recursive: true})));
 });
 
 const createRoot = async () => {
@@ -99,38 +92,26 @@ describe("Afterleaf library config", () => {
     const configPath = resolve(root, "afterleaf.library.json");
 
     await writeFile(configPath, JSON.stringify({romPaths: {dreamcast: ["x"]}}));
-    await expect(readAfterleafLibraryConfig(root)).rejects.toThrow(
-      'unknown system "dreamcast"',
-    );
+    await expect(readAfterleafLibraryConfig(root)).rejects.toThrow('unknown system "dreamcast"');
 
     await writeFile(configPath, JSON.stringify({romPaths: {nes: [""]}}));
-    await expect(readAfterleafLibraryConfig(root)).rejects.toThrow(
-      "romPaths.nes must be an array of folder paths",
-    );
+    await expect(readAfterleafLibraryConfig(root)).rejects.toThrow("romPaths.nes must be an array of folder paths");
 
     await writeFile(configPath, JSON.stringify({romPaths: {nes: "roms/nes"}}));
-    await expect(readAfterleafLibraryConfig(root)).rejects.toThrow(
-      "romPaths.nes must be an array of folder paths",
-    );
+    await expect(readAfterleafLibraryConfig(root)).rejects.toThrow("romPaths.nes must be an array of folder paths");
 
     await writeFile(configPath, JSON.stringify({romPaths: ["nes"]}));
-    await expect(readAfterleafLibraryConfig(root)).rejects.toThrow(
-      "must map emulated system ids to folder lists",
-    );
+    await expect(readAfterleafLibraryConfig(root)).rejects.toThrow("must map emulated system ids to folder lists");
   });
 
   test("rejects unknown properties and non-array path values", async () => {
     const root = await createRoot();
     const configPath = resolve(root, "afterleaf.library.json");
     await writeFile(configPath, JSON.stringify({unknownPaths: []}));
-    await expect(readAfterleafLibraryConfig(root)).rejects.toThrow(
-      "unknown property",
-    );
+    await expect(readAfterleafLibraryConfig(root)).rejects.toThrow("unknown property");
 
     await writeFile(configPath, JSON.stringify({posterPaths: "posters"}));
-    await expect(readAfterleafLibraryConfig(root)).rejects.toThrow(
-      "posterPaths must be an array of paths",
-    );
+    await expect(readAfterleafLibraryConfig(root)).rejects.toThrow("posterPaths must be an array of paths");
   });
 
   test("rejects paths configured as both comics and manga", async () => {
@@ -158,18 +139,15 @@ describe("Afterleaf library config", () => {
       }),
     );
 
-    await expect(
-      importLocalMedia(root, resolve(root, "content-sources/catalog")),
-    ).rejects.toThrow("conflicting reading directions");
+    await expect(importLocalMedia(root, resolve(root, "content-sources/catalog"))).rejects.toThrow(
+      "conflicting reading directions",
+    );
   });
 
   test("applies the configured manga direction to archive books", async () => {
     const root = await createRoot();
     const mangaPath = resolve(root, "manga");
-    await writeFile(
-      resolve(root, "afterleaf.library.json"),
-      JSON.stringify({mangaPaths: ["manga"]}),
-    );
+    await writeFile(resolve(root, "afterleaf.library.json"), JSON.stringify({mangaPaths: ["manga"]}));
     await mkdir(mangaPath, {recursive: true});
     const page = await sharp({
       create: {background: "#446688", channels: 3, height: 96, width: 64},
@@ -181,10 +159,7 @@ describe("Afterleaf library config", () => {
     await importLocalMedia(root, resolve(root, "content-sources/catalog"));
 
     const document = JSON.parse(
-      await readFile(
-        resolve(root, "content-sources/catalog/Book/publication.json"),
-        "utf8",
-      ),
+      await readFile(resolve(root, "content-sources/catalog/Book/publication.json"), "utf8"),
     ) as {physical?: {readingDirection?: string}};
     expect(document.physical?.readingDirection).toBe("rtl");
   });
@@ -192,15 +167,12 @@ describe("Afterleaf library config", () => {
   test("locks a scan while a configured book path is unavailable", async () => {
     const root = await createRoot();
     const bookPath = resolve(root, "mounted-later");
-    await writeFile(
-      resolve(root, "afterleaf.library.json"),
-      JSON.stringify({mediaPaths: [bookPath]}),
-    );
+    await writeFile(resolve(root, "afterleaf.library.json"), JSON.stringify({mediaPaths: [bookPath]}));
 
     expect(await unavailableLibraryPaths([bookPath])).toEqual([bookPath]);
-    await expect(
-      importLocalMedia(root, resolve(root, "content-sources/catalog")),
-    ).rejects.toBeInstanceOf(UnavailableLibraryMediaPathsError);
+    await expect(importLocalMedia(root, resolve(root, "content-sources/catalog"))).rejects.toBeInstanceOf(
+      UnavailableLibraryMediaPathsError,
+    );
 
     await mkdir(bookPath);
     expect(await unavailableLibraryPaths([bookPath])).toEqual([bookPath]);
@@ -210,20 +182,16 @@ describe("Afterleaf library config", () => {
       .png()
       .toFile(resolve(bookPath, "001.png"));
     expect(await unavailableLibraryPaths([bookPath])).toEqual([]);
-    await expect(
-      importLocalMedia(root, resolve(root, "content-sources/catalog")),
-    ).resolves.toMatchObject({mediaPaths: expect.arrayContaining([bookPath])});
+    await expect(importLocalMedia(root, resolve(root, "content-sources/catalog"))).resolves.toMatchObject({
+      mediaPaths: expect.arrayContaining([bookPath]),
+    });
   });
 
   test("accepts an empty enrolled root but rejects a missing or mismatched marker", async () => {
     const root = await createRoot();
     const bookPath = resolve(root, "mounted-library");
     const publicationPath = resolve(bookPath, "Book");
-    const registryPath = resolve(
-      root,
-      "content-sources",
-      LIBRARY_ROOT_REGISTRY_FILE_NAME,
-    );
+    const registryPath = resolve(root, "content-sources", LIBRARY_ROOT_REGISTRY_FILE_NAME);
     await mkdir(publicationPath, {recursive: true});
     await sharp({
       create: {background: "#223344", channels: 3, height: 96, width: 64},
@@ -238,21 +206,15 @@ describe("Afterleaf library config", () => {
     const markerPath = resolve(bookPath, LIBRARY_ROOT_MARKER_FILE_NAME);
     const marker = await readFile(markerPath, "utf8");
     await rm(markerPath);
-    expect(await unavailableLibraryPaths([bookPath], registryPath)).toEqual([
-      bookPath,
-    ]);
+    expect(await unavailableLibraryPaths([bookPath], registryPath)).toEqual([bookPath]);
 
     const parsed = JSON.parse(marker) as {rootId: string; schemaVersion: 1};
     await writeFile(
       markerPath,
       `${JSON.stringify({...parsed, rootId: "00000000-0000-4000-8000-000000000000"}, null, 2)}\n`,
     );
-    expect(await unavailableLibraryPaths([bookPath], registryPath)).toEqual([
-      bookPath,
-    ]);
-    await expect(
-      reenrollLibraryRootPath(bookPath, registryPath),
-    ).rejects.toThrow("contains no supported books");
+    expect(await unavailableLibraryPaths([bookPath], registryPath)).toEqual([bookPath]);
+    await expect(reenrollLibraryRootPath(bookPath, registryPath)).rejects.toThrow("contains no supported books");
     await mkdir(publicationPath, {recursive: true});
     await sharp({
       create: {background: "#334455", channels: 3, height: 96, width: 64},
@@ -266,21 +228,11 @@ describe("Afterleaf library config", () => {
   test("does not automatically enroll an empty unverified root", async () => {
     const root = await createRoot();
     const bookPath = resolve(root, "empty-library");
-    const registryPath = resolve(
-      root,
-      "content-sources",
-      LIBRARY_ROOT_REGISTRY_FILE_NAME,
-    );
+    const registryPath = resolve(root, "content-sources", LIBRARY_ROOT_REGISTRY_FILE_NAME);
     await mkdir(bookPath);
 
-    expect(await unavailableLibraryPaths([bookPath], registryPath)).toEqual([
-      bookPath,
-    ]);
-    await expect(
-      stat(resolve(bookPath, LIBRARY_ROOT_MARKER_FILE_NAME)),
-    ).rejects.toThrow();
-    await expect(
-      reenrollLibraryRootPath(bookPath, registryPath),
-    ).rejects.toThrow("contains no supported books");
+    expect(await unavailableLibraryPaths([bookPath], registryPath)).toEqual([bookPath]);
+    await expect(stat(resolve(bookPath, LIBRARY_ROOT_MARKER_FILE_NAME))).rejects.toThrow();
+    await expect(reenrollLibraryRootPath(bookPath, registryPath)).rejects.toThrow("contains no supported books");
   });
 });

@@ -11,14 +11,9 @@ export class AsyncLruCache<Value> {
   readonly #load: (key: string) => Promise<Value>;
   readonly #maxEntries: number;
 
-  constructor(options: {
-    load: (key: string) => Promise<Value>;
-    maxEntries: number;
-  }) {
+  constructor(options: {load: (key: string) => Promise<Value>; maxEntries: number}) {
     if (!Number.isInteger(options.maxEntries) || options.maxEntries < 1)
-      throw new RangeError(
-        "AsyncLruCache maxEntries must be a positive integer",
-      );
+      throw new RangeError("AsyncLruCache maxEntries must be a positive integer");
 
     this.#load = options.load;
     this.#maxEntries = options.maxEntries;

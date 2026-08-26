@@ -1,20 +1,13 @@
 import {DEV} from "solid-js";
 
 import type {ArtFrameImage} from "~/artFrames/protocol";
-import type {
-  ArtFrameSystem,
-  DigitalArtFramePasteTarget,
-} from "~/game/artFrameSystem";
+import type {ArtFrameSystem, DigitalArtFramePasteTarget} from "~/game/artFrameSystem";
 import type {MovablePropLifecycle} from "~/game/movablePropSystem";
 import type {PosterSystem} from "~/game/posters/PosterSystem";
 import type {ShopTelevision} from "~/game/ShopTelevision";
 import type {ShopMediaCatalog} from "~/game/shopMediaCatalog";
 import type {PosterAsset} from "~/posters/protocol";
-import {
-  DEFAULT_TV_CHANNEL_ID,
-  type TvChannel,
-  tvVideoImportUrl,
-} from "~/tv/protocol";
+import {DEFAULT_TV_CHANNEL_ID, type TvChannel, tvVideoImportUrl} from "~/tv/protocol";
 import type {TvVideoImporter} from "~/game/tvVideoImporter";
 
 export type ShopMediaControllerHost = {
@@ -22,16 +15,8 @@ export type ShopMediaControllerHost = {
   artFrames: () => ArtFrameSystem;
   disposed: () => boolean;
   emitGameState: () => void;
-  importArtFrameImage:
-    | ((
-        image: Blob,
-        channelId: string,
-        signal: AbortSignal,
-      ) => Promise<ArtFrameImage>)
-    | undefined;
-  importPoster:
-    | ((image: Blob, signal: AbortSignal) => Promise<PosterAsset>)
-    | undefined;
+  importArtFrameImage: ((image: Blob, channelId: string, signal: AbortSignal) => Promise<ArtFrameImage>) | undefined;
+  importPoster: ((image: Blob, signal: AbortSignal) => Promise<PosterAsset>) | undefined;
   loadMediaCatalog: (signal: AbortSignal) => Promise<ShopMediaCatalog>;
   onTextPaste: ((text: string) => boolean | Promise<boolean>) | undefined;
   paused: () => boolean;
@@ -59,12 +44,7 @@ export class ShopMediaController {
 
   readonly refreshIfActive = () => {
     const host = this.#host;
-    if (
-      document.visibilityState !== "visible" ||
-      !document.hasFocus() ||
-      host.disposed()
-    )
-      return;
+    if (document.visibilityState !== "visible" || !document.hasFocus() || host.disposed()) return;
     void this.refresh();
   };
 
@@ -78,22 +58,16 @@ export class ShopMediaController {
       host.props().applyModelCatalog(catalog.models.models);
       await host.props().restoreSavedModelProps();
       host.posters().applyPosterCatalog(catalog.posters.posters);
-      if (!host.posters().saveRestoreCompleted)
-        await host.posters().restoreSavedPosters(catalog.posters.posters);
+      if (!host.posters().saveRestoreCompleted) await host.posters().restoreSavedPosters(catalog.posters.posters);
       host.artFrames().applyArtFrameCatalog(catalog.artFrames.channels);
       if (!host.artFrames().saveRestoreCompleted)
-        await host
-          .artFrames()
-          .restoreSavedDigitalArtFrames(catalog.artFrames.channels);
+        await host.artFrames().restoreSavedDigitalArtFrames(catalog.artFrames.channels);
       this.#tvChannels = catalog.tv.channels;
-      for (const television of host.televisions())
-        television.setChannels(catalog.tv.channels);
+      for (const television of host.televisions()) television.setChannels(catalog.tv.channels);
       host.emitGameState();
     } catch (error) {
-      for (const television of host.televisions())
-        television.setChannelLoadError(error);
-      if (DEV && !host.abortSignal.aborted)
-        console.warn("Afterleaf could not load the shop media catalog.", error);
+      for (const television of host.televisions()) television.setChannelLoadError(error);
+      if (DEV && !host.abortSignal.aborted) console.warn("Afterleaf could not load the shop media catalog.", error);
     } finally {
       this.#mediaCatalogRequestPending = false;
     }
@@ -108,30 +82,20 @@ export class ShopMediaController {
     );
     const image = imageItem?.getAsFile();
     if (image && this.#handlePastedImage(event, image, artFrameTarget)) return;
-    const clipboardText =
-      event.clipboardData?.getData("text/plain") ||
-      event.clipboardData?.getData("text/uri-list");
+    const clipboardText = event.clipboardData?.getData("text/plain") || event.clipboardData?.getData("text/uri-list");
     if (!clipboardText) return;
-    const television = host.televisionTargeted()
-      ? host.targetedTelevision()
-      : undefined;
+    const television = host.televisionTargeted() ? host.targetedTelevision() : undefined;
     const channelId = television?.selectedChannelId();
     event.preventDefault();
     void this.#handlePastedText(
       clipboardText,
       television,
       channelId ?? (television ? DEFAULT_TV_CHANNEL_ID : undefined),
-      television?.selectedChannelLabel() ??
-        channelId ??
-        (television ? "Afterleaf TV" : undefined),
+      television?.selectedChannelLabel() ?? channelId ?? (television ? "Afterleaf TV" : undefined),
     );
   };
 
-  #handlePastedImage(
-    event: ClipboardEvent,
-    image: File,
-    artFrameTarget: DigitalArtFramePasteTarget | undefined,
-  ) {
+  #handlePastedImage(event: ClipboardEvent, image: File, artFrameTarget: DigitalArtFramePasteTarget | undefined) {
     const host = this.#host;
     if (artFrameTarget && host.importArtFrameImage) {
       event.preventDefault();
@@ -161,8 +125,6 @@ export class ShopMediaController {
     if (handled) return;
     const url = tvVideoImportUrl(text);
     if (!television || !channelId || !channelLabel || !url) return;
-    await this.#host
-      .tvVideos()
-      .import(television, url, channelId, channelLabel);
+    await this.#host.tvVideos().import(television, url, channelId, channelLabel);
   }
 }

@@ -15,11 +15,7 @@ import {parseLocalPublicationDocument} from "~/content/validation";
 const temporaryDirectories: string[] = [];
 
 afterEach(async () => {
-  await Promise.all(
-    temporaryDirectories
-      .splice(0)
-      .map((directory) => rm(directory, {recursive: true, force: true})),
-  );
+  await Promise.all(temporaryDirectories.splice(0).map((directory) => rm(directory, {recursive: true, force: true})));
 });
 
 const createImage = async (path: string, color: string) => {
@@ -33,11 +29,7 @@ const createImage = async (path: string, color: string) => {
 
 describe("catalog preparation inference", () => {
   test("recognizes dated and numbered Comic magazine families", () => {
-    expect(
-      inferPreparedPublicationIdentity("Comic Kairakuten 2024-05 [English]", [
-        "big breasts",
-      ]),
-    ).toEqual({
+    expect(inferPreparedPublicationIdentity("Comic Kairakuten 2024-05 [English]", ["big breasts"])).toEqual({
       groupId: "comic-kairakuten",
       issue: {year: 2024, month: 5},
       kind: "magazine",
@@ -50,10 +42,7 @@ describe("catalog preparation inference", () => {
       kind: "magazine",
     });
     expect(
-      inferPreparedPublicationIdentity(
-        "[Example Editor] COMIC Kairakuten 2025-08 [Digital] [English]",
-        [],
-      ),
+      inferPreparedPublicationIdentity("[Example Editor] COMIC Kairakuten 2025-08 [Digital] [English]", []),
     ).toMatchObject({
       groupId: "comic-kairakuten",
       issue: {year: 2025, month: 8},
@@ -63,21 +52,11 @@ describe("catalog preparation inference", () => {
   });
 
   test("detects supported language hints and rejects Chinese", () => {
-    expect(
-      detectPreparedPublicationLanguage("Some Book [Japanese]", "english"),
-    ).toEqual({language: "japanese"});
-    expect(
-      detectPreparedPublicationLanguage("Some Book [Chinese]", "english"),
-    ).toEqual({unsupportedLabel: "Chinese"});
-    expect(
-      detectPreparedPublicationLanguage("Japanese Breakfast", "english"),
-    ).toEqual({language: "english"});
-    expect(
-      detectPreparedPublicationReadingDirection("Some Book [English] [RTL]"),
-    ).toBe("rtl");
-    expect(
-      detectPreparedPublicationReadingDirection("Some Book [Japanese]"),
-    ).toBeUndefined();
+    expect(detectPreparedPublicationLanguage("Some Book [Japanese]", "english")).toEqual({language: "japanese"});
+    expect(detectPreparedPublicationLanguage("Some Book [Chinese]", "english")).toEqual({unsupportedLabel: "Chinese"});
+    expect(detectPreparedPublicationLanguage("Japanese Breakfast", "english")).toEqual({language: "english"});
+    expect(detectPreparedPublicationReadingDirection("Some Book [English] [RTL]")).toBe("rtl");
+    expect(detectPreparedPublicationReadingDirection("Some Book [Japanese]")).toBeUndefined();
   });
 
   test("parses preview options", () => {
@@ -117,14 +96,9 @@ test("prepareLocalCatalog writes natural page order and skips Chinese folders", 
 
   expect(report.preparedCount).toBe(2);
   expect(report.skippedCount).toBe(1);
-  expect(report.diagnostics.map((diagnostic) => diagnostic.code)).toEqual([
-    "inferred-magazine",
-    "skipped-language",
-  ]);
+  expect(report.diagnostics.map((diagnostic) => diagnostic.code)).toEqual(["inferred-magazine", "skipped-language"]);
   const englishManifest = parseLocalPublicationDocument(
-    JSON.parse(
-      await readFile(resolve(englishDirectory, "publication.json"), "utf8"),
-    ) as unknown,
+    JSON.parse(await readFile(resolve(englishDirectory, "publication.json"), "utf8")) as unknown,
     "publication.json",
   );
   expect(englishManifest).toMatchObject({
@@ -140,9 +114,7 @@ test("prepareLocalCatalog writes natural page order and skips Chinese folders", 
   });
   expect(englishManifest.physical?.readingDirection).toBeUndefined();
   const japaneseManifest = parseLocalPublicationDocument(
-    JSON.parse(
-      await readFile(resolve(japaneseDirectory, "publication.json"), "utf8"),
-    ) as unknown,
+    JSON.parse(await readFile(resolve(japaneseDirectory, "publication.json"), "utf8")) as unknown,
     "publication.json",
   );
   expect(japaneseManifest.physical?.readingDirection).toBeUndefined();
@@ -160,10 +132,7 @@ test("prepareLocalCatalog recursively discovers media leaves and keeps organizat
     createImage(resolve(firstBook, "001.jpg"), "#202020"),
     createImage(resolve(secondBook, "001.jpg"), "#303030"),
     createImage(resolve(archiveContainer, "random.jpg"), "#404040"),
-    writeFile(
-      resolve(archiveContainer, "Book Three.cbz"),
-      "not inspected here",
-    ),
+    writeFile(resolve(archiveContainer, "Book Three.cbz"), "not inspected here"),
   ]);
 
   const report = await prepareLocalCatalog({
@@ -175,10 +144,7 @@ test("prepareLocalCatalog recursively discovers media leaves and keeps organizat
     write: true,
   });
 
-  expect(report.publications.map(({directory}) => directory)).toEqual([
-    "authorA/series/Book One",
-    "authorB/Book Two",
-  ]);
+  expect(report.publications.map(({directory}) => directory)).toEqual(["authorA/series/Book One", "authorB/Book Two"]);
   expect(report.diagnostics).toEqual(
     expect.arrayContaining([
       expect.objectContaining({
@@ -191,17 +157,11 @@ test("prepareLocalCatalog recursively discovers media leaves and keeps organizat
       }),
     ]),
   );
-  await expect(
-    Bun.file(resolve(root, "authorA/publication.json")).exists(),
-  ).resolves.toBe(false);
-  await expect(
-    Bun.file(resolve(archiveContainer, "publication.json")).exists(),
-  ).resolves.toBe(false);
+  await expect(Bun.file(resolve(root, "authorA/publication.json")).exists()).resolves.toBe(false);
+  await expect(Bun.file(resolve(archiveContainer, "publication.json")).exists()).resolves.toBe(false);
   for (const directory of [firstBook, secondBook]) {
     const document = parseLocalPublicationDocument(
-      JSON.parse(
-        await readFile(resolve(directory, "publication.json"), "utf8"),
-      ) as unknown,
+      JSON.parse(await readFile(resolve(directory, "publication.json"), "utf8")) as unknown,
       "publication.json",
     );
     expect(document.physical?.readingDirection).toBe("rtl");
@@ -212,10 +172,7 @@ test("prepareLocalCatalog preserves nested publications when a configured root m
   const root = await mkdtemp(join(tmpdir(), "afterleaf-prepare-root-move-"));
   temporaryDirectories.push(root);
   const libraryDirectory = resolve(root, "manga");
-  const publicationDirectory = resolve(
-    libraryDirectory,
-    "author/Existing Book",
-  );
+  const publicationDirectory = resolve(libraryDirectory, "author/Existing Book");
   await createImage(resolve(publicationDirectory, "001.jpg"), "#505050");
   const options = {
     defaultLanguage: "english" as const,
@@ -233,15 +190,9 @@ test("prepareLocalCatalog preserves nested publications when a configured root m
   });
 
   expect(parentReport.publications).toEqual([]);
-  expect(parentReport.diagnostics.map(({code}) => code)).toContain(
-    "existing-manifest",
-  );
-  await expect(
-    Bun.file(resolve(libraryDirectory, "publication.json")).exists(),
-  ).resolves.toBe(false);
-  await expect(
-    Bun.file(resolve(publicationDirectory, "publication.json")).exists(),
-  ).resolves.toBe(true);
+  expect(parentReport.diagnostics.map(({code}) => code)).toContain("existing-manifest");
+  await expect(Bun.file(resolve(libraryDirectory, "publication.json")).exists()).resolves.toBe(false);
+  await expect(Bun.file(resolve(publicationDirectory, "publication.json")).exists()).resolves.toBe(true);
 });
 
 test("prepareLocalCatalog ignores an accidental outer manifest without deleting it", async () => {
@@ -276,11 +227,7 @@ test("prepareLocalCatalog ignores an accidental outer manifest without deleting 
     write: true,
   });
 
-  expect(report.diagnostics).toEqual(
-    expect.arrayContaining([
-      expect.objectContaining({code: "shadowed-manifest"}),
-    ]),
-  );
+  expect(report.diagnostics).toEqual(expect.arrayContaining([expect.objectContaining({code: "shadowed-manifest"})]));
   expect(await readFile(outerManifest, "utf8")).toBe(outerContents);
 });
 
@@ -305,12 +252,8 @@ test("prepareLocalCatalog preserves malformed manifests and continues scanning",
     write: true,
   });
 
-  expect(await readFile(manifestPath, "utf8")).toBe(
-    "{ definitely not valid JSON",
-  );
-  expect(report.publications.map(({directory}) => directory)).toEqual([
-    "Healthy Book",
-  ]);
+  expect(await readFile(manifestPath, "utf8")).toBe("{ definitely not valid JSON");
+  expect(report.publications.map(({directory}) => directory)).toEqual(["Healthy Book"]);
   expect(report.diagnostics).toEqual(
     expect.arrayContaining([
       expect.objectContaining({
@@ -360,9 +303,7 @@ test("prepareLocalCatalog removes a configured reading direction on refresh", as
   await prepareLocalCatalog(options);
 
   const document = parseLocalPublicationDocument(
-    JSON.parse(
-      await readFile(resolve(publicationDirectory, "publication.json"), "utf8"),
-    ) as unknown,
+    JSON.parse(await readFile(resolve(publicationDirectory, "publication.json"), "utf8")) as unknown,
     "publication.json",
   );
   expect(document.physical?.readingDirection).toBeUndefined();

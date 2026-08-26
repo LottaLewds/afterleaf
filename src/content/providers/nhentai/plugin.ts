@@ -17,23 +17,17 @@ export const NHENTAI_PROVIDER_ID = "nhentai" as const;
 const normalizeQuery = (query: string) => {
   const normalized = query.trim();
   if (!normalized) return 'tag:"big breasts"';
-  return normalized.includes(":")
-    ? normalized
-    : `tag:${JSON.stringify(normalized)}`;
+  return normalized.includes(":") ? normalized : `tag:${JSON.stringify(normalized)}`;
 };
 
-const reportFromNhentai = (
-  report: NhentaiSyncReport,
-): LibraryProviderSyncReport => ({
+const reportFromNhentai = (report: NhentaiSyncReport): LibraryProviderSyncReport => ({
   addedCount: report.addedCount,
   diagnostics: report.diagnostics,
   outputDirectory: report.outputDirectory,
   providerId: NHENTAI_PROVIDER_ID,
   query: report.query,
   requestedLimit: report.requestedLimit,
-  selectedPublicationIds: report.selectedGalleryIds.map(
-    (galleryId) => `nhentai-${galleryId}`,
-  ),
+  selectedPublicationIds: report.selectedGalleryIds.map((galleryId) => `nhentai-${galleryId}`),
   unchangedCount: report.unchangedCount,
   updatedCount: report.updatedCount,
   wroteCatalog: report.wroteCatalog,
@@ -44,25 +38,19 @@ export interface NhentaiProviderOptions {
   clientOptions?: NhentaiClientOptions;
 }
 
-const logNhentaiRetry: NonNullable<NhentaiClientOptions["onRetry"]> = (
-  event,
-) => {
+const logNhentaiRetry: NonNullable<NhentaiClientOptions["onRetry"]> = (event) => {
   const status = event.status ? `HTTP ${event.status}` : "network failure";
   console.warn(
     `[afterleaf] nHentai ${status}; retry ${event.retryAttempt}/${event.retryLimit} in ${event.delayMilliseconds} ms (${event.delaySource}): ${event.url}`,
   );
 };
 
-const nhentaiRetryProgress = (
-  event: Parameters<NonNullable<NhentaiClientOptions["onRetry"]>>[0],
-) => {
+const nhentaiRetryProgress = (event: Parameters<NonNullable<NhentaiClientOptions["onRetry"]>>[0]) => {
   const status = event.status ? `HTTP ${event.status}` : "network failure";
   return `nHentai ${status}; retry ${event.retryAttempt}/${event.retryLimit} in ${event.delayMilliseconds} ms (${event.delaySource}): ${event.url}`;
 };
 
-export const createNhentaiProviderFromEnvironment = (
-  descriptor: LibraryProviderDescriptor,
-) => {
+export const createNhentaiProviderFromEnvironment = (descriptor: LibraryProviderDescriptor) => {
   return createNhentaiProvider({
     descriptor,
     clientOptions: nhentaiClientOptionsFromEnvironment(),
@@ -94,14 +82,9 @@ export const createNhentaiProvider = (
         options.client ??
         new NhentaiClient({
           ...options.clientOptions,
-          cacheDirectory: resolve(
-            syncOptions.outputDirectory,
-            ".afterleaf-api-cache",
-          ),
+          cacheDirectory: resolve(syncOptions.outputDirectory, ".afterleaf-api-cache"),
           onCacheHit: ({ageMilliseconds, url}) =>
-            syncOptions.onProgress?.(
-              `nHentai API cache hit (${Math.round(ageMilliseconds / 1_000)}s old): ${url}`,
-            ),
+            syncOptions.onProgress?.(`nHentai API cache hit (${Math.round(ageMilliseconds / 1_000)}s old): ${url}`),
           onRetry: (event) => {
             (options.clientOptions?.onRetry ?? logNhentaiRetry)(event);
             syncOptions.onProgress?.(nhentaiRetryProgress(event));
@@ -115,12 +98,8 @@ export const createNhentaiProvider = (
             languages: [...syncOptions.languages],
             limit: syncOptions.limit,
             maxSearchPages: syncOptions.maxSearchPages,
-            ...(syncOptions.onProgress === undefined
-              ? {}
-              : {onProgress: syncOptions.onProgress}),
-            ...(syncOptions.onStep === undefined
-              ? {}
-              : {onStep: syncOptions.onStep}),
+            ...(syncOptions.onProgress === undefined ? {} : {onProgress: syncOptions.onProgress}),
+            ...(syncOptions.onStep === undefined ? {} : {onStep: syncOptions.onStep}),
             outputDirectory: syncOptions.outputDirectory,
             previewPageCount: 3,
             query: normalizeQuery(syncOptions.query),
@@ -135,6 +114,5 @@ export const createNhentaiProvider = (
   };
 };
 
-export const createProvider: LibraryProviderPluginModule["createProvider"] = (
-  context,
-) => createNhentaiProviderFromEnvironment(context.descriptor);
+export const createProvider: LibraryProviderPluginModule["createProvider"] = (context) =>
+  createNhentaiProviderFromEnvironment(context.descriptor);

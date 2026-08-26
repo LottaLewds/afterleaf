@@ -38,17 +38,12 @@ const buildSyntheticAtlas = async (): Promise<Buffer> => {
 };
 
 const imageDecoder = async (buffer: Uint8Array) => {
-  const {data, info} = await sharp(Buffer.from(buffer))
-    .ensureAlpha()
-    .raw()
-    .toBuffer({resolveWithObject: true});
+  const {data, info} = await sharp(Buffer.from(buffer)).ensureAlpha().raw().toBuffer({resolveWithObject: true});
   return {data: new Uint8Array(data), width: info.width, height: info.height};
 };
 
 const png = await buildSyntheticAtlas();
-console.log(
-  `atlas: ${WIDTH}x${HEIGHT} png=${(png.byteLength / 1048576).toFixed(1)} MiB`,
-);
+console.log(`atlas: ${WIDTH}x${HEIGHT} png=${(png.byteLength / 1048576).toFixed(1)} MiB`);
 
 let t0 = Date.now();
 await encodeToKTX2(new Uint8Array(png), {
@@ -61,11 +56,7 @@ console.log(`serial ETC1S: ${(serialMs / 1000).toFixed(1)}s`);
 
 t0 = Date.now();
 const concurrent = Number(process.argv[2] ?? 8);
-await Promise.all(
-  Array.from({length: concurrent}, () =>
-    encodeShelfAtlasPng(new Uint8Array(png), false),
-  ),
-);
+await Promise.all(Array.from({length: concurrent}, () => encodeShelfAtlasPng(new Uint8Array(png), false)));
 const pooledMs = Date.now() - t0;
 console.log(
   `pool x${concurrent}: ${(pooledMs / 1000).toFixed(1)}s total, ${(pooledMs / concurrent / 1000).toFixed(1)}s per atlas, speedup ${(serialMs / (pooledMs / concurrent)).toFixed(1)}x`,

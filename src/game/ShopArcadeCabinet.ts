@@ -16,15 +16,8 @@ import {DEV} from "solid-js";
 
 import {arcadeGameId, findArcadeSystem} from "~/arcade/systems";
 import {buildDefaultControllers} from "~/arcade/controllerMappings";
-import {
-  launchEmulator,
-  type EmulatorSession,
-  type ForwardedKeyEvent,
-} from "~/arcade/emulatorHost";
-import {
-  type PositionalStreamAudioHandle,
-  type ShopAudioManager,
-} from "~/game/ShopAudioManager";
+import {launchEmulator, type EmulatorSession, type ForwardedKeyEvent} from "~/arcade/emulatorHost";
+import {type PositionalStreamAudioHandle, type ShopAudioManager} from "~/game/ShopAudioManager";
 import arcadeCabinetModelUrl from "~/assets/models/arcade_cabinet_ms_pacman.glb?url";
 import {
   findModelTelevisionScreen,
@@ -39,11 +32,7 @@ export const ARCADE_CABINET_SCREEN_NODE_NAME = "TVScreen";
 export type ArcadeCabinetInteraction = "body" | "screen";
 
 /** Lifecycle of one cabinet's emulator; undefined means attract mode. */
-export type ArcadeSessionStatus =
-  | "browsing"
-  | "downloading"
-  | "launching"
-  | "playing";
+export type ArcadeSessionStatus = "browsing" | "downloading" | "launching" | "playing";
 
 export type ShopArcadePlayRequest = {
   systemId: string;
@@ -91,10 +80,7 @@ const ARCADE_VOLUME_STORAGE_KEY = "afterleaf.arcade.volume";
 
 const clampArcadeVolume = (volume: number): number =>
   Number.isFinite(volume)
-    ? Math.min(
-        ARCADE_VOLUME_MAX,
-        Math.max(ARCADE_VOLUME_MIN, Math.round(volume * 100) / 100),
-      )
+    ? Math.min(ARCADE_VOLUME_MAX, Math.max(ARCADE_VOLUME_MIN, Math.round(volume * 100) / 100))
     : 1;
 
 const loadStoredArcadeVolume = (): number => {
@@ -175,8 +161,7 @@ export class ShopArcadeCabinet {
     this.#screenAspect = 6 / 5;
     this.object.name = "shop-arcade-cabinet";
     this.object.position.set(...options.position);
-    if (options.rotationY !== undefined)
-      this.object.rotation.y = options.rotationY;
+    if (options.rotationY !== undefined) this.object.rotation.y = options.rotationY;
 
     this.#attractCanvas = document.createElement("canvas");
     this.#attractCanvas.width = 384;
@@ -228,8 +213,7 @@ export class ShopArcadeCabinet {
     scene.updateMatrixWorld(true);
     const bounds = new Box3().setFromObject(scene);
     const size = bounds.getSize(new Vector3());
-    if (size.y > Number.EPSILON)
-      scene.scale.setScalar(ARCADE_CABINET_HEIGHT / size.y);
+    if (size.y > Number.EPSILON) scene.scale.setScalar(ARCADE_CABINET_HEIGHT / size.y);
     scene.updateMatrixWorld(true);
     const scaledBounds = new Box3().setFromObject(scene);
     const scaledCenter = scaledBounds.getCenter(new Vector3());
@@ -239,17 +223,13 @@ export class ShopArcadeCabinet {
     scene.position.sub(scaledCenter);
     this.object.add(scene);
 
-    const screen = findModelTelevisionScreen(
-      this.object,
-      ARCADE_CABINET_SCREEN_NODE_NAME,
-    );
+    const screen = findModelTelevisionScreen(this.object, ARCADE_CABINET_SCREEN_NODE_NAME);
     if (!screen) {
       console.error("The arcade cabinet model is missing its TVScreen node.");
       return;
     }
     const measuredAspect = getModelTelevisionScreenAspect(screen);
-    if (measuredAspect && Number.isFinite(measuredAspect))
-      this.#screenAspect = measuredAspect;
+    if (measuredAspect && Number.isFinite(measuredAspect)) this.#screenAspect = measuredAspect;
 
     normalizeModelScreenUvs(screen);
     screen.material = this.#material;
@@ -257,10 +237,7 @@ export class ShopArcadeCabinet {
 
     // The cabinet's static trim collapses into one draw call per material
     // signature; the screen stays independent for live emulator output.
-    const {consumed, parts} = buildMergedStaticParts(
-      scene,
-      (mesh) => mesh === screen,
-    );
+    const {consumed, parts} = buildMergedStaticParts(scene, (mesh) => mesh === screen);
     if (consumed.length > 1) {
       for (const original of consumed) original.removeFromParent();
       for (const {geometry, material} of parts) {
@@ -328,11 +305,7 @@ export class ShopArcadeCabinet {
     return this.#sessionSystemId;
   }
 
-  #setSession(
-    status: ArcadeSessionStatus | undefined,
-    detail?: string,
-    romName?: string,
-  ) {
+  #setSession(status: ArcadeSessionStatus | undefined, detail?: string, romName?: string) {
     this.#sessionStatus = status;
     this.#sessionDetail = detail;
     if (romName !== undefined) this.#sessionRomName = romName;
@@ -419,9 +392,7 @@ export class ShopArcadeCabinet {
 
   /** Ctrl+wheel volume; persists across sessions and applies live. */
   adjustArcadeVolume(direction: -1 | 1) {
-    const next = clampArcadeVolume(
-      this.#arcadeUserVolume + direction * ARCADE_VOLUME_STEP,
-    );
+    const next = clampArcadeVolume(this.#arcadeUserVolume + direction * ARCADE_VOLUME_STEP);
     if (next === this.#arcadeUserVolume) return;
     this.#arcadeUserVolume = next;
     storeArcadeVolume(next);
@@ -450,11 +421,7 @@ export class ShopArcadeCabinet {
   #ensureOsdSurface(label: string, color: string): boolean {
     const canvas = this.#liveCanvas;
     if (!canvas || canvas.width === 0 || canvas.height === 0) return false;
-    if (
-      !this.#osdCanvas ||
-      this.#osdCanvas.width !== canvas.width ||
-      this.#osdCanvas.height !== canvas.height
-    ) {
+    if (!this.#osdCanvas || this.#osdCanvas.width !== canvas.width || this.#osdCanvas.height !== canvas.height) {
       this.#disposeOsd();
       this.#osdCanvas = document.createElement("canvas");
       this.#osdCanvas.width = canvas.width;
@@ -634,8 +601,7 @@ export class ShopArcadeCabinet {
     context.fillRect(0, scanY - 30, width, 60);
 
     // Scrolling marquee ticker along the bottom edge.
-    const ticker =
-      "HOME BREW CARTRIDGES · HIGH SCORES NIGHTLY · NO QUARTERS NEEDED · ";
+    const ticker = "HOME BREW CARTRIDGES · HIGH SCORES NIGHTLY · NO QUARTERS NEEDED · ";
     context.font = `${Math.round(width * 0.042)}px monospace`;
     const tickerWidth = context.measureText(ticker).width;
     const offset = (timeSeconds * 90) % tickerWidth;
@@ -670,9 +636,7 @@ export class ShopArcadeCabinet {
       // black frames.
       const canvas = this.#liveCanvas;
       const frames = this.#host?.frameCount();
-      const resized =
-        canvas.width !== this.#uploadedWidth ||
-        canvas.height !== this.#uploadedHeight;
+      const resized = canvas.width !== this.#uploadedWidth || canvas.height !== this.#uploadedHeight;
       if (resized) {
         this.#uploadedWidth = canvas.width;
         this.#uploadedHeight = canvas.height;
@@ -692,10 +656,7 @@ export class ShopArcadeCabinet {
       this.#attractTexture.needsUpdate = true;
       this.#sinceAttractRedraw = 0;
     }
-    this.#marqueeLight.intensity =
-      0.78 +
-      0.14 * Math.sin(this.#attractTime * 9.1) +
-      (this.#targeted ? 0.16 : 0);
+    this.#marqueeLight.intensity = 0.78 + 0.14 * Math.sin(this.#attractTime * 9.1) + (this.#targeted ? 0.16 : 0);
   }
 
   dispose() {
@@ -711,9 +672,7 @@ export class ShopArcadeCabinet {
     this.object.traverse((child) => {
       if (!(child instanceof Mesh)) return;
       child.geometry?.dispose();
-      const materials = Array.isArray(child.material)
-        ? child.material
-        : [child.material];
+      const materials = Array.isArray(child.material) ? child.material : [child.material];
       for (const material of materials) material?.dispose();
     });
   }

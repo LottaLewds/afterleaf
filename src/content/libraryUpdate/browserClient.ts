@@ -84,11 +84,7 @@ export type LocalLibraryOperationStatus =
       state: "failed";
     });
 
-const requestJson = async (
-  endpoint: string,
-  init: RequestInit,
-  fetcher: LibraryOperationFetch,
-) => {
+const requestJson = async (endpoint: string, init: RequestInit, fetcher: LibraryOperationFetch) => {
   const response = await fetcher(endpoint, {
     cache: "no-store",
     credentials: "same-origin",
@@ -126,11 +122,7 @@ const throwResponseError = (
         message: `Library operation failed with HTTP ${response.status}`,
       }
     : result.error;
-  throw new BrowserLibraryOperationError(
-    error.message,
-    error.code,
-    response.status,
-  );
+  throw new BrowserLibraryOperationError(error.message, error.code, response.status);
 };
 
 const requestSnapshotOperation = async (
@@ -175,16 +167,9 @@ export const scanLocalLibrary = (
   optionsOrFetcher: LibraryScanRequest | LibraryOperationFetch = {},
   fetcher: LibraryOperationFetch = fetch,
 ) => {
-  const options =
-    typeof optionsOrFetcher === "function" ? {} : optionsOrFetcher;
-  const requestFetcher =
-    typeof optionsOrFetcher === "function" ? optionsOrFetcher : fetcher;
-  return requestSnapshotOperation(
-    LIBRARY_SCAN_ENDPOINT,
-    "scan",
-    options,
-    requestFetcher,
-  );
+  const options = typeof optionsOrFetcher === "function" ? {} : optionsOrFetcher;
+  const requestFetcher = typeof optionsOrFetcher === "function" ? optionsOrFetcher : fetcher;
+  return requestSnapshotOperation(LIBRARY_SCAN_ENDPOINT, "scan", options, requestFetcher);
 };
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -206,11 +191,7 @@ export const loadActiveLibraryJob = async (
     },
     fetcher,
   );
-  if (
-    !isRecord(value) ||
-    value.ok !== true ||
-    (value.state !== "active" && value.state !== "idle")
-  )
+  if (!isRecord(value) || value.ok !== true || (value.state !== "active" && value.state !== "idle"))
     throw new BrowserLibraryOperationError(
       "The library operation server returned an invalid active-job status",
       "invalid_response",
@@ -252,11 +233,7 @@ export const loadLibraryOperationStatus = async (
   }
   throwResponseError(response, result);
   if (!result.ok)
-    throw new BrowserLibraryOperationError(
-      "The library operation failed",
-      "operation_failed",
-      response.status,
-    );
+    throw new BrowserLibraryOperationError("The library operation failed", "operation_failed", response.status);
   if (result.jobId !== jobId)
     throw new BrowserLibraryOperationError(
       "The library operation server returned the wrong job",
@@ -273,8 +250,7 @@ export const loadLibraryOperationStatus = async (
     totalSteps,
   };
   if (result.state === "running") return {...base, state: "running"};
-  if (result.state === "failed")
-    return {...base, error: result.error, state: "failed"};
+  if (result.state === "failed") return {...base, error: result.error, state: "failed"};
   return {
     ...base,
     result: {
@@ -289,16 +265,8 @@ export const loadLibraryOperationStatus = async (
   };
 };
 
-export const fetchMorePublications = (
-  request: LibraryFetchMoreRequest,
-  fetcher: LibraryOperationFetch = fetch,
-) =>
-  requestSnapshotOperation(
-    LIBRARY_FETCH_MORE_ENDPOINT,
-    "fetch-more",
-    request,
-    fetcher,
-  );
+export const fetchMorePublications = (request: LibraryFetchMoreRequest, fetcher: LibraryOperationFetch = fetch) =>
+  requestSnapshotOperation(LIBRARY_FETCH_MORE_ENDPOINT, "fetch-more", request, fetcher);
 
 export const resolvePastedLibraryImport = async (
   text: string,
@@ -330,11 +298,7 @@ export const resolvePastedLibraryImport = async (
 export const loadLibraryProviders = async (
   fetcher: LibraryOperationFetch = fetch,
 ): Promise<readonly LibraryProviderDescriptor[]> => {
-  const {response, value} = await requestJson(
-    LIBRARY_PROVIDERS_ENDPOINT,
-    {method: "GET"},
-    fetcher,
-  );
+  const {response, value} = await requestJson(LIBRARY_PROVIDERS_ENDPOINT, {method: "GET"}, fetcher);
   let result;
   try {
     result = parseLibraryProvidersHttpResponse(value);
@@ -350,14 +314,8 @@ export const loadLibraryProviders = async (
   return result.providers;
 };
 
-export const loadLibrarySourceStatus = async (
-  fetcher: LibraryOperationFetch = fetch,
-) => {
-  const {response, value} = await requestJson(
-    LIBRARY_SOURCE_STATUS_ENDPOINT,
-    {method: "GET"},
-    fetcher,
-  );
+export const loadLibrarySourceStatus = async (fetcher: LibraryOperationFetch = fetch) => {
+  const {response, value} = await requestJson(LIBRARY_SOURCE_STATUS_ENDPOINT, {method: "GET"}, fetcher);
   let result;
   try {
     result = parseLibrarySourceStatusHttpResponse(value);
@@ -400,11 +358,7 @@ export const blacklistPublication = async (
   }
   throwResponseError(response, result);
   if (!result.ok)
-    throw new BrowserLibraryOperationError(
-      "The library operation failed",
-      "operation_failed",
-      response.status,
-    );
+    throw new BrowserLibraryOperationError("The library operation failed", "operation_failed", response.status);
   const {added, blacklistedCount, publicationId} = result;
   return {added, blacklistedCount, publicationId};
 };
@@ -412,11 +366,7 @@ export const blacklistPublication = async (
 export const loadBlacklistedPublications = async (
   fetcher: LibraryOperationFetch = fetch,
 ): Promise<readonly string[]> => {
-  const {response, value} = await requestJson(
-    LIBRARY_BLACKLIST_ENDPOINT,
-    {method: "GET"},
-    fetcher,
-  );
+  const {response, value} = await requestJson(LIBRARY_BLACKLIST_ENDPOINT, {method: "GET"}, fetcher);
   let result;
   try {
     result = parseLibraryBlacklistListHttpResponse(value);
@@ -429,33 +379,14 @@ export const loadBlacklistedPublications = async (
   }
   throwResponseError(response, result);
   if (!result.ok)
-    throw new BrowserLibraryOperationError(
-      "The library operation failed",
-      "operation_failed",
-      response.status,
-    );
+    throw new BrowserLibraryOperationError("The library operation failed", "operation_failed", response.status);
   return result.publicationIds;
 };
 
-export const loadLibraryConfig = async (
-  fetcher: LibraryOperationFetch = fetch,
-): Promise<AfterleafLibraryConfig> => {
-  const {response, value} = await requestJson(
-    LIBRARY_CONFIG_ENDPOINT,
-    {method: "GET"},
-    fetcher,
-  );
-  if (
-    !response.ok ||
-    !value ||
-    typeof value !== "object" ||
-    !("config" in value)
-  )
-    throw new BrowserLibraryOperationError(
-      "Could not load library locations",
-      "config_failed",
-      response.status,
-    );
+export const loadLibraryConfig = async (fetcher: LibraryOperationFetch = fetch): Promise<AfterleafLibraryConfig> => {
+  const {response, value} = await requestJson(LIBRARY_CONFIG_ENDPOINT, {method: "GET"}, fetcher);
+  if (!response.ok || !value || typeof value !== "object" || !("config" in value))
+    throw new BrowserLibraryOperationError("Could not load library locations", "config_failed", response.status);
   return (value as {config: AfterleafLibraryConfig}).config;
 };
 
@@ -472,24 +403,12 @@ export const saveLibraryConfig = async (
     },
     fetcher,
   );
-  if (
-    !response.ok ||
-    !value ||
-    typeof value !== "object" ||
-    !("config" in value)
-  )
-    throw new BrowserLibraryOperationError(
-      "Could not save library locations",
-      "config_failed",
-      response.status,
-    );
+  if (!response.ok || !value || typeof value !== "object" || !("config" in value))
+    throw new BrowserLibraryOperationError("Could not save library locations", "config_failed", response.status);
   return (value as {config: AfterleafLibraryConfig}).config;
 };
 
-export const reenrollLibraryRoot = async (
-  path: string,
-  fetcher: LibraryOperationFetch = fetch,
-) => {
+export const reenrollLibraryRoot = async (path: string, fetcher: LibraryOperationFetch = fetch) => {
   const {response, value} = await requestJson(
     LIBRARY_ROOT_ENROLL_ENDPOINT,
     {
@@ -499,18 +418,8 @@ export const reenrollLibraryRoot = async (
     },
     fetcher,
   );
-  if (
-    !response.ok ||
-    !value ||
-    typeof value !== "object" ||
-    !("ok" in value) ||
-    value.ok !== true
-  )
-    throw new BrowserLibraryOperationError(
-      "Could not re-enroll library root",
-      "config_failed",
-      response.status,
-    );
+  if (!response.ok || !value || typeof value !== "object" || !("ok" in value) || value.ok !== true)
+    throw new BrowserLibraryOperationError("Could not re-enroll library root", "config_failed", response.status);
 };
 
 export type LibraryDirectoryEntry = {name: string; path: string};
@@ -528,22 +437,9 @@ export const browseLibraryLocation = async (
   const endpoint = directory
     ? `${LIBRARY_BROWSE_ENDPOINT}?path=${encodeURIComponent(directory)}`
     : LIBRARY_BROWSE_ENDPOINT;
-  const {response, value} = await requestJson(
-    endpoint,
-    {method: "GET"},
-    fetcher,
-  );
-  if (
-    !response.ok ||
-    !value ||
-    typeof value !== "object" ||
-    !Array.isArray((value as {entries?: unknown}).entries)
-  )
-    throw new BrowserLibraryOperationError(
-      "Could not browse that folder",
-      "browse_failed",
-      response.status,
-    );
+  const {response, value} = await requestJson(endpoint, {method: "GET"}, fetcher);
+  if (!response.ok || !value || typeof value !== "object" || !Array.isArray((value as {entries?: unknown}).entries))
+    throw new BrowserLibraryOperationError("Could not browse that folder", "browse_failed", response.status);
   const listing = value as {
     drives?: LibraryDirectoryEntry[];
     entries: LibraryDirectoryEntry[];

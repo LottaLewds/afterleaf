@@ -6,21 +6,14 @@ import sharp from "sharp";
 import {BOOK_ASPECT_RATIO_INFERENCE_VERSION} from "~/content/bookAspectRatio";
 import {repairCachedProviderPublications} from "~/content/providerCacheRepair";
 import {createLibraryProviderRegistry} from "~/content/providers/registry";
-import type {
-  LibraryProvider,
-  LibraryProviderDescriptor,
-} from "~/content/providers/types";
+import type {LibraryProvider, LibraryProviderDescriptor} from "~/content/providers/types";
 import type {LocalPublicationDocument} from "~/content/schema";
 import {parseLocalPublicationDocument} from "~/content/validation";
 
 const temporaryDirectories: string[] = [];
 
 afterEach(async () => {
-  await Promise.all(
-    temporaryDirectories
-      .splice(0)
-      .map((directory) => rm(directory, {force: true, recursive: true})),
-  );
+  await Promise.all(temporaryDirectories.splice(0).map((directory) => rm(directory, {force: true, recursive: true})));
 });
 
 const descriptor: LibraryProviderDescriptor = {
@@ -67,17 +60,13 @@ const createFixture = async () => {
   const manifestPath = resolve(publicationDirectory, "publication.json");
   await Promise.all([
     writeFile(manifestPath, `${JSON.stringify(document, null, 2)}\n`),
-    ...pagePaths.map((path) =>
-      writeFile(resolve(publicationDirectory, path), "stale"),
-    ),
+    ...pagePaths.map((path) => writeFile(resolve(publicationDirectory, path), "stale")),
     writeFile(resolve(publicationDirectory, backPath), "stale"),
   ]);
   return {document, manifestPath, publicationDirectory, root};
 };
 
-const provider = (
-  materializePage: NonNullable<LibraryProvider["materializePage"]>,
-): LibraryProvider => ({
+const provider = (materializePage: NonNullable<LibraryProvider["materializePage"]>): LibraryProvider => ({
   descriptor,
   materializePage,
   sync: async () => {
@@ -118,22 +107,15 @@ test("deep repair refreshes every cached provider publication without search", a
     repairedCount: 1,
     requestedCount: 1,
   });
-  expect(requestedPages.toSorted((left, right) => left - right)).toEqual([
-    1, 2, 3, 5, 6, 10,
-  ]);
-  expect(document.aspectRatioInferenceVersion).toBe(
-    BOOK_ASPECT_RATIO_INFERENCE_VERSION,
-  );
+  expect(requestedPages.toSorted((left, right) => left - right)).toEqual([1, 2, 3, 5, 6, 10]);
+  expect(document.aspectRatioInferenceVersion).toBe(BOOK_ASPECT_RATIO_INFERENCE_VERSION);
   expect(document.physical?.aspectRatio).toBeCloseTo(0.6);
-  for (const path of [
-    ...document.assets.pages,
-    document.assets.front,
-    document.assets.back,
-  ]) {
+  for (const path of [...document.assets.pages, document.assets.front, document.assets.back]) {
     if (!path) continue;
-    expect(
-      await sharp(resolve(fixture.publicationDirectory, path)).metadata(),
-    ).toMatchObject({height: 300, width: 180});
+    expect(await sharp(resolve(fixture.publicationDirectory, path)).metadata()).toMatchObject({
+      height: 300,
+      width: 180,
+    });
   }
 });
 
@@ -157,10 +139,5 @@ test("deep repair preserves cached files when a remote page fails", async () => 
   expect(report).toMatchObject({failedCount: 1, repairedCount: 0});
   expect(report.diagnostics[0]?.message).toContain("is offline");
   expect(await readFile(fixture.manifestPath, "utf8")).toBe(originalManifest);
-  expect(
-    await readFile(
-      resolve(fixture.publicationDirectory, "pages/001.png"),
-      "utf8",
-    ),
-  ).toBe("stale");
+  expect(await readFile(resolve(fixture.publicationDirectory, "pages/001.png"), "utf8")).toBe("stale");
 });

@@ -1,15 +1,5 @@
 import {randomUUID} from "node:crypto";
-import {
-  copyFile,
-  mkdir,
-  readFile,
-  readdir,
-  rename,
-  rm,
-  rmdir,
-  stat,
-  writeFile,
-} from "node:fs/promises";
+import {copyFile, mkdir, readFile, readdir, rename, rm, rmdir, stat, writeFile} from "node:fs/promises";
 import {readdirSync, readFileSync, statSync} from "node:fs";
 import {dirname, join, resolve} from "node:path";
 // Relative import: this module is loaded by the Vite config, whose loader
@@ -86,11 +76,7 @@ const FIXED_ENTRIES: FixedMigrationEntry[] = [
 ];
 
 /** Provider cache children of content-sources that have their own homes. */
-const RESERVED_SOURCE_NAMES = new Set([
-  "catalog",
-  "library-roots.json",
-  "scan-failures.log",
-]);
+const RESERVED_SOURCE_NAMES = new Set(["catalog", "library-roots.json", "scan-failures.log"]);
 
 const pathExists = async (path: string) => {
   try {
@@ -113,10 +99,7 @@ const directoryIsEmpty = async (path: string) => {
  * depth. Such a directory is replaceable: the incoming real content
  * supersedes it.
  */
-const directoryIsPlaceholderOnly = async (
-  path: string,
-  depth = 4,
-): Promise<boolean> => {
+const directoryIsPlaceholderOnly = async (path: string, depth = 4): Promise<boolean> => {
   const entries = await readdir(path);
   if (entries.length === 0) return true;
   if (depth <= 0) return false;
@@ -140,9 +123,7 @@ const performMove = async (move: LayoutMigrationMove) => {
     // Destination absent falls through to the regular move below.
     const merged = await mergeLibraryRootRegistries(move);
     if (!merged)
-      throw new Error(
-        `Could not merge the library root registries (${from} and ${to}); both files are left unchanged`,
-      );
+      throw new Error(`Could not merge the library root registries (${from} and ${to}); both files are left unchanged`);
     return;
   }
   if (move.merge === "append") {
@@ -160,8 +141,7 @@ const performMove = async (move: LayoutMigrationMove) => {
   if (!sourceStat.isDirectory()) {
     await copyFile(from, to);
     const destinationStat = await stat(to);
-    if (destinationStat.size !== sourceStat.size)
-      throw new Error(`Copied size mismatch for ${to}`);
+    if (destinationStat.size !== sourceStat.size) throw new Error(`Copied size mismatch for ${to}`);
     await rm(from, {force: true});
     return;
   }
@@ -199,11 +179,7 @@ const LEGACY_PRUNE_CANDIDATES = [
   "content-packs",
 ] as const;
 
-const copyDirectory = async (
-  from: string,
-  to: string,
-  expectedBytes?: number,
-) => {
+const copyDirectory = async (from: string, to: string, expectedBytes?: number) => {
   await mkdir(to, {recursive: true});
   let totalBytes = 0;
   const entries = await readdir(from, {withFileTypes: true});
@@ -230,9 +206,7 @@ const copyDirectory = async (
  * undefined when either side is not a parseable registry, in which case
  * the caller falls back to a blocking conflict rather than guessing.
  */
-const mergeLibraryRootRegistries = async (
-  move: LayoutMigrationMove,
-): Promise<{mergedCount: number} | undefined> => {
+const mergeLibraryRootRegistries = async (move: LayoutMigrationMove): Promise<{mergedCount: number} | undefined> => {
   const readRoots = async (path: string) => {
     try {
       const parsed = JSON.parse(await readFile(path, "utf8")) as {
@@ -240,8 +214,7 @@ const mergeLibraryRootRegistries = async (
       };
       if (!parsed || typeof parsed !== "object") return undefined;
       const roots = parsed.roots;
-      if (!roots || typeof roots !== "object" || Array.isArray(roots))
-        return undefined;
+      if (!roots || typeof roots !== "object" || Array.isArray(roots)) return undefined;
       return Object.fromEntries(
         Object.entries(roots as Record<string, unknown>)
           .filter(([, rootId]) => typeof rootId === "string")
@@ -251,12 +224,8 @@ const mergeLibraryRootRegistries = async (
       return undefined;
     }
   };
-  const [legacyRoots, destinationRoots] = [
-    await readRoots(move.from),
-    await readRoots(move.to),
-  ];
-  if (legacyRoots === undefined || destinationRoots === undefined)
-    return undefined;
+  const [legacyRoots, destinationRoots] = [await readRoots(move.from), await readRoots(move.to)];
+  if (legacyRoots === undefined || destinationRoots === undefined) return undefined;
   const merged = {...destinationRoots};
   let carriedOver = 0;
   for (const [rootPath, rootId] of Object.entries(legacyRoots)) {
@@ -266,10 +235,7 @@ const mergeLibraryRootRegistries = async (
   }
   await mkdir(dirname(move.to), {recursive: true});
   const temporaryPath = `${move.to}.staging-${randomUUID()}`;
-  await writeFile(
-    temporaryPath,
-    `${JSON.stringify({roots: merged, schemaVersion: 1}, null, 2)}\n`,
-  );
+  await writeFile(temporaryPath, `${JSON.stringify({roots: merged, schemaVersion: 1}, null, 2)}\n`);
   // Windows does not replace an existing file with rename().
   await rm(move.to, {force: true});
   await rename(temporaryPath, move.to);
@@ -285,21 +251,16 @@ const appendFailureLog = async (move: LayoutMigrationMove) => {
     return;
   }
   const existingText = await readFile(move.to, "utf8");
-  const separator =
-    existingText.length === 0 || existingText.endsWith("\n") ? "" : "\n";
+  const separator = existingText.length === 0 || existingText.endsWith("\n") ? "" : "\n";
   await writeFile(
     move.to,
-    `${existingText}${separator}${legacyText}${
-      legacyText.endsWith("\n") || legacyText.length === 0 ? "" : "\n"
-    }`,
+    `${existingText}${separator}${legacyText}${legacyText.endsWith("\n") || legacyText.length === 0 ? "" : "\n"}`,
   );
   await rm(move.from, {force: true});
 };
 
 /** Collects every legacy-layout artifact present on disk and its destination. */
-export const planLibraryLayoutMigration = async (
-  workingDirectory: string,
-): Promise<LayoutMigrationPlan> => {
+export const planLibraryLayoutMigration = async (workingDirectory: string): Promise<LayoutMigrationPlan> => {
   const resolvedWorking = resolve(workingDirectory);
   const dataRoot = resolveDataRoot(resolvedWorking);
   const moves: LayoutMigrationMove[] = [];
@@ -324,11 +285,7 @@ export const planLibraryLayoutMigration = async (
       from: legacyLibrary,
       to: resolve(dataRoot, "game", ".cache", "library"),
     });
-  const legacyRegistry = resolve(
-    resolvedWorking,
-    "content-sources",
-    "library-roots.json",
-  );
+  const legacyRegistry = resolve(resolvedWorking, "content-sources", "library-roots.json");
   if (await pathExists(legacyRegistry))
     moves.push({
       from: legacyRegistry,
@@ -337,11 +294,7 @@ export const planLibraryLayoutMigration = async (
       merge: "library-roots",
       to: resolve(dataRoot, "game", ".cache", "library-roots.json"),
     });
-  const legacyFailureLog = resolve(
-    resolvedWorking,
-    "content-sources",
-    "scan-failures.log",
-  );
+  const legacyFailureLog = resolve(resolvedWorking, "content-sources", "scan-failures.log");
   if (await pathExists(legacyFailureLog))
     moves.push({
       from: legacyFailureLog,
@@ -367,21 +320,14 @@ export const planLibraryLayoutMigration = async (
         to: resolve(dataRoot, "providers", child.name),
       });
     }
-    notes.push(
-      `Relocated ${providerCount} provider ${providerCount === 1 ? "cache" : "caches"} under providers/.`,
-    );
+    notes.push(`Relocated ${providerCount} provider ${providerCount === 1 ? "cache" : "caches"} under providers/.`);
   }
 
   const demoPack = resolve(resolvedWorking, "content-packs", "demo-v1");
-  if (await pathExists(demoPack))
-    notes.push(
-      `Left in place (unused generated demo pack; safe to delete): ${demoPack}`,
-    );
+  if (await pathExists(demoPack)) notes.push(`Left in place (unused generated demo pack; safe to delete): ${demoPack}`);
   const booksDirectory = resolve(resolvedWorking, "content", "books");
   if (await pathExists(booksDirectory))
-    notes.push(
-      `Left in place (now empty after moving comics/manga): ${booksDirectory}`,
-    );
+    notes.push(`Left in place (now empty after moving comics/manga): ${booksDirectory}`);
 
   const conflicts: LayoutMigrationPlan["conflicts"] = [];
   for (const move of moves) {
@@ -456,11 +402,9 @@ export const migrateLibraryLayout = async (
     movedCount: performedMoves.length,
     schemaVersion: MIGRATION_MARKER_SCHEMA_VERSION,
   };
-  await writeFile(
-    resolve(dataRoot, MIGRATION_MARKER_FILE_NAME),
-    `${JSON.stringify(marker, null, 2)}\n`,
-    {flag: "wx"},
-  ).catch(() => {});
+  await writeFile(resolve(dataRoot, MIGRATION_MARKER_FILE_NAME), `${JSON.stringify(marker, null, 2)}\n`, {
+    flag: "wx",
+  }).catch(() => {});
   return {...plan, performedMoves, dataRoot};
 };
 
@@ -483,10 +427,7 @@ const LEGACY_ARTIFACT_DIRECTORIES = [
 /** Entries that never count as legacy data on their own. */
 const IGNORED_LEGACY_ENTRY_NAMES = new Set(["demo-v1"]);
 
-const directoryHasVisibleContent = async (
-  path: string,
-  depth = 4,
-): Promise<boolean> => {
+const directoryHasVisibleContent = async (path: string, depth = 4): Promise<boolean> => {
   let entries;
   try {
     entries = await readdir(path);
@@ -502,8 +443,7 @@ const directoryHasVisibleContent = async (
       const entryStat = await stat(resolve(path, entry));
       if (!entryStat.isDirectory()) return true;
       // A folder holding only dotfiles (for example .gitkeep) is empty.
-      if (await directoryHasVisibleContent(resolve(path, entry), depth - 1))
-        return true;
+      if (await directoryHasVisibleContent(resolve(path, entry), depth - 1)) return true;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
       throw error;
@@ -516,9 +456,7 @@ const directoryHasVisibleContent = async (
  * Finds legacy-layout locations that still hold data. An empty result
  * means nothing is being left unserved.
  */
-export const detectLegacyLayoutArtifacts = async (
-  workingDirectory: string,
-): Promise<string[]> => {
+export const detectLegacyLayoutArtifacts = async (workingDirectory: string): Promise<string[]> => {
   const resolvedWorking = resolve(workingDirectory);
   const artifacts: string[] = [];
   for (const directory of LEGACY_ARTIFACT_DIRECTORIES) {
@@ -533,34 +471,25 @@ export const detectLegacyLayoutArtifacts = async (
 export const readLibraryLayoutMigrationMarker = async (
   workingDirectory: string,
 ): Promise<LibraryLayoutMigrationMarker | undefined> =>
-  parseLibraryLayoutMigrationMarkerText(
-    await readMarkerTextIgnoringMissing(workingDirectory),
-  );
+  parseLibraryLayoutMigrationMarkerText(await readMarkerTextIgnoringMissing(workingDirectory));
 
 const readMarkerTextIgnoringMissing = async (workingDirectory: string) => {
   try {
-    return await readFile(
-      resolve(resolveDataRoot(workingDirectory), MIGRATION_MARKER_FILE_NAME),
-      "utf8",
-    );
+    return await readFile(resolve(resolveDataRoot(workingDirectory), MIGRATION_MARKER_FILE_NAME), "utf8");
   } catch {
     return undefined;
   }
 };
 
-const parseLibraryLayoutMigrationMarkerText = (
-  text: string | undefined,
-): LibraryLayoutMigrationMarker | undefined => {
+const parseLibraryLayoutMigrationMarkerText = (text: string | undefined): LibraryLayoutMigrationMarker | undefined => {
   if (text === undefined) return undefined;
   try {
     const parsed: unknown = JSON.parse(text);
     if (
       !parsed ||
       typeof parsed !== "object" ||
-      (parsed as Partial<LibraryLayoutMigrationMarker>).schemaVersion !==
-        MIGRATION_MARKER_SCHEMA_VERSION ||
-      typeof (parsed as Partial<LibraryLayoutMigrationMarker>).migratedAt !==
-        "string"
+      (parsed as Partial<LibraryLayoutMigrationMarker>).schemaVersion !== MIGRATION_MARKER_SCHEMA_VERSION ||
+      typeof (parsed as Partial<LibraryLayoutMigrationMarker>).migratedAt !== "string"
     )
       return undefined;
     return parsed as LibraryLayoutMigrationMarker;
@@ -584,8 +513,7 @@ const directoryHasVisibleContentSync = (path: string, depth = 4): boolean => {
     try {
       if (!statSync(resolve(path, entry)).isDirectory()) return true;
       // A folder holding only dotfiles (for example .gitkeep) is empty.
-      if (directoryHasVisibleContentSync(resolve(path, entry), depth - 1))
-        return true;
+      if (directoryHasVisibleContentSync(resolve(path, entry), depth - 1)) return true;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
       throw error;
@@ -599,19 +527,11 @@ const directoryHasVisibleContentSync = (path: string, depth = 4): boolean => {
  * still hold data while no migration marker records a completed move.
  * Synchronous so the dev server can refuse to start before serving.
  */
-export const detectUnmigratedLegacyLayout = (
-  workingDirectory: string,
-): string[] => {
+export const detectUnmigratedLegacyLayout = (workingDirectory: string): string[] => {
   const marker = parseLibraryLayoutMigrationMarkerText(
     (() => {
       try {
-        return readFileSync(
-          resolve(
-            resolveDataRoot(workingDirectory),
-            MIGRATION_MARKER_FILE_NAME,
-          ),
-          "utf8",
-        );
+        return readFileSync(resolve(resolveDataRoot(workingDirectory), MIGRATION_MARKER_FILE_NAME), "utf8");
       } catch {
         return undefined;
       }
@@ -633,9 +553,7 @@ export const detectUnmigratedLegacyLayout = (
   return artifacts;
 };
 
-const rollbackMoves = async (
-  performedMoves: readonly LayoutMigrationMove[],
-) => {
+const rollbackMoves = async (performedMoves: readonly LayoutMigrationMove[]) => {
   // Best-effort reverse relocation so a failed run never leaves data in
   // both layouts without warning.
   for (const move of [...performedMoves].reverse()) {

@@ -54,8 +54,7 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 const parseRuntimeMessage = (value: unknown): ProviderRuntimeMessage => {
   if (!isRecord(value) || typeof value.kind !== "string")
     throw new Error("Content provider runtime sent an invalid message");
-  if (value.kind === "progress" && typeof value.message === "string")
-    return {kind: "progress", message: value.message};
+  if (value.kind === "progress" && typeof value.message === "string") return {kind: "progress", message: value.message};
   if (
     value.kind === "step" &&
     typeof value.completed === "number" &&
@@ -105,128 +104,98 @@ const runProviderRuntime = (
   onStep?: (completed: number, total: number) => void,
 ) => {
   const run = async () => {
-    const temporaryDirectory = await mkdtemp(
-      resolve(tmpdir(), "afterleaf-provider-runtime-"),
-    );
+    const temporaryDirectory = await mkdtemp(resolve(tmpdir(), "afterleaf-provider-runtime-"));
     const requestPath = resolve(temporaryDirectory, "request.json");
     const payloadPath = resolve(temporaryDirectory, "payload.bin");
     await writeFile(requestPath, JSON.stringify(request), {mode: 0o600});
     try {
-      return await new Promise<ProviderRuntimeResult>(
-        (resolveResult, rejectResult) => {
-          const child = spawn(
-            bunExecutable(),
-            [
-              "--preload",
-              resolve(dirname(runtimeHostPath), "bunRuntimePreload.mjs"),
-              runtimeHostPath,
-              operation,
-              location.entryPath,
-              requestPath,
-              payloadPath,
-            ],
-            {
-              cwd: location.projectDirectory,
-              env: {
-                ...process.env,
-                AFTERLEAF_PROVIDER_SDK_ENTRY_PATH: sdkEntryPath,
-              },
-              stdio: ["ignore", "pipe", "inherit"],
+      return await new Promise<ProviderRuntimeResult>((resolveResult, rejectResult) => {
+        const child = spawn(
+          bunExecutable(),
+          [
+            "--preload",
+            resolve(dirname(runtimeHostPath), "bunRuntimePreload.mjs"),
+            runtimeHostPath,
+            operation,
+            location.entryPath,
+            requestPath,
+            payloadPath,
+          ],
+          {
+            cwd: location.projectDirectory,
+            env: {
+              ...process.env,
+              AFTERLEAF_PROVIDER_SDK_ENTRY_PATH: sdkEntryPath,
             },
-          );
-          const protocol = child.stdout
-            ? createInterface({input: child.stdout})
-            : undefined;
-          let response: Extract<
-            ProviderRuntimeMessage,
-            {kind: "error" | "result"}
-          >;
-          let processError: Error | undefined;
-          let finished = false;
+            stdio: ["ignore", "pipe", "inherit"],
+          },
+        );
+        const protocol = child.stdout ? createInterface({input: child.stdout}) : undefined;
+        let response: Extract<ProviderRuntimeMessage, {kind: "error" | "result"}>;
+        let processError: Error | undefined;
+        let finished = false;
 
-          const fail = (error: Error) => {
-            if (finished) return;
-            finished = true;
-            child.kill();
-            rejectResult(error);
-          };
+        const fail = (error: Error) => {
+          if (finished) return;
+          finished = true;
+          child.kill();
+          rejectResult(error);
+        };
 
-          protocol?.on("line", (line) => {
-            let message: ProviderRuntimeMessage;
+        protocol?.on("line", (line) => {
+          let message: ProviderRuntimeMessage;
+          try {
+            message = parseRuntimeMessage(JSON.parse(line) as unknown);
+          } catch (error) {
+            fail(error instanceof Error ? error : new Error("Content provider runtime message failed"));
+            return;
+          }
+          if (message.kind === "progress") {
             try {
-              message = parseRuntimeMessage(JSON.parse(line) as unknown);
+              onProgress?.(message.message);
             } catch (error) {
-              fail(
-                error instanceof Error
-                  ? error
-                  : new Error("Content provider runtime message failed"),
-              );
-              return;
+              fail(error instanceof Error ? error : new Error("Content provider progress handler failed"));
             }
-            if (message.kind === "progress") {
-              try {
-                onProgress?.(message.message);
-              } catch (error) {
-                fail(
-                  error instanceof Error
-                    ? error
-                    : new Error("Content provider progress handler failed"),
-                );
-              }
-              return;
+            return;
+          }
+          if (message.kind === "step") {
+            try {
+              onStep?.(message.completed, message.total);
+            } catch (error) {
+              fail(error instanceof Error ? error : new Error("Content provider step handler failed"));
             }
-            if (message.kind === "step") {
-              try {
-                onStep?.(message.completed, message.total);
-              } catch (error) {
-                fail(
-                  error instanceof Error
-                    ? error
-                    : new Error("Content provider step handler failed"),
-                );
-              }
-              return;
+            return;
+          }
+          response = message;
+        });
+        child.once("error", (error) => {
+          processError = error;
+        });
+        child.once("close", async (code, signal) => {
+          if (finished) return;
+          finished = true;
+          if (processError) return rejectResult(processError);
+          if (response?.kind === "error") return rejectResult(runtimeError(response.error));
+          if (code !== 0 || response?.kind !== "result")
+            return rejectResult(
+              new Error(
+                `Content provider runtime exited ${signal ? `with ${signal}` : `with code ${code ?? "unknown"}`}`,
+              ),
+            );
+          let payload = Buffer.alloc(0);
+          if (operation === "materialize-page") {
+            try {
+              const payloadBytes = (await stat(payloadPath)).size;
+              if (payloadBytes > MAX_PROVIDER_PAGE_BYTES)
+                return rejectResult(new Error(`Content provider page exceeded ${MAX_PROVIDER_PAGE_BYTES} bytes`));
+              payload = await readFile(payloadPath);
+            } catch (error) {
+              return rejectResult(error instanceof Error ? error : new Error("Could not read content provider page"));
             }
-            response = message;
-          });
-          child.once("error", (error) => {
-            processError = error;
-          });
-          child.once("close", async (code, signal) => {
-            if (finished) return;
-            finished = true;
-            if (processError) return rejectResult(processError);
-            if (response?.kind === "error")
-              return rejectResult(runtimeError(response.error));
-            if (code !== 0 || response?.kind !== "result")
-              return rejectResult(
-                new Error(
-                  `Content provider runtime exited ${signal ? `with ${signal}` : `with code ${code ?? "unknown"}`}`,
-                ),
-              );
-            let payload = Buffer.alloc(0);
-            if (operation === "materialize-page") {
-              try {
-                const payloadBytes = (await stat(payloadPath)).size;
-                if (payloadBytes > MAX_PROVIDER_PAGE_BYTES)
-                  return rejectResult(
-                    new Error(
-                      `Content provider page exceeded ${MAX_PROVIDER_PAGE_BYTES} bytes`,
-                    ),
-                  );
-                payload = await readFile(payloadPath);
-              } catch (error) {
-                return rejectResult(
-                  error instanceof Error
-                    ? error
-                    : new Error("Could not read content provider page"),
-                );
-              }
-            }
-            resolveResult({payload, result: response.result});
-          });
-        },
-      );
+          }
+          resolveResult({payload, result: response.result});
+        });
+      });
     } finally {
       await rm(temporaryDirectory, {force: true, recursive: true});
     }
@@ -240,13 +209,7 @@ const inspectProvider = async (
   location: LibraryProviderModuleLocation,
   context: LibraryProviderPluginContext,
 ): Promise<InspectedProvider> => {
-  const {result} = await runProviderRuntime(
-    runtimeHostPath,
-    sdkEntryPath,
-    location,
-    "inspect",
-    {context},
-  );
+  const {result} = await runProviderRuntime(runtimeHostPath, sdkEntryPath, location, "inspect", {context});
   if (
     !isRecord(result) ||
     typeof result.materializesPages !== "boolean" ||
@@ -267,15 +230,8 @@ const createRuntimeProvider = async (
   location: LibraryProviderModuleLocation,
   context: LibraryProviderPluginContext,
 ): Promise<LibraryProvider> => {
-  const inspected = await inspectProvider(
-    runtimeHostPath,
-    sdkEntryPath,
-    location,
-    context,
-  );
-  const sync = async (
-    options: LibraryProviderSyncOptions,
-  ): Promise<LibraryProviderSyncReport> => {
+  const inspected = await inspectProvider(runtimeHostPath, sdkEntryPath, location, context);
+  const sync = async (options: LibraryProviderSyncOptions): Promise<LibraryProviderSyncReport> => {
     const {onProgress, onStep, ...serializableOptions} = options;
     const {result} = await runProviderRuntime(
       runtimeHostPath,
@@ -289,26 +245,17 @@ const createRuntimeProvider = async (
     return result as LibraryProviderSyncReport;
   };
   const materializePage = async (request: LibraryProviderSparsePageRequest) => {
-    const {payload} = await runProviderRuntime(
-      runtimeHostPath,
-      sdkEntryPath,
-      location,
-      "materialize-page",
-      {
-        context,
-        value: request,
-      },
-    );
+    const {payload} = await runProviderRuntime(runtimeHostPath, sdkEntryPath, location, "materialize-page", {
+      context,
+      value: request,
+    });
     return payload;
   };
   const resolvePastedImport = async (text: string) => {
-    const {result} = await runProviderRuntime(
-      runtimeHostPath,
-      sdkEntryPath,
-      location,
-      "resolve-pasted-import",
-      {context, value: text},
-    );
+    const {result} = await runProviderRuntime(runtimeHostPath, sdkEntryPath, location, "resolve-pasted-import", {
+      context,
+      value: text,
+    });
     return result as LibraryProviderPasteImport | undefined;
   };
   return {
@@ -321,9 +268,6 @@ const createRuntimeProvider = async (
 
 export const createBunProviderModuleLoader =
   (runtimeHostPath: string, sdkEntryPath: string) =>
-  async (
-    location: LibraryProviderModuleLocation,
-  ): Promise<LibraryProviderPluginModule> => ({
-    createProvider: (context) =>
-      createRuntimeProvider(runtimeHostPath, sdkEntryPath, location, context),
+  async (location: LibraryProviderModuleLocation): Promise<LibraryProviderPluginModule> => ({
+    createProvider: (context) => createRuntimeProvider(runtimeHostPath, sdkEntryPath, location, context),
   });

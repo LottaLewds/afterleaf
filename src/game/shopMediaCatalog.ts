@@ -13,8 +13,7 @@ export type ShopMediaCatalog = {
   tv: TvChannelManifest;
 };
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null;
+const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null;
 
 export const parseShopMediaCatalog = (value: unknown): ShopMediaCatalog => {
   if (!isRecord(value)) throw new Error("Shop media catalog is invalid");

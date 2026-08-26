@@ -19,16 +19,9 @@ export const normalizeTag = (tag: string) =>
     .replace(/[^\p{Letter}\p{Number}]+/gu, "-")
     .replace(/^-+|-+$/g, "");
 
-export const normalizeTags = (tags: readonly string[]) => [
-  ...new Set(tags.map(normalizeTag).filter(Boolean)),
-];
+export const normalizeTags = (tags: readonly string[]) => [...new Set(tags.map(normalizeTag).filter(Boolean))];
 
-export const parseSupportedLanguage = (
-  language: string,
-): SupportedLanguage | undefined =>
-  LANGUAGE_ALIASES[
-    language.normalize("NFKC").trim().toLocaleLowerCase("en-US")
-  ];
+export const parseSupportedLanguage = (language: string): SupportedLanguage | undefined =>
+  LANGUAGE_ALIASES[language.normalize("NFKC").trim().toLocaleLowerCase("en-US")];
 
-export const languagePriority = (language: SupportedLanguage) =>
-  language === "english" ? 0 : 1;
+export const languagePriority = (language: SupportedLanguage) => (language === "english" ? 0 : 1);

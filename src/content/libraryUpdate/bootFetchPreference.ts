@@ -6,17 +6,10 @@ export type BootFetchPreference = {
   schemaVersion: typeof BOOT_FETCH_PREFERENCE_VERSION;
 };
 
-const parseBootFetchPreference = (
-  value: unknown,
-): BootFetchPreference | undefined => {
-  if (typeof value !== "object" || value === null || Array.isArray(value))
-    return;
+const parseBootFetchPreference = (value: unknown): BootFetchPreference | undefined => {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return;
   const preference = value as Partial<BootFetchPreference>;
-  if (
-    preference.schemaVersion !== BOOT_FETCH_PREFERENCE_VERSION ||
-    typeof preference.enabled !== "boolean"
-  )
-    return;
+  if (preference.schemaVersion !== BOOT_FETCH_PREFERENCE_VERSION || typeof preference.enabled !== "boolean") return;
   return {
     enabled: preference.enabled,
     schemaVersion: BOOT_FETCH_PREFERENCE_VERSION,
@@ -28,18 +21,13 @@ export const loadBootFetchPreference = (
 ): BootFetchPreference | undefined => {
   try {
     const stored = storage.getItem(BOOT_FETCH_PREFERENCE_KEY);
-    return stored
-      ? parseBootFetchPreference(JSON.parse(stored) as unknown)
-      : undefined;
+    return stored ? parseBootFetchPreference(JSON.parse(stored) as unknown) : undefined;
   } catch {
     return undefined;
   }
 };
 
-export const saveBootFetchPreference = (
-  enabled: boolean,
-  storage: Pick<Storage, "setItem"> = localStorage,
-) => {
+export const saveBootFetchPreference = (enabled: boolean, storage: Pick<Storage, "setItem"> = localStorage) => {
   try {
     const preference: BootFetchPreference = {
       enabled,

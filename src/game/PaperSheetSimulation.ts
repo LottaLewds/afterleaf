@@ -24,8 +24,7 @@ export type PaperSheetStep = {
   targetPositions: Float32Array;
 };
 
-const finiteDeltaSeconds = (deltaSeconds: number) =>
-  Number.isFinite(deltaSeconds) ? Math.max(0, deltaSeconds) : 0;
+const finiteDeltaSeconds = (deltaSeconds: number) => (Number.isFinite(deltaSeconds) ? Math.max(0, deltaSeconds) : 0);
 
 // Compound assignment reads the current slot, which may be out of bounds under
 // noUncheckedIndexedAccess, so fall back to 0 like every other read here.
@@ -66,12 +65,7 @@ export class PaperSheetSimulation {
     const constraintStiffness: number[] = [];
     const stepX = options.width / (columns - 1);
     const stepY = options.height / (rows - 1);
-    const addConstraint = (
-      first: number,
-      second: number,
-      restLength: number,
-      stiffness: number,
-    ) => {
+    const addConstraint = (first: number, second: number, restLength: number, stiffness: number) => {
       constraintA.push(first);
       constraintB.push(second);
       constraintRestLength.push(restLength);
@@ -87,14 +81,10 @@ export class PaperSheetSimulation {
           addConstraint(index, index + columns + 1, diagonalLength, 0.985);
           addConstraint(index + 1, index + columns, diagonalLength, 0.985);
         }
-        if (column + 2 < columns)
-          addConstraint(index, index + 2, stepX * 2, 0.92);
-        if (row + 2 < rows)
-          addConstraint(index, index + columns * 2, stepY * 2, 0.92);
-        if (column + 4 < columns)
-          addConstraint(index, index + 4, stepX * 4, 0.72);
-        if (row + 4 < rows)
-          addConstraint(index, index + columns * 4, stepY * 4, 0.72);
+        if (column + 2 < columns) addConstraint(index, index + 2, stepX * 2, 0.92);
+        if (row + 2 < rows) addConstraint(index, index + columns * 2, stepY * 2, 0.92);
+        if (column + 4 < columns) addConstraint(index, index + 4, stepX * 4, 0.72);
+        if (row + 4 < rows) addConstraint(index, index + columns * 4, stepY * 4, 0.72);
       }
     }
     this.#constraintA = Uint16Array.from(constraintA);
@@ -116,14 +106,9 @@ export class PaperSheetSimulation {
       FIXED_STEP_SECONDS * MAX_SUBSTEPS,
       this.#accumulatorSeconds + finiteDeltaSeconds(step.deltaSeconds),
     );
-    const grabIndex = step.dragging
-      ? this.#closestVertex(step.grabU, step.grabV)
-      : -1;
+    const grabIndex = step.dragging ? this.#closestVertex(step.grabU, step.grabV) : -1;
     let substepCount = 0;
-    while (
-      this.#accumulatorSeconds >= FIXED_STEP_SECONDS &&
-      substepCount < MAX_SUBSTEPS
-    ) {
+    while (this.#accumulatorSeconds >= FIXED_STEP_SECONDS && substepCount < MAX_SUBSTEPS) {
       this.#integrate(step.targetPositions, step.dragging);
       for (let iteration = 0; iteration < SOLVER_ITERATIONS; iteration += 1) {
         this.#solveDistanceConstraints(grabIndex);
@@ -170,49 +155,28 @@ export class PaperSheetSimulation {
           (position - previousPosition) * VELOCITY_DAMPING +
           (targetPosition - position) * shapePull * fixedStepSquared;
       }
-      subtractFrom(
-        this.#positions,
-        positionOffset + 1,
-        WORLD_DOWN_GRAVITY * fixedStepSquared,
-      );
-      subtractFrom(
-        this.#positions,
-        positionOffset + 2,
-        PAGE_NORMAL_GRAVITY * fixedStepSquared,
-      );
+      subtractFrom(this.#positions, positionOffset + 1, WORLD_DOWN_GRAVITY * fixedStepSquared);
+      subtractFrom(this.#positions, positionOffset + 2, PAGE_NORMAL_GRAVITY * fixedStepSquared);
     }
   }
 
   #solveDistanceConstraints(grabIndex: number) {
-    for (
-      let constraintIndex = 0;
-      constraintIndex < this.#constraintA.length;
-      constraintIndex += 1
-    ) {
+    for (let constraintIndex = 0; constraintIndex < this.#constraintA.length; constraintIndex += 1) {
       const firstIndex = this.#constraintA[constraintIndex] ?? 0;
       const secondIndex = this.#constraintB[constraintIndex] ?? 0;
-      const firstWeight =
-        this.#spineMask[firstIndex] || firstIndex === grabIndex ? 0 : 1;
-      const secondWeight =
-        this.#spineMask[secondIndex] || secondIndex === grabIndex ? 0 : 1;
+      const firstWeight = this.#spineMask[firstIndex] || firstIndex === grabIndex ? 0 : 1;
+      const secondWeight = this.#spineMask[secondIndex] || secondIndex === grabIndex ? 0 : 1;
       const totalWeight = firstWeight + secondWeight;
       if (totalWeight === 0) continue;
       const firstOffset = firstIndex * 3;
       const secondOffset = secondIndex * 3;
-      const deltaX =
-        (this.#positions[secondOffset] ?? 0) -
-        (this.#positions[firstOffset] ?? 0);
-      const deltaY =
-        (this.#positions[secondOffset + 1] ?? 0) -
-        (this.#positions[firstOffset + 1] ?? 0);
-      const deltaZ =
-        (this.#positions[secondOffset + 2] ?? 0) -
-        (this.#positions[firstOffset + 2] ?? 0);
+      const deltaX = (this.#positions[secondOffset] ?? 0) - (this.#positions[firstOffset] ?? 0);
+      const deltaY = (this.#positions[secondOffset + 1] ?? 0) - (this.#positions[firstOffset + 1] ?? 0);
+      const deltaZ = (this.#positions[secondOffset + 2] ?? 0) - (this.#positions[firstOffset + 2] ?? 0);
       const distance = Math.hypot(deltaX, deltaY, deltaZ);
       if (distance < 1e-7) continue;
       const correction =
-        ((distance - (this.#constraintRestLength[constraintIndex] ?? 0)) /
-          distance) *
+        ((distance - (this.#constraintRestLength[constraintIndex] ?? 0)) / distance) *
         (this.#constraintStiffness[constraintIndex] ?? 0);
       const firstCorrection = (correction * firstWeight) / totalWeight;
       const secondCorrection = (correction * secondWeight) / totalWeight;
@@ -220,34 +184,14 @@ export class PaperSheetSimulation {
       addTo(this.#positions, firstOffset + 1, deltaY * firstCorrection);
       addTo(this.#positions, firstOffset + 2, deltaZ * firstCorrection);
       subtractFrom(this.#positions, secondOffset, deltaX * secondCorrection);
-      subtractFrom(
-        this.#positions,
-        secondOffset + 1,
-        deltaY * secondCorrection,
-      );
-      subtractFrom(
-        this.#positions,
-        secondOffset + 2,
-        deltaZ * secondCorrection,
-      );
+      subtractFrom(this.#positions, secondOffset + 1, deltaY * secondCorrection);
+      subtractFrom(this.#positions, secondOffset + 2, deltaZ * secondCorrection);
       addTo(this.#previousPositions, firstOffset, deltaX * firstCorrection);
       addTo(this.#previousPositions, firstOffset + 1, deltaY * firstCorrection);
       addTo(this.#previousPositions, firstOffset + 2, deltaZ * firstCorrection);
-      subtractFrom(
-        this.#previousPositions,
-        secondOffset,
-        deltaX * secondCorrection,
-      );
-      subtractFrom(
-        this.#previousPositions,
-        secondOffset + 1,
-        deltaY * secondCorrection,
-      );
-      subtractFrom(
-        this.#previousPositions,
-        secondOffset + 2,
-        deltaZ * secondCorrection,
-      );
+      subtractFrom(this.#previousPositions, secondOffset, deltaX * secondCorrection);
+      subtractFrom(this.#previousPositions, secondOffset + 1, deltaY * secondCorrection);
+      subtractFrom(this.#previousPositions, secondOffset + 2, deltaZ * secondCorrection);
     }
   }
 
@@ -263,22 +207,16 @@ export class PaperSheetSimulation {
       const zOffset = index * 3 + 2;
       if ((this.#positions[zOffset] ?? 0) >= 0) continue;
       this.#positions[zOffset] = 0;
-      if ((this.#previousPositions[zOffset] ?? 0) < 0)
-        this.#previousPositions[zOffset] = 0;
+      if ((this.#previousPositions[zOffset] ?? 0) < 0) this.#previousPositions[zOffset] = 0;
     }
   }
 
   #writeTargetPosition(targetPositions: Float32Array, positionOffset: number) {
     this.#positions[positionOffset] = targetPositions[positionOffset] ?? 0;
-    this.#positions[positionOffset + 1] =
-      targetPositions[positionOffset + 1] ?? 0;
-    this.#positions[positionOffset + 2] =
-      targetPositions[positionOffset + 2] ?? 0;
-    this.#previousPositions[positionOffset] =
-      this.#positions[positionOffset] ?? 0;
-    this.#previousPositions[positionOffset + 1] =
-      this.#positions[positionOffset + 1] ?? 0;
-    this.#previousPositions[positionOffset + 2] =
-      this.#positions[positionOffset + 2] ?? 0;
+    this.#positions[positionOffset + 1] = targetPositions[positionOffset + 1] ?? 0;
+    this.#positions[positionOffset + 2] = targetPositions[positionOffset + 2] ?? 0;
+    this.#previousPositions[positionOffset] = this.#positions[positionOffset] ?? 0;
+    this.#previousPositions[positionOffset + 1] = this.#positions[positionOffset + 1] ?? 0;
+    this.#previousPositions[positionOffset + 2] = this.#positions[positionOffset + 2] ?? 0;
   }
 }

@@ -1,9 +1,5 @@
 import {MathUtils, Vector3, type Object3D, type PerspectiveCamera} from "three";
-import type {
-  ArcadeSessionStatus,
-  ShopArcadeCabinet,
-  ShopArcadePlayRequest,
-} from "~/game/ShopArcadeCabinet";
+import type {ArcadeSessionStatus, ShopArcadeCabinet, ShopArcadePlayRequest} from "~/game/ShopArcadeCabinet";
 import {ARCADE_CABINET_HEIGHT} from "~/game/ShopArcadeCabinet";
 import {DEFAULT_PITCH_LIMIT} from "~/game/shopGameplay";
 
@@ -72,11 +68,7 @@ export class ShopArcadeSessionController {
     // Any other cabinet left in a UI state closes too; independent cabinets
     // that are actively playing keep running.
     for (const cabinet of this.cabinets)
-      if (
-        cabinet !== activeCabinet &&
-        cabinet.sessionStatus &&
-        cabinet.sessionStatus !== "playing"
-      )
+      if (cabinet !== activeCabinet && cabinet.sessionStatus && cabinet.sessionStatus !== "playing")
         cabinet.exitToIdle();
     this.#host.emitGameState();
     // Hand control back immediately (called from an activating gesture such
@@ -150,10 +142,6 @@ export class ShopArcadeSessionController {
     if (horizontal < Number.EPSILON) return;
     const lookTarget = this.#host.lookTarget();
     lookTarget.yaw = Math.atan2(-deltaX, -deltaZ);
-    lookTarget.pitch = MathUtils.clamp(
-      Math.atan2(deltaY, horizontal),
-      -DEFAULT_PITCH_LIMIT,
-      DEFAULT_PITCH_LIMIT,
-    );
+    lookTarget.pitch = MathUtils.clamp(Math.atan2(deltaY, horizontal), -DEFAULT_PITCH_LIMIT, DEFAULT_PITCH_LIMIT);
   }
 }

@@ -4,17 +4,9 @@ import {describe, expect, test} from "bun:test";
 import type {CatalogShelfAtlas} from "~/catalog";
 import {remapBookGeometryToAtlas} from "~/game/bookAtlasGeometry";
 
-const attributeRange = (
-  attribute: ReturnType<BoxGeometry["getAttribute"]>,
-  component: "x" | "y",
-) => {
-  const read =
-    component === "x"
-      ? (index: number) => attribute.getX(index)
-      : (index: number) => attribute.getY(index);
-  const values = Array.from({length: attribute.count}, (_, index) =>
-    read(index),
-  );
+const attributeRange = (attribute: ReturnType<BoxGeometry["getAttribute"]>, component: "x" | "y") => {
+  const read = component === "x" ? (index: number) => attribute.getX(index) : (index: number) => attribute.getY(index);
+  const values = Array.from({length: attribute.count}, (_, index) => read(index));
   return {maximum: Math.max(...values), minimum: Math.min(...values)};
 };
 
@@ -47,14 +39,7 @@ describe("remapBookGeometryToAtlas", () => {
       width: 70,
     };
     const source = new BoxGeometry(0.5, 0.74, 0.04);
-    const remapped = remapBookGeometryToAtlas(
-      source,
-      coverAtlas,
-      spineAtlas,
-      1,
-      0.68,
-      14,
-    );
+    const remapped = remapBookGeometryToAtlas(source, coverAtlas, spineAtlas, 1, 0.68, 14);
     const spineUv = remapped.getAttribute("bookSpineUv");
 
     expect(attributeRange(spineUv, "x").minimum).toBeCloseTo(20.5 / 70);

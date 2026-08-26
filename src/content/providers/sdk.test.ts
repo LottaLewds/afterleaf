@@ -51,16 +51,12 @@ test("finalizes provider metadata from downloaded interior pages", async () => {
     {bytes: portrait, pageIndex: 10},
   ]);
 
-  expect(finalized.aspectRatioInferenceVersion).toBe(
-    BOOK_ASPECT_RATIO_INFERENCE_VERSION,
-  );
+  expect(finalized.aspectRatioInferenceVersion).toBe(BOOK_ASPECT_RATIO_INFERENCE_VERSION);
   expect(finalized.physical?.aspectRatio).toBeCloseTo(0.6);
 });
 
 test("rejects invalid page counts", () => {
-  expect(() => createRepresentativePagePlan(0)).toThrow(
-    "pageCount must be a positive integer",
-  );
+  expect(() => createRepresentativePagePlan(0)).toThrow("pageCount must be a positive integer");
 });
 
 test("streams serial preparation into bounded acquisition and preserves order", async () => {
@@ -72,10 +68,7 @@ test("streams serial preparation into bounded acquisition and preserves order", 
     prepare: async (value: number) => value * 10,
     acquire: async (value: number, {markStarted}) => {
       activeAcquisitions += 1;
-      maximumActiveAcquisitions = Math.max(
-        maximumActiveAcquisitions,
-        activeAcquisitions,
-      );
+      maximumActiveAcquisitions = Math.max(maximumActiveAcquisitions, activeAcquisitions);
       markStarted();
       await new Promise<void>((resolvePromise) => {
         releases.set(value, resolvePromise);

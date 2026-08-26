@@ -17,9 +17,7 @@ export interface LibrarySourceMigration {
   applies(context: LibrarySourceMigrationContext): boolean;
   id: string;
   label: string;
-  migrate(
-    context: LibrarySourceMigrationContext,
-  ): LocalPublicationDocument | Promise<LocalPublicationDocument>;
+  migrate(context: LibrarySourceMigrationContext): LocalPublicationDocument | Promise<LocalPublicationDocument>;
 }
 
 export interface LibrarySourceMigrationDiagnostic {
@@ -66,12 +64,7 @@ const publicationManifestPaths = async (sourceDirectory: string) => {
     try {
       entries = await readdir(directory, {withFileTypes: true});
     } catch (error) {
-      if (
-        directory === sourceDirectory &&
-        error instanceof Error &&
-        "code" in error &&
-        error.code === "ENOENT"
-      )
+      if (directory === sourceDirectory && error instanceof Error && "code" in error && error.code === "ENOENT")
         return [];
       throw error;
     }
@@ -88,15 +81,11 @@ const publicationManifestPaths = async (sourceDirectory: string) => {
       manifests.push({
         manifestPath: path,
         publicationDirectory,
-        sourceId: toPortablePath(
-          relative(sourceDirectory, publicationDirectory),
-        ),
+        sourceId: toPortablePath(relative(sourceDirectory, publicationDirectory)),
       });
     }
   }
-  return manifests.toSorted((left, right) =>
-    left.sourceId.localeCompare(right.sourceId),
-  );
+  return manifests.toSorted((left, right) => left.sourceId.localeCompare(right.sourceId));
 };
 
 const publicationCandidates = async (sourceDirectory: string) => {
@@ -116,9 +105,7 @@ const publicationCandidates = async (sourceDirectory: string) => {
   return candidates;
 };
 
-const migrationContext = (
-  candidate: PublicationManifestCandidate,
-): LibrarySourceMigrationContext => ({
+const migrationContext = (candidate: PublicationManifestCandidate): LibrarySourceMigrationContext => ({
   document: candidate.document,
   manifestPath: candidate.manifestPath,
   publicationDirectory: candidate.publicationDirectory,
@@ -147,24 +134,17 @@ const pendingMigrations = (
   return pending;
 };
 
-const assertMigrationRegistry = (
-  migrations: readonly LibrarySourceMigration[],
-) => {
+const assertMigrationRegistry = (migrations: readonly LibrarySourceMigration[]) => {
   const ids = new Set<string>();
   for (const migration of migrations) {
     if (!migration.id.trim()) throw new Error("Migration IDs cannot be empty");
-    if (!migration.label.trim())
-      throw new Error(`Migration ${migration.id} must have a label`);
-    if (ids.has(migration.id))
-      throw new Error(`Duplicate library source migration ${migration.id}`);
+    if (!migration.label.trim()) throw new Error(`Migration ${migration.id} must have a label`);
+    if (ids.has(migration.id)) throw new Error(`Duplicate library source migration ${migration.id}`);
     ids.add(migration.id);
   }
 };
 
-const writeMigratedPublication = async (
-  manifestPath: string,
-  document: LocalPublicationDocument,
-) => {
+const writeMigratedPublication = async (manifestPath: string, document: LocalPublicationDocument) => {
   const temporaryPath = `${manifestPath}.staging-${randomUUID()}`;
   try {
     await writeFile(temporaryPath, `${JSON.stringify(document, null, 2)}\n`);
@@ -187,11 +167,8 @@ export const runLibrarySourceMigrations = async (
   const candidates = await publicationCandidates(options.sourceDirectory);
   const pending = pendingMigrations(candidates, options.migrations);
   const pendingCount = pending.length;
-  if (pendingCount === 0)
-    return {diagnostics, failedCount, migratedCount, pendingCount};
-  options.onProgress?.(
-    `Updating older cached publications: 0/${pendingCount} complete (0%); 0 updated, 0 failed`,
-  );
+  if (pendingCount === 0) return {diagnostics, failedCount, migratedCount, pendingCount};
+  options.onProgress?.(`Updating older cached publications: 0/${pendingCount} complete (0%); 0 updated, 0 failed`);
   for (const [index, job] of pending.entries()) {
     const {candidate, migration} = job;
     const completedCount = index;
@@ -204,8 +181,7 @@ export const runLibrarySourceMigrations = async (
         await migration.migrate(migrationContext(candidate)),
         candidate.manifestPath,
       );
-      if (migrated.id !== candidate.document.id)
-        throw new Error("migrations cannot change publication IDs");
+      if (migrated.id !== candidate.document.id) throw new Error("migrations cannot change publication IDs");
       await writeMigratedPublication(candidate.manifestPath, migrated);
       candidate.document = migrated;
       migratedCount += 1;

@@ -101,8 +101,7 @@ describe("generateContentPackPreview", () => {
 
   test("rejects an asset path that could escape the pack", () => {
     const publication = catalog.publications[0];
-    if (!publication)
-      throw new Error("Preview test catalog has no publication");
+    if (!publication) throw new Error("Preview test catalog has no publication");
     const unsafeCatalog: ContentPackCatalog = {
       ...catalog,
       publications: [
@@ -115,8 +114,6 @@ describe("generateContentPackPreview", () => {
         },
       ],
     };
-    expect(() => generateContentPackPreview(unsafeCatalog)).toThrow(
-      "contained relative path",
-    );
+    expect(() => generateContentPackPreview(unsafeCatalog)).toThrow("contained relative path");
   });
 });

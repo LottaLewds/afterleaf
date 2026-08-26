@@ -93,9 +93,7 @@ describe("ShopPhysicsWorld", () => {
 
       const sample = createSample();
       physics.step(1 / 60);
-      expect(
-        physics.sampleInterpolatedBookTransform("interpolated-book", sample),
-      ).toBe(true);
+      expect(physics.sampleInterpolatedBookTransform("interpolated-book", sample)).toBe(true);
       expect(sample.position.x).toBeCloseTo(0);
 
       physics.step(1 / 120);
@@ -103,14 +101,7 @@ describe("ShopPhysicsWorld", () => {
       expect(sample.position.x).toBeGreaterThan(0);
       expect(sample.position.x).toBeLessThan(0.1);
       expect(Math.abs(sample.rotation.y)).toBeGreaterThan(0);
-      expect(
-        Math.hypot(
-          sample.rotation.w,
-          sample.rotation.x,
-          sample.rotation.y,
-          sample.rotation.z,
-        ),
-      ).toBeCloseTo(1);
+      expect(Math.hypot(sample.rotation.w, sample.rotation.x, sample.rotation.y, sample.rotation.z)).toBeCloseTo(1);
 
       physics.step(1 / 120);
       physics.sampleInterpolatedBookTransform("interpolated-book", sample);
@@ -147,9 +138,7 @@ describe("ShopPhysicsWorld", () => {
       expect(sample.position.x).toBeCloseTo(1, 1);
       expect(sample.position.y).toBeCloseTo(2, 1);
       expect(sample.position.z).toBeCloseTo(-0.5, 1);
-      expect(
-        Math.abs(sample.rotation.w * halfSqrt + sample.rotation.y * halfSqrt),
-      ).toBeCloseTo(1, 1);
+      expect(Math.abs(sample.rotation.w * halfSqrt + sample.rotation.y * halfSqrt)).toBeCloseTo(1, 1);
       expect(physics.getBookState("task-book")).toBe("held");
 
       expect(
@@ -194,9 +183,7 @@ describe("ShopPhysicsWorld", () => {
       const snappedPose = flatPose(3, 1.5, -2);
       expect(physics.snapHeldBook("snapped-book", snappedPose)).toBe(true);
       const sample = createSample();
-      expect(
-        physics.sampleInterpolatedBookTransform("snapped-book", sample),
-      ).toBe(true);
+      expect(physics.sampleInterpolatedBookTransform("snapped-book", sample)).toBe(true);
       expect(sample).toMatchObject(snappedPose);
 
       physics.step(1 / 60);
@@ -247,9 +234,7 @@ describe("ShopPhysicsWorld", () => {
       ).toBe(true);
       expect(await physics.initialize()).toBe(true);
       expect(physics.holdBook("trapped-book")).toBe(true);
-      expect(
-        physics.setHeldTarget("trapped-book", identityPose(0, 1.2, 7.5)),
-      ).toBe(true);
+      expect(physics.setHeldTarget("trapped-book", identityPose(0, 1.2, 7.5))).toBe(true);
       for (let frame = 0; frame < 90; frame += 1) physics.step(1 / 60);
 
       const sample = createSample();
@@ -295,16 +280,10 @@ describe("ShopPhysicsWorld", () => {
       ).toBe(true);
       expect(await physics.initialize()).toBe(true);
       expect(physics.holdBook("held-book")).toBe(true);
-      expect(physics.snapHeldBook("held-book", flatPose(0, 0.35, 0))).toBe(
-        true,
-      );
+      expect(physics.snapHeldBook("held-book", flatPose(0, 0.35, 0))).toBe(true);
       expect(physics.holdBook("released-book")).toBe(true);
-      expect(
-        physics.dropBook("released-book", {pose: flatPose(0, 0.55, 0)}),
-      ).toBe(true);
-      expect(physics.setBookCollisionlessWithHeld("released-book", true)).toBe(
-        true,
-      );
+      expect(physics.dropBook("released-book", {pose: flatPose(0, 0.55, 0)})).toBe(true);
+      expect(physics.setBookCollisionlessWithHeld("released-book", true)).toBe(true);
       for (let frame = 0; frame < 180; frame += 1) physics.step(1 / 60);
 
       const floorSample = createSample();
@@ -312,15 +291,9 @@ describe("ShopPhysicsWorld", () => {
       const releasedSample = createSample();
       expect(physics.sampleBookTransform("floor-book", floorSample)).toBe(true);
       expect(physics.sampleBookTransform("held-book", heldSample)).toBe(true);
-      expect(physics.sampleBookTransform("released-book", releasedSample)).toBe(
-        true,
-      );
-      expect(
-        releasedSample.position.y - floorSample.position.y,
-      ).toBeGreaterThan(0.07);
-      expect(heldSample.position.y - releasedSample.position.y).toBeGreaterThan(
-        0.07,
-      );
+      expect(physics.sampleBookTransform("released-book", releasedSample)).toBe(true);
+      expect(releasedSample.position.y - floorSample.position.y).toBeGreaterThan(0.07);
+      expect(heldSample.position.y - releasedSample.position.y).toBeGreaterThan(0.07);
     } finally {
       physics.dispose();
     }
@@ -354,22 +327,16 @@ describe("ShopPhysicsWorld", () => {
         expect(physics.holdBook(publicationId)).toBe(true);
         expect(
           physics.dropBook(publicationId, {
-            ...(publicationId === "second-released-book"
-              ? {linearVelocity: {x: 6, y: 0, z: 0}}
-              : {}),
+            ...(publicationId === "second-released-book" ? {linearVelocity: {x: 6, y: 0, z: 0}} : {}),
             pose: releasedBook.pose,
           }),
         ).toBe(true);
-        expect(physics.setBookCollisionlessWithHeld(publicationId, true)).toBe(
-          true,
-        );
+        expect(physics.setBookCollisionlessWithHeld(publicationId, true)).toBe(true);
       }
       for (let frame = 0; frame < 10; frame += 1) physics.step(1 / 60);
 
       const firstSample = createSample();
-      expect(
-        physics.sampleBookTransform("first-released-book", firstSample),
-      ).toBe(true);
+      expect(physics.sampleBookTransform("first-released-book", firstSample)).toBe(true);
       expect(firstSample.position.x).toBeGreaterThan(0.05);
     } finally {
       physics.dispose();
@@ -395,24 +362,16 @@ describe("ShopPhysicsWorld", () => {
       ).toBe(true);
       expect(await physics.initialize()).toBe(true);
       expect(physics.holdBook("released-book")).toBe(true);
-      expect(
-        physics.dropBook("released-book", {pose: identityPose(0, 1, 0)}),
-      ).toBe(true);
-      expect(physics.setBookCollisionlessWithHeld("released-book", true)).toBe(
-        true,
-      );
+      expect(physics.dropBook("released-book", {pose: identityPose(0, 1, 0)})).toBe(true);
+      expect(physics.setBookCollisionlessWithHeld("released-book", true)).toBe(true);
       expect(physics.holdBook("held-book")).toBe(true);
 
       for (let frame = 0; frame < 30; frame += 1) physics.step(1 / 60);
-      expect(physics.setHeldTarget("held-book", identityPose(1.5, 1, 0))).toBe(
-        true,
-      );
+      expect(physics.setHeldTarget("held-book", identityPose(1.5, 1, 0))).toBe(true);
       for (let frame = 0; frame < 90; frame += 1) physics.step(1 / 60);
 
       const releasedSample = createSample();
-      expect(physics.sampleBookTransform("released-book", releasedSample)).toBe(
-        true,
-      );
+      expect(physics.sampleBookTransform("released-book", releasedSample)).toBe(true);
       expect(releasedSample.position.x).toBeGreaterThan(0.15);
     } finally {
       physics.dispose();
@@ -438,9 +397,7 @@ describe("ShopPhysicsWorld", () => {
       ).toBe(true);
       expect(await physics.initialize()).toBe(true);
       expect(physics.holdBook("held-bottom-book")).toBe(true);
-      expect(
-        physics.setHeldTarget("held-bottom-book", flatPose(0, 0.55, 0)),
-      ).toBe(true);
+      expect(physics.setHeldTarget("held-bottom-book", flatPose(0, 0.55, 0))).toBe(true);
       for (let frame = 0; frame < 45; frame += 1) physics.step(1 / 60);
 
       const sample = createSample();
@@ -494,9 +451,7 @@ describe("ShopPhysicsWorld", () => {
       for (let frame = 0; frame < 180; frame += 1) physics.step(1 / 60);
 
       const sample = createSample();
-      expect(physics.sampleBookTransform("outside-floor-book", sample)).toBe(
-        true,
-      );
+      expect(physics.sampleBookTransform("outside-floor-book", sample)).toBe(true);
       expect(sample.position.y).toBeGreaterThan(0.03);
     } finally {
       physics.dispose();
@@ -558,15 +513,11 @@ describe("ShopPhysicsWorld", () => {
       for (let frame = 0; frame < 180; frame += 1) physics.step(1 / 60);
 
       const sample = createSample();
-      expect(
-        physics.sampleInterpolatedPropTransform("scaled-model", sample),
-      ).toBe(true);
+      expect(physics.sampleInterpolatedPropTransform("scaled-model", sample)).toBe(true);
       expect(sample.position.y).toBeGreaterThan(0.49);
       expect(sample.position.y).toBeLessThan(0.52);
       expect(physics.removeProp("scaled-model")).toBe(true);
-      expect(
-        physics.sampleInterpolatedPropTransform("scaled-model", sample),
-      ).toBe(false);
+      expect(physics.sampleInterpolatedPropTransform("scaled-model", sample)).toBe(false);
     } finally {
       physics.dispose();
     }
@@ -593,9 +544,7 @@ describe("ShopPhysicsWorld", () => {
       expect(physics.dropProp("pinned-prop", {pose: airPose})).toBe(true);
       for (let frame = 0; frame < 120; frame += 1) physics.step(1 / 60);
       const sample = createSample();
-      expect(
-        physics.sampleInterpolatedPropTransform("pinned-prop", sample),
-      ).toBe(true);
+      expect(physics.sampleInterpolatedPropTransform("pinned-prop", sample)).toBe(true);
       expect(sample.position.y).toBeLessThan(1);
 
       // Locking pins the prop wherever it is released, even mid-air.
@@ -605,9 +554,7 @@ describe("ShopPhysicsWorld", () => {
       expect(physics.snapHeldProp("pinned-prop", pinnedPose)).toBe(true);
       expect(physics.dropProp("pinned-prop", {pose: pinnedPose})).toBe(true);
       for (let frame = 0; frame < 120; frame += 1) physics.step(1 / 60);
-      expect(
-        physics.sampleInterpolatedPropTransform("pinned-prop", sample),
-      ).toBe(true);
+      expect(physics.sampleInterpolatedPropTransform("pinned-prop", sample)).toBe(true);
       expect(sample.position.x).toBeCloseTo(pinnedPose.position.x);
       expect(sample.position.y).toBeCloseTo(pinnedPose.position.y);
       expect(sample.position.z).toBeCloseTo(pinnedPose.position.z);
@@ -615,9 +562,7 @@ describe("ShopPhysicsWorld", () => {
       // Unlocking hands the body back to the simulation.
       expect(physics.setPropLocked("pinned-prop", false)).toBe(true);
       for (let frame = 0; frame < 120; frame += 1) physics.step(1 / 60);
-      expect(
-        physics.sampleInterpolatedPropTransform("pinned-prop", sample),
-      ).toBe(true);
+      expect(physics.sampleInterpolatedPropTransform("pinned-prop", sample)).toBe(true);
       expect(sample.position.y).toBeLessThan(1);
     } finally {
       physics.dispose();
@@ -664,9 +609,7 @@ describe("ShopPhysicsWorld", () => {
       ).toBe(true);
       for (let frame = 0; frame < 120; frame += 1) physics.step(1 / 60);
       const sample = createSample();
-      expect(
-        physics.sampleInterpolatedPropTransform("parted-prop", sample),
-      ).toBe(true);
+      expect(physics.sampleInterpolatedPropTransform("parted-prop", sample)).toBe(true);
       expect(Number.isFinite(sample.position.x)).toBe(true);
       expect(sample.position.y).toBeGreaterThan(0);
       expect(sample.position.y).toBeLessThan(1);
@@ -692,9 +635,7 @@ describe("ShopPhysicsWorld", () => {
       for (let frame = 0; frame < 120; frame += 1) physics.step(1 / 60);
 
       const sample = createSample();
-      expect(
-        physics.sampleInterpolatedPropTransform("reading-chair", sample),
-      ).toBe(true);
+      expect(physics.sampleInterpolatedPropTransform("reading-chair", sample)).toBe(true);
       expect(sample.position.y).toBeCloseTo(3);
 
       expect(physics.holdProp("reading-chair")).toBe(true);
@@ -703,9 +644,7 @@ describe("ShopPhysicsWorld", () => {
       expect(physics.dropProp("reading-chair", {pose: placedPose})).toBe(true);
       for (let frame = 0; frame < 120; frame += 1) physics.step(1 / 60);
 
-      expect(
-        physics.sampleInterpolatedPropTransform("reading-chair", sample),
-      ).toBe(true);
+      expect(physics.sampleInterpolatedPropTransform("reading-chair", sample)).toBe(true);
       expect(sample.position.x).toBeCloseTo(placedPose.position.x);
       expect(sample.position.y).toBeCloseTo(placedPose.position.y);
       expect(sample.position.z).toBeCloseTo(placedPose.position.z);
@@ -738,9 +677,7 @@ describe("ShopPhysicsWorld", () => {
       for (let frame = 0; frame < 180; frame += 1) physics.step(1 / 60);
 
       const bookSample = createSample();
-      expect(physics.sampleBookTransform("supported-book", bookSample)).toBe(
-        true,
-      );
+      expect(physics.sampleBookTransform("supported-book", bookSample)).toBe(true);
       expect(bookSample.position.y).toBeGreaterThan(0.9);
 
       expect(physics.holdProp("ghosted-table")).toBe(true);
@@ -749,13 +686,9 @@ describe("ShopPhysicsWorld", () => {
       for (let frame = 0; frame < 120; frame += 1) physics.step(1 / 60);
 
       const propSample = createSample();
-      expect(
-        physics.sampleInterpolatedPropTransform("ghosted-table", propSample),
-      ).toBe(true);
+      expect(physics.sampleInterpolatedPropTransform("ghosted-table", propSample)).toBe(true);
       expect(propSample.position.x).toBeCloseTo(ghostPose.position.x);
-      expect(physics.sampleBookTransform("supported-book", bookSample)).toBe(
-        true,
-      );
+      expect(physics.sampleBookTransform("supported-book", bookSample)).toBe(true);
       expect(bookSample.position.y).toBeGreaterThan(0.9);
     } finally {
       physics.dispose();
@@ -823,26 +756,18 @@ describe("ShopPhysicsWorld", () => {
         ).toBe(true);
       expect(physics.bookCount).toBe(0);
       expect(physics.holdProp("top-tv")).toBe(true);
-      expect(physics.setHeldPropTarget("top-tv", identityPose(2, 2, 0))).toBe(
-        true,
-      );
+      expect(physics.setHeldPropTarget("top-tv", identityPose(2, 2, 0))).toBe(true);
       expect(await physics.initialize()).toBe(true);
       for (let frame = 0; frame < 90; frame += 1) physics.step(1 / 60);
       expect(physics.snapHeldProp("top-tv", identityPose(2, 2, 0))).toBe(true);
       const snappedSample = createSample();
-      expect(
-        physics.sampleInterpolatedPropTransform("top-tv", snappedSample),
-      ).toBe(true);
+      expect(physics.sampleInterpolatedPropTransform("top-tv", snappedSample)).toBe(true);
       expect(snappedSample.position.y).toBeCloseTo(2);
-      expect(physics.dropProp("top-tv", {pose: identityPose(2, 1.55, 0)})).toBe(
-        true,
-      );
+      expect(physics.dropProp("top-tv", {pose: identityPose(2, 1.55, 0)})).toBe(true);
       for (let frame = 0; frame < 180; frame += 1) physics.step(1 / 60);
 
       const sample = createSample();
-      expect(physics.sampleInterpolatedPropTransform("top-tv", sample)).toBe(
-        true,
-      );
+      expect(physics.sampleInterpolatedPropTransform("top-tv", sample)).toBe(true);
       expect(sample.position.y).toBeGreaterThan(1.45);
       expect(sample.position.y).toBeLessThan(1.6);
       expect(physics.getPropState("top-tv")).toBe("dynamic");
@@ -869,15 +794,11 @@ describe("ShopPhysicsWorld", () => {
         ).toBe(true);
       expect(physics.holdProp("ghost-prop")).toBe(true);
       expect(await physics.initialize()).toBe(true);
-      expect(physics.snapHeldProp("ghost-prop", identityPose(0, 1, 0))).toBe(
-        true,
-      );
+      expect(physics.snapHeldProp("ghost-prop", identityPose(0, 1, 0))).toBe(true);
       for (let frame = 0; frame < 30; frame += 1) physics.step(1 / 60);
 
       const sample = createSample();
-      expect(
-        physics.sampleInterpolatedPropTransform("physical-prop", sample),
-      ).toBe(true);
+      expect(physics.sampleInterpolatedPropTransform("physical-prop", sample)).toBe(true);
       expect(sample.position.x).toBeCloseTo(0);
       expect(sample.position.y).toBeCloseTo(1);
       expect(sample.position.z).toBeCloseTo(0);
@@ -903,9 +824,7 @@ describe("ShopPhysicsWorld", () => {
       expect(movement.collisionCount).toBeGreaterThan(0);
       expect(movement.correctedDisplacement.x).toBeGreaterThan(10);
       expect(movement.correctedDisplacement.x).toBeLessThan(11);
-      expect(movement.eyePosition.x).toBeCloseTo(
-        movement.correctedDisplacement.x,
-      );
+      expect(movement.eyePosition.x).toBeCloseTo(movement.correctedDisplacement.x);
       expect(physics.resetPlayer({x: -1, y: 1.66, z: 1})).toBe(true);
       expect(physics.getPlayerPosition(queuedPosition)).toBe(true);
       expect(queuedPosition).toEqual({x: -1, y: 1.66, z: 1});
@@ -922,9 +841,7 @@ describe("ShopPhysicsWorld", () => {
     try {
       expect(await physics.initialize()).toBe(true);
       for (let step = 0; step < 20; step += 1)
-        expect(physics.movePlayer({x: -0.05, y: -0.003, z: 0}, movement)).toBe(
-          true,
-        );
+        expect(physics.movePlayer({x: -0.05, y: -0.003, z: 0}, movement)).toBe(true);
 
       expect(movement.eyePosition.x).toBeLessThan(12.5);
       expect(movement.grounded).toBe(true);
@@ -977,9 +894,7 @@ describe("ShopPhysicsWorld", () => {
       expect(physics.getBookState("inactive-book")).toBe("shelved");
 
       expect(physics.holdBook("inactive-book")).toBe(true);
-      expect(
-        physics.setHeldTarget("inactive-book", identityPose(0, 1.2, 0.8)),
-      ).toBe(true);
+      expect(physics.setHeldTarget("inactive-book", identityPose(0, 1.2, 0.8))).toBe(true);
       for (let index = 0; index < 60; index += 1) physics.step(1 / 60);
       expect(physics.sampleBookTransform("inactive-book", sample)).toBe(true);
       expect(sample.position.y).toBeGreaterThan(1);

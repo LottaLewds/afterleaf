@@ -1,21 +1,13 @@
 import {BufferGeometry, Mesh, Vector3, type Object3D} from "three";
 
-export const getInitialModelAnimationIndex = (
-  animations: readonly {name: string}[],
-  animationClip?: string | null,
-) => {
+export const getInitialModelAnimationIndex = (animations: readonly {name: string}[], animationClip?: string | null) => {
   if (animationClip === null) return -1;
   if (animationClip === undefined) return 0;
-  const savedIndex = animations.findIndex(
-    (clip) => clip.name === animationClip,
-  );
+  const savedIndex = animations.findIndex((clip) => clip.name === animationClip);
   return Math.max(0, savedIndex);
 };
 
-export const findModelTelevisionScreen = (
-  root: Object3D,
-  screenNodeName: string,
-) => {
+export const findModelTelevisionScreen = (root: Object3D, screenNodeName: string) => {
   const screenRoot = root.getObjectByName(screenNodeName);
   let screen: Mesh | undefined;
   screenRoot?.traverse((object) => {
@@ -33,12 +25,7 @@ export const getModelTelevisionScreenAspect = (screen: Mesh) => {
   const scale = screen.getWorldScale(new Vector3());
   const width = (bounds.max.x - bounds.min.x) * Math.abs(scale.x);
   const height = (bounds.max.y - bounds.min.y) * Math.abs(scale.y);
-  if (
-    !Number.isFinite(width) ||
-    !Number.isFinite(height) ||
-    width <= Number.EPSILON ||
-    height <= Number.EPSILON
-  )
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= Number.EPSILON || height <= Number.EPSILON)
     return;
   return width / height;
 };
@@ -48,9 +35,7 @@ export const getModelTelevisionScreenAspect = (screen: Mesh) => {
  * textures render edge to edge. Clones the geometry; the previous geometry is
  * returned so callers can dispose it when they own its lifecycle.
  */
-export const normalizeModelScreenUvs = (
-  screen: Mesh,
-): BufferGeometry | undefined => {
+export const normalizeModelScreenUvs = (screen: Mesh): BufferGeometry | undefined => {
   const sourceUvs = screen.geometry.getAttribute("uv");
   if (!sourceUvs || sourceUvs.count === 0) return;
   let minU = Number.POSITIVE_INFINITY;
@@ -76,11 +61,7 @@ export const normalizeModelScreenUvs = (
     return;
   }
   for (let index = 0; index < uvs.count; index += 1)
-    uvs.setXY(
-      index,
-      (uvs.getX(index) - minU) / width,
-      (uvs.getY(index) - minV) / height,
-    );
+    uvs.setXY(index, (uvs.getX(index) - minU) / width, (uvs.getY(index) - minV) / height);
   uvs.needsUpdate = true;
   const sourceGeometry = screen.geometry;
   screen.geometry = geometry;

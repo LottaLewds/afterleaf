@@ -1,16 +1,9 @@
 import {appendFile, readdir, readFile, rm, stat} from "node:fs/promises";
 import {isAbsolute, relative, resolve, sep} from "node:path";
 import {fileURLToPath} from "node:url";
-import {
-  ARCHIVE_SOURCE_PROVIDER,
-  importContentArchives,
-} from "~/content/archive";
+import {ARCHIVE_SOURCE_PROVIDER, importContentArchives} from "~/content/archive";
 import {isContentArchivePath} from "~/content/archiveReader";
-import {
-  LIBRARY_CONFIG_FILE_NAME,
-  readAfterleafLibraryConfig,
-  unavailableLibraryPaths,
-} from "~/content/libraryConfig";
+import {LIBRARY_CONFIG_FILE_NAME, readAfterleafLibraryConfig, unavailableLibraryPaths} from "~/content/libraryConfig";
 import {
   comicsDirectory,
   libraryRootRegistryPath,
@@ -18,10 +11,7 @@ import {
   preparedCatalogDirectory,
   scanFailuresLogPath,
 } from "~/content/dataRoot";
-import {
-  prepareLocalCatalog,
-  type ContentPrepareDiagnostic,
-} from "~/content/prepare";
+import {prepareLocalCatalog, type ContentPrepareDiagnostic} from "~/content/prepare";
 import {parseLocalPublicationDocument} from "~/content/validation";
 
 export {LIBRARY_CONFIG_FILE_NAME};
@@ -85,13 +75,11 @@ const uniqueMediaPaths = (paths: readonly ConfiguredMediaPath[]) => {
       unique.set(mediaPath.path, mediaPath);
       continue;
     }
-    const readingDirection =
-      existing.readingDirection ?? mediaPath.readingDirection;
+    const readingDirection = existing.readingDirection ?? mediaPath.readingDirection;
     unique.set(mediaPath.path, {
       optional: existing.optional && mediaPath.optional,
       path: mediaPath.path,
-      protectsExistingLibrary:
-        existing.protectsExistingLibrary || mediaPath.protectsExistingLibrary,
+      protectsExistingLibrary: existing.protectsExistingLibrary || mediaPath.protectsExistingLibrary,
       ...(readingDirection === undefined ? {} : {readingDirection}),
     });
   }
@@ -100,10 +88,7 @@ const uniqueMediaPaths = (paths: readonly ConfiguredMediaPath[]) => {
 
 const pathIsWithin = (parent: string, candidate: string) => {
   const path = relative(parent, candidate);
-  return (
-    path === "" ||
-    (!path.startsWith(`..${sep}`) && path !== ".." && !isAbsolute(path))
-  );
+  return path === "" || (!path.startsWith(`..${sep}`) && path !== ".." && !isAbsolute(path));
 };
 
 const pruneNestedMediaPaths = (paths: readonly ConfiguredMediaPath[]) => {
@@ -117,9 +102,7 @@ const pruneNestedMediaPaths = (paths: readonly ConfiguredMediaPath[]) => {
         candidate.readingDirection !== path.readingDirection,
     );
     if (conflict)
-      throw new Error(
-        `Nested book paths cannot use conflicting reading directions: ${conflict.path} and ${path.path}`,
-      );
+      throw new Error(`Nested book paths cannot use conflicting reading directions: ${conflict.path} and ${path.path}`);
   }
   return paths.filter(
     (path) =>
@@ -132,10 +115,7 @@ const pruneNestedMediaPaths = (paths: readonly ConfiguredMediaPath[]) => {
   );
 };
 
-const pruneMissingArchives = async (
-  outputDirectory: string,
-  authoritativeDirectories: readonly string[],
-) => {
+const pruneMissingArchives = async (outputDirectory: string, authoritativeDirectories: readonly string[]) => {
   let entries;
   try {
     entries = await readdir(outputDirectory, {withFileTypes: true});
@@ -151,12 +131,7 @@ const pruneMissingArchives = async (
     let document;
     try {
       document = parseLocalPublicationDocument(
-        JSON.parse(
-          await readFile(
-            resolve(publicationDirectory, "publication.json"),
-            "utf8",
-          ),
-        ) as unknown,
+        JSON.parse(await readFile(resolve(publicationDirectory, "publication.json"), "utf8")) as unknown,
         "publication.json",
       );
     } catch {
@@ -171,12 +146,7 @@ const pruneMissingArchives = async (
     } catch {
       continue;
     }
-    if (
-      !authoritativeDirectories.some((directory) =>
-        pathIsWithin(directory, sourcePath),
-      )
-    )
-      continue;
+    if (!authoritativeDirectories.some((directory) => pathIsWithin(directory, sourcePath))) continue;
     try {
       await stat(sourcePath);
       continue;
@@ -213,9 +183,7 @@ export const importLocalMedia = async (
       optional: true,
       path: entry.path,
       protectsExistingLibrary: !defaultMediaPathSet.has(entry.path),
-      ...(entry.readingDirection === undefined
-        ? {}
-        : {readingDirection: entry.readingDirection}),
+      ...(entry.readingDirection === undefined ? {} : {readingDirection: entry.readingDirection}),
     })),
     ...cliMediaPaths.map((path) => ({
       optional: false,
@@ -225,13 +193,10 @@ export const importLocalMedia = async (
   ]);
   const mediaPaths = pruneNestedMediaPaths(configuredMediaPaths);
   const unavailableProtectedPaths = await unavailableLibraryPaths(
-    configuredMediaPaths
-      .filter((mediaPath) => mediaPath.protectsExistingLibrary)
-      .map((mediaPath) => mediaPath.path),
+    configuredMediaPaths.filter((mediaPath) => mediaPath.protectsExistingLibrary).map((mediaPath) => mediaPath.path),
     libraryRootRegistryPath(workingDirectory),
   );
-  if (unavailableProtectedPaths.length > 0)
-    throw new UnavailableLibraryMediaPathsError(unavailableProtectedPaths);
+  if (unavailableProtectedPaths.length > 0) throw new UnavailableLibraryMediaPathsError(unavailableProtectedPaths);
 
   const catalogDirectories: string[] = [];
   const availableMedia: Array<{
@@ -246,29 +211,19 @@ export const importLocalMedia = async (
     try {
       mediaStat = await stat(mediaPath.path);
     } catch (error) {
-      if (
-        mediaPath.optional &&
-        (error as NodeJS.ErrnoException).code === "ENOENT"
-      )
-        continue;
+      if (mediaPath.optional && (error as NodeJS.ErrnoException).code === "ENOENT") continue;
       throw new Error(
         `Could not access library media path ${mediaPath.path}: ${error instanceof Error ? error.message : String(error)}`,
       );
     }
     if (mediaStat.isFile() && !isContentArchivePath(mediaPath.path))
-      throw new Error(
-        `Library media file is not a supported CBZ, ZIP, CBR, or RAR archive: ${mediaPath.path}`,
-      );
+      throw new Error(`Library media file is not a supported CBZ, ZIP, CBR, or RAR archive: ${mediaPath.path}`);
     if (!mediaStat.isFile() && !mediaStat.isDirectory())
-      throw new Error(
-        `Library media path is not a file or folder: ${mediaPath.path}`,
-      );
+      throw new Error(`Library media path is not a file or folder: ${mediaPath.path}`);
 
     availableMedia.push({
       path: mediaPath.path,
-      ...(mediaPath.readingDirection === undefined
-        ? {}
-        : {readingDirection: mediaPath.readingDirection}),
+      ...(mediaPath.readingDirection === undefined ? {} : {readingDirection: mediaPath.readingDirection}),
       stat: mediaStat,
     });
   }
@@ -285,9 +240,7 @@ export const importLocalMedia = async (
       rootDirectory: mediaPath.path,
       tags: [],
       write: true,
-      ...(mediaPath.readingDirection === undefined
-        ? {}
-        : {readingDirection: mediaPath.readingDirection}),
+      ...(mediaPath.readingDirection === undefined ? {} : {readingDirection: mediaPath.readingDirection}),
     });
     imageFolderPreparedCount += folderReport.preparedCount;
     folderDiagnostics.push(...folderReport.diagnostics);
@@ -313,24 +266,18 @@ export const importLocalMedia = async (
   );
   if (failures.length > 0) {
     const lines = failures
-      .map(
-        (diagnostic) =>
-          `[${new Date().toISOString()}] ${JSON.stringify(diagnostic)}`,
-      )
+      .map((diagnostic) => `[${new Date().toISOString()}] ${JSON.stringify(diagnostic)}`)
       .join("\n");
     await appendFile(failureLogPath, `${lines}\n`);
   }
 
   const archiveRemovedCount = await pruneMissingArchives(
     outputDirectory,
-    availableMedia
-      .filter(({stat: mediaStat}) => mediaStat.isDirectory())
-      .map(({path}) => path),
+    availableMedia.filter(({stat: mediaStat}) => mediaStat.isDirectory()).map(({path}) => path),
   );
 
   try {
-    if ((await stat(outputDirectory)).isDirectory())
-      catalogDirectories.push(resolve(outputDirectory));
+    if ((await stat(outputDirectory)).isDirectory()) catalogDirectories.push(resolve(outputDirectory));
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
   }

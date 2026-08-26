@@ -14,8 +14,7 @@ export const importArtFrameImage = async (
   channelId: string,
   signal: AbortSignal,
 ): Promise<ArtFrameImage> => {
-  if (!isSafeArtFrameChannelId(channelId))
-    throw new Error("Art frame channel name is invalid");
+  if (!isSafeArtFrameChannelId(channelId)) throw new Error("Art frame channel name is invalid");
   if (image.size <= 0 || image.size > MAX_ART_FRAME_IMPORT_BODY_BYTES)
     throw new Error("Pasted art frame image is empty or too large");
   const response = await fetch(ART_FRAME_IMPORT_ENDPOINT, {
@@ -36,15 +35,12 @@ export const importArtFrameImage = async (
   return parseArtFrameImportResponse(await response.json(), channelId).image;
 };
 
-export const loadArtFrameChannels = async (
-  signal: AbortSignal,
-): Promise<readonly ArtFrameChannel[]> => {
+export const loadArtFrameChannels = async (signal: AbortSignal): Promise<readonly ArtFrameChannel[]> => {
   const response = await fetch(ART_FRAME_CATALOG_ENDPOINT, {
     cache: "no-store",
     credentials: "same-origin",
     signal,
   });
-  if (!response.ok)
-    throw new Error(`Art frame discovery failed (${response.status})`);
+  if (!response.ok) throw new Error(`Art frame discovery failed (${response.status})`);
   return parseArtFrameCatalog(await response.json()).channels;
 };

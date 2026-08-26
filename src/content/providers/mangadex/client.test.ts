@@ -68,19 +68,13 @@ test("MangaDex client resolves API metadata and At Home pages", async () => {
           ],
         });
       if (url.includes("/manga?")) return response({data: [manga]});
-      if (url.includes("/data/hash/page-1.jpg"))
-        return new Response(new Uint8Array([1, 2, 3]), {status: 200});
+      if (url.includes("/data/hash/page-1.jpg")) return new Response(new Uint8Array([1, 2, 3]), {status: 200});
       throw new Error(`Unexpected URL ${url}`);
     }),
     retryCount: 0,
   });
 
-  const results = await client.searchManga(
-    "Test",
-    1,
-    ["english"],
-    ["pornographic"],
-  );
+  const results = await client.searchManga("Test", 1, ["english"], ["pornographic"]);
   const chapters = await client.getChapterFeed("manga-id", ["english"], 1);
   const server = await client.getAtHomeServer("chapter-id");
   const page = await client.downloadPage(server, "page-1.jpg");
@@ -92,18 +86,10 @@ test("MangaDex client resolves API metadata and At Home pages", async () => {
   });
   expect(chapters[0]).toMatchObject({id: "chapter-id", mangaId: "manga-id"});
   expect(page).toEqual(Buffer.from([1, 2, 3]));
-  expect(
-    requestedUrls.some((url) => url.includes("excludedTags%5B%5D=blocked-tag")),
-  ).toBe(true);
-  expect(
-    requestedUrls.some((url) => url.includes("contentRating%5B%5D=suggestive")),
-  ).toBe(true);
-  expect(
-    requestedUrls.some((url) => url.includes("order%5Brelevance%5D=desc")),
-  ).toBe(true);
-  expect(
-    requestedUrls.every((url) => !url.includes("order%5BupdatedAt%5D=desc")),
-  ).toBe(true);
+  expect(requestedUrls.some((url) => url.includes("excludedTags%5B%5D=blocked-tag"))).toBe(true);
+  expect(requestedUrls.some((url) => url.includes("contentRating%5B%5D=suggestive"))).toBe(true);
+  expect(requestedUrls.some((url) => url.includes("order%5Brelevance%5D=desc"))).toBe(true);
+  expect(requestedUrls.every((url) => !url.includes("order%5BupdatedAt%5D=desc"))).toBe(true);
 });
 
 test("MangaDex client sorts discovery searches by recent updates", async () => {
@@ -195,9 +181,7 @@ test("MangaDex client excludes external chapter placeholders", async () => {
 
   const page = await client.getChapterFeedPage("manga-id", ["english"], 1);
 
-  expect(page.chapters).toEqual([
-    expect.objectContaining({id: "hosted-chapter", pages: 18}),
-  ]);
+  expect(page.chapters).toEqual([expect.objectContaining({id: "hosted-chapter", pages: 18})]);
   expect(page.total).toBe(2);
 });
 
@@ -207,13 +191,9 @@ test("MangaDex client times out stalled requests", async () => {
     fetcher: stubFetch(
       (_input, init) =>
         new Promise<Response>((_resolve, reject) => {
-          init?.signal?.addEventListener(
-            "abort",
-            () => reject(init.signal?.reason),
-            {
-              once: true,
-            },
-          );
+          init?.signal?.addEventListener("abort", () => reject(init.signal?.reason), {
+            once: true,
+          });
         }),
     ),
     requestTimeoutMilliseconds: 5,
@@ -241,9 +221,7 @@ test("MangaDex client retries rate limits but not ordinary client errors", async
     sleep: async () => {},
   });
 
-  await expect(
-    client.getChapterFeedPage("manga-id", ["english"], 1),
-  ).resolves.toMatchObject({
+  await expect(client.getChapterFeedPage("manga-id", ["english"], 1)).resolves.toMatchObject({
     chapters: [],
     total: 0,
   });
@@ -259,8 +237,6 @@ test("MangaDex client retries rate limits but not ordinary client errors", async
     retryCount: 1,
     sleep: async () => {},
   });
-  await expect(
-    ordinaryClientError.getChapterFeedPage("manga-id", ["english"], 1),
-  ).rejects.toThrow("HTTP 404");
+  await expect(ordinaryClientError.getChapterFeedPage("manga-id", ["english"], 1)).rejects.toThrow("HTTP 404");
   expect(requests).toBe(1);
 });

@@ -23,10 +23,7 @@ import {
 import {normalizeTags} from "~/content/normalize";
 import {migrateLibrarySourcesWithRegistry} from "~/content/librarySourceMigrationRegistry";
 import type {LibrarySourceMigrationReport} from "~/content/librarySourceMigrations";
-import {
-  repairCachedProviderPublications,
-  type ProviderCacheRepairReport,
-} from "~/content/providerCacheRepair";
+import {repairCachedProviderPublications, type ProviderCacheRepairReport} from "~/content/providerCacheRepair";
 import {
   createLibraryProviderRegistry,
   DEFAULT_LIBRARY_PROVIDER_ID,
@@ -39,11 +36,7 @@ import type {
 } from "~/content/providers/types";
 import {PublicationBlacklistStore} from "~/content/libraryUpdate/publicationBlacklist";
 import {retireUnreferencedLibraryAssets} from "~/content/libraryUpdate/libraryAssetPool";
-import type {
-  ContentPackCatalog,
-  SeedContentPackOptions,
-  SeedContentPackResult,
-} from "~/content/schema";
+import type {ContentPackCatalog, SeedContentPackOptions, SeedContentPackResult} from "~/content/schema";
 import {seedContentPack} from "~/content/seed";
 
 const DEFAULT_LANGUAGES = ["english", "japanese"] as const;
@@ -60,66 +53,41 @@ export interface SnapshotCatalogSummary {
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
-const parseSnapshotCatalogSummary = (
-  value: unknown,
-  field: string,
-): SnapshotCatalogSummary => {
+const parseSnapshotCatalogSummary = (value: unknown, field: string): SnapshotCatalogSummary => {
   if (!isRecord(value)) throw new Error(`${field} must be an object`);
   if (typeof value.contentHash !== "string" || !value.contentHash)
     throw new Error(`${field}.contentHash must be a non-empty string`);
-  if (!Array.isArray(value.publications))
-    throw new Error(`${field}.publications must be an array`);
+  if (!Array.isArray(value.publications)) throw new Error(`${field}.publications must be an array`);
   const publications = value.publications.map((publication, index) => {
-    if (!isRecord(publication))
-      throw new Error(`${field}.publications[${index}] must be an object`);
+    if (!isRecord(publication)) throw new Error(`${field}.publications[${index}] must be an object`);
     if (typeof publication.id !== "string" || !publication.id)
-      throw new Error(
-        `${field}.publications[${index}].id must be a non-empty string`,
-      );
+      throw new Error(`${field}.publications[${index}].id must be a non-empty string`);
     if (typeof publication.contentHash !== "string" || !publication.contentHash)
-      throw new Error(
-        `${field}.publications[${index}].contentHash must be a non-empty string`,
-      );
+      throw new Error(`${field}.publications[${index}].contentHash must be a non-empty string`);
     if (
       publication.localSourceId !== undefined &&
-      (typeof publication.localSourceId !== "string" ||
-        !publication.localSourceId)
+      (typeof publication.localSourceId !== "string" || !publication.localSourceId)
     )
-      throw new Error(
-        `${field}.publications[${index}].localSourceId must be a non-empty string`,
-      );
+      throw new Error(`${field}.publications[${index}].localSourceId must be a non-empty string`);
     return {
       contentHash: publication.contentHash,
       id: publication.id,
-      ...(publication.localSourceId === undefined
-        ? {}
-        : {localSourceId: publication.localSourceId}),
+      ...(publication.localSourceId === undefined ? {} : {localSourceId: publication.localSourceId}),
     };
   });
-  if (
-    new Set(publications.map((publication) => publication.id)).size !==
-    publications.length
-  )
+  if (new Set(publications.map((publication) => publication.id)).size !== publications.length)
     throw new Error(`${field}.publications contains duplicate IDs`);
   return {contentHash: value.contentHash, publications};
 };
 
-const summarizeCatalog = (catalog: ContentPackCatalog) =>
-  parseSnapshotCatalogSummary(catalog, "generated catalog");
+const summarizeCatalog = (catalog: ContentPackCatalog) => parseSnapshotCatalogSummary(catalog, "generated catalog");
 
 export const diffLibraryPublications = (
   previous: SnapshotCatalogSummary | undefined,
   next: SnapshotCatalogSummary,
 ): LibraryPublicationDiff => {
-  const previousById = new Map(
-    previous?.publications.map((publication) => [
-      publication.id,
-      publication,
-    ]) ?? [],
-  );
-  const nextById = new Map(
-    next.publications.map((publication) => [publication.id, publication]),
-  );
+  const previousById = new Map(previous?.publications.map((publication) => [publication.id, publication]) ?? []);
+  const nextById = new Map(next.publications.map((publication) => [publication.id, publication]));
   const addedPublicationIds: string[] = [];
   const unchangedPublicationIds: string[] = [];
   const updatedPublicationIds: string[] = [];
@@ -129,14 +97,11 @@ export const diffLibraryPublications = (
       addedPublicationIds.push(publication.id);
       continue;
     }
-    if (previousPublication.contentHash === publication.contentHash)
-      unchangedPublicationIds.push(publication.id);
+    if (previousPublication.contentHash === publication.contentHash) unchangedPublicationIds.push(publication.id);
     else updatedPublicationIds.push(publication.id);
   }
   const removedPublicationIds = previous
-    ? previous.publications
-        .filter((publication) => !nextById.has(publication.id))
-        .map((publication) => publication.id)
+    ? previous.publications.filter((publication) => !nextById.has(publication.id)).map((publication) => publication.id)
     : [];
   return {
     addedPublicationIds,
@@ -154,17 +119,13 @@ export interface LibraryUpdateServiceOptions {
 }
 
 export interface LibraryUpdateServiceDependencies {
-  activateSnapshot(
-    snapshot: LibrarySnapshotDescriptor,
-  ): Promise<LibrarySnapshotIndex>;
+  activateSnapshot(snapshot: LibrarySnapshotDescriptor): Promise<LibrarySnapshotIndex>;
   createRequestId?: () => string;
   createSnapshotId?: (now: Date) => string;
   now?: () => Date;
   readBlacklist(): Promise<readonly string[]>;
   readIndex(): Promise<LibrarySnapshotIndex>;
-  readSnapshotCatalog(
-    snapshot: LibrarySnapshotDescriptor,
-  ): Promise<SnapshotCatalogSummary>;
+  readSnapshotCatalog(snapshot: LibrarySnapshotDescriptor): Promise<SnapshotCatalogSummary>;
   discardRevision?: (revisionDirectory: string) => Promise<void>;
   retireUnreferencedAssets?: (catalog: ContentPackCatalog) => Promise<void>;
   runMigrations?: (
@@ -183,10 +144,7 @@ export interface LibraryUpdateServiceDependencies {
   ): Promise<SeedContentPackResult>;
   defaultProviderId?: string;
   getProviderDescriptor?: (providerId: string) => LibraryProviderDescriptor;
-  runSync(
-    options: LibraryProviderSyncOptions,
-    providerId: string,
-  ): Promise<LibraryProviderSyncReport>;
+  runSync(options: LibraryProviderSyncOptions, providerId: string): Promise<LibraryProviderSyncReport>;
 }
 
 export class LibraryUpdateInProgressError extends Error {
@@ -210,14 +168,9 @@ export class LibraryUpdateService implements LibraryUpdateClient {
   #operationPromise: Promise<unknown> | undefined;
   #state: LibraryUpdateState = {phase: "idle", status: "idle"};
 
-  constructor(
-    options: LibraryUpdateServiceOptions,
-    dependencies: LibraryUpdateServiceDependencies,
-  ) {
+  constructor(options: LibraryUpdateServiceOptions, dependencies: LibraryUpdateServiceDependencies) {
     this.#dependencies = dependencies;
-    this.#catalogDirectory = resolve(
-      options.catalogDirectory ?? options.sourceDirectory,
-    );
+    this.#catalogDirectory = resolve(options.catalogDirectory ?? options.sourceDirectory);
     this.#libraryDirectory = resolve(options.libraryDirectory);
     this.#packId = options.packId ?? "afterleaf-library";
     this.#sourceDirectory = resolve(options.sourceDirectory);
@@ -241,9 +194,7 @@ export class LibraryUpdateService implements LibraryUpdateClient {
   }
 
   fetchMore(request: LibraryFetchMoreRequest) {
-    return this.#startOperation(() =>
-      this.#runOperation(request, "fetch-more"),
-    );
+    return this.#startOperation(() => this.#runOperation(request, "fetch-more"));
   }
 
   scan(request: LibraryScanRequest) {
@@ -251,18 +202,15 @@ export class LibraryUpdateService implements LibraryUpdateClient {
   }
 
   #startOperation<Result>(operation: () => Promise<Result>) {
-    if (this.#operationPromise)
-      return Promise.reject(new LibraryUpdateInProgressError());
+    if (this.#operationPromise) return Promise.reject(new LibraryUpdateInProgressError());
     const operationPromise = operation();
     this.#operationPromise = operationPromise;
     void operationPromise.then(
       () => {
-        if (this.#operationPromise === operationPromise)
-          this.#operationPromise = undefined;
+        if (this.#operationPromise === operationPromise) this.#operationPromise = undefined;
       },
       () => {
-        if (this.#operationPromise === operationPromise)
-          this.#operationPromise = undefined;
+        if (this.#operationPromise === operationPromise) this.#operationPromise = undefined;
       },
     );
     return operationPromise;
@@ -279,14 +227,8 @@ export class LibraryUpdateService implements LibraryUpdateClient {
     return this.#state;
   }
 
-  #runOperation(
-    request: LibraryScanRequest,
-    mode: "scan",
-  ): Promise<LibraryScanResult>;
-  #runOperation(
-    request: LibraryFetchMoreRequest,
-    mode: "fetch-more",
-  ): Promise<LibraryFetchMoreResult>;
+  #runOperation(request: LibraryScanRequest, mode: "scan"): Promise<LibraryScanResult>;
+  #runOperation(request: LibraryFetchMoreRequest, mode: "fetch-more"): Promise<LibraryFetchMoreResult>;
   async #runOperation(
     request: LibraryFetchMoreRequest | LibraryScanRequest,
     mode: "fetch-more" | "scan",
@@ -297,10 +239,7 @@ export class LibraryUpdateService implements LibraryUpdateClient {
     const previousSnapshot = this.#state.activeSnapshot;
     let completedSteps = 0;
     // Latest provider-reported sub-step progress within the syncing phase.
-    let syncMessage =
-      mode === "scan"
-        ? "Scanning local publications"
-        : "Searching for new publications";
+    let syncMessage = mode === "scan" ? "Scanning local publications" : "Searching for new publications";
     let syncSubCompleted = 0;
     let syncSubTotal = 0;
     const syncSubProgress = () =>
@@ -310,15 +249,10 @@ export class LibraryUpdateService implements LibraryUpdateClient {
             total: syncSubTotal,
           }
         : undefined;
-    let failurePhase: Exclude<
-      LibraryUpdatePhase,
-      "idle" | "complete" | "failed"
-    > = "syncing";
+    let failurePhase: Exclude<LibraryUpdatePhase, "idle" | "complete" | "failed"> = "syncing";
     this.#setRunningState(
       "syncing",
-      mode === "scan"
-        ? "Scanning local publications"
-        : "Searching for new publications",
+      mode === "scan" ? "Scanning local publications" : "Searching for new publications",
       completedSteps,
       requestId,
       startedAt,
@@ -329,37 +263,22 @@ export class LibraryUpdateService implements LibraryUpdateClient {
         ? await this.#dependencies.readSnapshotCatalog(previousSnapshot)
         : undefined;
       const acquisitionLimit = request.limit ?? 20;
-      const blacklistedPublicationIds = [
-        ...(await this.#dependencies.readBlacklist()),
-      ].toSorted();
+      const blacklistedPublicationIds = [...(await this.#dependencies.readBlacklist())].toSorted();
       const excludedPublicationIds = new Set(blacklistedPublicationIds);
-      const remoteRequest =
-        mode === "scan" ? undefined : (request as LibraryFetchMoreRequest);
-      const repairScan =
-        mode === "scan" && (request as LibraryScanRequest).repair === true;
+      const remoteRequest = mode === "scan" ? undefined : (request as LibraryFetchMoreRequest);
+      const repairScan = mode === "scan" && (request as LibraryScanRequest).repair === true;
       const providerId =
-        remoteRequest?.providerId ??
-        this.#dependencies.defaultProviderId ??
-        DEFAULT_LIBRARY_PROVIDER_ID;
-      const providerDescriptor = remoteRequest
-        ? this.#dependencies.getProviderDescriptor?.(providerId)
-        : undefined;
+        remoteRequest?.providerId ?? this.#dependencies.defaultProviderId ?? DEFAULT_LIBRARY_PROVIDER_ID;
+      const providerDescriptor = remoteRequest ? this.#dependencies.getProviderDescriptor?.(providerId) : undefined;
       const acquisitionLanguages = remoteRequest
-        ? (request.languages ??
-          providerDescriptor?.defaultLanguages ?? [...DEFAULT_LANGUAGES])
+        ? (request.languages ?? providerDescriptor?.defaultLanguages ?? [...DEFAULT_LANGUAGES])
         : (request.languages ?? [...DEFAULT_LANGUAGES]);
-      const catalogLanguages = remoteRequest
-        ? [...DEFAULT_LANGUAGES]
-        : acquisitionLanguages;
+      const catalogLanguages = remoteRequest ? [...DEFAULT_LANGUAGES] : acquisitionLanguages;
       const syncReport = !remoteRequest
         ? undefined
         : await this.#dependencies.runSync(
             {
-              blockedTags: normalizeTags(
-                remoteRequest.blockedTags ??
-                  providerDescriptor?.defaultBlockedTags ??
-                  [],
-              ),
+              blockedTags: normalizeTags(remoteRequest.blockedTags ?? providerDescriptor?.defaultBlockedTags ?? []),
               excludedPublicationIds: blacklistedPublicationIds,
               languages: acquisitionLanguages,
               limit: acquisitionLimit,
@@ -392,8 +311,7 @@ export class LibraryUpdateService implements LibraryUpdateClient {
               outputDirectory: this.#dependencies.getProviderDescriptor
                 ? resolve(this.#sourceDirectory, providerId)
                 : this.#sourceDirectory,
-              query:
-                remoteRequest.query ?? providerDescriptor?.defaultQuery ?? "",
+              query: remoteRequest.query ?? providerDescriptor?.defaultQuery ?? "",
               selectionMode: "unseen",
               write: true,
             },
@@ -403,17 +321,8 @@ export class LibraryUpdateService implements LibraryUpdateClient {
         repairScan &&
         (request as LibraryScanRequest).redownloadProviderAssets === true &&
         this.#dependencies.runProviderRepairs
-          ? await this.#dependencies.runProviderRepairs(
-              this.#sourceDirectory,
-              (message) =>
-                this.#setRunningState(
-                  "syncing",
-                  message,
-                  completedSteps,
-                  requestId,
-                  startedAt,
-                  previousSnapshot,
-                ),
+          ? await this.#dependencies.runProviderRepairs(this.#sourceDirectory, (message) =>
+              this.#setRunningState("syncing", message, completedSteps, requestId, startedAt, previousSnapshot),
             )
           : {
               diagnostics: [],
@@ -425,17 +334,8 @@ export class LibraryUpdateService implements LibraryUpdateClient {
         repairScan &&
         (request as LibraryScanRequest).repairProviderMetadata === true &&
         this.#dependencies.runMigrations
-          ? await this.#dependencies.runMigrations(
-              this.#sourceDirectory,
-              (message) =>
-                this.#setRunningState(
-                  "syncing",
-                  message,
-                  completedSteps,
-                  requestId,
-                  startedAt,
-                  previousSnapshot,
-                ),
+          ? await this.#dependencies.runMigrations(this.#sourceDirectory, (message) =>
+              this.#setRunningState("syncing", message, completedSteps, requestId, startedAt, previousSnapshot),
             )
           : {
               diagnostics: [],
@@ -452,9 +352,7 @@ export class LibraryUpdateService implements LibraryUpdateClient {
         syncReport.updatedCount === 0 &&
         migrationReport.pendingCount === 0
       ) {
-        const finishedAt = (
-          this.#dependencies.now?.() ?? new Date()
-        ).toISOString();
+        const finishedAt = (this.#dependencies.now?.() ?? new Date()).toISOString();
         const result: LibraryFetchMoreResult = {
           blacklistedPublicationIds,
           diff: {
@@ -465,8 +363,7 @@ export class LibraryUpdateService implements LibraryUpdateClient {
               unchangedCount: syncReport.unchangedCount,
               updatedCount: syncReport.updatedCount,
             },
-            unchangedPublicationIds:
-              previousCatalog?.publications.map(({id}) => id) ?? [],
+            unchangedPublicationIds: previousCatalog?.publications.map(({id}) => id) ?? [],
             updatedPublicationIds: [],
           },
           finishedAt,
@@ -495,30 +392,19 @@ export class LibraryUpdateService implements LibraryUpdateClient {
       );
       const snapshotDate = this.#dependencies.now?.() ?? new Date();
       const snapshotId = assertSnapshotId(
-        this.#dependencies.createSnapshotId?.(snapshotDate) ??
-          defaultSnapshotId(snapshotDate),
+        this.#dependencies.createSnapshotId?.(snapshotDate) ?? defaultSnapshotId(snapshotDate),
       );
       if (snapshotId === previousSnapshot?.snapshotId)
-        throw new Error(
-          "A library operation cannot replace the active snapshot in place",
-        );
-      const snapshotDirectory = resolve(
-        this.#libraryDirectory,
-        "revisions",
-        snapshotId,
-      );
-      const snapshotLimit =
-        mode === "scan" && request.limit !== undefined
-          ? request.limit
-          : Number.MAX_SAFE_INTEGER;
+        throw new Error("A library operation cannot replace the active snapshot in place");
+      const snapshotDirectory = resolve(this.#libraryDirectory, "revisions", snapshotId);
+      const snapshotLimit = mode === "scan" && request.limit !== undefined ? request.limit : Number.MAX_SAFE_INTEGER;
       const seedResult = await this.#dependencies.runSeed(
         this.#catalogDirectory,
         {
           allowEmpty: true,
           dryRun: false,
           excludedTags: [],
-          forceRebuild:
-            mode === "scan" && (request as LibraryScanRequest).repair === true,
+          forceRebuild: mode === "scan" && (request as LibraryScanRequest).repair === true,
           languages: [...catalogLanguages],
           limit: snapshotLimit,
           match: request.match ?? "all",
@@ -552,16 +438,10 @@ export class LibraryUpdateService implements LibraryUpdateClient {
           sourceId,
         })),
       );
-      if (!seedResult.catalog)
-        throw new Error(
-          "Content seeding completed without a generated catalog",
-        );
+      if (!seedResult.catalog) throw new Error("Content seeding completed without a generated catalog");
       completedSteps = 2;
       const nextCatalog = summarizeCatalog(seedResult.catalog);
-      const publicationDiff = diffLibraryPublications(
-        previousCatalog,
-        nextCatalog,
-      );
+      const publicationDiff = diffLibraryPublications(previousCatalog, nextCatalog);
       const unsafeRemovalDiagnostics = new Set([
         "duplicate-id",
         "invalid-assets",
@@ -570,30 +450,20 @@ export class LibraryUpdateService implements LibraryUpdateClient {
       ]);
       const unsafeSourceIds = new Set(
         seedResult.report.diagnostics.flatMap((diagnostic) =>
-          unsafeRemovalDiagnostics.has(diagnostic.code) && diagnostic.sourceId
-            ? [diagnostic.sourceId]
-            : [],
+          unsafeRemovalDiagnostics.has(diagnostic.code) && diagnostic.sourceId ? [diagnostic.sourceId] : [],
         ),
       );
       const previousPublicationById = new Map(
-        previousCatalog?.publications.map((publication) => [
-          publication.id,
-          publication,
-        ]) ?? [],
+        previousCatalog?.publications.map((publication) => [publication.id, publication]) ?? [],
       );
-      const removalAffectedByScanErrors =
-        publicationDiff.removedPublicationIds.some((publicationId) => {
-          const publication = previousPublicationById.get(publicationId);
-          // Catalogs created before source tracking cannot safely attribute an
-          // error, so retain the conservative behavior for their first scan.
-          if (!publication?.localSourceId) return unsafeSourceIds.size > 0;
-          return unsafeSourceIds.has(publication.localSourceId);
-        });
-      if (
-        previousCatalog &&
-        publicationDiff.removedPublicationIds.length > 0 &&
-        removalAffectedByScanErrors
-      ) {
+      const removalAffectedByScanErrors = publicationDiff.removedPublicationIds.some((publicationId) => {
+        const publication = previousPublicationById.get(publicationId);
+        // Catalogs created before source tracking cannot safely attribute an
+        // error, so retain the conservative behavior for their first scan.
+        if (!publication?.localSourceId) return unsafeSourceIds.size > 0;
+        return unsafeSourceIds.has(publication.localSourceId);
+      });
+      if (previousCatalog && publicationDiff.removedPublicationIds.length > 0 && removalAffectedByScanErrors) {
         await this.#dependencies.discardRevision?.(snapshotDirectory);
         throw new Error(
           `Library scan kept the current catalog because ${publicationDiff.removedPublicationIds.length} existing ${publicationDiff.removedPublicationIds.length === 1 ? "publication was" : "publications were"} missing after scan errors`,
@@ -622,8 +492,7 @@ export class LibraryUpdateService implements LibraryUpdateClient {
           const reasons = seedResult.report.diagnostics
             .filter(
               (diagnostic) =>
-                diagnostic.sourceId === publicationId ||
-                diagnostic.sourceId?.endsWith(`/${publicationId}`),
+                diagnostic.sourceId === publicationId || diagnostic.sourceId?.endsWith(`/${publicationId}`),
             )
             .map(({message}) => message);
           this.#setRunningState(
@@ -637,10 +506,7 @@ export class LibraryUpdateService implements LibraryUpdateClient {
         }
       }
       let snapshot: LibrarySnapshotDescriptor;
-      if (
-        previousSnapshot &&
-        previousCatalog?.contentHash === nextCatalog.contentHash
-      ) {
+      if (previousSnapshot && previousCatalog?.contentHash === nextCatalog.contentHash) {
         this.#setRunningState(
           "activating",
           "Catalog unchanged; keeping the active library revision",
@@ -680,18 +546,14 @@ export class LibraryUpdateService implements LibraryUpdateClient {
             startedAt,
             snapshot,
           );
-          await this.#dependencies
-            .retireUnreferencedAssets?.(seedResult.catalog)
-            .catch(() => {});
+          await this.#dependencies.retireUnreferencedAssets?.(seedResult.catalog).catch(() => {});
         } catch (error) {
           await this.#dependencies.discardRevision?.(snapshotDirectory);
           throw error;
         }
       }
       completedSteps = 3;
-      const finishedAt = (
-        this.#dependencies.now?.() ?? new Date()
-      ).toISOString();
+      const finishedAt = (this.#dependencies.now?.() ?? new Date()).toISOString();
       const scanResult: LibraryScanResult = {
         blacklistedPublicationIds,
         diff: publicationDiff,
@@ -732,9 +594,7 @@ export class LibraryUpdateService implements LibraryUpdateClient {
     } catch (error) {
       const failedAt = (this.#dependencies.now?.() ?? new Date()).toISOString();
       this.#setState({
-        ...(previousSnapshot === undefined
-          ? {}
-          : {activeSnapshot: previousSnapshot}),
+        ...(previousSnapshot === undefined ? {} : {activeSnapshot: previousSnapshot}),
         completedSteps,
         error: {
           message: error instanceof Error ? error.message : String(error),
@@ -795,59 +655,35 @@ export interface LibraryUpdateServiceConfig {
   sourceDirectory: string;
 }
 
-export const createLibraryUpdateService = (
-  config: LibraryUpdateServiceConfig,
-) => {
+export const createLibraryUpdateService = (config: LibraryUpdateServiceConfig) => {
   const libraryDirectory = resolve(config.libraryDirectory);
   const indexStore = new LibrarySnapshotIndexStore(libraryDirectory);
   const blacklistStore = new PublicationBlacklistStore(libraryDirectory);
-  const providerRegistry =
-    config.providerRegistry ?? createLibraryProviderRegistry();
+  const providerRegistry = config.providerRegistry ?? createLibraryProviderRegistry();
   const additionalCatalogDirectories =
-    config.additionalCatalogDirectories?.map((directory) =>
-      resolve(directory),
-    ) ?? [];
+    config.additionalCatalogDirectories?.map((directory) => resolve(directory)) ?? [];
   return new LibraryUpdateService(
     {
-      ...(config.catalogDirectory === undefined
-        ? {}
-        : {catalogDirectory: config.catalogDirectory}),
+      ...(config.catalogDirectory === undefined ? {} : {catalogDirectory: config.catalogDirectory}),
       libraryDirectory,
       ...(config.packId === undefined ? {} : {packId: config.packId}),
       sourceDirectory: config.sourceDirectory,
     },
     {
       activateSnapshot: (snapshot) => indexStore.activate(snapshot),
-      discardRevision: (revisionDirectory) =>
-        rm(revisionDirectory, {force: true, recursive: true}),
+      discardRevision: (revisionDirectory) => rm(revisionDirectory, {force: true, recursive: true}),
       readBlacklist: () => blacklistStore.list(),
       readIndex: () => indexStore.read(),
       readSnapshotCatalog: async (snapshot) => {
-        const text = await readFile(
-          resolve(libraryDirectory, snapshot.catalogPath),
-          "utf8",
-        );
-        return parseSnapshotCatalogSummary(
-          JSON.parse(text) as unknown,
-          snapshot.catalogPath,
-        );
+        const text = await readFile(resolve(libraryDirectory, snapshot.catalogPath), "utf8");
+        return parseSnapshotCatalogSummary(JSON.parse(text) as unknown, snapshot.catalogPath);
       },
-      retireUnreferencedAssets: (catalog) =>
-        retireUnreferencedLibraryAssets(libraryDirectory, catalog).then(
-          () => {},
-        ),
-      runSeed: async (
-        catalogDirectory,
-        options,
-        excludedPublicationIds,
-        previousSnapshot,
-      ) => {
+      retireUnreferencedAssets: (catalog) => retireUnreferencedLibraryAssets(libraryDirectory, catalog).then(() => {}),
+      runSeed: async (catalogDirectory, options, excludedPublicationIds, previousSnapshot) => {
         let reuse: SeedContentPackOptions["reuse"];
         if (previousSnapshot) {
           const directory = indexStore.resolveSnapshotPath(previousSnapshot);
-          const parsed = JSON.parse(
-            await readFile(resolve(directory, "catalog.json"), "utf8"),
-          ) as ContentPackCatalog;
+          const parsed = JSON.parse(await readFile(resolve(directory, "catalog.json"), "utf8")) as ContentPackCatalog;
           if (
             !Array.isArray(parsed.publications) ||
             !parsed.atlases ||
@@ -859,42 +695,30 @@ export const createLibraryUpdateService = (
           reuse = {catalog: parsed};
         }
         return seedContentPack(
-          new LocalCatalogSource(
-            [catalogDirectory, ...additionalCatalogDirectories],
-            {
-              excludedPublicationIds,
-              requiresLanguageTag: (providerId) => {
-                try {
-                  return providerRegistry.getDescriptor(providerId)
-                    .requiresLanguageTag;
-                } catch {
-                  return false;
-                }
-              },
+          new LocalCatalogSource([catalogDirectory, ...additionalCatalogDirectories], {
+            excludedPublicationIds,
+            requiresLanguageTag: (providerId) => {
+              try {
+                return providerRegistry.getDescriptor(providerId).requiresLanguageTag;
+              } catch {
+                return false;
+              }
             },
-          ),
+          }),
           {...options, ...(reuse === undefined ? {} : {reuse})},
         );
       },
       defaultProviderId: DEFAULT_LIBRARY_PROVIDER_ID,
-      getProviderDescriptor: (providerId) =>
-        providerRegistry.getDescriptor(providerId),
+      getProviderDescriptor: (providerId) => providerRegistry.getDescriptor(providerId),
       runMigrations: (sourceDirectory, onProgress) =>
-        migrateLibrarySourcesWithRegistry(
-          sourceDirectory,
-          providerRegistry,
-          onProgress,
-        ),
+        migrateLibrarySourcesWithRegistry(sourceDirectory, providerRegistry, onProgress),
       runProviderRepairs: (sourceDirectory, onProgress) =>
         repairCachedProviderPublications({
           ...(onProgress === undefined ? {} : {onProgress}),
           providerRegistry,
           sourceDirectory,
         }),
-      runSync: (options, providerId) =>
-        providerRegistry
-          .load(providerId)
-          .then((provider) => provider.sync(options)),
+      runSync: (options, providerId) => providerRegistry.load(providerId).then((provider) => provider.sync(options)),
     },
   );
 };

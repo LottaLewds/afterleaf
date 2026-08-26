@@ -1,11 +1,8 @@
 @import "tailwindcss";
 
 @theme {
-  --font-serif:
-    "Iowan Old Style", "Yu Mincho", "Hiragino Mincho ProN", Georgia, serif;
-  --font-sans:
-    Inter, "Yu Gothic", "Hiragino Kaku Gothic ProN", ui-sans-serif, system-ui,
-    sans-serif;
+  --font-serif: "Iowan Old Style", "Yu Mincho", "Hiragino Mincho ProN", Georgia, serif;
+  --font-sans: Inter, "Yu Gothic", "Hiragino Kaku Gothic ProN", ui-sans-serif, system-ui, sans-serif;
 }
 
 :root {
@@ -56,13 +53,7 @@ button {
 .cover-frame::after {
   position: absolute;
   inset: 0;
-  background: linear-gradient(
-    105deg,
-    rgb(255 255 255 / 14%),
-    transparent 15%,
-    transparent 75%,
-    rgb(0 0 0 / 16%)
-  );
+  background: linear-gradient(105deg, rgb(255 255 255 / 14%), transparent 15%, transparent 75%, rgb(0 0 0 / 16%));
   box-shadow:
     inset 2px 0 rgb(255 255 255 / 12%),
     inset -2px 0 rgb(0 0 0 / 30%);

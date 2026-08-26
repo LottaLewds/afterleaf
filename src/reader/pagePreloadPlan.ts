@@ -19,9 +19,7 @@ export const createReaderPagePreloadPlan = (options: {
   requestedUrls: ReadonlySet<string>;
   widePageIndices: ReadonlySet<number>;
 }): ReaderPagePreloadPlan => {
-  const requestedSources = new Set(
-    [...options.requestedUrls].map(readerPageSourceUrl),
-  );
+  const requestedSources = new Set([...options.requestedUrls].map(readerPageSourceUrl));
   const textureUrls = getReaderWindow(
     options.pageIndex,
     options.pageCount,
@@ -30,11 +28,7 @@ export const createReaderPagePreloadPlan = (options: {
     options.widePageIndices,
   ).flatMap((pageIndex) => {
     const url = options.pageUrl(pageIndex);
-    return !url ||
-      isSparseLibraryPageUrl(url) ||
-      requestedSources.has(readerPageSourceUrl(url))
-      ? []
-      : [url];
+    return !url || isSparseLibraryPageUrl(url) || requestedSources.has(readerPageSourceUrl(url)) ? [] : [url];
   });
   const sparsePreloadUrls = [
     // Forward first: reading usually advances, so start those fetches first.
@@ -54,11 +48,7 @@ export const createReaderPagePreloadPlan = (options: {
     ),
   ].flatMap((pageIndex) => {
     const url = options.pageUrl(pageIndex);
-    return url &&
-      isSparseLibraryPageUrl(url) &&
-      !requestedSources.has(readerPageSourceUrl(url))
-      ? [url]
-      : [];
+    return url && isSparseLibraryPageUrl(url) && !requestedSources.has(readerPageSourceUrl(url)) ? [url] : [];
   });
 
   return {

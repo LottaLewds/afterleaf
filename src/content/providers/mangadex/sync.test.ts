@@ -11,11 +11,7 @@ import {stubFetch} from "~/test/fetchStub";
 const temporaryDirectories: string[] = [];
 
 afterEach(async () => {
-  await Promise.all(
-    temporaryDirectories
-      .splice(0)
-      .map((directory) => rm(directory, {force: true, recursive: true})),
-  );
+  await Promise.all(temporaryDirectories.splice(0).map((directory) => rm(directory, {force: true, recursive: true})));
 });
 
 test("MangaDex sync writes a sparse local catalog", async () => {
@@ -70,8 +66,7 @@ test("MangaDex sync writes a sparse local catalog", async () => {
             },
           }),
         );
-      if (url.includes("/data/hash/"))
-        return new Response(new Uint8Array([1, 2, 3]));
+      if (url.includes("/data/hash/")) return new Response(new Uint8Array([1, 2, 3]));
       throw new Error(`Unexpected URL ${url}`);
     }),
     retryCount: 0,
@@ -92,20 +87,10 @@ test("MangaDex sync writes a sparse local catalog", async () => {
     {client, now: () => new Date("2026-08-03T12:00:00.000Z")},
   );
   const manifest = JSON.parse(
-    await readFile(
-      resolve(root, "mangadex-manga-id-chapter-id/publication.json"),
-      "utf8",
-    ),
+    await readFile(resolve(root, "mangadex-manga-id-chapter-id/publication.json"), "utf8"),
   ) as Record<string, unknown>;
   const sparseMetadata = JSON.parse(
-    await readFile(
-      resolve(
-        root,
-        "mangadex-manga-id-chapter-id",
-        MANGADEX_SPARSE_METADATA_FILE,
-      ),
-      "utf8",
-    ),
+    await readFile(resolve(root, "mangadex-manga-id-chapter-id", MANGADEX_SPARSE_METADATA_FILE), "utf8"),
   ) as Record<string, unknown>;
 
   expect(report).toMatchObject({
@@ -163,9 +148,7 @@ test("MangaDex sync advances past cached and duplicate chapter uploads", async (
       if (url.includes("/manga/manga-id/feed")) {
         chapterFeedRequestCount += 1;
         const feedChapters =
-          chapterFeedRequestCount === 1
-            ? chapters
-            : [...chapters.slice(0, 2).toReversed(), ...chapters.slice(2)];
+          chapterFeedRequestCount === 1 ? chapters : [...chapters.slice(0, 2).toReversed(), ...chapters.slice(2)];
         return new Response(
           JSON.stringify({
             data: feedChapters.map((chapter) => ({
@@ -196,8 +179,7 @@ test("MangaDex sync advances past cached and duplicate chapter uploads", async (
             },
           }),
         );
-      if (url.includes("https://uploads.mangadex.test/data/"))
-        return new Response(new Uint8Array([1, 2, 3]));
+      if (url.includes("https://uploads.mangadex.test/data/")) return new Response(new Uint8Array([1, 2, 3]));
       throw new Error(`Unexpected URL ${url}`);
     }),
     retryCount: 0,
@@ -223,10 +205,7 @@ test("MangaDex sync advances past cached and duplicate chapter uploads", async (
   );
 
   expect(first.selectedPublicationIds).toEqual(["mangadex-manga-id-chapter-1"]);
-  expect(second.selectedPublicationIds).toEqual([
-    "mangadex-manga-id-chapter-2",
-    "mangadex-manga-id-chapter-3",
-  ]);
+  expect(second.selectedPublicationIds).toEqual(["mangadex-manga-id-chapter-2", "mangadex-manga-id-chapter-3"]);
   expect(second.addedCount).toBe(2);
 });
 
@@ -289,9 +268,7 @@ test("MangaDex sync overlaps materialization with later search pages", async () 
           }),
         );
       }
-      const serverMatch = url.pathname.match(
-        /^\/at-home\/server\/(chapter-\d+)$/u,
-      );
+      const serverMatch = url.pathname.match(/^\/at-home\/server\/(chapter-\d+)$/u);
       if (serverMatch?.[1])
         return new Response(
           JSON.stringify({
@@ -332,10 +309,7 @@ test("MangaDex sync overlaps materialization with later search pages", async () 
   );
 
   expect(observedOverlap).toBe(true);
-  expect(report.selectedPublicationIds).toEqual([
-    "mangadex-manga-1-chapter-1",
-    "mangadex-manga-2-chapter-2",
-  ]);
+  expect(report.selectedPublicationIds).toEqual(["mangadex-manga-1-chapter-1", "mangadex-manga-2-chapter-2"]);
   expect(report.addedCount).toBe(2);
 });
 
@@ -388,9 +362,7 @@ test("MangaDex sync bounds concurrent chapter materializations and reports disco
             total: 1,
           }),
         );
-      const serverMatch = url.pathname.match(
-        /^\/at-home\/server\/chapter-(\d+)$/u,
-      );
+      const serverMatch = url.pathname.match(/^\/at-home\/server\/chapter-(\d+)$/u);
       if (serverMatch?.[1])
         return new Response(
           JSON.stringify({
@@ -405,10 +377,7 @@ test("MangaDex sync bounds concurrent chapter materializations and reports disco
       const downloadMatch = url.pathname.match(/^\/data\/chapter-(\d+)\//u);
       if (downloadMatch?.[1]) {
         activeChapters.add(downloadMatch[1]);
-        maximumActiveChapters = Math.max(
-          maximumActiveChapters,
-          activeChapters.size,
-        );
+        maximumActiveChapters = Math.max(maximumActiveChapters, activeChapters.size);
         if (activeChapters.size === 2) releaseDownloads();
         await downloadsReleased;
         activeChapters.delete(downloadMatch[1]);

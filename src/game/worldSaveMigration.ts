@@ -16,9 +16,7 @@ const LEGACY_TV_CAVE_BOUNDS = Object.freeze({
   minZ: 2.5,
 });
 
-export const migrateLegacyPropSaves = (
-  savedProps: readonly WorldPropSave[],
-) => {
+export const migrateLegacyPropSaves = (savedProps: readonly WorldPropSave[]) => {
   const currentProps: WorldPropSave[] = [];
   let migrated = false;
   for (const savedProp of savedProps) {
@@ -34,16 +32,10 @@ export const migrateLegacyPropSaves = (
   };
 };
 
-export const migrateLegacyTrashcanPosition = (
-  save: WorldSaveV1,
-): WorldVector3 | undefined => {
+export const migrateLegacyTrashcanPosition = (save: WorldSaveV1): WorldVector3 | undefined => {
   // Legacy trashcan positions apply only while migrating worlds that never
   // ran a seeding pass; afterwards the bin's pose lives in modelProps.
-  if (
-    worldSaveSeedingVersion(save) < INITIAL_WORLD_SEEDING_VERSION &&
-    save.trashcan
-  )
-    return save.trashcan;
+  if (worldSaveSeedingVersion(save) < INITIAL_WORLD_SEEDING_VERSION && save.trashcan) return save.trashcan;
   // Legacy `television` pose fields are intentionally ignored: worlds saved
   // before default-prop seeding respawn the movable CRT television at its
   // designed spot through the prop lifecycle instead.
@@ -74,7 +66,6 @@ export const adoptLegacyModelPropSaves = (
   existingIds: ReadonlySet<string>,
 ) => {
   const adopted: WorldModelPropSave[] = [];
-  for (const savedProp of savedProps)
-    if (!existingIds.has(savedProp.id)) adopted.push(savedProp);
+  for (const savedProp of savedProps) if (!existingIds.has(savedProp.id)) adopted.push(savedProp);
   return adopted;
 };

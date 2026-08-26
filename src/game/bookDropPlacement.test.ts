@@ -4,9 +4,7 @@ import {BOOK_DROP_LANES, bookDropPosition} from "~/game/bookDropPlacement";
 
 describe("book drop placement", () => {
   test("uses every configured aisle lane", () => {
-    const positions = BOOK_DROP_LANES.map((_lane, laneIndex) =>
-      bookDropPosition(laneIndex),
-    );
+    const positions = BOOK_DROP_LANES.map((_lane, laneIndex) => bookDropPosition(laneIndex));
 
     for (const [laneIndex, position] of positions.entries()) {
       const lane = BOOK_DROP_LANES[laneIndex];

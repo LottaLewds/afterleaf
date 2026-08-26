@@ -19,11 +19,7 @@ describe("listArcadeFolderRoms", () => {
           jsonResponse({
             ok: true,
             paths: ["/games/roms/nes", "/other/more-nes"],
-            roms: [
-              {name: "Alter Ego.nes", sizeBytes: 262160},
-              {malformed: true},
-              {name: "LJ65.zip", sizeBytes: "big"},
-            ],
+            roms: [{name: "Alter Ego.nes", sizeBytes: 262160}, {malformed: true}, {name: "LJ65.zip", sizeBytes: "big"}],
           }),
         );
       },
@@ -98,8 +94,7 @@ describe("arcadeFolderRomUrl", () => {
         "http://localhost:42069/api/library/roms/file?system=nes&name=Alter%20Ego.nes",
       );
     } finally {
-      if (previousOrigin === undefined)
-        delete (globalThis as {location?: unknown}).location;
+      if (previousOrigin === undefined) delete (globalThis as {location?: unknown}).location;
       else
         Object.defineProperty(globalThis, "location", {
           configurable: true,

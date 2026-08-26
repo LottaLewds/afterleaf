@@ -1,12 +1,7 @@
 import {cp, rename, rm} from "node:fs/promises";
 
 const ATTEMPT_COUNT = 6;
-const TRANSIENT_ERROR_CODES = new Set([
-  "EACCES",
-  "EBUSY",
-  "ENOTEMPTY",
-  "EPERM",
-]);
+const TRANSIENT_ERROR_CODES = new Set(["EACCES", "EBUSY", "ENOTEMPTY", "EPERM"]);
 
 export interface ReplaceDirectoryOperations {
   copy: typeof cp;
@@ -19,12 +14,10 @@ const defaultOperations: ReplaceDirectoryOperations = {
   copy: cp,
   remove: rm,
   rename,
-  wait: (milliseconds) =>
-    new Promise((resolve) => setTimeout(resolve, milliseconds)),
+  wait: (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)),
 };
 
-const errorCode = (error: unknown) =>
-  error instanceof Error && "code" in error ? String(error.code) : undefined;
+const errorCode = (error: unknown) => (error instanceof Error && "code" in error ? String(error.code) : undefined);
 
 const isTransientFilesystemError = (error: unknown) => {
   const code = errorCode(error);
@@ -65,15 +58,11 @@ export const replaceDirectory = async (
         force: true,
         recursive: true,
       });
-      await operations
-        .remove(source, {force: true, recursive: true})
-        .catch(() => {});
+      await operations.remove(source, {force: true, recursive: true}).catch(() => {});
       return;
     } catch (error) {
       copyError = error;
-      await operations
-        .remove(destination, {force: true, recursive: true})
-        .catch(() => {});
+      await operations.remove(destination, {force: true, recursive: true}).catch(() => {});
       if (!isTransientFilesystemError(error)) break;
       await operations.wait(100 * (attempt + 1));
     }

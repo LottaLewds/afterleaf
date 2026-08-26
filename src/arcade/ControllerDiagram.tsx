@@ -1,9 +1,6 @@
 import {For, Show, createMemo, type Accessor} from "solid-js";
 
-import type {
-  ArcadeConsoleControl,
-  ControlDiagramPlacement,
-} from "~/arcade/controllerMappings";
+import type {ArcadeConsoleControl, ControlDiagramPlacement} from "~/arcade/controllerMappings";
 
 /**
  * Clickable diagram of an emulated console's controller.
@@ -35,9 +32,7 @@ type DiagramElement = {
   shortLabel: string;
 };
 
-const buildElements = (
-  controls: readonly ArcadeConsoleControl[],
-): DiagramElement[] => {
+const buildElements = (controls: readonly ArcadeConsoleControl[]): DiagramElement[] => {
   const elements: DiagramElement[] = [];
   const byKey = new Map<string, DiagramElement>();
   for (const control of controls) {
@@ -67,10 +62,7 @@ const buildElements = (
 
 /** Quadrant triangle corners around an anchor, in up/down/left/right order. */
 const HIT_RADIUS = 27;
-const quadrantPoints = (
-  x: number,
-  y: number,
-): readonly [string, string, string, string] => [
+const quadrantPoints = (x: number, y: number): readonly [string, string, string, string] => [
   `${x - HIT_RADIUS},${y - HIT_RADIUS} ${x + HIT_RADIUS},${y - HIT_RADIUS} ${x},${y}`,
   `${x - HIT_RADIUS},${y + HIT_RADIUS} ${x + HIT_RADIUS},${y + HIT_RADIUS} ${x},${y}`,
   `${x - HIT_RADIUS},${y - HIT_RADIUS} ${x - HIT_RADIUS},${y + HIT_RADIUS} ${x},${y}`,
@@ -99,12 +91,7 @@ const DirectionHitZones = (props: {
         )}
       </For>
       {/* Ring highlight while this group is being captured. */}
-      <Show
-        when={
-          props.capturingId !== undefined &&
-          props.element.controlIds.includes(props.capturingId)
-        }
-      >
+      <Show when={props.capturingId !== undefined && props.element.controlIds.includes(props.capturingId)}>
         <circle
           cx={placement.x}
           cy={placement.y}
@@ -127,10 +114,8 @@ const DiagramShape = (props: {
   onSelect: (controlId: number) => void;
 }) => {
   const {placement} = props.element;
-  const stroke = () =>
-    props.mapped || props.capturingId !== undefined ? ACCENT : STROKE_MUTED;
-  const outlineWidth = () =>
-    props.capturingId !== undefined ? "2.5" : props.mapped ? "2" : "1.5";
+  const stroke = () => (props.mapped || props.capturingId !== undefined ? ACCENT : STROKE_MUTED);
+  const outlineWidth = () => (props.capturingId !== undefined ? "2.5" : props.mapped ? "2" : "1.5");
   const clickable = {
     class: "cursor-pointer",
     onClick: () => props.onSelect(props.element.controlIds[0] as number),
@@ -141,25 +126,9 @@ const DiagramShape = (props: {
     case "dpad":
       return (
         <g>
-          <g
-            stroke={stroke()}
-            fill={FILL_DARK}
-            classList={{"animate-pulse": props.capturingId !== undefined}}
-          >
-            <rect
-              x={placement.x - 21}
-              y={placement.y - 7}
-              width="42"
-              height="14"
-              rx="4"
-            />
-            <rect
-              x={placement.x - 7}
-              y={placement.y - 21}
-              width="14"
-              height="42"
-              rx="4"
-            />
+          <g stroke={stroke()} fill={FILL_DARK} classList={{"animate-pulse": props.capturingId !== undefined}}>
+            <rect x={placement.x - 21} y={placement.y - 7} width="42" height="14" rx="4" />
+            <rect x={placement.x - 7} y={placement.y - 21} width="14" height="42" rx="4" />
           </g>
           <DirectionHitZones {...props} />
         </g>
@@ -167,18 +136,8 @@ const DiagramShape = (props: {
     case "stick":
       return (
         <g>
-          <g
-            stroke={stroke()}
-            classList={{"animate-pulse": props.capturingId !== undefined}}
-            {...clickable}
-          >
-            <circle
-              cx={placement.x}
-              cy={placement.y}
-              r="18"
-              fill={BODY_FILL}
-              stroke-width={outlineWidth()}
-            />
+          <g stroke={stroke()} classList={{"animate-pulse": props.capturingId !== undefined}} {...clickable}>
+            <circle cx={placement.x} cy={placement.y} r="18" fill={BODY_FILL} stroke-width={outlineWidth()} />
             <circle cx={placement.x} cy={placement.y} r="10" fill={FILL_DARK} />
           </g>
           <DirectionHitZones {...props} />
@@ -196,13 +155,7 @@ const DiagramShape = (props: {
           onClick={() => props.onSelect(props.element.controlIds[0] as number)}
         >
           <title>{`Remap ${props.element.label}`}</title>
-          <circle
-            cx={placement.x}
-            cy={placement.y}
-            r={radius}
-            fill={FILL_DARK}
-            stroke-width={outlineWidth()}
-          />
+          <circle cx={placement.x} cy={placement.y} r={radius} fill={FILL_DARK} stroke-width={outlineWidth()} />
           {props.element.shortLabel.length > 0 && (
             <text
               x={placement.x}

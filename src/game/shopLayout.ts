@@ -60,13 +60,9 @@ export const createSpineShelfCollisionBoxes = ({
     const along = -length / 2 + divider * bayWidth;
     boxes.push({
       halfExtents: {
-        x:
-          (alongX ? SPINE_SHELF_DIVIDER_THICKNESS : SPINE_SHELF_DIVIDER_DEPTH) /
-          2,
+        x: (alongX ? SPINE_SHELF_DIVIDER_THICKNESS : SPINE_SHELF_DIVIDER_DEPTH) / 2,
         y: SPINE_SHELF_DIVIDER_HEIGHT / 2,
-        z:
-          (alongX ? SPINE_SHELF_DIVIDER_DEPTH : SPINE_SHELF_DIVIDER_THICKNESS) /
-          2,
+        z: (alongX ? SPINE_SHELF_DIVIDER_DEPTH : SPINE_SHELF_DIVIDER_THICKNESS) / 2,
       },
       position: {
         x: alongX ? x + along : x,
@@ -150,9 +146,7 @@ const createReadingFurnitureBoxes = () => {
 };
 
 export const READING_FURNITURE_BOXES = createReadingFurnitureBoxes();
-export const STATIC_READING_FURNITURE_BOXES = READING_FURNITURE_BOXES.filter(
-  (box) => box.movableId === undefined,
-);
+export const STATIC_READING_FURNITURE_BOXES = READING_FURNITURE_BOXES.filter((box) => box.movableId === undefined);
 
 const SHOP_TELEVISION_FOOTPRINT = {
   maxX: 1.75,
@@ -237,36 +231,24 @@ export const SHOP_COLLISION_BOXES: readonly ShopCollisionBox[] = [
     halfExtents: {
       x: 0.12,
       y: 2.4,
-      z:
-        (SHOP_STAIR_LOWER_FLIGHT_CENTER_Z -
-          SHOP_STAIR_OPENING_WIDTH / 2 +
-          10.5) /
-        2,
+      z: (SHOP_STAIR_LOWER_FLIGHT_CENTER_Z - SHOP_STAIR_OPENING_WIDTH / 2 + 10.5) / 2,
     },
     position: {
       x: 12.5,
       y: 2.4,
-      z:
-        (-10.5 +
-          SHOP_STAIR_LOWER_FLIGHT_CENTER_Z -
-          SHOP_STAIR_OPENING_WIDTH / 2) /
-        2,
+      z: (-10.5 + SHOP_STAIR_LOWER_FLIGHT_CENTER_Z - SHOP_STAIR_OPENING_WIDTH / 2) / 2,
     },
   },
   {
     halfExtents: {
       x: 0.12,
       y: 2.4,
-      z:
-        (28 - SHOP_STAIR_LOWER_FLIGHT_CENTER_Z - SHOP_STAIR_OPENING_WIDTH / 2) /
-        2,
+      z: (28 - SHOP_STAIR_LOWER_FLIGHT_CENTER_Z - SHOP_STAIR_OPENING_WIDTH / 2) / 2,
     },
     position: {
       x: 12.5,
       y: 2.4,
-      z:
-        (28 + SHOP_STAIR_LOWER_FLIGHT_CENTER_Z + SHOP_STAIR_OPENING_WIDTH / 2) /
-        2,
+      z: (28 + SHOP_STAIR_LOWER_FLIGHT_CENTER_Z + SHOP_STAIR_OPENING_WIDTH / 2) / 2,
     },
   },
   {

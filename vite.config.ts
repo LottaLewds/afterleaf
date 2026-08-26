@@ -1,24 +1,11 @@
 import tailwindcss from "@tailwindcss/vite";
-import {
-  defineConfig,
-  type Plugin,
-  type PreviewServer,
-  type ViteDevServer,
-} from "vite";
+import {defineConfig, type Plugin, type PreviewServer, type ViteDevServer} from "vite";
 import solid from "vite-plugin-solid";
 import {spawn} from "node:child_process";
 import {randomUUID} from "node:crypto";
 import {createReadStream, existsSync, readFileSync, statSync} from "node:fs";
 import {copyFile} from "node:fs/promises";
-import {
-  mkdir,
-  readFile,
-  readdir,
-  rename,
-  rm,
-  stat,
-  writeFile,
-} from "node:fs/promises";
+import {mkdir, readFile, readdir, rename, rm, stat, writeFile} from "node:fs/promises";
 import type {IncomingMessage, ServerResponse} from "node:http";
 import path from "node:path";
 
@@ -51,15 +38,8 @@ import {
   type LibraryPasteImportMatch,
   type LibrarySnapshotOperation,
 } from "./src/content/libraryUpdate/httpProtocol";
-import {
-  arcadeSystemSupportsFileName,
-  findArcadeSystem,
-} from "./src/arcade/systems";
-import {
-  EMULATOR_DATA_URL_PATH,
-  copyEmulatorDataInto,
-  loadEmulatorDataAsset,
-} from "./src/arcade/emulatorAssets";
+import {arcadeSystemSupportsFileName, findArcadeSystem} from "./src/arcade/systems";
+import {EMULATOR_DATA_URL_PATH, copyEmulatorDataInto, loadEmulatorDataAsset} from "./src/arcade/emulatorAssets";
 import {
   parseActiveLibraryAssetRequest,
   resolveActiveLibraryAssetPath,
@@ -97,11 +77,7 @@ import {
 import {detectUnmigratedLegacyLayout} from "./src/content/migrateLibraryLayout";
 import type {PackedPublication} from "./src/content/schema";
 import {createCachedTvVideoAnalyzer} from "./src/tv/channelAnalysis";
-import {
-  discoverTvChannels,
-  resolveTvVideoPath,
-  tvVideoContentType,
-} from "./src/tv/channelCatalog";
+import {discoverTvChannels, resolveTvVideoPath, tvVideoContentType} from "./src/tv/channelCatalog";
 import {constrainByteRangeLength, parseByteRange} from "./src/tv/httpRange";
 import {
   parseTvMediaRequest,
@@ -110,16 +86,8 @@ import {
   TV_CHANNELS_ENDPOINT,
   TV_IMPORT_ENDPOINT,
 } from "./src/tv/protocol";
-import {
-  importTvVideoToChannel,
-  TvVideoImportInputError,
-} from "./src/tv/videoImport";
-import {
-  discoverPosters,
-  importPosterImage,
-  renderPoster,
-  resolvePosterPath,
-} from "./src/posters/catalog";
+import {importTvVideoToChannel, TvVideoImportInputError} from "./src/tv/videoImport";
+import {discoverPosters, importPosterImage, renderPoster, resolvePosterPath} from "./src/posters/catalog";
 import {createPosterImageDerivative} from "./src/posters/image";
 import {
   parsePosterMediaRequest,
@@ -175,14 +143,10 @@ const ignoreGeneratedLibraryPath = (filePath: string) =>
     const relativePath = path.relative(directory, path.resolve(filePath));
     return (
       relativePath === "" ||
-      (relativePath !== ".." &&
-        !relativePath.startsWith(`..${path.sep}`) &&
-        !path.isAbsolute(relativePath))
+      (relativePath !== ".." && !relativePath.startsWith(`..${path.sep}`) && !path.isAbsolute(relativePath))
     );
   });
-const configuredLibraryPaths = readAfterleafLibraryConfigSync(
-  import.meta.dirname,
-);
+const configuredLibraryPaths = readAfterleafLibraryConfigSync(import.meta.dirname);
 const uniquePaths = (paths: readonly string[]) => [...new Set(paths)];
 const availableWindowsDrives = () => {
   if (process.platform !== "win32") return [];
@@ -193,44 +157,23 @@ const availableWindowsDrives = () => {
 };
 const tvChannelsDirectory = tvChannelsDirectoryFor(import.meta.dirname);
 const tvChannelsDirectories = async () =>
-  uniquePaths([
-    tvChannelsDirectory,
-    ...(await readAfterleafLibraryConfig(import.meta.dirname)).tvChannelPaths,
-  ]);
+  uniquePaths([tvChannelsDirectory, ...(await readAfterleafLibraryConfig(import.meta.dirname)).tvChannelPaths]);
 const tvVideoAnalyzer = createCachedTvVideoAnalyzer({
   cachePath: path.resolve(tvChannelsDirectory, ".afterleaf-tv-analysis.json"),
-  onError: (filePath, error) =>
-    console.warn(`[afterleaf] Could not analyze TV video ${filePath}`, error),
+  onError: (filePath, error) => console.warn(`[afterleaf] Could not analyze TV video ${filePath}`, error),
 });
 const postersDirectory = postersDirectoryFor(import.meta.dirname);
-const posterDerivativeCacheDirectory = path.resolve(
-  postersDirectory,
-  ".afterleaf-cache",
-);
+const posterDerivativeCacheDirectory = path.resolve(postersDirectory, ".afterleaf-cache");
 const postersDirectories = async () =>
-  uniquePaths([
-    postersDirectory,
-    ...(await readAfterleafLibraryConfig(import.meta.dirname)).posterPaths,
-  ]);
+  uniquePaths([postersDirectory, ...(await readAfterleafLibraryConfig(import.meta.dirname)).posterPaths]);
 const artFramesDirectory = artFramesDirectoryFor(import.meta.dirname);
-const artFrameDerivativeCacheDirectory = path.resolve(
-  artFramesDirectory,
-  ".afterleaf-cache",
-);
+const artFrameDerivativeCacheDirectory = path.resolve(artFramesDirectory, ".afterleaf-cache");
 const artFramesDirectories = async () =>
-  uniquePaths([
-    artFramesDirectory,
-    ...(await readAfterleafLibraryConfig(import.meta.dirname)).artFramePaths,
-  ]);
+  uniquePaths([artFramesDirectory, ...(await readAfterleafLibraryConfig(import.meta.dirname)).artFramePaths]);
 const modelsDirectory = modelsDirectoryFor(import.meta.dirname);
-const modelCompatibilityCacheDirectory = path.resolve(
-  modelsDirectory,
-  ".afterleaf-cache",
-);
+const modelCompatibilityCacheDirectory = path.resolve(modelsDirectory, ".afterleaf-cache");
 const worldSavePath = worldSavePathFor(import.meta.dirname);
-const worldStateBackupDirectory = worldSaveBackupsDirectoryFor(
-  import.meta.dirname,
-);
+const worldStateBackupDirectory = worldSaveBackupsDirectoryFor(import.meta.dirname);
 const WORLD_STATE_BACKUP_INTERVAL_MS = 15 * 60 * 1_000;
 const WORLD_STATE_BACKUP_RETENTION_COUNT = 96;
 const worldSaveServerInstanceId = randomUUID();
@@ -238,11 +181,7 @@ const worldSaveServerInstanceId = randomUUID();
 const readBoundedWorldSaveBody = (request: IncomingMessage) =>
   new Promise<unknown>((resolve, reject) => {
     const contentLength = Number(request.headers["content-length"] ?? 0);
-    if (
-      !Number.isFinite(contentLength) ||
-      contentLength <= 0 ||
-      contentLength > MAX_WORLD_SAVE_BODY_BYTES
-    ) {
+    if (!Number.isFinite(contentLength) || contentLength <= 0 || contentLength > MAX_WORLD_SAVE_BODY_BYTES) {
       request.resume();
       reject(new Error("World save request body is empty or too large"));
       return;
@@ -294,33 +233,21 @@ const libraryProviderRegistry = createLibraryProviderRegistry({
 });
 
 let cachedIndexModifiedAt = -1;
-let cachedLibraryLocation:
-  | {assetDirectory: string; catalogDirectory: string}
-  | undefined;
+let cachedLibraryLocation: {assetDirectory: string; catalogDirectory: string} | undefined;
 let cachedSnapshotId: string | undefined;
 let activeLibraryFailureKey: string | undefined;
 let loggedActiveSnapshotId: string | undefined;
 
-const reportActiveLibraryFailure = (
-  key: string,
-  message: string,
-  error?: unknown,
-) => {
+const reportActiveLibraryFailure = (key: string, message: string, error?: unknown) => {
   if (activeLibraryFailureKey === key) return;
   activeLibraryFailureKey = key;
   if (error === undefined) console.warn(`[afterleaf] ${message}`);
   else console.warn(`[afterleaf] ${message}`, error);
 };
 
-const reportActiveLibraryAvailable = (
-  snapshotId: string,
-  catalogPath: string,
-  publicationCount: number,
-) => {
+const reportActiveLibraryAvailable = (snapshotId: string, catalogPath: string, publicationCount: number) => {
   if (activeLibraryFailureKey !== undefined)
-    console.info(
-      `[afterleaf] Active library recovered with snapshot ${snapshotId}`,
-    );
+    console.info(`[afterleaf] Active library recovered with snapshot ${snapshotId}`);
   activeLibraryFailureKey = undefined;
   if (loggedActiveSnapshotId === snapshotId) return;
   loggedActiveSnapshotId = snapshotId;
@@ -379,11 +306,7 @@ const activeLibraryLocation = () => {
       catalogDirectory: location.catalogDirectory,
     };
     cachedSnapshotId = location.revisionId;
-    reportActiveLibraryAvailable(
-      location.revisionId,
-      catalogPath,
-      catalog.publications.length,
-    );
+    reportActiveLibraryAvailable(location.revisionId, catalogPath, catalog.publications.length);
     return cachedLibraryLocation;
   } catch (error) {
     cachedIndexModifiedAt = -1;
@@ -407,12 +330,9 @@ const requestLibraryLocation = () =>
     : activeLibraryLocation();
 
 const requestedPack = process.env.AFTERLEAF_CONTENT_PACK;
-const contentPackDirectory = requestedPack
-  ? path.resolve(import.meta.dirname, requestedPack)
-  : undefined;
+const contentPackDirectory = requestedPack ? path.resolve(import.meta.dirname, requestedPack) : undefined;
 const explicitPublicDirectory =
-  contentPackDirectory &&
-  existsSync(path.resolve(contentPackDirectory, "catalog.json"))
+  contentPackDirectory && existsSync(path.resolve(contentPackDirectory, "catalog.json"))
     ? contentPackDirectory
     : undefined;
 const contentTypes: Record<string, string> = {
@@ -439,11 +359,7 @@ class LibraryUpdateBridgeError extends Error {
   }
 }
 
-const sendJson = (
-  response: ServerResponse,
-  status: number,
-  body: LibraryOperationHttpResponse,
-) => {
+const sendJson = (response: ServerResponse, status: number, body: LibraryOperationHttpResponse) => {
   if (!response.headersSent) {
     response.statusCode = status;
     response.setHeader("Cache-Control", "no-store");
@@ -465,20 +381,12 @@ const matchingRequestOrigin = (request: IncomingMessage) => {
   const host = request.headers.host;
   const source =
     request.headers.origin ??
-    (request.method === "GET" || request.method === "HEAD"
-      ? request.headers.referer
-      : undefined);
+    (request.method === "GET" || request.method === "HEAD" ? request.headers.referer : undefined);
   if (!host || typeof source !== "string") return false;
   try {
     const originUrl = new URL(source);
-    const encrypted = Boolean(
-      (request.socket as typeof request.socket & {encrypted?: boolean})
-        .encrypted,
-    );
-    if (
-      originUrl.host.toLowerCase() !== host.toLowerCase() ||
-      originUrl.protocol !== (encrypted ? "https:" : "http:")
-    )
+    const encrypted = Boolean((request.socket as typeof request.socket & {encrypted?: boolean}).encrypted);
+    if (originUrl.host.toLowerCase() !== host.toLowerCase() || originUrl.protocol !== (encrypted ? "https:" : "http:"))
       return false;
     return originUrl;
   } catch {
@@ -486,8 +394,7 @@ const matchingRequestOrigin = (request: IncomingMessage) => {
   }
 };
 
-const hasMatchingOrigin = (request: IncomingMessage) =>
-  matchingRequestOrigin(request) !== false;
+const hasMatchingOrigin = (request: IncomingMessage) => matchingRequestOrigin(request) !== false;
 
 const hasSameOrigin = (request: IncomingMessage) => {
   const origin = matchingRequestOrigin(request);
@@ -500,17 +407,11 @@ const worldSaveCatalogLabel = (save: WorldSaveV1) => {
   return `${catalog.packId}@${catalog.snapshotId ?? catalog.catalogContentHash}`;
 };
 
-const worldSaveBookDropWarning = (
-  previousSave: WorldSaveV1 | undefined,
-  nextSave: WorldSaveV1,
-) => {
-  if (!previousSave || nextSave.books.length >= previousSave.books.length)
-    return;
+const worldSaveBookDropWarning = (previousSave: WorldSaveV1 | undefined, nextSave: WorldSaveV1) => {
+  if (!previousSave || nextSave.books.length >= previousSave.books.length) return;
   const removedCount = previousSave.books.length - nextSave.books.length;
   const droppedToEmpty = nextSave.books.length === 0;
-  const largeDrop =
-    removedCount >= 10 &&
-    nextSave.books.length <= Math.floor(previousSave.books.length * 0.75);
+  const largeDrop = removedCount >= 10 && nextSave.books.length <= Math.floor(previousSave.books.length * 0.75);
   if (!droppedToEmpty && !largeDrop) return;
   return `[afterleaf] Suspicious world-save book drop: ${previousSave.books.length} -> ${nextSave.books.length} (${removedCount} removed); ${worldSaveCatalogLabel(previousSave)} -> ${worldSaveCatalogLabel(nextSave)}; savedAt ${previousSave.savedAt} -> ${nextSave.savedAt}`;
 };
@@ -519,11 +420,7 @@ const serveWorldSave = (() => {
   let writeQueue = Promise.resolve();
   let lastBackupAt = 0;
 
-  return async (
-    request: IncomingMessage,
-    response: ServerResponse,
-    next: () => void,
-  ) => {
+  return async (request: IncomingMessage, response: ServerResponse, next: () => void) => {
     let pathname: string;
     try {
       pathname = new URL(request.url ?? "/", "http://afterleaf.local").pathname;
@@ -532,10 +429,7 @@ const serveWorldSave = (() => {
     }
     if (pathname !== WORLD_SAVE_ENDPOINT) return next();
     response.setHeader("Cache-Control", "no-store");
-    response.setHeader(
-      WORLD_SAVE_SERVER_INSTANCE_HEADER,
-      worldSaveServerInstanceId,
-    );
+    response.setHeader(WORLD_SAVE_SERVER_INSTANCE_HEADER, worldSaveServerInstanceId);
     if (!hasMatchingOrigin(request)) {
       response.statusCode = 403;
       return response.end();
@@ -563,35 +457,27 @@ const serveWorldSave = (() => {
       response.setHeader("Allow", "GET, PUT");
       return response.end();
     }
-    const requestServerInstanceId =
-      request.headers[WORLD_SAVE_SERVER_INSTANCE_HEADER.toLowerCase()];
+    const requestServerInstanceId = request.headers[WORLD_SAVE_SERVER_INSTANCE_HEADER.toLowerCase()];
     if (requestServerInstanceId !== worldSaveServerInstanceId) {
       console.warn(
         `[afterleaf] Rejected a stale world-save upload from an earlier server instance; expected ${worldSaveServerInstanceId}, received ${typeof requestServerInstanceId === "string" ? requestServerInstanceId : "none"}`,
       );
       response.statusCode = 409;
       response.setHeader("Content-Type", "text/plain; charset=utf-8");
-      return response.end(
-        "World save belongs to an earlier server instance; reload before saving",
-      );
+      return response.end("World save belongs to an earlier server instance; reload before saving");
     }
     const requestRevision = request.headers["if-match"];
     if (typeof requestRevision !== "string") {
-      console.warn(
-        "[afterleaf] Rejected a world-save upload without an If-Match revision",
-      );
+      console.warn("[afterleaf] Rejected a world-save upload without an If-Match revision");
       response.statusCode = 428;
       response.setHeader("Content-Type", "text/plain; charset=utf-8");
-      return response.end(
-        "World-save uploads require a revision; reload before saving",
-      );
+      return response.end("World-save uploads require a revision; reload before saving");
     }
     let save: WorldSaveV1;
     try {
       save = parseWorldSave(await readBoundedWorldSaveBody(request));
     } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "World save upload failed";
+      const message = error instanceof Error ? error.message : "World save upload failed";
       console.warn(`[afterleaf] Rejected a world-save upload: ${message}`);
       response.statusCode = message.includes("too large") ? 413 : 422;
       response.setHeader("Content-Type", "text/plain; charset=utf-8");
@@ -601,20 +487,12 @@ const serveWorldSave = (() => {
       const pendingWrite = writeQueue.then(async () => {
         const previousSave = await loadWorldSaveFile(worldSavePath);
         const previousRevision = worldSaveRevision(previousSave);
-        if (requestRevision !== previousRevision)
-          return {kind: "conflict" as const, revision: previousRevision};
+        if (requestRevision !== previousRevision) return {kind: "conflict" as const, revision: previousRevision};
         const dropWarning = worldSaveBookDropWarning(previousSave, save);
         const now = Date.now();
-        if (
-          previousSave &&
-          (dropWarning || now - lastBackupAt >= WORLD_STATE_BACKUP_INTERVAL_MS)
-        ) {
+        if (previousSave && (dropWarning || now - lastBackupAt >= WORLD_STATE_BACKUP_INTERVAL_MS)) {
           const backupCreatedAt = new Date(Math.max(now, lastBackupAt + 1));
-          const backupPath = await saveWorldStateBackup(
-            worldStateBackupDirectory,
-            previousSave,
-            backupCreatedAt,
-          );
+          const backupPath = await saveWorldStateBackup(worldStateBackupDirectory, previousSave, backupCreatedAt);
           lastBackupAt = backupCreatedAt.valueOf();
           console.info(`[afterleaf] Backed up world state to ${backupPath}`);
           try {
@@ -627,10 +505,7 @@ const serveWorldSave = (() => {
                 `[afterleaf] Pruned ${prunedCount} old world-state ${prunedCount === 1 ? "backup" : "backups"}`,
               );
           } catch (error) {
-            console.warn(
-              "[afterleaf] Could not prune old world-state backups",
-              error,
-            );
+            console.warn("[afterleaf] Could not prune old world-state backups", error);
           }
         }
         await saveWorldSaveFile(worldSavePath, save);
@@ -646,15 +521,12 @@ const serveWorldSave = (() => {
         );
         response.statusCode = 412;
         response.setHeader("Content-Type", "text/plain; charset=utf-8");
-        return response.end(
-          "World save changed after this tab loaded it; reload before saving",
-        );
+        return response.end("World save changed after this tab loaded it; reload before saving");
       }
       response.statusCode = 204;
       return response.end();
     } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "World save write failed";
+      const message = error instanceof Error ? error.message : "World save write failed";
       console.error(`[afterleaf] Could not persist the world save: ${message}`);
       response.statusCode = 500;
       response.setHeader("Content-Type", "text/plain; charset=utf-8");
@@ -663,10 +535,7 @@ const serveWorldSave = (() => {
   };
 })();
 
-const devServerUrlFile = path.resolve(
-  import.meta.dirname,
-  ".afterleaf-dev-url",
-);
+const devServerUrlFile = path.resolve(import.meta.dirname, ".afterleaf-dev-url");
 
 const devServerDiscoveryPlugin = (): Plugin => ({
   name: "afterleaf-dev-server-discovery",
@@ -681,12 +550,7 @@ const devServerDiscoveryPlugin = (): Plugin => ({
         devServerUrlFile,
         `${url}
 `,
-      ).catch((error: unknown) =>
-        console.warn(
-          "[afterleaf] Could not publish the development URL",
-          error,
-        ),
-      );
+      ).catch((error: unknown) => console.warn("[afterleaf] Could not publish the development URL", error));
     });
     httpServer.once("close", () => {
       void rm(devServerUrlFile, {force: true}).catch((error: unknown) =>
@@ -709,19 +573,9 @@ const worldSavePlugin = (): Plugin => ({
 const readBoundedJsonBody = (request: IncomingMessage) =>
   new Promise<unknown>((resolve, reject) => {
     const contentLength = Number(request.headers["content-length"] ?? 0);
-    if (
-      !Number.isFinite(contentLength) ||
-      contentLength < 0 ||
-      contentLength > MAX_LIBRARY_OPERATION_BODY_BYTES
-    ) {
+    if (!Number.isFinite(contentLength) || contentLength < 0 || contentLength > MAX_LIBRARY_OPERATION_BODY_BYTES) {
       request.resume();
-      reject(
-        new LibraryUpdateBridgeError(
-          "Library update request body is too large",
-          "request_too_large",
-          413,
-        ),
-      );
+      reject(new LibraryUpdateBridgeError("Library update request body is too large", "request_too_large", 413));
       return;
     }
 
@@ -736,38 +590,20 @@ const readBoundedJsonBody = (request: IncomingMessage) =>
         return;
       }
       rejected = true;
-      reject(
-        new LibraryUpdateBridgeError(
-          "Library update request body is too large",
-          "request_too_large",
-          413,
-        ),
-      );
+      reject(new LibraryUpdateBridgeError("Library update request body is too large", "request_too_large", 413));
     });
     request.on("end", () => {
       if (rejected) return;
       try {
         resolve(JSON.parse(Buffer.concat(chunks).toString("utf8")) as unknown);
       } catch {
-        reject(
-          new LibraryUpdateBridgeError(
-            "Library update request body must be valid JSON",
-            "invalid_request",
-            400,
-          ),
-        );
+        reject(new LibraryUpdateBridgeError("Library update request body must be valid JSON", "invalid_request", 400));
       }
     });
     request.on("error", () => {
       if (rejected) return;
       rejected = true;
-      reject(
-        new LibraryUpdateBridgeError(
-          "Library update request could not be read",
-          "invalid_request",
-          400,
-        ),
-      );
+      reject(new LibraryUpdateBridgeError("Library update request could not be read", "invalid_request", 400));
     });
   });
 
@@ -795,37 +631,20 @@ const libraryOperationArguments = (operation: LocalLibraryOperation) => {
       "run",
       "library:scan",
       "--write",
-      ...(operation.redownloadProviderAssets
-        ? ["--redownload-provider-assets"]
-        : []),
+      ...(operation.redownloadProviderAssets ? ["--redownload-provider-assets"] : []),
       ...(operation.repair ? ["--repair"] : []),
-      ...(operation.repairProviderMetadata
-        ? ["--repair-provider-metadata"]
-        : []),
+      ...(operation.repairProviderMetadata ? ["--repair-provider-metadata"] : []),
     ];
-  if (operation.kind === "blacklist-list")
-    return ["run", "library:blacklist", "--list"];
+  if (operation.kind === "blacklist-list") return ["run", "library:blacklist", "--list"];
   if (operation.kind === "blacklist")
-    return [
-      "run",
-      "library:blacklist",
-      "--publication-id",
-      operation.publicationId,
-      "--discard-managed-sources",
-    ];
+    return ["run", "library:blacklist", "--publication-id", operation.publicationId, "--discard-managed-sources"];
 
   const arguments_ = ["run", "library:fetch-more", "--write"];
   if (operation.providerId) arguments_.push("--provider", operation.providerId);
-  if (operation.limit !== undefined)
-    arguments_.push("--limit", String(operation.limit));
-  if (operation.maxSearchPages !== undefined)
-    arguments_.push("--max-search-pages", String(operation.maxSearchPages));
+  if (operation.limit !== undefined) arguments_.push("--limit", String(operation.limit));
+  if (operation.maxSearchPages !== undefined) arguments_.push("--max-search-pages", String(operation.maxSearchPages));
   if (operation.query) arguments_.push("--query", operation.query);
-  if (operation.blockedTags?.length)
-    arguments_.push(
-      "--blocked-tags-json",
-      JSON.stringify(operation.blockedTags),
-    );
+  if (operation.blockedTags?.length) arguments_.push("--blocked-tags-json", JSON.stringify(operation.blockedTags));
   return arguments_;
 };
 
@@ -849,29 +668,19 @@ type ActiveLibraryOperationDescriptor = {
   state: "running";
 };
 
-const activeLibraryOperationFile = activeLibraryOperationPath(
-  import.meta.dirname,
-);
+const activeLibraryOperationFile = activeLibraryOperationPath(import.meta.dirname);
 
-const persistActiveLibraryOperation = (
-  jobId: string,
-  operation: LibrarySnapshotOperation,
-) => {
+const persistActiveLibraryOperation = (jobId: string, operation: LibrarySnapshotOperation) => {
   const descriptor: ActiveLibraryOperationDescriptor = {
     jobId,
     operation,
     startedAt: Date.now(),
     state: "running",
   };
-  return writeFile(
-    activeLibraryOperationFile,
-    `${JSON.stringify(descriptor)}\n`,
-    {mode: 0o600},
-  ).catch(() => {});
+  return writeFile(activeLibraryOperationFile, `${JSON.stringify(descriptor)}\n`, {mode: 0o600}).catch(() => {});
 };
 
-const clearActiveLibraryOperation = () =>
-  rm(activeLibraryOperationFile, {force: true}).catch(() => {});
+const clearActiveLibraryOperation = () => rm(activeLibraryOperationFile, {force: true}).catch(() => {});
 
 const runLibraryOperationCommand = (
   operation: LocalLibraryOperation,
@@ -903,28 +712,21 @@ const runLibraryOperationCommand = (
     };
 
     const captureErrorLine = (line: string) => {
-      stderrBytes = capture(
-        stderr,
-        Buffer.from(`${line}\n`, "utf8"),
-        stderrBytes,
-      );
+      stderrBytes = capture(stderr, Buffer.from(`${line}\n`, "utf8"), stderrBytes);
     };
 
     const readProgressLines = (flush = false) => {
       const lines = progressBuffer.split("\n");
       progressBuffer = flush ? "" : (lines.pop() ?? "");
       for (const line of lines) {
-        const match = line
-          .trim()
-          .match(/^\[(\d+)\/(\d+)(?::(\d+)\/(\d+))?\]\s+(.+)$/u);
+        const match = line.trim().match(/^\[(\d+)\/(\d+)(?::(\d+)\/(\d+))?\]\s+(.+)$/u);
         if (!match) {
           captureErrorLine(line);
           continue;
         }
         const completedSteps = Number(match[1]);
         const totalSteps = Number(match[2]);
-        const subCompleted =
-          match[3] === undefined ? undefined : Number(match[3]);
+        const subCompleted = match[3] === undefined ? undefined : Number(match[3]);
         const subTotal = match[4] === undefined ? undefined : Number(match[4]);
         const message = match[5];
         const subIsValid =
@@ -990,8 +792,7 @@ const runLibraryOperationCommand = (
         const detail = Buffer.concat(stderr).toString("utf8").trim();
         reject(
           new LibraryUpdateBridgeError(
-            detail ||
-              `Library operation command stopped${signal ? ` with ${signal}` : ""}`,
+            detail || `Library operation command stopped${signal ? ` with ${signal}` : ""}`,
             "operation_failed",
             500,
           ),
@@ -1002,14 +803,10 @@ const runLibraryOperationCommand = (
     });
   });
 
-const summarizeCommandResult = (
-  value: unknown,
-  operation: LocalLibraryOperation,
-) => {
+const summarizeCommandResult = (value: unknown, operation: LocalLibraryOperation) => {
   if (operation.kind === "scan" || operation.kind === "fetch-more")
     return summarizeLibrarySnapshotResult(value, operation.kind);
-  if (operation.kind === "blacklist")
-    return summarizeLibraryBlacklistResult(value);
+  if (operation.kind === "blacklist") return summarizeLibraryBlacklistResult(value);
   return summarizeLibraryBlacklistListResult(value);
 };
 
@@ -1046,9 +843,7 @@ const localLibraryOperationsPlugin = (): Plugin => {
             response,
             request.method === "POST" ? 403 : 405,
             libraryOperationFailure(
-              request.method === "POST"
-                ? "forbidden_origin"
-                : "method_not_allowed",
+              request.method === "POST" ? "forbidden_origin" : "method_not_allowed",
               "Library root enrollment requires a same-origin POST request",
             ),
           );
@@ -1057,15 +852,10 @@ const localLibraryOperationsPlugin = (): Plugin => {
         try {
           const body = await readBoundedJsonBody(request);
           const requestedPath =
-            body &&
-            typeof body === "object" &&
-            !Array.isArray(body) &&
-            "path" in body &&
-            typeof body.path === "string"
+            body && typeof body === "object" && !Array.isArray(body) && "path" in body && typeof body.path === "string"
               ? path.resolve(body.path)
               : undefined;
-          if (!requestedPath)
-            throw new Error("Library root enrollment requires a path");
+          if (!requestedPath) throw new Error("Library root enrollment requires a path");
           const config = await readAfterleafLibraryConfig(import.meta.dirname);
           const configuredBookPaths = new Set([
             ...config.comicPaths,
@@ -1074,10 +864,7 @@ const localLibraryOperationsPlugin = (): Plugin => {
           ]);
           if (!configuredBookPaths.has(requestedPath))
             throw new Error("Only a configured book root can be re-enrolled");
-          await reenrollLibraryRootPath(
-            requestedPath,
-            libraryRootRegistryPath(import.meta.dirname),
-          );
+          await reenrollLibraryRootPath(requestedPath, libraryRootRegistryPath(import.meta.dirname));
           sendJson(response, 200, {ok: true});
         } catch (error) {
           sendJson(
@@ -1085,9 +872,7 @@ const localLibraryOperationsPlugin = (): Plugin => {
             422,
             libraryOperationFailure(
               "invalid_config",
-              error instanceof Error
-                ? error.message
-                : "Could not re-enroll library root",
+              error instanceof Error ? error.message : "Could not re-enroll library root",
             ),
           );
         }
@@ -1117,29 +902,17 @@ const localLibraryOperationsPlugin = (): Plugin => {
           sendJson(
             response,
             405,
-            libraryOperationFailure(
-              "method_not_allowed",
-              "Use GET or PUT for library configuration",
-            ),
+            libraryOperationFailure("method_not_allowed", "Use GET or PUT for library configuration"),
           );
           return;
         }
         try {
           const body = await readBoundedJsonBody(request);
-          if (
-            !body ||
-            typeof body !== "object" ||
-            Array.isArray(body) ||
-            !("config" in body)
-          )
-            throw new Error(
-              "Library configuration request must contain config",
-            );
+          if (!body || typeof body !== "object" || Array.isArray(body) || !("config" in body))
+            throw new Error("Library configuration request must contain config");
           const config = await writeAfterleafLibraryConfig(
             import.meta.dirname,
-            (body as {config: unknown}).config as Parameters<
-              typeof writeAfterleafLibraryConfig
-            >[1],
+            (body as {config: unknown}).config as Parameters<typeof writeAfterleafLibraryConfig>[1],
           );
           sendJson(response, 200, {ok: true, config});
         } catch (error) {
@@ -1148,9 +921,7 @@ const localLibraryOperationsPlugin = (): Plugin => {
             422,
             libraryOperationFailure(
               "invalid_config",
-              error instanceof Error
-                ? error.message
-                : "Invalid library configuration",
+              error instanceof Error ? error.message : "Invalid library configuration",
             ),
           );
         }
@@ -1163,9 +934,7 @@ const localLibraryOperationsPlugin = (): Plugin => {
         }
         try {
           const requestedPath = requestUrl.searchParams.get("path");
-          const directory = requestedPath
-            ? path.resolve(requestedPath)
-            : import.meta.dirname;
+          const directory = requestedPath ? path.resolve(requestedPath) : import.meta.dirname;
           const entries = (await readdir(directory, {withFileTypes: true}))
             .filter((entry) => entry.isDirectory() && !entry.isSymbolicLink())
             .sort((left, right) =>
@@ -1183,10 +952,7 @@ const localLibraryOperationsPlugin = (): Plugin => {
             ok: true,
             path: directory,
             drives: availableWindowsDrives(),
-            parent:
-              path.dirname(directory) === directory
-                ? undefined
-                : path.dirname(directory),
+            parent: path.dirname(directory) === directory ? undefined : path.dirname(directory),
             entries,
           });
         } catch (error) {
@@ -1195,9 +961,7 @@ const localLibraryOperationsPlugin = (): Plugin => {
             422,
             libraryOperationFailure(
               "browse_failed",
-              error instanceof Error
-                ? error.message
-                : "Could not read that folder",
+              error instanceof Error ? error.message : "Could not read that folder",
             ),
           );
         }
@@ -1214,47 +978,31 @@ const localLibraryOperationsPlugin = (): Plugin => {
             response,
             request.method === "GET" ? 403 : 405,
             libraryOperationFailure(
-              request.method === "GET"
-                ? "forbidden_origin"
-                : "method_not_allowed",
+              request.method === "GET" ? "forbidden_origin" : "method_not_allowed",
               "ROM folder listing requires a same-origin GET request",
             ),
           );
           return;
         }
         try {
-          const system = findArcadeSystem(
-            requestUrl.searchParams.get("system") ?? "",
-          );
+          const system = findArcadeSystem(requestUrl.searchParams.get("system") ?? "");
           if (!system) throw new Error("Unknown emulated system");
           const config = await readAfterleafLibraryConfig(import.meta.dirname);
           const configuredFolders = config.romPaths[system.id] ?? [];
-          const defaultFolder = defaultRomFolderPath(
-            import.meta.dirname,
-            system.id,
-          );
+          const defaultFolder = defaultRomFolderPath(import.meta.dirname, system.id);
           const hasDefaultFolder = existsSync(defaultFolder);
           if (configuredFolders.length === 0 && !hasDefaultFolder) {
             sendJson(
               response,
               422,
-              libraryOperationFailure(
-                "no_rom_folder",
-                `No ROM folder is available for ${system.label}.`,
-              ),
+              libraryOperationFailure("no_rom_folder", `No ROM folder is available for ${system.label}.`),
             );
             return;
           }
           // The convention folder is optional; registered folders must exist
           // or their readdir failure surfaces as a listing error.
-          const foldersToScan = [
-            ...(hasDefaultFolder ? [defaultFolder] : []),
-            ...configuredFolders,
-          ];
-          const romByName = new Map<
-            string,
-            {name: string; sizeBytes: number}
-          >();
+          const foldersToScan = [...(hasDefaultFolder ? [defaultFolder] : []), ...configuredFolders];
+          const romByName = new Map<string, {name: string; sizeBytes: number}>();
           const scannedPaths: string[] = [];
           for (const folder of foldersToScan) {
             scannedPaths.push(folder);
@@ -1272,9 +1020,7 @@ const localLibraryOperationsPlugin = (): Plugin => {
                 )
                 .map(async (entry) => {
                   try {
-                    const romStat = await stat(
-                      path.resolve(folder, entry.name),
-                    );
+                    const romStat = await stat(path.resolve(folder, entry.name));
                     romByName.set(entry.name, {
                       name: entry.name,
                       sizeBytes: romStat.size,
@@ -1300,9 +1046,7 @@ const localLibraryOperationsPlugin = (): Plugin => {
             422,
             libraryOperationFailure(
               "rom_list_failed",
-              error instanceof Error
-                ? error.message
-                : "Could not read that ROM folder",
+              error instanceof Error ? error.message : "Could not read that ROM folder",
             ),
           );
         }
@@ -1316,26 +1060,19 @@ const localLibraryOperationsPlugin = (): Plugin => {
       // HEAD must succeed alongside GET because EmulatorJS probes every
       // game URL that way before deciding whether to download it.
       if (pathname === LIBRARY_ROM_FILE_ENDPOINT) {
-        if (
-          (request.method !== "GET" && request.method !== "HEAD") ||
-          !hasSameOrigin(request)
-        ) {
+        if ((request.method !== "GET" && request.method !== "HEAD") || !hasSameOrigin(request)) {
           sendJson(
             response,
             request.method === "GET" || request.method === "HEAD" ? 403 : 405,
             libraryOperationFailure(
-              request.method === "GET" || request.method === "HEAD"
-                ? "forbidden_origin"
-                : "method_not_allowed",
+              request.method === "GET" || request.method === "HEAD" ? "forbidden_origin" : "method_not_allowed",
               "ROM files are served to same-origin GET and HEAD requests only",
             ),
           );
           return;
         }
         try {
-          const system = findArcadeSystem(
-            requestUrl.searchParams.get("system") ?? "",
-          );
+          const system = findArcadeSystem(requestUrl.searchParams.get("system") ?? "");
           const requestedName = requestUrl.searchParams.get("name") ?? "";
           if (
             !system ||
@@ -1356,10 +1093,7 @@ const localLibraryOperationsPlugin = (): Plugin => {
           let romSizeBytes = 0;
           for (const folder of candidateFolders) {
             const candidate = path.resolve(folder, requestedName);
-            if (
-              candidate !== folder &&
-              !candidate.startsWith(folder + path.sep)
-            )
+            if (candidate !== folder && !candidate.startsWith(folder + path.sep))
               throw new Error("That ROM is outside its configured folder");
             try {
               const candidateStat = await stat(candidate);
@@ -1396,9 +1130,7 @@ const localLibraryOperationsPlugin = (): Plugin => {
             422,
             libraryOperationFailure(
               "rom_file_failed",
-              error instanceof Error
-                ? error.message
-                : "Could not read that ROM",
+              error instanceof Error ? error.message : "Could not read that ROM",
             ),
           );
         }
@@ -1408,14 +1140,7 @@ const localLibraryOperationsPlugin = (): Plugin => {
       if (pathname === LIBRARY_SOURCE_STATUS_ENDPOINT) {
         if (request.method !== "GET") {
           response.setHeader("Allow", "GET");
-          sendJson(
-            response,
-            405,
-            libraryOperationFailure(
-              "method_not_allowed",
-              "Use GET for library source status",
-            ),
-          );
+          sendJson(response, 405, libraryOperationFailure("method_not_allowed", "Use GET for library source status"));
           return;
         }
         if (!hasSameOrigin(request)) {
@@ -1429,9 +1154,7 @@ const localLibraryOperationsPlugin = (): Plugin => {
           );
           return;
         }
-        const currentLibraryPaths = await readAfterleafLibraryConfig(
-          import.meta.dirname,
-        );
+        const currentLibraryPaths = await readAfterleafLibraryConfig(import.meta.dirname);
         const currentBookPaths = [
           ...currentLibraryPaths.comicPaths,
           ...currentLibraryPaths.mangaPaths,
@@ -1458,14 +1181,7 @@ const localLibraryOperationsPlugin = (): Plugin => {
       if (pathname === LIBRARY_PROVIDERS_ENDPOINT) {
         if (request.method !== "GET") {
           response.setHeader("Allow", "GET");
-          sendJson(
-            response,
-            405,
-            libraryOperationFailure(
-              "method_not_allowed",
-              "Use GET for library providers",
-            ),
-          );
+          sendJson(response, 405, libraryOperationFailure("method_not_allowed", "Use GET for library providers"));
           return;
         }
         if (!hasSameOrigin(request)) {
@@ -1491,10 +1207,7 @@ const localLibraryOperationsPlugin = (): Plugin => {
           sendJson(
             response,
             405,
-            libraryOperationFailure(
-              "method_not_allowed",
-              "Use POST to resolve pasted library imports",
-            ),
+            libraryOperationFailure("method_not_allowed", "Use POST to resolve pasted library imports"),
           );
           return;
         }
@@ -1502,27 +1215,19 @@ const localLibraryOperationsPlugin = (): Plugin => {
           sendJson(
             response,
             403,
-            libraryOperationFailure(
-              "forbidden_origin",
-              "Paste resolution requires a same-origin loopback request",
-            ),
+            libraryOperationFailure("forbidden_origin", "Paste resolution requires a same-origin loopback request"),
           );
           return;
         }
         try {
-          const mediaType = request.headers["content-type"]
-            ?.split(";", 1)[0]
-            ?.trim()
-            .toLowerCase();
+          const mediaType = request.headers["content-type"]?.split(";", 1)[0]?.trim().toLowerCase();
           if (mediaType !== "application/json")
             throw new LibraryUpdateBridgeError(
               "Paste resolution requires application/json",
               "unsupported_media_type",
               415,
             );
-          const {text} = parseLibraryPasteResolveRequest(
-            await readBoundedJsonBody(request),
-          );
+          const {text} = parseLibraryPasteResolveRequest(await readBoundedJsonBody(request));
           const matches: LibraryPasteImportMatch[] = [];
           for (const descriptor of libraryProviderRegistry.descriptors()) {
             const provider = await libraryProviderRegistry.load(descriptor.id);
@@ -1543,27 +1248,17 @@ const localLibraryOperationsPlugin = (): Plugin => {
               "ambiguous_paste",
               409,
             );
-          sendJson(
-            response,
-            200,
-            matches[0] ? {match: matches[0], ok: true} : {ok: true},
-          );
+          sendJson(response, 200, matches[0] ? {match: matches[0], ok: true} : {ok: true});
         } catch (error) {
           const bridgeError =
             error instanceof LibraryUpdateBridgeError
               ? error
               : new LibraryUpdateBridgeError(
-                  error instanceof Error
-                    ? error.message
-                    : "Could not resolve pasted text",
+                  error instanceof Error ? error.message : "Could not resolve pasted text",
                   "paste_resolution_failed",
                   500,
                 );
-          sendJson(
-            response,
-            bridgeError.status,
-            libraryOperationFailure(bridgeError.code, bridgeError.message),
-          );
+          sendJson(response, bridgeError.status, libraryOperationFailure(bridgeError.code, bridgeError.message));
         }
         return;
       }
@@ -1574,10 +1269,7 @@ const localLibraryOperationsPlugin = (): Plugin => {
           sendJson(
             response,
             405,
-            libraryOperationFailure(
-              "method_not_allowed",
-              "Use GET for library operation status",
-            ),
+            libraryOperationFailure("method_not_allowed", "Use GET for library operation status"),
           );
           return;
         }
@@ -1585,31 +1277,21 @@ const localLibraryOperationsPlugin = (): Plugin => {
           sendJson(
             response,
             403,
-            libraryOperationFailure(
-              "forbidden_origin",
-              "Library operations require a same-origin loopback request",
-            ),
+            libraryOperationFailure("forbidden_origin", "Library operations require a same-origin loopback request"),
           );
           return;
         }
         let jobId: string;
         try {
           const jobIds = requestUrl.searchParams.getAll("jobId");
-          if (jobIds.length > 1)
-            throw new Error("Library operation status accepts one jobId");
-          if (
-            [...requestUrl.searchParams.keys()].some((key) => key !== "jobId")
-          )
-            throw new Error(
-              "Library operation status only accepts a jobId parameter",
-            );
+          if (jobIds.length > 1) throw new Error("Library operation status accepts one jobId");
+          if ([...requestUrl.searchParams.keys()].some((key) => key !== "jobId"))
+            throw new Error("Library operation status only accepts a jobId parameter");
           if (jobIds.length === 0) {
             // No jobId: report the persisted active operation so a reloaded
             // page or another browser can reattach to the running job.
             try {
-              const active = JSON.parse(
-                await readFile(activeLibraryOperationFile, "utf8"),
-              ) as unknown;
+              const active = JSON.parse(await readFile(activeLibraryOperationFile, "utf8")) as unknown;
               const descriptor =
                 active !== null && typeof active === "object"
                   ? (active as {
@@ -1621,8 +1303,7 @@ const localLibraryOperationsPlugin = (): Plugin => {
               if (
                 typeof descriptor?.jobId === "string" &&
                 typeof descriptor.operation === "string" &&
-                (descriptor.operation === "fetch-more" ||
-                  descriptor.operation === "scan") &&
+                (descriptor.operation === "fetch-more" || descriptor.operation === "scan") &&
                 typeof descriptor.startedAt === "number" &&
                 Number.isFinite(descriptor.startedAt)
               ) {
@@ -1649,10 +1330,7 @@ const localLibraryOperationsPlugin = (): Plugin => {
           sendJson(
             response,
             400,
-            libraryOperationFailure(
-              "invalid_request",
-              error instanceof Error ? error.message : "Invalid jobId",
-            ),
+            libraryOperationFailure("invalid_request", error instanceof Error ? error.message : "Invalid jobId"),
           );
           return;
         }
@@ -1671,24 +1349,17 @@ const localLibraryOperationsPlugin = (): Plugin => {
           sendJson(
             response,
             404,
-            libraryOperationFailure(
-              "job_not_found",
-              "The library job is unavailable or expired",
-            ),
+            libraryOperationFailure("job_not_found", "The library job is unavailable or expired"),
           );
           return;
         }
         sendJson(response, 200, job);
         return;
       }
-      const blacklistListRequest =
-        pathname === LIBRARY_BLACKLIST_ENDPOINT && request.method === "GET";
+      const blacklistListRequest = pathname === LIBRARY_BLACKLIST_ENDPOINT && request.method === "GET";
       const postRequest = request.method === "POST";
       if (!postRequest && !blacklistListRequest) {
-        response.setHeader(
-          "Allow",
-          pathname === LIBRARY_BLACKLIST_ENDPOINT ? "GET, POST" : "POST",
-        );
+        response.setHeader("Allow", pathname === LIBRARY_BLACKLIST_ENDPOINT ? "GET, POST" : "POST");
         sendJson(
           response,
           405,
@@ -1705,10 +1376,7 @@ const localLibraryOperationsPlugin = (): Plugin => {
         sendJson(
           response,
           403,
-          libraryOperationFailure(
-            "forbidden_origin",
-            "Library operations require a same-origin loopback request",
-          ),
+          libraryOperationFailure("forbidden_origin", "Library operations require a same-origin loopback request"),
         );
         return;
       }
@@ -1716,18 +1384,12 @@ const localLibraryOperationsPlugin = (): Plugin => {
       let operation: LocalLibraryOperation;
       if (blacklistListRequest) operation = {kind: "blacklist-list"};
       else {
-        const mediaType = request.headers["content-type"]
-          ?.split(";", 1)[0]
-          ?.trim()
-          .toLowerCase();
+        const mediaType = request.headers["content-type"]?.split(";", 1)[0]?.trim().toLowerCase();
         if (mediaType !== "application/json") {
           sendJson(
             response,
             415,
-            libraryOperationFailure(
-              "unsupported_media_type",
-              "Library operations require application/json",
-            ),
+            libraryOperationFailure("unsupported_media_type", "Library operations require application/json"),
           );
           return;
         }
@@ -1740,12 +1402,9 @@ const localLibraryOperationsPlugin = (): Plugin => {
               ...(scanRequest.redownloadProviderAssets === undefined
                 ? {}
                 : {
-                    redownloadProviderAssets:
-                      scanRequest.redownloadProviderAssets,
+                    redownloadProviderAssets: scanRequest.redownloadProviderAssets,
                   }),
-              ...(scanRequest.repair === undefined
-                ? {}
-                : {repair: scanRequest.repair}),
+              ...(scanRequest.repair === undefined ? {} : {repair: scanRequest.repair}),
               ...(scanRequest.repairProviderMetadata === undefined
                 ? {}
                 : {
@@ -1755,22 +1414,14 @@ const localLibraryOperationsPlugin = (): Plugin => {
           } else if (pathname === LIBRARY_FETCH_MORE_ENDPOINT) {
             const fetchMoreRequest = parseLibraryFetchMoreRequest(body);
             operation = {
-              ...(fetchMoreRequest.blockedTags === undefined
-                ? {}
-                : {blockedTags: fetchMoreRequest.blockedTags}),
+              ...(fetchMoreRequest.blockedTags === undefined ? {} : {blockedTags: fetchMoreRequest.blockedTags}),
               kind: "fetch-more",
-              ...(fetchMoreRequest.limit === undefined
-                ? {}
-                : {limit: fetchMoreRequest.limit}),
+              ...(fetchMoreRequest.limit === undefined ? {} : {limit: fetchMoreRequest.limit}),
               ...(fetchMoreRequest.maxSearchPages === undefined
                 ? {}
                 : {maxSearchPages: fetchMoreRequest.maxSearchPages}),
-              ...(fetchMoreRequest.providerId === undefined
-                ? {}
-                : {providerId: fetchMoreRequest.providerId}),
-              ...(fetchMoreRequest.query === undefined
-                ? {}
-                : {query: fetchMoreRequest.query}),
+              ...(fetchMoreRequest.providerId === undefined ? {} : {providerId: fetchMoreRequest.providerId}),
+              ...(fetchMoreRequest.query === undefined ? {} : {query: fetchMoreRequest.query}),
             };
           } else {
             const blacklistRequest = parseLibraryBlacklistRequest(body);
@@ -1788,11 +1439,7 @@ const localLibraryOperationsPlugin = (): Plugin => {
                   "invalid_request",
                   400,
                 );
-          sendJson(
-            response,
-            bridgeError.status,
-            libraryOperationFailure(bridgeError.code, bridgeError.message),
-          );
+          sendJson(response, bridgeError.status, libraryOperationFailure(bridgeError.code, bridgeError.message));
           return;
         }
       }
@@ -1801,10 +1448,7 @@ const localLibraryOperationsPlugin = (): Plugin => {
         sendJson(
           response,
           409,
-          libraryOperationFailure(
-            "operation_in_progress",
-            "A library operation is already in progress",
-          ),
+          libraryOperationFailure("operation_in_progress", "A library operation is already in progress"),
         );
         return;
       }
@@ -1813,9 +1457,7 @@ const localLibraryOperationsPlugin = (): Plugin => {
       const operationLogLabel = libraryOperationLogLabel(operation);
       console.info(`[afterleaf] Starting library ${operationLogLabel}`);
       const snapshotOperation =
-        operation.kind === "scan" || operation.kind === "fetch-more"
-          ? operation.kind
-          : undefined;
+        operation.kind === "scan" || operation.kind === "fetch-more" ? operation.kind : undefined;
       if (snapshotOperation) {
         const jobId = randomUUID();
         const initialStatus: LibraryOperationStatusHttpSuccess = {
@@ -1845,26 +1487,20 @@ const localLibraryOperationsPlugin = (): Plugin => {
         });
         void (async () => {
           try {
-            const stdout = await runLibraryOperationCommand(
-              operation,
-              (progress) => {
-                operationJobs.set(jobId, {
-                  ...progress,
-                  jobId,
-                  ok: true,
-                  operation: snapshotOperation,
-                  state: "running",
-                });
-                console.info(
-                  `[afterleaf] Library ${snapshotOperation} [${progress.completedSteps}/${progress.totalSteps}] ${progress.message} (${Math.round((Date.now() - operationStartedAt) / 1_000)}s)`,
-                );
-              },
-            );
+            const stdout = await runLibraryOperationCommand(operation, (progress) => {
+              operationJobs.set(jobId, {
+                ...progress,
+                jobId,
+                ok: true,
+                operation: snapshotOperation,
+                state: "running",
+              });
+              console.info(
+                `[afterleaf] Library ${snapshotOperation} [${progress.completedSteps}/${progress.totalSteps}] ${progress.message} (${Math.round((Date.now() - operationStartedAt) / 1_000)}s)`,
+              );
+            });
             const commandResult = JSON.parse(stdout) as unknown;
-            const result = summarizeLibrarySnapshotResult(
-              commandResult,
-              snapshotOperation,
-            );
+            const result = summarizeLibrarySnapshotResult(commandResult, snapshotOperation);
             operationJobs.set(jobId, {
               completedSteps: 3,
               jobId,
@@ -1884,19 +1520,14 @@ const localLibraryOperationsPlugin = (): Plugin => {
               error instanceof LibraryUpdateBridgeError
                 ? error
                 : new LibraryUpdateBridgeError(
-                    error instanceof Error
-                      ? error.message
-                      : "Library operation failed",
+                    error instanceof Error ? error.message : "Library operation failed",
                     "operation_failed",
                     500,
                   );
             const currentStatus = operationJobs.get(jobId) ?? initialStatus;
             operationJobs.set(jobId, {
               completedSteps: currentStatus.completedSteps,
-              error: libraryOperationFailure(
-                bridgeError.code,
-                bridgeError.message,
-              ).error,
+              error: libraryOperationFailure(bridgeError.code, bridgeError.message).error,
               jobId,
               message: bridgeError.message,
               ok: true,
@@ -1927,20 +1558,14 @@ const localLibraryOperationsPlugin = (): Plugin => {
           error instanceof LibraryUpdateBridgeError
             ? error
             : new LibraryUpdateBridgeError(
-                error instanceof Error
-                  ? error.message
-                  : "Library operation failed",
+                error instanceof Error ? error.message : "Library operation failed",
                 "operation_failed",
                 500,
               );
         console.error(
           `[afterleaf] Failed library ${operationLogLabel} after ${Math.round((Date.now() - operationStartedAt) / 1_000)}s: ${bridgeError.message}`,
         );
-        sendJson(
-          response,
-          bridgeError.status,
-          libraryOperationFailure(bridgeError.code, bridgeError.message),
-        );
+        sendJson(response, bridgeError.status, libraryOperationFailure(bridgeError.code, bridgeError.message));
       } finally {
         operationRunning = false;
       }
@@ -1953,13 +1578,9 @@ const localLibraryOperationsPlugin = (): Plugin => {
   };
 };
 
-const sparsePageContentType = (extension: string) =>
-  contentTypes[`.${extension}`] ?? "application/octet-stream";
+const sparsePageContentType = (extension: string) => contentTypes[`.${extension}`] ?? "application/octet-stream";
 
-const findCachedSparsePage = async (
-  pagesDirectory: string,
-  pageNumber: number,
-) => {
+const findCachedSparsePage = async (pagesDirectory: string, pageNumber: number) => {
   try {
     const entry = (await readdir(pagesDirectory)).find((name) => {
       const match = name.match(/^([0-9]+)\.(?:jpe?g|png|webp)$/u);
@@ -1975,38 +1596,21 @@ const sparsePageRequests = new Map<string, Promise<Buffer | string>>();
 
 // Materialization runs fully in parallel; the reader only prefetches a few
 // pages per spread turn, so simultaneous downloads stay naturally bounded.
-const queueSparsePageMaterialization = (
-  publicationId: string,
-  pageNumber: number,
-  queuedAt: number,
-) =>
-  materializeSparsePage(
-    publicationId,
-    pageNumber,
-    performance.now() - queuedAt,
-  );
+const queueSparsePageMaterialization = (publicationId: string, pageNumber: number, queuedAt: number) =>
+  materializeSparsePage(publicationId, pageNumber, performance.now() - queuedAt);
 
 const activeSparsePublication = (publicationId: string) => {
   const location = requestLibraryLocation();
   if (!location) throw new Error("No active library snapshot is available");
-  const catalog = JSON.parse(
-    readFileSync(
-      path.resolve(location.catalogDirectory, "catalog.json"),
-      "utf8",
-    ),
-  ) as {publications?: PackedPublication[]};
-  const publication = catalog.publications?.find(
-    (candidate) => candidate.id === publicationId,
-  );
+  const catalog = JSON.parse(readFileSync(path.resolve(location.catalogDirectory, "catalog.json"), "utf8")) as {
+    publications?: PackedPublication[];
+  };
+  const publication = catalog.publications?.find((candidate) => candidate.id === publicationId);
   if (!publication) throw new Error("Publication is not in the active library");
   return publication;
 };
 
-const materializeSparsePage = async (
-  publicationId: string,
-  pageNumber: number,
-  queueMilliseconds: number,
-) => {
+const materializeSparsePage = async (publicationId: string, pageNumber: number, queueMilliseconds: number) => {
   const materializationStartedAt = performance.now();
   const activePublication = activeSparsePublication(publicationId);
   if (activePublication.source === undefined) {
@@ -2028,12 +1632,7 @@ const materializeSparsePage = async (
   const cachedPage = await findCachedSparsePage(pagesDirectory, pageNumber);
   if (cachedPage) return cachedPage;
 
-  const manifest = JSON.parse(
-    readFileSync(
-      path.resolve(publicationDirectory, "publication.json"),
-      "utf8",
-    ),
-  ) as {
+  const manifest = JSON.parse(readFileSync(path.resolve(publicationDirectory, "publication.json"), "utf8")) as {
     id?: unknown;
     pageCount?: unknown;
     source?: {
@@ -2055,9 +1654,7 @@ const materializeSparsePage = async (
 
   const provider = await libraryProviderRegistry.load(manifest.source.provider);
   if (!provider.materializePage)
-    throw new Error(
-      `Library provider ${manifest.source.provider} does not support sparse pages`,
-    );
+    throw new Error(`Library provider ${manifest.source.provider} does not support sparse pages`);
   const providerStartedAt = performance.now();
   const source = await provider.materializePage({
     metadataHash: manifest.source.metadataHash,
@@ -2081,8 +1678,7 @@ const materializeSparsePage = async (
     await writeFile(temporaryPath, derivative);
     await rename(temporaryPath, targetPath);
     const persistenceMilliseconds = performance.now() - persistenceStartedAt;
-    const materializationMilliseconds =
-      performance.now() - materializationStartedAt;
+    const materializationMilliseconds = performance.now() - materializationStartedAt;
     console.info(
       `[afterleaf] Streamed ${publicationId} page ${pageNumber}: queue ${queueMilliseconds.toFixed(0)} ms, download/provider ${providerMilliseconds.toFixed(0)} ms (${(source.byteLength / 1_024).toFixed(0)} KiB), Sharp ${conversionMilliseconds.toFixed(0)} ms (${(derivative.byteLength / 1_024).toFixed(0)} KiB), disk ${persistenceMilliseconds.toFixed(0)} ms, materialize ${materializationMilliseconds.toFixed(0)} ms, request ${(
         queueMilliseconds + materializationMilliseconds
@@ -2115,11 +1711,7 @@ const sparseLibraryPagesPlugin = (): Plugin => {
       const existingRequest = sparsePageRequests.get(key);
       const pending =
         existingRequest ??
-        queueSparsePageMaterialization(
-          pageRequest.publicationId,
-          pageRequest.pageNumber,
-          requestStartedAt,
-        );
+        queueSparsePageMaterialization(pageRequest.publicationId, pageRequest.pageNumber, requestStartedAt);
       sparsePageRequests.set(key, pending);
       try {
         const page = await pending;
@@ -2129,10 +1721,7 @@ const sparseLibraryPagesPlugin = (): Plugin => {
           response.setHeader("Cache-Control", "private, max-age=3600");
           response.end(page);
         } else {
-          response.setHeader(
-            "Content-Type",
-            sparsePageContentType(path.extname(page).slice(1)),
-          );
+          response.setHeader("Content-Type", sparsePageContentType(path.extname(page).slice(1)));
           response.setHeader("Cache-Control", "private, max-age=3600");
           createReadStream(page).pipe(response);
         }
@@ -2144,12 +1733,9 @@ const sparseLibraryPagesPlugin = (): Plugin => {
         response.statusCode = 502;
         response.setHeader("Cache-Control", "no-store");
         response.setHeader("Content-Type", "text/plain; charset=utf-8");
-        response.end(
-          error instanceof Error ? error.message : "Sparse page fetch failed",
-        );
+        response.end(error instanceof Error ? error.message : "Sparse page fetch failed");
       } finally {
-        if (sparsePageRequests.get(key) === pending)
-          sparsePageRequests.delete(key);
+        if (sparsePageRequests.get(key) === pending) sparsePageRequests.delete(key);
       }
     });
   };
@@ -2161,17 +1747,9 @@ const sparseLibraryPagesPlugin = (): Plugin => {
 };
 
 const tvChannelCatalogDocument = async () =>
-  discoverTvChannels(
-    await tvChannelsDirectories(),
-    tvMediaUrl,
-    tvVideoAnalyzer,
-  );
+  discoverTvChannels(await tvChannelsDirectories(), tvMediaUrl, tvVideoAnalyzer);
 
-const serveTvContent = async (
-  request: IncomingMessage,
-  response: ServerResponse,
-  next: () => void,
-) => {
+const serveTvContent = async (request: IncomingMessage, response: ServerResponse, next: () => void) => {
   let pathname: string;
   try {
     pathname = new URL(request.url ?? "/", "http://afterleaf.local").pathname;
@@ -2198,9 +1776,7 @@ const serveTvContent = async (
         importRequest = parseTvVideoImportRequest(requestBody);
       } catch (error) {
         throw new TvVideoImportInputError(
-          error instanceof Error
-            ? error.message
-            : "TV video import request is invalid",
+          error instanceof Error ? error.message : "TV video import request is invalid",
         );
       }
       const video = await importTvVideoToChannel({
@@ -2213,8 +1789,7 @@ const serveTvContent = async (
       response.setHeader("Content-Type", "application/json; charset=utf-8");
       return response.end(JSON.stringify({video}));
     } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "TV video import failed";
+      const message = error instanceof Error ? error.message : "TV video import failed";
       let statusCode = 502;
       if (error instanceof LibraryUpdateBridgeError) statusCode = error.status;
       else if (error instanceof TvVideoImportInputError) statusCode = 422;
@@ -2253,10 +1828,7 @@ const serveTvContent = async (
 
   const mediaRequest = parseTvMediaRequest(request.url ?? "/");
   if (mediaRequest.kind === "unscoped") return next();
-  if (
-    mediaRequest.kind === "invalid" ||
-    (request.method !== "GET" && request.method !== "HEAD")
-  ) {
+  if (mediaRequest.kind === "invalid" || (request.method !== "GET" && request.method !== "HEAD")) {
     response.statusCode = 404;
     response.setHeader("Cache-Control", "no-store");
     return response.end();
@@ -2281,29 +1853,19 @@ const serveTvContent = async (
   const range = parseByteRange(request.headers.range, resolved.size);
   response.setHeader("Accept-Ranges", "bytes");
   response.setHeader("Cache-Control", "private, max-age=3600");
-  response.setHeader(
-    "Content-Type",
-    tvVideoContentType(mediaRequest.videoId) ?? "application/octet-stream",
-  );
+  response.setHeader("Content-Type", tvVideoContentType(mediaRequest.videoId) ?? "application/octet-stream");
   if (range === "invalid") {
     response.statusCode = 416;
     response.setHeader("Content-Range", `bytes */${resolved.size}`);
     return response.end();
   }
 
-  const responseRange =
-    range === undefined
-      ? undefined
-      : constrainByteRangeLength(range, MAX_TV_MEDIA_RANGE_BYTES);
+  const responseRange = range === undefined ? undefined : constrainByteRangeLength(range, MAX_TV_MEDIA_RANGE_BYTES);
   const start = responseRange?.start ?? 0;
   const end = responseRange?.end ?? resolved.size - 1;
   response.statusCode = responseRange ? 206 : 200;
   response.setHeader("Content-Length", end - start + 1);
-  if (responseRange)
-    response.setHeader(
-      "Content-Range",
-      `bytes ${start}-${end}/${resolved.size}`,
-    );
+  if (responseRange) response.setHeader("Content-Range", `bytes ${start}-${end}/${resolved.size}`);
   if (request.method === "HEAD") return response.end();
   createReadStream(resolved.filePath, {end, start}).pipe(response);
 };
@@ -2327,22 +1889,15 @@ const renderedPoster = (filePath: string) => {
   const cached = posterRenderCache.get(key);
   if (cached) return cached;
   for (const cachedKey of posterRenderCache.keys())
-    if (cachedKey.startsWith(`${filePath}\u0000`))
-      posterRenderCache.delete(cachedKey);
-  const pending = renderPoster(
-    filePath,
-    createPosterImageDerivative,
-    posterDerivativeCacheDirectory,
-  );
+    if (cachedKey.startsWith(`${filePath}\u0000`)) posterRenderCache.delete(cachedKey);
+  const pending = renderPoster(filePath, createPosterImageDerivative, posterDerivativeCacheDirectory);
   posterRenderCache.set(key, pending);
   void pending.catch(() => posterRenderCache.delete(key));
   return pending;
 };
 
 const posterCatalogDocument = async () => ({
-  posters: (
-    await discoverPosters(await postersDirectories(), posterMediaUrl)
-  ).map((poster) => ({
+  posters: (await discoverPosters(await postersDirectories(), posterMediaUrl)).map((poster) => ({
     aspectRatio: poster.aspectRatio,
     hasAlpha: poster.hasAlpha,
     id: poster.id,
@@ -2354,11 +1909,7 @@ const posterCatalogDocument = async () => ({
 const readBoundedPosterBody = (request: IncomingMessage) =>
   new Promise<Buffer>((resolve, reject) => {
     const contentLength = Number(request.headers["content-length"] ?? 0);
-    if (
-      !Number.isFinite(contentLength) ||
-      contentLength <= 0 ||
-      contentLength > MAX_POSTER_IMPORT_BODY_BYTES
-    ) {
+    if (!Number.isFinite(contentLength) || contentLength <= 0 || contentLength > MAX_POSTER_IMPORT_BODY_BYTES) {
       request.resume();
       reject(new Error("Pasted poster image is empty or too large"));
       return;
@@ -2392,11 +1943,7 @@ const readBoundedPosterBody = (request: IncomingMessage) =>
 const readBoundedArtFrameBody = (request: IncomingMessage) =>
   new Promise<Buffer>((resolve, reject) => {
     const contentLength = Number(request.headers["content-length"] ?? 0);
-    if (
-      !Number.isFinite(contentLength) ||
-      contentLength <= 0 ||
-      contentLength > MAX_ART_FRAME_IMPORT_BODY_BYTES
-    ) {
+    if (!Number.isFinite(contentLength) || contentLength <= 0 || contentLength > MAX_ART_FRAME_IMPORT_BODY_BYTES) {
       request.resume();
       reject(new Error("Pasted art frame image is empty or too large"));
       return;
@@ -2427,11 +1974,7 @@ const readBoundedArtFrameBody = (request: IncomingMessage) =>
     });
   });
 
-const servePosterContent = async (
-  request: IncomingMessage,
-  response: ServerResponse,
-  next: () => void,
-) => {
+const servePosterContent = async (request: IncomingMessage, response: ServerResponse, next: () => void) => {
   let pathname: string;
   try {
     pathname = new URL(request.url ?? "/", "http://afterleaf.local").pathname;
@@ -2441,8 +1984,7 @@ const servePosterContent = async (
   const catalogRequest = pathname === POSTER_CATALOG_ENDPOINT;
   const importRequest = pathname === POSTER_IMPORT_ENDPOINT;
   const mediaRequest = parsePosterMediaRequest(request.url ?? "/");
-  if (!catalogRequest && !importRequest && mediaRequest.kind === "unscoped")
-    return next();
+  if (!catalogRequest && !importRequest && mediaRequest.kind === "unscoped") return next();
   if (importRequest) {
     if (request.method !== "POST") {
       response.statusCode = 405;
@@ -2474,18 +2016,14 @@ const servePosterContent = async (
       response.setHeader("Content-Type", "application/json; charset=utf-8");
       return response.end(JSON.stringify({poster}));
     } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Poster import failed";
+      const message = error instanceof Error ? error.message : "Poster import failed";
       response.statusCode = message.includes("too large") ? 413 : 422;
       response.setHeader("Cache-Control", "no-store");
       response.setHeader("Content-Type", "text/plain; charset=utf-8");
       return response.end(message);
     }
   }
-  if (
-    (request.method !== "GET" && request.method !== "HEAD") ||
-    mediaRequest.kind === "invalid"
-  ) {
+  if ((request.method !== "GET" && request.method !== "HEAD") || mediaRequest.kind === "invalid") {
     response.statusCode = 404;
     response.setHeader("Cache-Control", "no-store");
     return response.end();
@@ -2511,10 +2049,7 @@ const servePosterContent = async (
     }
   }
   if (mediaRequest.kind !== "media") return next();
-  const posterPath = await resolvePosterPath(
-    await postersDirectories(),
-    mediaRequest.id,
-  );
+  const posterPath = await resolvePosterPath(await postersDirectories(), mediaRequest.id);
   if (!posterPath) {
     response.statusCode = 404;
     response.setHeader("Cache-Control", "no-store");
@@ -2527,10 +2062,7 @@ const servePosterContent = async (
     if (request.method === "HEAD") return response.end();
     return response.end(await renderedPoster(posterPath));
   } catch (error) {
-    console.error(
-      `[afterleaf] Failed to render poster ${mediaRequest.id}`,
-      error,
-    );
+    console.error(`[afterleaf] Failed to render poster ${mediaRequest.id}`, error);
     response.statusCode = 422;
     response.setHeader("Cache-Control", "no-store");
     return response.end();
@@ -2556,25 +2088,15 @@ const renderedArtFrameImage = (filePath: string) => {
   const cached = artFrameRenderCache.get(key);
   if (cached) return cached;
   for (const cachedKey of artFrameRenderCache.keys())
-    if (cachedKey.startsWith(`${filePath}\u0000`))
-      artFrameRenderCache.delete(cachedKey);
-  const pending = renderArtFrameImage(
-    filePath,
-    createArtFrameImageDerivative,
-    artFrameDerivativeCacheDirectory,
-  );
+    if (cachedKey.startsWith(`${filePath}\u0000`)) artFrameRenderCache.delete(cachedKey);
+  const pending = renderArtFrameImage(filePath, createArtFrameImageDerivative, artFrameDerivativeCacheDirectory);
   artFrameRenderCache.set(key, pending);
   void pending.catch(() => artFrameRenderCache.delete(key));
   return pending;
 };
 
 const artFrameCatalogDocument = async () => ({
-  channels: (
-    await discoverArtFrameChannels(
-      await artFramesDirectories(),
-      artFrameMediaUrl,
-    )
-  ).map((channel) => ({
+  channels: (await discoverArtFrameChannels(await artFramesDirectories(), artFrameMediaUrl)).map((channel) => ({
     id: channel.id,
     images: channel.images.map(({aspectRatio, id, label, url}) => ({
       aspectRatio,
@@ -2586,11 +2108,7 @@ const artFrameCatalogDocument = async () => ({
   })),
 });
 
-const serveArtFrameContent = async (
-  request: IncomingMessage,
-  response: ServerResponse,
-  next: () => void,
-) => {
+const serveArtFrameContent = async (request: IncomingMessage, response: ServerResponse, next: () => void) => {
   let pathname: string;
   try {
     pathname = new URL(request.url ?? "/", "http://afterleaf.local").pathname;
@@ -2600,8 +2118,7 @@ const serveArtFrameContent = async (
   const catalogRequest = pathname === ART_FRAME_CATALOG_ENDPOINT;
   const importRequest = pathname === ART_FRAME_IMPORT_ENDPOINT;
   const mediaRequest = parseArtFrameMediaRequest(request.url ?? "/");
-  if (!catalogRequest && !importRequest && mediaRequest.kind === "unscoped")
-    return next();
+  if (!catalogRequest && !importRequest && mediaRequest.kind === "unscoped") return next();
   if (importRequest) {
     if (request.method !== "POST") {
       response.statusCode = 405;
@@ -2615,9 +2132,7 @@ const serveArtFrameContent = async (
       return response.end();
     }
     const channelHeader = request.headers["x-afterleaf-art-frame-channel"];
-    const channelId = Array.isArray(channelHeader)
-      ? channelHeader[0]
-      : channelHeader;
+    const channelId = Array.isArray(channelHeader) ? channelHeader[0] : channelHeader;
     if (!channelId || !isSafeArtFrameChannelId(channelId)) {
       response.statusCode = 422;
       response.setHeader("Cache-Control", "no-store");
@@ -2633,10 +2148,7 @@ const serveArtFrameContent = async (
       );
       const importedImage = imported.image;
       const modifiedAt = statSync(importedImage.filePath).mtimeMs;
-      artFrameRenderCache.set(
-        `${importedImage.filePath}\u0000${modifiedAt}`,
-        Promise.resolve(imported.derivative),
-      );
+      artFrameRenderCache.set(`${importedImage.filePath}\u0000${modifiedAt}`, Promise.resolve(imported.derivative));
       const image = {
         aspectRatio: importedImage.aspectRatio,
         id: importedImage.id,
@@ -2648,18 +2160,14 @@ const serveArtFrameContent = async (
       response.setHeader("Content-Type", "application/json; charset=utf-8");
       return response.end(JSON.stringify({image}));
     } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Art frame import failed";
+      const message = error instanceof Error ? error.message : "Art frame import failed";
       response.statusCode = message.includes("too large") ? 413 : 422;
       response.setHeader("Cache-Control", "no-store");
       response.setHeader("Content-Type", "text/plain; charset=utf-8");
       return response.end(message);
     }
   }
-  if (
-    (request.method !== "GET" && request.method !== "HEAD") ||
-    mediaRequest.kind === "invalid"
-  ) {
+  if ((request.method !== "GET" && request.method !== "HEAD") || mediaRequest.kind === "invalid") {
     response.statusCode = 404;
     response.setHeader("Cache-Control", "no-store");
     return response.end();
@@ -2684,10 +2192,7 @@ const serveArtFrameContent = async (
     }
   }
   if (mediaRequest.kind !== "media") return next();
-  const imagePath = await resolveArtFrameImagePath(
-    await artFramesDirectories(),
-    mediaRequest.id,
-  );
+  const imagePath = await resolveArtFrameImagePath(await artFramesDirectories(), mediaRequest.id);
   if (!imagePath) {
     response.statusCode = 404;
     response.setHeader("Cache-Control", "no-store");
@@ -2695,9 +2200,7 @@ const serveArtFrameContent = async (
   }
   try {
     const imageStat = statSync(imagePath);
-    const etag = `W/"${imageStat.size.toString(16)}-${Math.floor(
-      imageStat.mtimeMs,
-    ).toString(16)}"`;
+    const etag = `W/"${imageStat.size.toString(16)}-${Math.floor(imageStat.mtimeMs).toString(16)}"`;
     response.statusCode = 200;
     response.setHeader("Cache-Control", "private, no-cache");
     response.setHeader("ETag", etag);
@@ -2709,10 +2212,7 @@ const serveArtFrameContent = async (
     if (request.method === "HEAD") return response.end();
     return response.end(await renderedArtFrameImage(imagePath));
   } catch (error) {
-    console.error(
-      `[afterleaf] Failed to render art frame image ${mediaRequest.id}`,
-      error,
-    );
+    console.error(`[afterleaf] Failed to render art frame image ${mediaRequest.id}`, error);
     response.statusCode = 422;
     response.setHeader("Cache-Control", "no-store");
     return response.end();
@@ -2730,11 +2230,7 @@ const artFrameContentPlugin = (): Plugin => ({
   },
 });
 
-const serveShopMediaCatalog = async (
-  request: IncomingMessage,
-  response: ServerResponse,
-  next: () => void,
-) => {
+const serveShopMediaCatalog = async (request: IncomingMessage, response: ServerResponse, next: () => void) => {
   let pathname: string;
   try {
     pathname = new URL(request.url ?? "/", "http://afterleaf.local").pathname;
@@ -2785,11 +2281,7 @@ const shopMediaCatalogPlugin = (): Plugin => ({
   },
 });
 
-const serveModelContent = async (
-  request: IncomingMessage,
-  response: ServerResponse,
-  next: () => void,
-) => {
+const serveModelContent = async (request: IncomingMessage, response: ServerResponse, next: () => void) => {
   if (request.method !== "GET" && request.method !== "HEAD") return next();
   const modelRequest = parseModelMediaRequest(request.url ?? "/");
   if (modelRequest.kind === "unscoped") return next();
@@ -2805,10 +2297,7 @@ const serveModelContent = async (
     return response.end();
   }
   try {
-    const preparedModel = await prepareModelForThree(
-      modelPath,
-      modelCompatibilityCacheDirectory,
-    );
+    const preparedModel = await prepareModelForThree(modelPath, modelCompatibilityCacheDirectory);
     response.setHeader("Cache-Control", "private, no-cache");
     response.setHeader("ETag", preparedModel.etag);
     if (request.headers["if-none-match"] === preparedModel.etag) {
@@ -2823,10 +2312,7 @@ const serveModelContent = async (
     stream.on("error", (error) => response.destroy(error));
     return stream.pipe(response);
   } catch (error) {
-    console.error(
-      `[afterleaf] Failed to serve model ${modelRequest.id}`,
-      error,
-    );
+    console.error(`[afterleaf] Failed to serve model ${modelRequest.id}`, error);
     response.statusCode = 500;
     response.setHeader("Cache-Control", "no-store");
     return response.end();
@@ -2844,11 +2330,7 @@ const modelContentPlugin = (): Plugin => ({
   },
 });
 
-const serveActiveLibraryAsset = (
-  request: IncomingMessage,
-  response: ServerResponse,
-  next: () => void,
-) => {
+const serveActiveLibraryAsset = (request: IncomingMessage, response: ServerResponse, next: () => void) => {
   if (request.method !== "GET" && request.method !== "HEAD") return next();
   const assetRequest = parseActiveLibraryAssetRequest(request.url ?? "/");
   if (assetRequest.kind === "unscoped") return next();
@@ -2861,9 +2343,7 @@ const serveActiveLibraryAsset = (
   }
   const {pathname} = assetRequest;
   const assetResolution = resolveActiveLibraryAssetPath(
-    pathname === "/catalog.json"
-      ? location.catalogDirectory
-      : location.assetDirectory,
+    pathname === "/catalog.json" ? location.catalogDirectory : location.assetDirectory,
     pathname,
   );
   if (assetResolution.kind === "invalid") {
@@ -2880,20 +2360,13 @@ const serveActiveLibraryAsset = (
     }
   } catch (error) {
     if (pathname === "/catalog.json")
-      console.warn(
-        `[afterleaf] Active library catalog disappeared before it could be served (${assetPath})`,
-        error,
-      );
+      console.warn(`[afterleaf] Active library catalog disappeared before it could be served (${assetPath})`, error);
     response.statusCode = 404;
     response.setHeader("Cache-Control", "no-store");
     return response.end();
   }
   response.statusCode = 200;
-  response.setHeader(
-    "Content-Type",
-    contentTypes[path.extname(assetPath).toLowerCase()] ??
-      "application/octet-stream",
-  );
+  response.setHeader("Content-Type", contentTypes[path.extname(assetPath).toLowerCase()] ?? "application/octet-stream");
   response.setHeader(
     "Cache-Control",
     pathname === "/catalog.json"
@@ -2902,19 +2375,12 @@ const serveActiveLibraryAsset = (
         ? "private, max-age=31536000, immutable"
         : "private, max-age=3600",
   );
-  if (
-    pathname === "/catalog.json" &&
-    !explicitPublicDirectory &&
-    cachedSnapshotId
-  )
+  if (pathname === "/catalog.json" && !explicitPublicDirectory && cachedSnapshotId)
     response.setHeader("X-Afterleaf-Snapshot-Id", cachedSnapshotId);
   if (request.method === "HEAD") return response.end();
   const stream = createReadStream(assetPath);
   stream.on("error", (error) => {
-    console.error(
-      `[afterleaf] Failed to stream active library asset ${pathname} (${assetPath})`,
-      error,
-    );
+    console.error(`[afterleaf] Failed to stream active library asset ${pathname} (${assetPath})`, error);
     if (response.headersSent) response.destroy(error);
     else {
       response.statusCode = 500;
@@ -2943,13 +2409,8 @@ const basisTranscoderPlugin = (): Plugin => {
   );
   let buildOutDir = "";
   const basisFiles = ["basis_transcoder.js", "basis_transcoder.wasm"];
-  const contentTypeFor = (file: string) =>
-    file.endsWith(".wasm") ? "application/wasm" : "text/javascript";
-  const serveBasisTranscoder = (
-    request: IncomingMessage,
-    response: ServerResponse,
-    next: () => void,
-  ) => {
+  const contentTypeFor = (file: string) => (file.endsWith(".wasm") ? "application/wasm" : "text/javascript");
+  const serveBasisTranscoder = (request: IncomingMessage, response: ServerResponse, next: () => void) => {
     if (request.method !== "GET" && request.method !== "HEAD") return next();
     let pathname: string;
     try {
@@ -2991,10 +2452,7 @@ const basisTranscoderPlugin = (): Plugin => {
       const targetDirectory = path.join(buildOutDir, "api", "runtime", "basis");
       await mkdir(targetDirectory, {recursive: true});
       for (const file of basisFiles)
-        await copyFile(
-          path.join(transcoderDirectory, file),
-          path.join(targetDirectory, file),
-        );
+        await copyFile(path.join(transcoderDirectory, file), path.join(targetDirectory, file));
       console.log(
         `[afterleaf] Vendored the basis transcoder into ${path.relative(import.meta.dirname, targetDirectory)}`,
       );
@@ -3010,11 +2468,7 @@ const emulatorDataPlugin = (): Plugin => {
   // EMULATOR_DATA_URL_PATH so emulator boots never touch cdn.emulatorjs.org.
   // Core packages mirror the data/cores layout, so requests are resolved by
   // resolveEmulatorDataFile and streamed like any other static asset.
-  const serveEmulatorData = async (
-    request: IncomingMessage,
-    response: ServerResponse,
-    next: () => void,
-  ) => {
+  const serveEmulatorData = async (request: IncomingMessage, response: ServerResponse, next: () => void) => {
     if (request.method !== "GET" && request.method !== "HEAD") return next();
     let pathname: string;
     try {
@@ -3025,16 +2479,11 @@ const emulatorDataPlugin = (): Plugin => {
     if (!pathname.startsWith(EMULATOR_DATA_URL_PATH)) return next();
     let relativePath: string;
     try {
-      relativePath = decodeURIComponent(
-        pathname.slice(EMULATOR_DATA_URL_PATH.length),
-      );
+      relativePath = decodeURIComponent(pathname.slice(EMULATOR_DATA_URL_PATH.length));
     } catch {
       relativePath = "";
     }
-    const asset = await loadEmulatorDataAsset(
-      nodeModulesDirectory,
-      relativePath,
-    );
+    const asset = await loadEmulatorDataAsset(nodeModulesDirectory, relativePath);
     if (!asset) {
       response.statusCode = 404;
       response.setHeader("Cache-Control", "no-store");
@@ -3082,10 +2531,7 @@ const emulatorDataPlugin = (): Plugin => {
     },
     async closeBundle() {
       if (!buildOutDir) return;
-      const targetDataDirectory = path.join(
-        buildOutDir,
-        EMULATOR_DATA_URL_PATH.slice(1, -1),
-      );
+      const targetDataDirectory = path.join(buildOutDir, EMULATOR_DATA_URL_PATH.slice(1, -1));
       await copyEmulatorDataInto(nodeModulesDirectory, targetDataDirectory);
       console.log(
         `[afterleaf] Vendored the EmulatorJS runtime into ${path.relative(import.meta.dirname, targetDataDirectory)}`,
@@ -3125,20 +2571,13 @@ const dataRootBootstrapperPlugin = (): Plugin => ({
       process.exit(1);
     }
     void ensureDataRootStructure(import.meta.dirname).catch((error: unknown) =>
-      console.warn(
-        "[afterleaf] Could not prepare the Afterleaf data folder",
-        error,
-      ),
+      console.warn("[afterleaf] Could not prepare the Afterleaf data folder", error),
     );
   },
 });
 
 const staticAssetCachePlugin = (): Plugin => {
-  const setStaticAssetCacheHeaders = (
-    request: IncomingMessage,
-    response: ServerResponse,
-    next: () => void,
-  ) => {
+  const setStaticAssetCacheHeaders = (request: IncomingMessage, response: ServerResponse, next: () => void) => {
     if (request.method !== "GET" && request.method !== "HEAD") return next();
     let pathname: string;
     try {
@@ -3149,9 +2588,7 @@ const staticAssetCachePlugin = (): Plugin => {
     if (!cacheableStaticAssetPath.test(pathname)) return next();
     response.setHeader(
       "Cache-Control",
-      pathname.startsWith("/src/assets/")
-        ? "private, max-age=3600"
-        : "public, max-age=31536000, immutable",
+      pathname.startsWith("/src/assets/") ? "private, max-age=3600" : "public, max-age=31536000, immutable",
     );
     return next();
   };

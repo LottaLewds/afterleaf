@@ -78,18 +78,13 @@ describe("control preferences", () => {
       CONTROL_PREFERENCES_STORAGE_KEY,
       JSON.stringify({mouseSensitivity: 99, gamepadLookSensitivity: 99}),
     );
-    expect(loadControlPreferences(storage)).toEqual(
-      fullPreferences({mouseSensitivity: 2, gamepadLookSensitivity: 3}),
-    );
+    expect(loadControlPreferences(storage)).toEqual(fullPreferences({mouseSensitivity: 2, gamepadLookSensitivity: 3}));
   });
 
   test("defaults gamepad look sensitivity when absent from storage", () => {
     const storage = memoryStorage();
     // Preferences written before the option existed must keep loading.
-    storage.values.set(
-      CONTROL_PREFERENCES_STORAGE_KEY,
-      JSON.stringify({mouseSensitivity: 0.8}),
-    );
+    storage.values.set(CONTROL_PREFERENCES_STORAGE_KEY, JSON.stringify({mouseSensitivity: 0.8}));
     expect(loadControlPreferences(storage).gamepadLookSensitivity).toBe(1);
   });
 

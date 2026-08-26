@@ -48,10 +48,7 @@ export const isSharedStaticGeometry = (geometry: BufferGeometry): boolean =>
  * or morph-targeted meshes (deformation), and anything the exclude callback
  * rejects (dynamic surfaces such as television screens).
  */
-export const buildMergedStaticParts = (
-  root: Object3D,
-  exclude?: (mesh: Mesh) => boolean,
-): MergedStaticResult => {
+export const buildMergedStaticParts = (root: Object3D, exclude?: (mesh: Mesh) => boolean): MergedStaticResult => {
   root.updateMatrixWorld(true);
   const rootInverse = new Matrix4().copy(root.matrixWorld).invert();
 
@@ -82,9 +79,7 @@ export const buildMergedStaticParts = (
     }
     bucket.meshes.push(object);
     const baked = geometry.clone();
-    baked.applyMatrix4(
-      new Matrix4().multiplyMatrices(rootInverse, object.matrixWorld),
-    );
+    baked.applyMatrix4(new Matrix4().multiplyMatrices(rootInverse, object.matrixWorld));
     bucket.geometries.push(baked);
   });
 
@@ -109,8 +104,7 @@ export const buildMergedStaticParts = (
 //         systems; never swept into batches.
 //   SOFT - movable-later fixtures (shelving); their contents ARE batched,
 //         but scoped inside the fixture so it stays one movable unit.
-const INTERIOR_BATCH_HARD =
-  /television|screen|arcade|art-?frame|face-?out|display|snap|helper/iu;
+const INTERIOR_BATCH_HARD = /television|screen|arcade|art-?frame|face-?out|display|snap|helper/iu;
 const INTERIOR_BATCH_SOFT = /shelf|gondola|fixture|cave/iu;
 
 /**
@@ -119,10 +113,7 @@ const INTERIOR_BATCH_SOFT = /shelf|gondola|fixture|cave/iu;
  * they are separate instances.
  */
 const interiorMaterialSignature = (material: Material): string => {
-  if (
-    !(material instanceof MeshStandardMaterial) &&
-    !(material instanceof MeshBasicMaterial)
-  )
+  if (!(material instanceof MeshStandardMaterial) && !(material instanceof MeshBasicMaterial))
     return `${material.type}|${material.uuid}`;
   const parts = [
     material.type,
@@ -149,22 +140,12 @@ export const batchStaticInteriorMeshes = (parent: Group) => {
    * Untextured color-only materials bake their color into vertex colors so
    * one finish-class material serves every tint of that class.
    */
-  const isBakeableColorMaterial = (
-    material: Material,
-  ): material is MeshStandardMaterial | MeshBasicMaterial => {
-    if (
-      !(material instanceof MeshStandardMaterial) &&
-      !(material instanceof MeshBasicMaterial)
-    )
-      return false;
+  const isBakeableColorMaterial = (material: Material): material is MeshStandardMaterial | MeshBasicMaterial => {
+    if (!(material instanceof MeshStandardMaterial) && !(material instanceof MeshBasicMaterial)) return false;
     if (material.map || material.vertexColors) return false;
-    for (const value of Object.values(material))
-      if (value instanceof Texture) return false;
+    for (const value of Object.values(material)) if (value instanceof Texture) return false;
     if (material instanceof MeshStandardMaterial)
-      return (
-        material.emissive.getHexString() === "000000" &&
-        material.emissiveIntensity === 1
-      );
+      return material.emissive.getHexString() === "000000" && material.emissiveIntensity === 1;
     return true;
   };
 
@@ -194,10 +175,7 @@ export const batchStaticInteriorMeshes = (parent: Group) => {
   };
 
   /** Buckets keyed by container node: global for unscoped content. */
-  const bucketsByContainer = new Map<
-    Object3D,
-    Map<string, {material: Material; meshes: Mesh[]}>
-  >();
+  const bucketsByContainer = new Map<Object3D, Map<string, {material: Material; meshes: Mesh[]}>>();
   const bucketFor = (container: Object3D) => {
     let buckets = bucketsByContainer.get(container);
     if (!buckets) {
@@ -207,11 +185,7 @@ export const batchStaticInteriorMeshes = (parent: Group) => {
     return buckets;
   };
 
-  const addMeshToBucket = (
-    object: Object3D,
-    effectiveContainer: Object3D,
-    excludedFromBatch: boolean,
-  ) => {
+  const addMeshToBucket = (object: Object3D, effectiveContainer: Object3D, excludedFromBatch: boolean) => {
     if (
       excludedFromBatch ||
       !(object instanceof Mesh) ||
@@ -236,9 +210,7 @@ export const batchStaticInteriorMeshes = (parent: Group) => {
     let signature: string;
     let bucketMaterial = material;
     if (isBakeableColorMaterial(material)) {
-      const attributesKey = Object.keys(object.geometry.attributes)
-        .sort()
-        .join("+");
+      const attributesKey = Object.keys(object.geometry.attributes).sort().join("+");
       // MeshBasicMaterial has no flatShading; the `in` guard keeps
       // the finish key honest for both material classes.
       const flatShading = "flatShading" in material && material.flatShading;
@@ -247,9 +219,7 @@ export const batchStaticInteriorMeshes = (parent: Group) => {
         material.type,
         String(material.side),
         String(flatShading),
-        ...(material instanceof MeshStandardMaterial
-          ? [String(material.roughness), String(material.metalness)]
-          : []),
+        ...(material instanceof MeshStandardMaterial ? [String(material.roughness), String(material.metalness)] : []),
         attributesKey,
         indexed,
       ].join("|");
@@ -271,9 +241,7 @@ export const batchStaticInteriorMeshes = (parent: Group) => {
       // Flags deliberately excluded: per-row renderOrder/shadow flags
       // would otherwise split identical fixtures into singleton buckets.
       // Opaque draws are depth-sorted by the GPU regardless.
-      signature = [interiorMaterialSignature(bucketMaterial), indexed].join(
-        ":",
-      );
+      signature = [interiorMaterialSignature(bucketMaterial), indexed].join(":");
     }
     const buckets = bucketFor(effectiveContainer);
     let bucket = buckets.get(signature);
@@ -287,59 +255,36 @@ export const batchStaticInteriorMeshes = (parent: Group) => {
     bucket.meshes.push(object);
   };
 
-  const visit = (
-    object: Object3D,
-    scopeContainer: Object3D | null,
-    excludedFromBatch = false,
-  ): void => {
+  const visit = (object: Object3D, scopeContainer: Object3D | null, excludedFromBatch = false): void => {
     if (!object.visible) return;
-    const nextExcludedFromBatch =
-      excludedFromBatch || object.userData.excludeFromStaticBatch === true;
+    const nextExcludedFromBatch = excludedFromBatch || object.userData.excludeFromStaticBatch === true;
     // Topmost soft match owns the scope; everything under it batches
     // into the container just above that match so the fixture stays
     // movable as a unit.
-    const scope =
-      scopeContainer ?? (INTERIOR_BATCH_SOFT.test(object.name) ? object : null);
+    const scope = scopeContainer ?? (INTERIOR_BATCH_SOFT.test(object.name) ? object : null);
     const container = scope === null ? parent : (scope.parent ?? parent);
-    const effectiveContainer =
-      scope === null ? parent : container === parent ? parent : container;
+    const effectiveContainer = scope === null ? parent : container === parent ? parent : container;
 
     addMeshToBucket(object, effectiveContainer, nextExcludedFromBatch);
 
     for (const child of object.children)
-      visit(
-        child,
-        scope ?? (effectiveContainer === parent ? null : scope),
-        nextExcludedFromBatch,
-      );
+      visit(child, scope ?? (effectiveContainer === parent ? null : scope), nextExcludedFromBatch);
   };
   for (const child of [...parent.children]) visit(child, null);
 
   let batchIndex = 0;
   for (const [container, buckets] of bucketsByContainer) {
-    const containerInverse =
-      container === parent
-        ? parentInverse
-        : new Matrix4().copy(container.matrixWorld).invert();
+    const containerInverse = container === parent ? parentInverse : new Matrix4().copy(container.matrixWorld).invert();
     for (const {material, meshes} of buckets.values()) {
       if (meshes.length < 2) continue;
       const vertexCount = meshes.reduce(
-        (total, mesh) =>
-          total + (mesh.geometry.getAttribute("position")?.count ?? 0),
+        (total, mesh) => total + (mesh.geometry.getAttribute("position")?.count ?? 0),
         0,
       );
-      const indexCount = meshes.reduce(
-        (total, mesh) => total + (mesh.geometry.getIndex()?.count ?? 0),
-        0,
-      );
+      const indexCount = meshes.reduce((total, mesh) => total + (mesh.geometry.getIndex()?.count ?? 0), 0);
       let batch;
       try {
-        batch = new BatchedMesh(
-          meshes.length,
-          vertexCount,
-          indexCount,
-          material,
-        );
+        batch = new BatchedMesh(meshes.length, vertexCount, indexCount, material);
       } catch (error) {
         if (DEV)
           console.error(
@@ -359,10 +304,7 @@ export const batchStaticInteriorMeshes = (parent: Group) => {
       batch.sortObjects = false;
       for (const mesh of meshes) {
         mesh.updateWorldMatrix(true, false);
-        const relative = new Matrix4().multiplyMatrices(
-          containerInverse,
-          mesh.matrixWorld,
-        );
+        const relative = new Matrix4().multiplyMatrices(containerInverse, mesh.matrixWorld);
         const geometryId = batch.addGeometry(mesh.geometry);
         const instanceId = batch.addInstance(geometryId);
         batch.setMatrixAt(instanceId, relative);
@@ -374,7 +316,5 @@ export const batchStaticInteriorMeshes = (parent: Group) => {
     }
   }
   if (DEV)
-    console.log(
-      `[afterleaf] interior batching: ${batchIndex} batches from ${bucketsByContainer.size} container(s)`,
-    );
+    console.log(`[afterleaf] interior batching: ${batchIndex} batches from ${bucketsByContainer.size} container(s)`);
 };

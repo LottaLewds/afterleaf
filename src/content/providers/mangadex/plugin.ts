@@ -23,11 +23,9 @@ export const createMangaDexProvider = (
   return {
     descriptor,
     materializePage: createMangaDexSparsePageMaterializer(client),
-    sync: (syncOptions: LibraryProviderSyncOptions) =>
-      syncMangaDexCatalog(syncOptions, {client}),
+    sync: (syncOptions: LibraryProviderSyncOptions) => syncMangaDexCatalog(syncOptions, {client}),
   };
 };
 
-export const createProvider: LibraryProviderPluginModule["createProvider"] = (
-  context,
-) => createMangaDexProvider(context.descriptor);
+export const createProvider: LibraryProviderPluginModule["createProvider"] = (context) =>
+  createMangaDexProvider(context.descriptor);

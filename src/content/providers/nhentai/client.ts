@@ -17,20 +17,17 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
 const requiredInteger = (value: unknown, field: string) => {
-  if (!Number.isSafeInteger(value) || Number(value) <= 0)
-    throw new Error(`${field} must be a positive integer`);
+  if (!Number.isSafeInteger(value) || Number(value) <= 0) throw new Error(`${field} must be a positive integer`);
   return Number(value);
 };
 
-const optionalString = (value: unknown) =>
-  typeof value === "string" && value.trim() ? value.trim() : undefined;
+const optionalString = (value: unknown) => (typeof value === "string" && value.trim() ? value.trim() : undefined);
 
 const retryAfterMilliseconds = (response: Response) => {
   const retryAfter = response.headers.get("retry-after")?.trim();
   if (!retryAfter) return undefined;
   const seconds = Number(retryAfter);
-  if (Number.isFinite(seconds) && seconds >= 0)
-    return Math.min(seconds * 1_000, MAX_RETRY_DELAY_MS);
+  if (Number.isFinite(seconds) && seconds >= 0) return Math.min(seconds * 1_000, MAX_RETRY_DELAY_MS);
   const retryAt = Date.parse(retryAfter);
   if (!Number.isFinite(retryAt)) return undefined;
   return Math.min(Math.max(0, retryAt - Date.now()), MAX_RETRY_DELAY_MS);
@@ -133,13 +130,8 @@ const cookieHeaderToRecords = (cookie: string | undefined) =>
       return name ? [{name, value}] : [];
     }) ?? [];
 
-const mergeCookieHeader = (
-  cookie: string | undefined,
-  cookies: readonly FlareSolverrCookie[],
-) => {
-  const values = new Map(
-    cookieHeaderToRecords(cookie).map(({name, value}) => [name, value]),
-  );
+const mergeCookieHeader = (cookie: string | undefined, cookies: readonly FlareSolverrCookie[]) => {
+  const values = new Map(cookieHeaderToRecords(cookie).map(({name, value}) => [name, value]));
   for (const {name, value} of cookies) values.set(name, value);
   return [...values].map(([name, value]) => `${name}=${value}`).join("; ");
 };
@@ -156,8 +148,7 @@ const parseFlareSolverrCookies = (value: unknown) => {
 
 const normalizeFlareSolverrUrl = (value: string) => {
   const url = new URL(value);
-  if (url.protocol !== "http:" && url.protocol !== "https:")
-    throw new Error("FlareSolverr URL must use HTTP or HTTPS");
+  if (url.protocol !== "http:" && url.protocol !== "https:") throw new Error("FlareSolverr URL must use HTTP or HTTPS");
   if (url.pathname === "/") url.pathname = "/v1";
   return url;
 };
@@ -165,19 +156,9 @@ const normalizeFlareSolverrUrl = (value: string) => {
 const decodeHtmlEntities = (value: string) =>
   value.replace(
     /&(?:#(\d+)|#x([\da-f]+)|(amp|apos|gt|lt|quot));/gi,
-    (
-      entity,
-      decimal: string | undefined,
-      hexadecimal: string | undefined,
-      named: string | undefined,
-    ) => {
-      const codePoint = decimal
-        ? Number(decimal)
-        : hexadecimal
-          ? Number.parseInt(hexadecimal, 16)
-          : undefined;
-      if (codePoint !== undefined)
-        return codePoint <= 0x10ffff ? String.fromCodePoint(codePoint) : entity;
+    (entity, decimal: string | undefined, hexadecimal: string | undefined, named: string | undefined) => {
+      const codePoint = decimal ? Number(decimal) : hexadecimal ? Number.parseInt(hexadecimal, 16) : undefined;
+      if (codePoint !== undefined) return codePoint <= 0x10ffff ? String.fromCodePoint(codePoint) : entity;
       if (!named) return entity;
       return HTML_ENTITIES[named.toLowerCase()] ?? entity;
     },
@@ -189,8 +170,7 @@ const unwrapBrowserJson = (value: string) => {
 };
 
 const cloudflareHint = (usedFlareSolverr: boolean) => {
-  if (usedFlareSolverr)
-    return " FlareSolverr did not clear the Cloudflare challenge.";
+  if (usedFlareSolverr) return " FlareSolverr did not clear the Cloudflare challenge.";
   return " Provide --cookie-file with its matching browser --user-agent, or use --flaresolverr-url http://127.0.0.1:8191/v1.";
 };
 
@@ -208,8 +188,7 @@ const typeByExtension: Record<string, NhentaiPage["type"] | undefined> = {
 
 const galleryPages = (value: Record<string, unknown>) => {
   if (Array.isArray(value.pages)) return value.pages;
-  if (!isRecord(value.images) || !Array.isArray(value.images.pages))
-    return undefined;
+  if (!isRecord(value.images) || !Array.isArray(value.images.pages)) return undefined;
   return value.images.pages;
 };
 
@@ -221,16 +200,11 @@ const parsePage = (value: unknown, field: string): NhentaiPage => {
   const type = value.t ?? inferredType;
   if (type !== "j" && type !== "p" && type !== "w")
     throw new Error(`${field}.t uses unsupported media type ${String(type)}`);
-  if (path && extensionByType[type] !== extension)
-    throw new Error(`${field}.path does not match its media type`);
+  if (path && extensionByType[type] !== extension) throw new Error(`${field}.path does not match its media type`);
   const width = Number.isSafeInteger(value.w) ? Number(value.w) : undefined;
-  const pageWidth = Number.isSafeInteger(value.width)
-    ? Number(value.width)
-    : width;
+  const pageWidth = Number.isSafeInteger(value.width) ? Number(value.width) : width;
   const height = Number.isSafeInteger(value.h) ? Number(value.h) : undefined;
-  const pageHeight = Number.isSafeInteger(value.height)
-    ? Number(value.height)
-    : height;
+  const pageHeight = Number.isSafeInteger(value.height) ? Number(value.height) : height;
   return {
     type,
     ...(path === undefined ? {} : {path}),
@@ -247,39 +221,23 @@ const parseTag = (value: unknown, field: string): NhentaiTag => {
   return {id: requiredInteger(value.id, `${field}.id`), name, type};
 };
 
-export const parseNhentaiGallery = (
-  value: unknown,
-  field = "gallery",
-): NhentaiGallery => {
+export const parseNhentaiGallery = (value: unknown, field = "gallery"): NhentaiGallery => {
   if (!isRecord(value)) throw new Error(`${field} must be an object`);
-  if (!isRecord(value.title))
-    throw new Error(`${field}.title must be an object`);
+  if (!isRecord(value.title)) throw new Error(`${field}.title must be an object`);
   const rawPages = galleryPages(value);
   if (!rawPages) throw new Error(`${field}.pages must be an array`);
-  if (!Array.isArray(value.tags))
-    throw new Error(`${field}.tags must be an array`);
-  const mediaId = String(
-    requiredInteger(Number(value.media_id), `${field}.media_id`),
-  );
-  const pages = rawPages.map((page, index) =>
-    parsePage(page, `${field}.pages[${index}]`),
-  );
+  if (!Array.isArray(value.tags)) throw new Error(`${field}.tags must be an array`);
+  const mediaId = String(requiredInteger(Number(value.media_id), `${field}.media_id`));
+  const pages = rawPages.map((page, index) => parsePage(page, `${field}.pages[${index}]`));
   const numPages = requiredInteger(value.num_pages, `${field}.num_pages`);
-  if (pages.length !== numPages)
-    throw new Error(
-      `${field} declares ${numPages} pages but describes ${pages.length}`,
-    );
+  if (pages.length !== numPages) throw new Error(`${field} declares ${numPages} pages but describes ${pages.length}`);
   for (const [index, page] of pages.entries()) {
     if (!page.path) continue;
     const expectedPath = `galleries/${mediaId}/${index + 1}.${nhentaiPageExtension(page)}`;
     if (page.path !== expectedPath)
-      throw new Error(
-        `${field}.pages[${index}].path must be ${JSON.stringify(expectedPath)}`,
-      );
+      throw new Error(`${field}.pages[${index}].path must be ${JSON.stringify(expectedPath)}`);
   }
-  const uploadDate = Number.isSafeInteger(value.upload_date)
-    ? Number(value.upload_date)
-    : undefined;
+  const uploadDate = Number.isSafeInteger(value.upload_date) ? Number(value.upload_date) : undefined;
   const englishTitle = optionalString(value.title.english);
   const japaneseTitle = optionalString(value.title.japanese);
   const prettyTitle = optionalString(value.title.pretty);
@@ -288,9 +246,7 @@ export const parseNhentaiGallery = (
     mediaId,
     numPages,
     pages,
-    tags: value.tags.map((tag, index) =>
-      parseTag(tag, `${field}.tags[${index}]`),
-    ),
+    tags: value.tags.map((tag, index) => parseTag(tag, `${field}.tags[${index}]`)),
     title: {
       ...(englishTitle === undefined ? {} : {english: englishTitle}),
       ...(japaneseTitle === undefined ? {} : {japanese: japaneseTitle}),
@@ -304,24 +260,16 @@ interface NhentaiSearchResult extends Omit<NhentaiGallerySummary, "tags"> {
   tagIds: number[];
 }
 
-const parseNhentaiSearchResult = (
-  value: unknown,
-  field: string,
-): NhentaiSearchResult => {
+const parseNhentaiSearchResult = (value: unknown, field: string): NhentaiSearchResult => {
   if (!isRecord(value)) throw new Error(`${field} must be an object`);
-  if (!Array.isArray(value.tag_ids))
-    throw new Error(`${field}.tag_ids must be an array`);
+  if (!Array.isArray(value.tag_ids)) throw new Error(`${field}.tag_ids must be an array`);
   const englishTitle = optionalString(value.english_title);
   const japaneseTitle = optionalString(value.japanese_title);
   return {
     id: requiredInteger(value.id, `${field}.id`),
-    mediaId: String(
-      requiredInteger(Number(value.media_id), `${field}.media_id`),
-    ),
+    mediaId: String(requiredInteger(Number(value.media_id), `${field}.media_id`)),
     numPages: requiredInteger(value.num_pages, `${field}.num_pages`),
-    tagIds: value.tag_ids.map((id, index) =>
-      requiredInteger(id, `${field}.tag_ids[${index}]`),
-    ),
+    tagIds: value.tag_ids.map((id, index) => requiredInteger(id, `${field}.tag_ids[${index}]`)),
     title: {
       ...(englishTitle === undefined ? {} : {english: englishTitle}),
       ...(japaneseTitle === undefined ? {} : {japanese: japaneseTitle}),
@@ -329,8 +277,7 @@ const parseNhentaiSearchResult = (
   };
 };
 
-export const nhentaiPageExtension = (page: NhentaiPage) =>
-  extensionByType[page.type];
+export const nhentaiPageExtension = (page: NhentaiPage) => extensionByType[page.type];
 
 export class NhentaiClient {
   readonly #apiOrigin: string;
@@ -356,19 +303,13 @@ export class NhentaiClient {
     this.#cacheTtlMs = options.cacheTtlMs ?? DEFAULT_API_CACHE_TTL_MS;
     this.#cookie = options.cookie;
     this.#fetcher = options.fetcher ?? fetch;
-    this.#flaresolverrUrl = options.flaresolverrUrl
-      ? normalizeFlareSolverrUrl(options.flaresolverrUrl)
-      : undefined;
+    this.#flaresolverrUrl = options.flaresolverrUrl ? normalizeFlareSolverrUrl(options.flaresolverrUrl) : undefined;
     this.#imageOrigin = options.imageOrigin ?? DEFAULT_IMAGE_ORIGIN;
     this.#onRetry = options.onRetry;
     this.#onCacheHit = options.onCacheHit;
     this.#retryCount = options.retryCount ?? 3;
     this.#sleep =
-      options.sleep ??
-      ((milliseconds) =>
-        new Promise((resolvePromise) =>
-          setTimeout(resolvePromise, milliseconds),
-        ));
+      options.sleep ?? ((milliseconds) => new Promise((resolvePromise) => setTimeout(resolvePromise, milliseconds)));
     this.#userAgent = options.userAgent ?? DEFAULT_USER_AGENT;
   }
 
@@ -380,9 +321,7 @@ export class NhentaiClient {
     const value = await this.#requestJson(url);
     if (!isRecord(value) || !Array.isArray(value.result))
       throw new Error("nHentai search response lacks a result array");
-    const results = value.result.map((gallery, index) =>
-      parseNhentaiSearchResult(gallery, `result[${index}]`),
-    );
+    const results = value.result.map((gallery, index) => parseNhentaiSearchResult(gallery, `result[${index}]`));
     await this.#loadTags(results.flatMap(({tagIds}) => tagIds));
     return results.map(({tagIds, ...gallery}) => ({
       ...gallery,
@@ -404,52 +343,37 @@ export class NhentaiClient {
       throw new NhentaiGalleryValidationError(id, error);
     }
     if (gallery.id !== id)
-      throw new NhentaiGalleryValidationError(
-        id,
-        `nHentai returned gallery ${gallery.id} for request ${id}`,
-      );
+      throw new NhentaiGalleryValidationError(id, `nHentai returned gallery ${gallery.id} for request ${id}`);
     return gallery;
   }
 
-  async downloadPage(
-    gallery: Pick<NhentaiGallery, "id" | "mediaId" | "pages">,
-    pageIndex: number,
-  ) {
+  async downloadPage(gallery: Pick<NhentaiGallery, "id" | "mediaId" | "pages">, pageIndex: number) {
     const page = gallery.pages[pageIndex];
-    if (!page)
-      throw new Error(`Gallery ${gallery.id} has no page ${pageIndex + 1}`);
+    if (!page) throw new Error(`Gallery ${gallery.id} has no page ${pageIndex + 1}`);
     const extension = nhentaiPageExtension(page);
     const url = new URL(
-      page.path ??
-        `/galleries/${gallery.mediaId}/${pageIndex + 1}.${extension}`,
+      page.path ?? `/galleries/${gallery.mediaId}/${pageIndex + 1}.${extension}`,
       `${this.#imageOrigin}/`,
     );
     const response = await this.#request(url, {
       headers: {Referer: `${this.#apiOrigin}/g/${gallery.id}/`},
     });
     const declaredLength = Number(response.headers.get("content-length"));
-    if (
-      Number.isFinite(declaredLength) &&
-      declaredLength > MAX_IMAGE_RESPONSE_BYTES
-    )
+    if (Number.isFinite(declaredLength) && declaredLength > MAX_IMAGE_RESPONSE_BYTES)
       throw new Error(`Image response exceeds 128 MiB: ${url}`);
     const bytes = new Uint8Array(await response.arrayBuffer());
-    if (bytes.byteLength > MAX_IMAGE_RESPONSE_BYTES)
-      throw new Error(`Image response exceeds 128 MiB: ${url}`);
+    if (bytes.byteLength > MAX_IMAGE_RESPONSE_BYTES) throw new Error(`Image response exceeds 128 MiB: ${url}`);
     return bytes;
   }
 
   async #loadTags(ids: readonly number[]) {
-    const missingIds = [...new Set(ids)].filter(
-      (id) => !this.#tagsById.has(id),
-    );
+    const missingIds = [...new Set(ids)].filter((id) => !this.#tagsById.has(id));
     for (let index = 0; index < missingIds.length; index += 100) {
       const chunk = missingIds.slice(index, index + 100);
       const url = new URL("/api/v2/tags/ids", this.#apiOrigin);
       url.searchParams.set("ids", chunk.join(","));
       const value = await this.#requestJson(url);
-      if (!Array.isArray(value))
-        throw new Error("nHentai tag response must be an array");
+      if (!Array.isArray(value)) throw new Error("nHentai tag response must be an array");
       for (const [tagIndex, tagValue] of value.entries()) {
         const tag = parseTag(tagValue, `tags[${tagIndex}]`);
         this.#tagsById.set(tag.id, tag);
@@ -465,14 +389,10 @@ export class NhentaiClient {
       if (queuedCacheHit !== undefined) return queuedCacheHit;
       const response = await this.#request(url);
       const declaredLength = Number(response.headers.get("content-length"));
-      if (
-        Number.isFinite(declaredLength) &&
-        declaredLength > MAX_API_RESPONSE_BYTES
-      )
+      if (Number.isFinite(declaredLength) && declaredLength > MAX_API_RESPONSE_BYTES)
         throw new Error(`API response exceeds 16 MiB: ${url}`);
       const text = await response.text();
-      if (Buffer.byteLength(text) > MAX_API_RESPONSE_BYTES)
-        throw new Error(`API response exceeds 16 MiB: ${url}`);
+      if (Buffer.byteLength(text) > MAX_API_RESPONSE_BYTES) throw new Error(`API response exceeds 16 MiB: ${url}`);
       let value: unknown;
       try {
         value = JSON.parse(text) as unknown;
@@ -501,8 +421,7 @@ export class NhentaiClient {
   }
 
   #cachePath(url: URL) {
-    if (!this.#cacheDirectory || url.origin !== this.#apiRequestOrigin)
-      return undefined;
+    if (!this.#cacheDirectory || url.origin !== this.#apiRequestOrigin) return undefined;
     const key = createHash("sha256").update(String(url)).digest("hex");
     return resolve(this.#cacheDirectory, `${key}.json`);
   }
@@ -554,15 +473,9 @@ export class NhentaiClient {
       method: "POST",
       signal: AbortSignal.timeout(DEFAULT_FLARESOLVERR_TIMEOUT_MS + 5_000),
     });
-    if (!response.ok)
-      throw new Error(
-        `FlareSolverr failed with HTTP ${response.status}: ${endpoint}`,
-      );
+    if (!response.ok) throw new Error(`FlareSolverr failed with HTTP ${response.status}: ${endpoint}`);
     const declaredLength = Number(response.headers.get("content-length"));
-    if (
-      Number.isFinite(declaredLength) &&
-      declaredLength > MAX_FLARESOLVERR_RESPONSE_BYTES
-    )
+    if (Number.isFinite(declaredLength) && declaredLength > MAX_FLARESOLVERR_RESPONSE_BYTES)
       throw new Error(`FlareSolverr response exceeds 32 MiB: ${endpoint}`);
     const text = await response.text();
     if (Buffer.byteLength(text) > MAX_FLARESOLVERR_RESPONSE_BYTES)
@@ -574,24 +487,18 @@ export class NhentaiClient {
     } catch {
       throw new Error(`FlareSolverr returned invalid JSON: ${endpoint}`);
     }
-    if (!isRecord(value))
-      throw new Error(`FlareSolverr returned an invalid response: ${endpoint}`);
+    if (!isRecord(value)) throw new Error(`FlareSolverr returned an invalid response: ${endpoint}`);
     if (value.status !== "ok")
-      throw new Error(
-        `FlareSolverr could not solve ${url}: ${optionalString(value.message) ?? "unknown error"}`,
-      );
+      throw new Error(`FlareSolverr could not solve ${url}: ${optionalString(value.message) ?? "unknown error"}`);
     const solution = value.solution;
     if (!isRecord(solution) || typeof solution.response !== "string")
       throw new Error(`FlareSolverr returned an invalid solution: ${endpoint}`);
     const status = Number(solution.status);
     if (!Number.isInteger(status) || status < 100 || status > 599)
-      throw new Error(
-        `FlareSolverr returned an invalid HTTP status: ${endpoint}`,
-      );
+      throw new Error(`FlareSolverr returned an invalid HTTP status: ${endpoint}`);
 
     const solvedCookies = parseFlareSolverrCookies(solution.cookies);
-    if (solvedCookies.length > 0)
-      this.#cookie = mergeCookieHeader(this.#cookie, solvedCookies);
+    if (solvedCookies.length > 0) this.#cookie = mergeCookieHeader(this.#cookie, solvedCookies);
     const solvedUserAgent = optionalString(solution.userAgent);
     if (solvedUserAgent) this.#userAgent = solvedUserAgent;
     return new Response(solution.response, {
@@ -612,32 +519,23 @@ export class NhentaiClient {
         response = await this.#fetcher(url, {...init, headers});
       } catch (error) {
         lastError = error;
-        if (attempt < this.#retryCount)
-          await this.#waitBeforeRetry(url, attempt, 500 * 2 ** attempt);
+        if (attempt < this.#retryCount) await this.#waitBeforeRetry(url, attempt, 500 * 2 ** attempt);
         continue;
       }
       let usedFlareSolverr = false;
-      if (
-        response.status === 403 &&
-        this.#flaresolverrUrl &&
-        url.origin === this.#apiRequestOrigin
-      ) {
+      if (response.status === 403 && this.#flaresolverrUrl && url.origin === this.#apiRequestOrigin) {
         try {
           response = await this.#requestWithFlareSolverr(url);
           usedFlareSolverr = true;
         } catch (error) {
           lastError = error;
-          if (attempt < this.#retryCount)
-            await this.#waitBeforeRetry(url, attempt, 500 * 2 ** attempt);
+          if (attempt < this.#retryCount) await this.#waitBeforeRetry(url, attempt, 500 * 2 ** attempt);
           continue;
         }
       }
       if (response.ok) return response;
-      const cookieHint =
-        response.status === 403 ? cloudflareHint(usedFlareSolverr) : "";
-      const responseError = new Error(
-        `Request failed with HTTP ${response.status}: ${url}.${cookieHint}`,
-      );
+      const cookieHint = response.status === 403 ? cloudflareHint(usedFlareSolverr) : "";
+      const responseError = new Error(`Request failed with HTTP ${response.status}: ${url}.${cookieHint}`);
       if (response.status < 500 && response.status !== 429) throw responseError;
       lastError = responseError;
       if (attempt < this.#retryCount) {

@@ -1,10 +1,5 @@
 import {describe, expect, test} from "bun:test";
-import {
-  emptyLibrary,
-  isRuntimeLibraryAvailable,
-  loadRuntimeCatalog,
-  loadRuntimeLibraryWithFetcher,
-} from "~/catalog";
+import {emptyLibrary, isRuntimeLibraryAvailable, loadRuntimeCatalog, loadRuntimeLibraryWithFetcher} from "~/catalog";
 import {ACTIVE_LIBRARY_CATALOG_ENDPOINT} from "~/content/libraryUpdate/activeLibraryRoutes";
 
 const catalogResponse = (publications: unknown[]) =>
@@ -18,11 +13,7 @@ describe("loadRuntimeCatalog", () => {
   test("maps a generated content pack into the application catalog", async () => {
     // Structural CatalogFetcher mocks avoid coupling to the global fetch type.
     const fetcher = async (input: string) => {
-      expect(
-        String(input).startsWith(
-          `${ACTIVE_LIBRARY_CATALOG_ENDPOINT}?afterleaf=`,
-        ),
-      ).toBe(true);
+      expect(String(input).startsWith(`${ACTIVE_LIBRARY_CATALOG_ENDPOINT}?afterleaf=`)).toBe(true);
       return catalogResponse([
         {
           id: "nhentai-42",
@@ -37,8 +28,7 @@ describe("loadRuntimeCatalog", () => {
             {
               id: "nhentai-41",
               originalTags: ["magazine"],
-              page0:
-                "publications/nhentai-42/alternates/nhentai-41/page-000.webp",
+              page0: "publications/nhentai-42/alternates/nhentai-41/page-000.webp",
               title: "Comic Night #7",
             },
           ],
@@ -54,10 +44,7 @@ describe("loadRuntimeCatalog", () => {
             frontDetail: "publications/nhentai-42/front-detail.webp",
             back: "publications/nhentai-42/back.webp",
             spine: "publications/nhentai-42/spine.webp",
-            pages: [
-              "publications/nhentai-42/pages/001.webp",
-              "publications/nhentai-42/pages/002.webp",
-            ],
+            pages: ["publications/nhentai-42/pages/001.webp", "publications/nhentai-42/pages/002.webp"],
           },
         },
       ]);
@@ -79,13 +66,11 @@ describe("loadRuntimeCatalog", () => {
             title: "Comic Night #7",
           },
         ],
-        cover:
-          "/api/media/library/publications/nhentai-42/front.webp?afterleaf=runtime-pack%3Acatalog-hash-42",
+        cover: "/api/media/library/publications/nhentai-42/front.webp?afterleaf=runtime-pack%3Acatalog-hash-42",
         detailCover:
           "/api/media/library/publications/nhentai-42/front-detail.webp?afterleaf=runtime-pack%3Acatalog-hash-42",
         back: "/api/media/library/publications/nhentai-42/back.webp?afterleaf=runtime-pack%3Acatalog-hash-42",
-        spine:
-          "/api/media/library/publications/nhentai-42/spine.webp?afterleaf=runtime-pack%3Acatalog-hash-42",
+        spine: "/api/media/library/publications/nhentai-42/spine.webp?afterleaf=runtime-pack%3Acatalog-hash-42",
         pages: [
           "/api/media/library/publications/nhentai-42/pages/001.webp?afterleaf=runtime-pack%3Acatalog-hash-42",
           "/api/media/library/publications/nhentai-42/pages/002.webp?afterleaf=runtime-pack%3Acatalog-hash-42",
@@ -114,18 +99,12 @@ describe("loadRuntimeCatalog", () => {
 
     expect(await loadRuntimeCatalog(missingFetcher)).toEqual([]);
     expect(await loadRuntimeCatalog(unsafeFetcher)).toEqual([]);
-    expect(await loadRuntimeLibraryWithFetcher(unsafeFetcher)).toBe(
-      emptyLibrary,
-    );
+    expect(await loadRuntimeLibraryWithFetcher(unsafeFetcher)).toBe(emptyLibrary);
   });
 
   test("distinguishes an unavailable catalog from a valid empty catalog", async () => {
-    const unavailable = await loadRuntimeLibraryWithFetcher(
-      async () => new Response("unavailable", {status: 503}),
-    );
-    const empty = await loadRuntimeLibraryWithFetcher(async () =>
-      catalogResponse([]),
-    );
+    const unavailable = await loadRuntimeLibraryWithFetcher(async () => new Response("unavailable", {status: 503}));
+    const empty = await loadRuntimeLibraryWithFetcher(async () => catalogResponse([]));
 
     expect(isRuntimeLibraryAvailable(unavailable)).toBe(false);
     expect(isRuntimeLibraryAvailable(empty)).toBe(true);
@@ -189,9 +168,7 @@ describe("loadRuntimeCatalog", () => {
     expect(publications[0]?.pages[3]).toBe(
       "/api/media/library/pages/nhentai-99/4?afterleaf=runtime-pack%3Acatalog-hash-42",
     );
-    expect(publications[0]?.pages[4]).toContain(
-      "/api/media/library/pages/nhentai-99/5",
-    );
+    expect(publications[0]?.pages[4]).toContain("/api/media/library/pages/nhentai-99/5");
   });
 
   test("maps every CBZ reader page to the sparse endpoint", async () => {
@@ -254,9 +231,7 @@ describe("loadRuntimeCatalog", () => {
       "/api/media/library/publications/nhentai-84/pages/001.webp?afterleaf=snapshot-2026-07-29",
     ]);
 
-    const missingIdentity = await loadRuntimeLibraryWithFetcher(async () =>
-      Response.json({publications: []}),
-    );
+    const missingIdentity = await loadRuntimeLibraryWithFetcher(async () => Response.json({publications: []}));
     expect(missingIdentity).toBe(emptyLibrary);
   });
 
@@ -344,9 +319,7 @@ describe("loadRuntimeCatalog", () => {
       url: "/api/media/library/atlases/front-001.webp?afterleaf=atlas-pack%3Aatlas-catalog-hash",
       width: 2048,
     });
-    expect(
-      runtime.publications.map((publication) => publication.shelfAtlas),
-    ).toEqual([
+    expect(runtime.publications.map((publication) => publication.shelfAtlas)).toEqual([
       {cellIndex: 0, index: 0},
       {cellIndex: 1, index: 0},
     ]);

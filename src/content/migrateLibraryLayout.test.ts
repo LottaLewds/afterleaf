@@ -1,13 +1,5 @@
 import {afterEach, describe, expect, test} from "bun:test";
-import {
-  access,
-  mkdir,
-  mkdtemp,
-  readFile,
-  readdir,
-  rm,
-  writeFile,
-} from "node:fs/promises";
+import {access, mkdir, mkdtemp, readFile, readdir, rm, writeFile} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {join, resolve} from "node:path";
 import {
@@ -22,11 +14,7 @@ import {
 const temporaryDirectories: string[] = [];
 
 afterEach(async () => {
-  await Promise.all(
-    temporaryDirectories
-      .splice(0)
-      .map((directory) => rm(directory, {recursive: true, force: true})),
-  );
+  await Promise.all(temporaryDirectories.splice(0).map((directory) => rm(directory, {recursive: true, force: true})));
 });
 
 /** Builds a miniature but faithful legacy layout inside a temp directory. */
@@ -45,14 +33,8 @@ const createLegacyLayout = async (root: string) => {
     write("content/models/chair.glb"),
     write("content/roms/nes/game.nes"),
     write("content/world-save.json", '{"revision":7}'),
-    write(
-      "content/world-state-backups/world-state.2026-08-01T00-00-00.000Z.json",
-      "{}",
-    ),
-    write(
-      "afterleaf.library.json",
-      JSON.stringify({comicPaths: [], mangaPaths: [], romPaths: {}}),
-    ),
+    write("content/world-state-backups/world-state.2026-08-01T00-00-00.000Z.json", "{}"),
+    write("afterleaf.library.json", JSON.stringify({comicPaths: [], mangaPaths: [], romPaths: {}})),
     write("content-sources/catalog/Some Book/publication.json", "{}"),
     write("content-packs/library/index.json", "{}"),
     write("content-packs/library/assets/x.webp", "x"),
@@ -60,10 +42,7 @@ const createLegacyLayout = async (root: string) => {
       "content-sources/library-roots.json",
       '{"roots":{"Z:\\\\Books":"33333333-3333-4333-8333-333333333333"},"schemaVersion":1}',
     ),
-    write(
-      "content-sources/scan-failures.log",
-      "[2026-08-01T00:00:00.000Z] legacy failure\n",
-    ),
+    write("content-sources/scan-failures.log", "[2026-08-01T00:00:00.000Z] legacy failure\n"),
     write("content-sources/nhentai/nhentai-1/pages/001.jpg", "jpg"),
     write("content-sources/mangadex/mangadex-a/page.webp", "webp"),
     write("content-sources/source-garbage/junk.bin", "junk"),
@@ -117,86 +96,31 @@ describe("library layout migration", () => {
     expect(result.performedMoves).toHaveLength(result.moves.length);
     expect(result.conflicts).toEqual([]);
     // User media landed under content/ with direction folders preserved.
-    expect(
-      await readFile(
-        resolve(root, "afterleaf-data/content/comics/My Comic.cbz"),
-      ),
-    ).toBeDefined();
-    expect(
-      await readFile(
-        resolve(root, "afterleaf-data/content/manga/My Manga.cbz"),
-      ),
-    ).toBeDefined();
-    expect(
-      await readFile(
-        resolve(root, "afterleaf-data/content/tv/music/video.mp4"),
-      ),
-    ).toBeDefined();
+    expect(await readFile(resolve(root, "afterleaf-data/content/comics/My Comic.cbz"))).toBeDefined();
+    expect(await readFile(resolve(root, "afterleaf-data/content/manga/My Manga.cbz"))).toBeDefined();
+    expect(await readFile(resolve(root, "afterleaf-data/content/tv/music/video.mp4"))).toBeDefined();
     // Durable state sits at game/ level.
+    expect(await readFile(resolve(root, "afterleaf-data/game/world-save.json"), "utf8")).toBe('{"revision":7}');
     expect(
-      await readFile(
-        resolve(root, "afterleaf-data/game/world-save.json"),
-        "utf8",
-      ),
-    ).toBe('{"revision":7}');
-    expect(
-      await readFile(
-        resolve(
-          root,
-          "afterleaf-data/game/world-save-backups/world-state.2026-08-01T00-00-00.000Z.json",
-        ),
-      ),
+      await readFile(resolve(root, "afterleaf-data/game/world-save-backups/world-state.2026-08-01T00-00-00.000Z.json")),
     ).toBeDefined();
     // Regenerable caches live in game/.cache/.
     expect(
-      await readFile(
-        resolve(
-          root,
-          "afterleaf-data/game/.cache/prepared/Some Book/publication.json",
-        ),
-      ),
+      await readFile(resolve(root, "afterleaf-data/game/.cache/prepared/Some Book/publication.json")),
     ).toBeDefined();
-    expect(
-      await readFile(
-        resolve(root, "afterleaf-data/game/.cache/library/index.json"),
-      ),
-    ).toBeDefined();
+    expect(await readFile(resolve(root, "afterleaf-data/game/.cache/library/index.json"))).toBeDefined();
     // Provider caches were relocated wholesale.
-    expect(
-      await readFile(
-        resolve(
-          root,
-          "afterleaf-data/providers/nhentai/nhentai-1/pages/001.jpg",
-        ),
-      ),
-    ).toBeDefined();
-    expect(
-      await readFile(
-        resolve(root, "afterleaf-data/providers/mangadex/mangadex-a/page.webp"),
-      ),
-    ).toBeDefined();
+    expect(await readFile(resolve(root, "afterleaf-data/providers/nhentai/nhentai-1/pages/001.jpg"))).toBeDefined();
+    expect(await readFile(resolve(root, "afterleaf-data/providers/mangadex/mangadex-a/page.webp"))).toBeDefined();
     // Config was relocated.
-    expect(
-      await readFile(
-        resolve(root, "afterleaf-data/afterleaf.library.json"),
-        "utf8",
-      ),
-    ).toContain("comicPaths");
+    expect(await readFile(resolve(root, "afterleaf-data/afterleaf.library.json"), "utf8")).toContain("comicPaths");
     // README.txt explains the layout; legacy sources are gone.
-    expect(
-      await readFile(resolve(root, "afterleaf-data/README.txt"), "utf8"),
-    ).toContain("Afterleaf data folder");
-    await expect(
-      readFile(resolve(root, "afterleaf.library.json")),
-    ).rejects.toThrow();
+    expect(await readFile(resolve(root, "afterleaf-data/README.txt"), "utf8")).toContain("Afterleaf data folder");
+    await expect(readFile(resolve(root, "afterleaf.library.json"))).rejects.toThrow();
     await expect(readdir(resolve(root, "content-sources"))).rejects.toThrow();
-    await expect(
-      readdir(resolve(root, "content-packs/library")),
-    ).rejects.toThrow();
+    await expect(readdir(resolve(root, "content-packs/library"))).rejects.toThrow();
     // The unused demo pack is reported but never touched by migration.
-    expect(
-      await readFile(resolve(root, "content-packs/demo-v1/catalog.json")),
-    ).toBeDefined();
+    expect(await readFile(resolve(root, "content-packs/demo-v1/catalog.json"))).toBeDefined();
   });
 
   test("a conflicting destination aborts before anything is moved", async () => {
@@ -204,32 +128,18 @@ describe("library layout migration", () => {
     temporaryDirectories.push(root);
     await createLegacyLayout(root);
     await mkdir(resolve(root, "afterleaf-data/game"), {recursive: true});
-    await writeFile(
-      resolve(root, "afterleaf-data/game/world-save.json"),
-      '{"revision":999}',
-    );
+    await writeFile(resolve(root, "afterleaf-data/game/world-save.json"), '{"revision":999}');
 
     const plan = await planLibraryLayoutMigration(root);
     expect(plan.conflicts).toHaveLength(1);
     expect(plan.conflicts[0]?.reason).toContain("world-save.json");
 
-    await expect(migrateLibraryLayout(root, {write: true})).rejects.toThrow(
-      /blocking conflict/,
-    );
+    await expect(migrateLibraryLayout(root, {write: true})).rejects.toThrow(/blocking conflict/);
     // The pre-existing destination was never overwritten and no legacy
     // folder was removed.
-    expect(
-      await readFile(
-        resolve(root, "afterleaf-data/game/world-save.json"),
-        "utf8",
-      ),
-    ).toBe('{"revision":999}');
-    expect(
-      await readFile(resolve(root, "content/world-save.json"), "utf8"),
-    ).toBe('{"revision":7}');
-    expect(
-      await readFile(resolve(root, "content/books/comics/My Comic.cbz")),
-    ).toBeDefined();
+    expect(await readFile(resolve(root, "afterleaf-data/game/world-save.json"), "utf8")).toBe('{"revision":999}');
+    expect(await readFile(resolve(root, "content/world-save.json"), "utf8")).toBe('{"revision":7}');
+    expect(await readFile(resolve(root, "content/books/comics/My Comic.cbz"))).toBeDefined();
   });
 
   test("an empty destination directory does not block the move", async () => {
@@ -243,11 +153,7 @@ describe("library layout migration", () => {
     const result = await migrateLibraryLayout(root, {write: true});
 
     expect(result.conflicts).toEqual([]);
-    expect(
-      await readFile(
-        resolve(root, "afterleaf-data/content/comics/My Comic.cbz"),
-      ),
-    ).toBeDefined();
+    expect(await readFile(resolve(root, "afterleaf-data/content/comics/My Comic.cbz"))).toBeDefined();
   });
 
   test("tracked .gitkeep placeholder destinations do not block the move", async () => {
@@ -277,26 +183,11 @@ describe("library layout migration", () => {
 
     expect(result.conflicts).toEqual([]);
     expect(result.performedMoves.length).toBeGreaterThan(0);
-    expect(
-      await readFile(
-        resolve(root, "afterleaf-data/content/comics/My Comic.cbz"),
-      ),
-    ).toBeDefined();
-    expect(
-      await readFile(
-        resolve(root, "afterleaf-data/content/tv/music/video.mp4"),
-      ),
-    ).toBeDefined();
-    expect(
-      await readFile(
-        resolve(root, "afterleaf-data/game/world-save.json"),
-        "utf8",
-      ),
-    ).toBe('{"revision":7}');
+    expect(await readFile(resolve(root, "afterleaf-data/content/comics/My Comic.cbz"))).toBeDefined();
+    expect(await readFile(resolve(root, "afterleaf-data/content/tv/music/video.mp4"))).toBeDefined();
+    expect(await readFile(resolve(root, "afterleaf-data/game/world-save.json"), "utf8")).toBe('{"revision":7}');
     // The incoming real content replaced the placeholders.
-    await expect(
-      access(resolve(root, "afterleaf-data/content/comics/.gitkeep")),
-    ).rejects.toThrow();
+    await expect(access(resolve(root, "afterleaf-data/content/comics/.gitkeep"))).rejects.toThrow();
   });
 
   test("merges a pre-existing registry and appends a pre-existing failure log", async () => {
@@ -306,10 +197,7 @@ describe("library layout migration", () => {
     // Simulate the pre-gate boot window: the server already enrolled roots
     // into the new-location registry (destination wins per path) and
     // already logged scan failures.
-    const destinationRegistry = resolve(
-      root,
-      "afterleaf-data/game/.cache/library-roots.json",
-    );
+    const destinationRegistry = resolve(root, "afterleaf-data/game/.cache/library-roots.json");
     await mkdir(resolve(destinationRegistry, ".."), {recursive: true});
     await writeFile(
       destinationRegistry,
@@ -333,9 +221,7 @@ describe("library layout migration", () => {
     const result = await migrateLibraryLayout(root, {write: true});
 
     expect(result.conflicts).toEqual([]);
-    expect(
-      JSON.parse(await readFile(destinationRegistry, "utf8")) as unknown,
-    ).toEqual({
+    expect(JSON.parse(await readFile(destinationRegistry, "utf8")) as unknown).toEqual({
       roots: {
         // Destination enrollment preserved...
         "X:\\media\\Comics": "11111111-1111-4111-8111-111111111111",
@@ -345,15 +231,10 @@ describe("library layout migration", () => {
       },
       schemaVersion: 1,
     });
-    const logText = await readFile(
-      resolve(root, "afterleaf-data/game/.cache/scan-failures.log"),
-      "utf8",
-    );
+    const logText = await readFile(resolve(root, "afterleaf-data/game/.cache/scan-failures.log"), "utf8");
     expect(logText).toContain("[2026-08-23T00:00:00.000Z] existing");
     expect(logText).toContain("[2026-08-01T00:00:00.000Z]");
-    await expect(
-      access(resolve(root, "content-sources/library-roots.json")),
-    ).rejects.toThrow();
+    await expect(access(resolve(root, "content-sources/library-roots.json"))).rejects.toThrow();
   });
 
   test("unparseable registries on either side still block with a conflict", async () => {
@@ -363,27 +244,14 @@ describe("library layout migration", () => {
     await mkdir(resolve(root, "afterleaf-data/game/.cache"), {
       recursive: true,
     });
-    await writeFile(
-      resolve(root, "afterleaf-data/game/.cache/library-roots.json"),
-      "{oops",
-    );
+    await writeFile(resolve(root, "afterleaf-data/game/.cache/library-roots.json"), "{oops");
 
     await expect(migrateLibraryLayout(root, {write: true})).rejects.toThrow(
       /Could not merge the library root registries/,
     );
     // Nothing was lost: both files remain untouched.
-    expect(
-      await readFile(
-        resolve(root, "afterleaf-data/game/.cache/library-roots.json"),
-        "utf8",
-      ),
-    ).toBe("{oops");
-    expect(
-      await readFile(
-        resolve(root, "content-sources/library-roots.json"),
-        "utf8",
-      ),
-    ).toBe(
+    expect(await readFile(resolve(root, "afterleaf-data/game/.cache/library-roots.json"), "utf8")).toBe("{oops");
+    expect(await readFile(resolve(root, "content-sources/library-roots.json"), "utf8")).toBe(
       '{"roots":{"Z:\\\\Books":"33333333-3333-4333-8333-333333333333"},"schemaVersion":1}',
     );
   });
@@ -398,12 +266,7 @@ describe("library layout migration", () => {
 
     expect(second.moves).toEqual([]);
     expect(second.performedMoves).toEqual([]);
-    expect(
-      await readFile(
-        resolve(root, "afterleaf-data/game/world-save.json"),
-        "utf8",
-      ),
-    ).toBe('{"revision":7}');
+    expect(await readFile(resolve(root, "afterleaf-data/game/world-save.json"), "utf8")).toBe('{"revision":7}');
   });
 
   test("a completed migration writes a marker that silences the legacy-layout warning", async () => {
@@ -427,12 +290,9 @@ describe("library layout migration", () => {
     expect(marker?.schemaVersion).toBe(1);
     expect(marker?.movedCount).toBeGreaterThan(0);
     expect(marker?.migratedAt).toBeTruthy();
-    expect(
-      await readFile(
-        resolve(root, "afterleaf-data", MIGRATION_MARKER_FILE_NAME),
-        "utf8",
-      ),
-    ).toContain('"schemaVersion": 1');
+    expect(await readFile(resolve(root, "afterleaf-data", MIGRATION_MARKER_FILE_NAME), "utf8")).toContain(
+      '"schemaVersion": 1',
+    );
     // After the move, no meaningful artifacts remain (only dotfiles such
     // as .gitkeep would be ignored).
     expect(await detectLegacyLayoutArtifacts(root)).toEqual([]);

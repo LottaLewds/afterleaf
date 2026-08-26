@@ -3,10 +3,7 @@ import type {PerspectiveCamera} from "three";
 import {DEV} from "solid-js";
 import type {ArtFrameSystem} from "~/game/artFrameSystem";
 import type {BookCarryActions} from "~/game/bookCarryActions";
-import type {
-  ShopArcadeCabinet,
-  ArcadeSessionStatus,
-} from "~/game/ShopArcadeCabinet";
+import type {ShopArcadeCabinet, ArcadeSessionStatus} from "~/game/ShopArcadeCabinet";
 import type {ShortcutAction} from "~/game/input/bindings";
 import type {InputManager} from "~/game/input/inputManager";
 import type {InspectionController} from "~/game/inspection/InspectionController";
@@ -32,11 +29,7 @@ import {
   POSTER_WHEEL_ROTATION_STEP,
 } from "~/game/wallDecorTuning";
 import {SHELF_BROWSE_INTERVAL_MS} from "~/game/bookInspectionTuning";
-import {
-  DEFAULT_MODEL_SCALE,
-  PROP_MAX_PROJECTION_DISTANCE,
-  PROP_MIN_PROJECTION_DISTANCE,
-} from "~/game/propTuning";
+import {DEFAULT_MODEL_SCALE, PROP_MAX_PROJECTION_DISTANCE, PROP_MIN_PROJECTION_DISTANCE} from "~/game/propTuning";
 import {describeKeyboardEvent} from "~/arcade/emulatorHost";
 import {getArrowNavigation} from "~/reader/pagination";
 import {keyboardLayoutEntry, readKeyboardLayout} from "~/game/keyboardLayout";
@@ -111,11 +104,7 @@ export type ShopInputHost = {
   setHoveredPublicationId: (publicationId: string | undefined) => void;
   setPropTargeted: (record: MovablePropRecord | undefined) => void;
   setShelfPresentation: (presentation: ShelfPresentation) => void;
-  setTelevisionTargeted: (
-    targeted: boolean,
-    interaction?: "screen" | "body",
-    television?: ShopTelevision,
-  ) => void;
+  setTelevisionTargeted: (targeted: boolean, interaction?: "screen" | "body", television?: ShopTelevision) => void;
   setTrashTargeted: (targeted: boolean) => void;
   signs: () => ShopSignSystem;
   shelfPresentation: () => ShelfPresentation;
@@ -124,9 +113,7 @@ export type ShopInputHost = {
   targetedTelevision: () => ShopTelevision | undefined;
   televisionTargeted: () => boolean;
   stepAwayFromArcade: () => void;
-  turnInspectionPage: (
-    navigation: import("~/reader/pagination").ReaderNavigation,
-  ) => void;
+  turnInspectionPage: (navigation: import("~/reader/pagination").ReaderNavigation) => void;
   updateHeldPhysicsTarget: () => void;
 };
 
@@ -165,18 +152,8 @@ export class ShopInputController {
       passive: true,
       signal: this.#host.abortSignal,
     } as const;
-    this.#host
-      .canvas()
-      .addEventListener(
-        "pointerdown",
-        this.#handleCanvasPointerDown,
-        passiveOptions,
-      );
-    document.addEventListener(
-      "pointermove",
-      this.#handlePointerMove,
-      passiveOptions,
-    );
+    this.#host.canvas().addEventListener("pointerdown", this.#handleCanvasPointerDown, passiveOptions);
+    document.addEventListener("pointermove", this.#handlePointerMove, passiveOptions);
     window.addEventListener("paste", this.#host.handleImagePaste, {
       signal: this.#host.abortSignal,
     });
@@ -187,26 +164,16 @@ export class ShopInputController {
     document.addEventListener("pointerup", this.#handleInspectionPointerUp, {
       signal: this.#host.abortSignal,
     });
-    document.addEventListener(
-      "pointercancel",
-      this.#handleInspectionPointerUp,
-      {signal: this.#host.abortSignal},
-    );
-    document.addEventListener(
-      "pointerlockchange",
-      this.#handlePointerLockChange,
-      passiveOptions,
-    );
+    document.addEventListener("pointercancel", this.#handleInspectionPointerUp, {signal: this.#host.abortSignal});
+    document.addEventListener("pointerlockchange", this.#handlePointerLockChange, passiveOptions);
     this.#host.input().attach(this.#host.abortSignal);
     window.addEventListener("blur", this.#handleWindowBlur, passiveOptions);
     window.addEventListener("focus", this.#host.refreshMediaCatalogIfActive, {
       signal: this.#host.abortSignal,
     });
-    document.addEventListener(
-      "visibilitychange",
-      this.#host.refreshMediaCatalogIfActive,
-      {signal: this.#host.abortSignal},
-    );
+    document.addEventListener("visibilitychange", this.#host.refreshMediaCatalogIfActive, {
+      signal: this.#host.abortSignal,
+    });
   }
 
   async loadKeyboardLayout() {
@@ -215,11 +182,7 @@ export class ShopInputController {
     let changed = false;
     for (const [code, label] of layout) {
       const normalizedLabel = label.toLowerCase();
-      if (
-        !normalizedLabel ||
-        this.state.keyboardLayout.get(code) === normalizedLabel
-      )
-        continue;
+      if (!normalizedLabel || this.state.keyboardLayout.get(code) === normalizedLabel) continue;
       this.state.keyboardLayout.set(code, normalizedLabel);
       changed = true;
     }
@@ -259,21 +222,14 @@ export class ShopInputController {
     if (this.#host.paused()) return;
     if (this.#host.inspection().inspectionDragging) {
       this.#host.inspection().inspectionDragCurrentX = event.clientX;
-      if (
-        Math.abs(
-          this.#host.inspection().inspectionDragCurrentX -
-            this.#host.inspection().inspectionDragStartX,
-        ) > 4
-      )
+      if (Math.abs(this.#host.inspection().inspectionDragCurrentX - this.#host.inspection().inspectionDragStartX) > 4)
         this.#host.inspection().inspectionDragMoved = true;
       this.#host.inspection().updateInspectionDragProgress();
       return;
     }
     if (this.#host.inspection().inspectionMode === "spread") {
       if (event.target instanceof HTMLInputElement) return;
-      this.#host
-        .inspection()
-        .setInspectionPointer(event.clientX, event.clientY);
+      this.#host.inspection().setInspectionPointer(event.clientX, event.clientY);
       this.#host.inspection().updateInspectionZoomPanTarget();
       return;
     }
@@ -282,10 +238,8 @@ export class ShopInputController {
       this.state.ignoreNextLockedPointerMove = false;
       return;
     }
-    if (!isPlausiblePointerMovement(event.movementX, event.movementY))
-      this.state.anomalousPointerMovementCount += 1;
-    if (!Number.isFinite(event.movementX) || !Number.isFinite(event.movementY))
-      return;
+    if (!isPlausiblePointerMovement(event.movementX, event.movementY)) this.state.anomalousPointerMovementCount += 1;
+    if (!Number.isFinite(event.movementX) || !Number.isFinite(event.movementY)) return;
     if (event.movementX === 0 && event.movementY === 0) return;
     this.#host.scanner().shelfBrowsePublicationId = undefined;
     this.state.pendingPointerMovementX += event.movementX;
@@ -295,19 +249,11 @@ export class ShopInputController {
   consumePointerMovement(deltaSeconds: number) {
     // Gamepad look rides the same smoothed pointer-delta path as the mouse.
     const padLook = this.#host.input().gamepad.look;
-    if (
-      this.state.pointerLocked &&
-      (padLook.yaw !== 0 || padLook.pitch !== 0)
-    ) {
+    if (this.state.pointerLocked && (padLook.yaw !== 0 || padLook.pitch !== 0)) {
       const padSensitivity = this.#host.gamepadLookSensitivity();
-      const padMultiplier =
-        Number.isFinite(padSensitivity) && padSensitivity > 0
-          ? padSensitivity
-          : 1;
-      this.state.pendingPointerMovementX +=
-        padLook.yaw * GAMEPAD_LOOK_SPEED * padMultiplier * deltaSeconds;
-      this.state.pendingPointerMovementY +=
-        padLook.pitch * GAMEPAD_LOOK_SPEED * padMultiplier * deltaSeconds;
+      const padMultiplier = Number.isFinite(padSensitivity) && padSensitivity > 0 ? padSensitivity : 1;
+      this.state.pendingPointerMovementX += padLook.yaw * GAMEPAD_LOOK_SPEED * padMultiplier * deltaSeconds;
+      this.state.pendingPointerMovementY += padLook.pitch * GAMEPAD_LOOK_SPEED * padMultiplier * deltaSeconds;
     }
     const movementX = this.state.pendingPointerMovementX;
     const movementY = this.state.pendingPointerMovementY;
@@ -318,22 +264,17 @@ export class ShopInputController {
 
     if (anomalousEventCount > 0 && DEV && !this.state.didWarnPointerMovement) {
       this.state.didWarnPointerMovement = true;
-      console.warn(
-        "Afterleaf bounded an anomalous pointer-lock movement burst.",
-        {
-          eventCount: anomalousEventCount,
-          frameDeltaMs: deltaSeconds * 1000,
-          movementX,
-          movementY,
-        },
-      );
+      console.warn("Afterleaf bounded an anomalous pointer-lock movement burst.", {
+        eventCount: anomalousEventCount,
+        frameDeltaMs: deltaSeconds * 1000,
+        movementX,
+        movementY,
+      });
     }
     if (movementX === 0 && movementY === 0) return;
 
     const sensitivity = this.#host.mouseSensitivity();
-    const sensitivityMultiplier = Number.isFinite(sensitivity)
-      ? Math.max(0, sensitivity)
-      : 1;
+    const sensitivityMultiplier = Number.isFinite(sensitivity) ? Math.max(0, sensitivity) : 1;
     clampLookDeltaMagnitude(
       -movementX * LOOK_SENSITIVITY * sensitivityMultiplier,
       -movementY * LOOK_SENSITIVITY * sensitivityMultiplier,
@@ -362,19 +303,14 @@ export class ShopInputController {
 
   #handleWallPlacementWheel(
     event: WheelEvent,
-    placement:
-      | NonNullable<ArtFrameSystem["placement"]>
-      | NonNullable<PosterSystem["placement"]>
-      | undefined,
+    placement: NonNullable<ArtFrameSystem["placement"]> | NonNullable<PosterSystem["placement"]> | undefined,
     updateTarget: () => void,
   ): boolean {
-    if (!this.state.pointerLocked || !placement || event.deltaY === 0)
-      return false;
+    if (!this.state.pointerLocked || !placement || event.deltaY === 0) return false;
     event.preventDefault();
     if (event.shiftKey)
       placement.rotation = normalizePosterRotation(
-        placement.rotation -
-          Math.sign(event.deltaY) * POSTER_WHEEL_ROTATION_STEP,
+        placement.rotation - Math.sign(event.deltaY) * POSTER_WHEEL_ROTATION_STEP,
       );
     else
       placement.desiredHeight = MathUtils.clamp(
@@ -389,17 +325,13 @@ export class ShopInputController {
 
   #handlePlacementWheel(event: WheelEvent): boolean {
     if (
-      this.#handleWallPlacementWheel(
-        event,
-        this.#host.artFrames().placement,
-        () => this.#host.artFrames().updateDigitalArtFramePlacementTarget(),
+      this.#handleWallPlacementWheel(event, this.#host.artFrames().placement, () =>
+        this.#host.artFrames().updateDigitalArtFramePlacementTarget(),
       )
     )
       return true;
-    return this.#handleWallPlacementWheel(
-      event,
-      this.#host.posters().placement,
-      () => this.#host.posters().updatePosterPlacementTarget(),
+    return this.#handleWallPlacementWheel(event, this.#host.posters().placement, () =>
+      this.#host.posters().updatePosterPlacementTarget(),
     );
   }
 
@@ -412,8 +344,7 @@ export class ShopInputController {
         .props()
         .setModelPropScale(
           carriedProp,
-          (carriedProp.modelScale ?? DEFAULT_MODEL_SCALE) *
-            Math.exp(-event.deltaY * 0.0015),
+          (carriedProp.modelScale ?? DEFAULT_MODEL_SCALE) * Math.exp(-event.deltaY * 0.0015),
         );
       return true;
     }
@@ -423,8 +354,7 @@ export class ShopInputController {
         ? carriedProp.rotationSnapStep
         : PROP_WHEEL_ROTATION_STEP;
       this.#host.props().propPlacementYaw = normalizePosterRotation(
-        this.#host.props().propPlacementYaw -
-          Math.sign(event.deltaY) * rotationStep,
+        this.#host.props().propPlacementYaw - Math.sign(event.deltaY) * rotationStep,
       );
       this.#host.updateHeldPhysicsTarget();
       this.#host.markWorldStateDirty();
@@ -445,11 +375,7 @@ export class ShopInputController {
   }
 
   #handleCarriedBookWheel(event: WheelEvent): boolean {
-    if (
-      !this.state.pointerLocked ||
-      this.#host.carriedPublicationIds().length <= 1
-    )
-      return false;
+    if (!this.state.pointerLocked || this.#host.carriedPublicationIds().length <= 1) return false;
     const wheelDelta = dominantWheelDelta(event);
     if (Math.abs(wheelDelta) < 1) return true;
     if (!this.#host.cycleCarriedBook(Math.sign(wheelDelta))) return true;
@@ -458,12 +384,7 @@ export class ShopInputController {
   }
 
   #handleTelevisionWheel(event: WheelEvent): boolean {
-    if (
-      !this.state.pointerLocked ||
-      !this.#host.televisionTargeted() ||
-      event.deltaY === 0
-    )
-      return false;
+    if (!this.state.pointerLocked || !this.#host.televisionTargeted() || event.deltaY === 0) return false;
     const direction = Math.sign(event.deltaY) as -1 | 1;
     if (event.ctrlKey) {
       event.preventDefault();
@@ -476,20 +397,12 @@ export class ShopInputController {
     const continuesScrub =
       direction === this.state.tvWheelScrubDirection &&
       event.timeStamp >= this.state.tvWheelScrubLastAt &&
-      event.timeStamp - this.state.tvWheelScrubLastAt <=
-        TV_WHEEL_SCRUB_RESET_MS;
+      event.timeStamp - this.state.tvWheelScrubLastAt <= TV_WHEEL_SCRUB_RESET_MS;
     const stepIndex = continuesScrub
-      ? Math.min(
-          this.state.tvWheelScrubStepIndex + 1,
-          TV_WHEEL_SCRUB_STEPS_SECONDS.length - 1,
-        )
+      ? Math.min(this.state.tvWheelScrubStepIndex + 1, TV_WHEEL_SCRUB_STEPS_SECONDS.length - 1)
       : 0;
     const stepSeconds = TV_WHEEL_SCRUB_STEPS_SECONDS[stepIndex];
-    if (
-      !stepSeconds ||
-      !this.#host.targetedTelevision()?.scrub(direction * stepSeconds)
-    )
-      return true;
+    if (!stepSeconds || !this.#host.targetedTelevision()?.scrub(direction * stepSeconds)) return true;
     event.preventDefault();
     this.state.tvWheelScrubDirection = direction;
     this.state.tvWheelScrubLastAt = event.timeStamp;
@@ -508,13 +421,10 @@ export class ShopInputController {
         : this.#host.targetedArcadeCabinet()?.sessionStatus === "playing"
           ? this.#host.targetedArcadeCabinet()
           : undefined;
-    if (!arcadeVolumeCabinet || !event.ctrlKey || event.deltaY === 0)
-      return false;
+    if (!arcadeVolumeCabinet || !event.ctrlKey || event.deltaY === 0) return false;
     event.preventDefault();
     // Same convention as the TV: wheel up raises the cabinet's volume.
-    arcadeVolumeCabinet.adjustArcadeVolume(
-      Math.sign(event.deltaY) === 1 ? -1 : 1,
-    );
+    arcadeVolumeCabinet.adjustArcadeVolume(Math.sign(event.deltaY) === 1 ? -1 : 1);
     return true;
   }
 
@@ -526,11 +436,7 @@ export class ShopInputController {
     )
       return;
     const wheelDelta = dominantWheelDelta(event);
-    if (
-      Math.abs(wheelDelta) < 4 ||
-      !this.#host.scanner().browseShelf(Math.sign(wheelDelta))
-    )
-      return;
+    if (Math.abs(wheelDelta) < 4 || !this.#host.scanner().browseShelf(Math.sign(wheelDelta))) return;
     event.preventDefault();
     this.state.shelfBrowseReadyAt = event.timeStamp + SHELF_BROWSE_INTERVAL_MS;
   }
@@ -550,8 +456,7 @@ export class ShopInputController {
     if (!this.#host.inspection().inspectionDragging) return;
     this.#host.inspection().inspectionDragging = false;
     const decision =
-      !this.#host.inspection().inspectionDragMoved ||
-      this.#host.inspection().inspectionDragCompletion() >= 0.5
+      !this.#host.inspection().inspectionDragMoved || this.#host.inspection().inspectionDragCompletion() >= 0.5
         ? "commit"
         : "cancel";
     this.#host.inspection().inspectionDragReleaseDecision = decision;
@@ -571,34 +476,26 @@ export class ShopInputController {
     );
     this.state.lookAngles.yaw = this.state.nextLookAngles.yaw;
     this.state.lookAngles.pitch = this.state.nextLookAngles.pitch;
-    this.#host
-      .camera()
-      .rotation.set(this.state.lookAngles.pitch, this.state.lookAngles.yaw, 0);
+    this.#host.camera().rotation.set(this.state.lookAngles.pitch, this.state.lookAngles.yaw, 0);
   }
 
   readonly #handlePointerLockChange = () => {
     const wasPointerLocked = this.state.pointerLocked;
-    this.state.pointerLocked =
-      document.pointerLockElement === this.#host.canvas();
-    const releaseCompleted =
-      !this.state.pointerLocked && this.state.pointerLockReleasePending;
-    const resumePointerLock =
-      releaseCompleted && this.state.resumePointerLockAfterRelease;
+    this.state.pointerLocked = document.pointerLockElement === this.#host.canvas();
+    const releaseCompleted = !this.state.pointerLocked && this.state.pointerLockReleasePending;
+    const resumePointerLock = releaseCompleted && this.state.resumePointerLockAfterRelease;
     if (releaseCompleted) {
       this.state.pointerLockReleasePending = false;
       this.state.resumePointerLockAfterRelease = false;
     }
     this.#resetPointerMovement();
-    this.state.ignoreNextLockedPointerMove =
-      this.state.pointerLocked && !wasPointerLocked;
+    this.state.ignoreNextLockedPointerMove = this.state.pointerLocked && !wasPointerLocked;
     if (!this.state.pointerLocked) {
       this.#host.input().suspend();
       this.#host.bookActions().cancelThrowCharge();
       this.state.jumpQueued = false;
     }
-    this.#host.canvas().style.cursor = this.state.pointerLocked
-      ? "none"
-      : "pointer";
+    this.#host.canvas().style.cursor = this.state.pointerLocked ? "none" : "pointer";
     this.#host.emitGameState();
     // Pointer lock state is orthogonal to menus: unlocks never open the
     // pause menu. Escape routing owns that (modal stack, then the armed
@@ -629,19 +526,11 @@ export class ShopInputController {
         return true;
       }
       case "inspectionThrow":
-        if (
-          this.#host.inspection().inspectionPublicationId !==
-          this.#host.carriedPublicationId()
-        )
-          return true;
+        if (this.#host.inspection().inspectionPublicationId !== this.#host.carriedPublicationId()) return true;
         this.#host.inspection().startInspectionClose("throw");
         return true;
       case "inspectionDrop":
-        if (
-          this.#host.inspection().inspectionPublicationId !==
-          this.#host.carriedPublicationId()
-        )
-          return true;
+        if (this.#host.inspection().inspectionPublicationId !== this.#host.carriedPublicationId()) return true;
         this.#host.inspection().startInspectionClose("drop");
         return true;
       case "inspectionReturn":
@@ -688,9 +577,7 @@ export class ShopInputController {
       return true;
     }
     if (!this.#placementBlocked())
-      void this.#host
-        .props()
-        .startModelPlacement(this.#host.props().spawnablePropAssetIndex);
+      void this.#host.props().startModelPlacement(this.#host.props().spawnablePropAssetIndex);
     return true;
   }
 
@@ -701,9 +588,7 @@ export class ShopInputController {
     }
     if (!this.#placementBlocked()) {
       if (this.#host.artFrames().assets.length > 0)
-        this.#host
-          .artFrames()
-          .startDigitalArtFramePlacement(this.#host.artFrames().assetIndex);
+        this.#host.artFrames().startDigitalArtFramePlacement(this.#host.artFrames().assetIndex);
       else this.#host.artFrames().startEmptyDigitalArtFramePlacement();
     }
     return true;
@@ -712,21 +597,13 @@ export class ShopInputController {
   #openChannelEditor() {
     const onMediaChannelCreateRequest = this.#host.onMediaChannelCreateRequest;
     if (
-      !(
-        this.#host.artFrames().placement ||
-        this.#host.artFrames().targetedId ||
-        this.#host.televisionTargeted()
-      ) ||
+      !(this.#host.artFrames().placement || this.#host.artFrames().targetedId || this.#host.televisionTargeted()) ||
       !onMediaChannelCreateRequest
     )
       return false;
     const kind = this.#host.televisionTargeted() ? "tv" : "art-frame";
-    this.#host.setChannelEditorTelevision(
-      kind === "tv" ? this.#host.targetedTelevision() : undefined,
-    );
-    this.#host.setChannelEditorDigitalArtFrameId(
-      kind === "art-frame" ? this.#host.artFrames().targetedId : undefined,
-    );
+    this.#host.setChannelEditorTelevision(kind === "tv" ? this.#host.targetedTelevision() : undefined);
+    this.#host.setChannelEditorDigitalArtFrameId(kind === "art-frame" ? this.#host.artFrames().targetedId : undefined);
     this.releasePointerLock();
     onMediaChannelCreateRequest(kind);
     return true;
@@ -739,9 +616,7 @@ export class ShopInputController {
     }
     if (!this.#placementBlocked()) {
       if (this.#host.posters().assets.length > 0)
-        void this.#host
-          .posters()
-          .startPosterPlacement(this.#host.posters().assetIndex);
+        void this.#host.posters().startPosterPlacement(this.#host.posters().assetIndex);
       else this.#host.posters().startEmptyPosterPlacement();
     }
     return true;
@@ -783,21 +658,13 @@ export class ShopInputController {
       case "placementCycleChannelLeft":
       case "placementCycleChannelRight": {
         if (!this.#host.artFrames().placement) return false;
-        this.#host
-          .artFrames()
-          .cycleDigitalArtFramePlacementChannel(
-            action === "placementCycleChannelLeft" ? -1 : 1,
-          );
+        this.#host.artFrames().cycleDigitalArtFramePlacementChannel(action === "placementCycleChannelLeft" ? -1 : 1);
         return true;
       }
       case "placementCycleImageLeft":
       case "placementCycleImageRight": {
         if (!this.#host.artFrames().placement) return false;
-        this.#host
-          .artFrames()
-          .cycleDigitalArtFramePlacementImage(
-            action === "placementCycleImageLeft" ? -1 : 1,
-          );
+        this.#host.artFrames().cycleDigitalArtFramePlacementImage(action === "placementCycleImageLeft" ? -1 : 1);
         return true;
       }
       case "placementToggleFit": {
@@ -815,22 +682,14 @@ export class ShopInputController {
           placement.intervalSeconds as (typeof DIGITAL_ART_FRAME_INTERVALS)[number],
         );
         const interval =
-          DIGITAL_ART_FRAME_INTERVALS[
-            (Math.max(0, intervalIndex) + 1) %
-              DIGITAL_ART_FRAME_INTERVALS.length
-          ];
+          DIGITAL_ART_FRAME_INTERVALS[(Math.max(0, intervalIndex) + 1) % DIGITAL_ART_FRAME_INTERVALS.length];
         if (interval !== undefined) placement.intervalSeconds = interval;
         this.#host.emitGameState();
         return true;
       }
       case "placementToggleGridSnap": {
-        if (
-          !this.#host.artFrames().placement &&
-          !this.#host.posters().placement
-        )
-          return false;
-        const placement =
-          this.#host.artFrames().placement ?? this.#host.posters().placement;
+        if (!this.#host.artFrames().placement && !this.#host.posters().placement) return false;
+        const placement = this.#host.artFrames().placement ?? this.#host.posters().placement;
         if (placement) placement.gridSnap = !placement.gridSnap;
         this.#host.artFrames().updateDigitalArtFramePlacementTarget();
         this.#host.posters().updatePosterPlacementTarget();
@@ -847,8 +706,7 @@ export class ShopInputController {
       case "propToggleSnap": {
         const carriedProp = this.#host.props().carriedProp;
         if (!carriedProp) return false;
-        this.#host.props().propPlacementSnapping =
-          !this.#host.props().propPlacementSnapping;
+        this.#host.props().propPlacementSnapping = !this.#host.props().propPlacementSnapping;
         this.#host.emitGameState();
         return true;
       }
@@ -856,12 +714,7 @@ export class ShopInputController {
       case "propCycleAnimationRight": {
         const targetedProp = this.#host.targetedProp();
         if (!targetedProp?.modelAnimations?.length) return false;
-        this.#host
-          .props()
-          .cycleModelAnimation(
-            targetedProp,
-            action === "propCycleAnimationLeft" ? -1 : 1,
-          );
+        this.#host.props().cycleModelAnimation(targetedProp, action === "propCycleAnimationLeft" ? -1 : 1);
         return true;
       }
       default:
@@ -931,9 +784,7 @@ export class ShopInputController {
     }
     if (this.#host.televisionTargeted()) {
       const targetedTelevision = this.#host.targetedTelevision();
-      const televisionProp = targetedTelevision
-        ? props.televisionProps.get(targetedTelevision)
-        : undefined;
+      const televisionProp = targetedTelevision ? props.televisionProps.get(targetedTelevision) : undefined;
       if (televisionProp) props.pickUpProp(televisionProp);
       return true;
     }
@@ -950,10 +801,7 @@ export class ShopInputController {
   }
 
   #handleTargetMediaAction(action: ShortcutAction): boolean {
-    if (
-      action === "artFramePreviousChannel" ||
-      action === "artFrameNextChannel"
-    ) {
+    if (action === "artFramePreviousChannel" || action === "artFrameNextChannel") {
       const targetedId = this.#host.artFrames().targetedId;
       if (!targetedId) return false;
       this.#host
@@ -989,9 +837,7 @@ export class ShopInputController {
   #handleTargetPropertyAction(action: ShortcutAction): boolean {
     if (action === "toggleShelfPresentation") {
       if (!this.#host.carriedPublicationId()) return false;
-      this.#host.setShelfPresentation(
-        this.#host.shelfPresentation() === "spine" ? "face" : "spine",
-      );
+      this.#host.setShelfPresentation(this.#host.shelfPresentation() === "spine" ? "face" : "spine");
       this.#host.scanner().update();
       return true;
     }
@@ -1003,14 +849,9 @@ export class ShopInputController {
     const targetedArcadeCabinet = this.#host.targetedArcadeCabinet();
     const lockableProp =
       this.#host.targetedProp() ??
-      (targetedTelevision
-        ? this.#host.props().televisionProps.get(targetedTelevision)
-        : undefined) ??
-      (targetedArcadeCabinet
-        ? this.#host.props().arcadeProps.get(targetedArcadeCabinet)
-        : undefined);
-    if (!lockableProp || this.#host.props().carriedProp === lockableProp)
-      return false;
+      (targetedTelevision ? this.#host.props().televisionProps.get(targetedTelevision) : undefined) ??
+      (targetedArcadeCabinet ? this.#host.props().arcadeProps.get(targetedArcadeCabinet) : undefined);
+    if (!lockableProp || this.#host.props().carriedProp === lockableProp) return false;
     const locked = !lockableProp.locked;
     lockableProp.locked = locked;
     this.#host.physicsWorld().setPropLocked(lockableProp.id, locked);
@@ -1025,42 +866,28 @@ export class ShopInputController {
         this.#triggerInteraction();
         return true;
       case "throw":
-        if (this.#host.televisionTargeted())
-          this.#host.targetedTelevision()?.skip();
+        if (this.#host.televisionTargeted()) this.#host.targetedTelevision()?.skip();
         else {
           const targetedId = this.#host.artFrames().targetedId;
-          if (targetedId)
-            this.#host.artFrames().records.get(targetedId)?.frame.skip();
-          else if (this.#host.props().carriedProp)
-            this.#host.props().dropCarriedProp(true);
-          else if (this.#host.carriedPublicationId())
-            this.#host.bookActions().startThrowCharge();
+          if (targetedId) this.#host.artFrames().records.get(targetedId)?.frame.skip();
+          else if (this.#host.props().carriedProp) this.#host.props().dropCarriedProp(true);
+          else if (this.#host.carriedPublicationId()) this.#host.bookActions().startThrowCharge();
         }
         // Held throw state drives shelf browsing; isActionDown covers it.
         return true;
       case "drop":
-        if (this.#host.artFrames().placement || this.#host.posters().placement)
-          return true;
-        if (this.#host.artFrames().targetedId)
-          this.#host.artFrames().removeTargetedDigitalArtFrame();
-        else if (this.#host.posters().targetedId)
-          this.#host.posters().removeTargetedPoster();
-        else if (this.#host.props().carriedProp)
-          this.#host.props().dropCarriedProp();
+        if (this.#host.artFrames().placement || this.#host.posters().placement) return true;
+        if (this.#host.artFrames().targetedId) this.#host.artFrames().removeTargetedDigitalArtFrame();
+        else if (this.#host.posters().targetedId) this.#host.posters().removeTargetedPoster();
+        else if (this.#host.props().carriedProp) this.#host.props().dropCarriedProp();
         else this.#host.bookActions().dropCarriedBook();
         return true;
       case "inspectionReturn": {
         const hoveredPublicationId = this.#host.hoveredPublicationId();
         const carriedPublicationId = this.#host.carriedPublicationId();
-        const hoveredRecord = hoveredPublicationId
-          ? this.#host.booksById().get(hoveredPublicationId)
-          : undefined;
-        if (carriedPublicationId)
-          this.#host.inspection().advanceInspectionMode(carriedPublicationId);
-        else if (
-          hoveredPublicationId &&
-          hoveredRecord?.state.status === "shelved"
-        )
+        const hoveredRecord = hoveredPublicationId ? this.#host.booksById().get(hoveredPublicationId) : undefined;
+        if (carriedPublicationId) this.#host.inspection().advanceInspectionMode(carriedPublicationId);
+        else if (hoveredPublicationId && hoveredRecord?.state.status === "shelved")
           this.#host.inspection().advanceInspectionMode(hoveredPublicationId);
         return true;
       }
@@ -1090,8 +917,7 @@ export class ShopInputController {
    */
   readonly handleActionDown = (action: ShortcutAction): boolean => {
     if (this.#host.paused()) return true;
-    if (this.#host.inspection().inspectionMode === "spread")
-      return this.#handleInspectionAction(action);
+    if (this.#host.inspection().inspectionMode === "spread") return this.#handleInspectionAction(action);
     if (!this.state.pointerLocked) return false;
     return this.#handleWorldAction(action);
   };
@@ -1100,8 +926,7 @@ export class ShopInputController {
     if (this.#host.paused()) return true;
     switch (action) {
       case "throw":
-        if (this.#host.bookActions().throwChargeActive)
-          this.#host.bookActions().releaseThrowCharge();
+        if (this.#host.bookActions().throwChargeActive) this.#host.bookActions().releaseThrowCharge();
         else if (this.#host.inspection().inspectionMode === "none") {
           this.#host.scanner().shelfBrowsePublicationId = undefined;
           this.#host.scanner().update();
@@ -1109,12 +934,8 @@ export class ShopInputController {
         return true;
       case "inspectionTurnLeft":
       case "inspectionTurnRight": {
-        const direction =
-          this.#host.inspection().inspectionPublication()?.direction ?? "LTR";
-        const navigation = getArrowNavigation(
-          action === "inspectionTurnLeft" ? "ArrowLeft" : "ArrowRight",
-          direction,
-        );
+        const direction = this.#host.inspection().inspectionPublication()?.direction ?? "LTR";
+        const navigation = getArrowNavigation(action === "inspectionTurnLeft" ? "ArrowLeft" : "ArrowRight", direction);
         if (this.#host.inspection().inspectionHeldNavigation === navigation)
           this.#host.inspection().inspectionHeldNavigation = undefined;
         return true;
@@ -1144,8 +965,7 @@ export class ShopInputController {
   /** Raw-key interceptor: while an arcade session plays, keys feed it. */
   forwardArcadeKey(event: KeyboardEvent): boolean {
     if (this.#host.paused()) return false;
-    if (this.#host.activeArcadeCabinet()?.sessionStatus !== "playing")
-      return false;
+    if (this.#host.activeArcadeCabinet()?.sessionStatus !== "playing") return false;
     // Tab owns the menus and must never reach the game; the global modal
     // stack handles it. Escape stays browser-reserved for pointer lock.
     if (event.type === "keydown" && event.code === "Tab") return true;
@@ -1162,10 +982,7 @@ export class ShopInputController {
     event.preventDefault();
     const activeArcadeCabinet = this.#host.activeArcadeCabinet();
     if (!activeArcadeCabinet) return false;
-    activeArcadeCabinet.forwardKey(
-      event.type === "keydown",
-      describeKeyboardEvent(event),
-    );
+    activeArcadeCabinet.forwardKey(event.type === "keydown", describeKeyboardEvent(event));
     return true;
   }
 
@@ -1187,11 +1004,7 @@ export class ShopInputController {
   }
 
   requestPointerLock() {
-    if (
-      this.#host.disposed() ||
-      document.pointerLockElement === this.#host.canvas()
-    )
-      return;
+    if (this.#host.disposed() || document.pointerLockElement === this.#host.canvas()) return;
     if (this.state.pointerLockReleasePending) {
       this.state.resumePointerLockAfterRelease = true;
       return;
@@ -1201,18 +1014,13 @@ export class ShopInputController {
       .canvas()
       .requestPointerLock()
       .catch((cause) => {
-        if (DEV)
-          console.warn("Afterleaf could not acquire pointer lock.", cause);
+        if (DEV) console.warn("Afterleaf could not acquire pointer lock.", cause);
       });
   }
 
   releasePointerLock() {
     this.state.resumePointerLockAfterRelease = false;
-    if (
-      this.state.pointerLockReleasePending ||
-      document.pointerLockElement !== this.#host.canvas()
-    )
-      return;
+    if (this.state.pointerLockReleasePending || document.pointerLockElement !== this.#host.canvas()) return;
     this.state.pointerLockReleasePending = true;
     document.exitPointerLock();
   }

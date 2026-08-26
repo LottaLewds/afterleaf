@@ -1,5 +1,4 @@
-export const TAG_BLACKLIST_PREFERENCE_KEY =
-  "afterleaf-tag-blacklist-preference-v1";
+export const TAG_BLACKLIST_PREFERENCE_KEY = "afterleaf-tag-blacklist-preference-v1";
 
 const TAG_BLACKLIST_SCHEMA_VERSION = 1;
 const MAX_BLACKLISTED_TAGS = 100;
@@ -10,8 +9,7 @@ type TagBlacklistPreference = {
   tags: string[];
 };
 
-export const normalizeTag = (tag: string) =>
-  tag.trim().replaceAll(/\s+/gu, " ").toLowerCase().slice(0, MAX_TAG_LENGTH);
+export const normalizeTag = (tag: string) => tag.trim().replaceAll(/\s+/gu, " ").toLowerCase().slice(0, MAX_TAG_LENGTH);
 
 export const normalizeTagBlacklist = (tags: readonly string[]) => {
   const normalizedTags: string[] = [];
@@ -26,11 +24,8 @@ export const normalizeTagBlacklist = (tags: readonly string[]) => {
   return normalizedTags;
 };
 
-const parseTagBlacklistPreference = (
-  value: unknown,
-): TagBlacklistPreference | undefined => {
-  if (typeof value !== "object" || value === null || Array.isArray(value))
-    return;
+const parseTagBlacklistPreference = (value: unknown): TagBlacklistPreference | undefined => {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return;
   const preference = value as Partial<TagBlacklistPreference>;
   if (
     preference.schemaVersion !== TAG_BLACKLIST_SCHEMA_VERSION ||
@@ -44,24 +39,17 @@ const parseTagBlacklistPreference = (
   };
 };
 
-export const loadTagBlacklist = (
-  storage: Pick<Storage, "getItem"> = localStorage,
-) => {
+export const loadTagBlacklist = (storage: Pick<Storage, "getItem"> = localStorage) => {
   try {
     const stored = storage.getItem(TAG_BLACKLIST_PREFERENCE_KEY);
     if (!stored) return [];
-    return (
-      parseTagBlacklistPreference(JSON.parse(stored) as unknown)?.tags ?? []
-    );
+    return parseTagBlacklistPreference(JSON.parse(stored) as unknown)?.tags ?? [];
   } catch {
     return [];
   }
 };
 
-export const saveTagBlacklist = (
-  tags: readonly string[],
-  storage: Pick<Storage, "setItem"> = localStorage,
-) => {
+export const saveTagBlacklist = (tags: readonly string[], storage: Pick<Storage, "setItem"> = localStorage) => {
   const normalizedTags = normalizeTagBlacklist(tags);
   try {
     storage.setItem(

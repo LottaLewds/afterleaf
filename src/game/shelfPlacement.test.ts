@@ -94,11 +94,7 @@ describe("spine shelf placement", () => {
       0.02,
     );
 
-    expect(placements?.map((placement) => placement.id)).toEqual([
-      "left",
-      "new",
-      "right",
-    ]);
+    expect(placements?.map((placement) => placement.id)).toEqual(["left", "new", "right"]);
     expect(placements?.[0]?.center).toBeCloseTo(-0.27);
     expect(placements?.[1]?.center).toBeCloseTo(0);
     expect(placements?.[2]?.center).toBeCloseTo(0.29);

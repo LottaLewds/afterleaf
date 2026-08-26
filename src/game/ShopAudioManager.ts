@@ -1,10 +1,4 @@
-import {
-  AudioListener,
-  AudioLoader,
-  Matrix4,
-  Object3D,
-  PositionalAudio,
-} from "three";
+import {AudioListener, AudioLoader, Matrix4, Object3D, PositionalAudio} from "three";
 import {DEV} from "solid-js";
 
 export type PositionalAudioOptions = {
@@ -40,11 +34,7 @@ class TransformAwarePositionalAudio extends PositionalAudio {
   override updateMatrixWorld(force?: boolean) {
     Object3D.prototype.updateMatrixWorld.call(this, force);
     if (this.hasPlaybackControl && !this.isPlaying) return;
-    if (
-      this.#pannerTransformInitialized &&
-      this.#lastPannerMatrixWorld.equals(this.matrixWorld)
-    )
-      return;
+    if (this.#pannerTransformInitialized && this.#lastPannerMatrixWorld.equals(this.matrixWorld)) return;
     this.#lastPannerMatrixWorld.copy(this.matrixWorld);
     this.#pannerTransformInitialized = true;
     super.updateMatrixWorld(false);
@@ -92,10 +82,7 @@ export class ShopAudioManager {
    * AudioContext. The stream feeds the positional node's gain, mirroring the
    * media-element path; loudness stays under the media bus.
    */
-  createPositionalMediaStream(
-    stream: MediaStream,
-    options: PositionalAudioOptions,
-  ): PositionalStreamAudioHandle {
+  createPositionalMediaStream(stream: MediaStream, options: PositionalAudioOptions): PositionalStreamAudioHandle {
     const node = this.#createPositionalAudio("media", options);
     // Mirror setMediaElementSource: the stream must feed the PANNER, not
     // node.gain - PositionalAudio's graph is source -> panner -> gain, so
@@ -123,10 +110,7 @@ export class ShopAudioManager {
     };
   }
 
-  createPositionalSfx(
-    url: string,
-    options: PositionalAudioOptions,
-  ): PositionalSfxHandle {
+  createPositionalSfx(url: string, options: PositionalAudioOptions): PositionalSfxHandle {
     const node = this.#createPositionalAudio("sfx", options);
     let disposed = false;
     let pendingDetune: number | undefined;
@@ -140,8 +124,7 @@ export class ShopAudioManager {
         this.#playSfx(node, detune);
       })
       .catch((error: unknown) => {
-        if (DEV && !disposed && !this.#disposed)
-          console.warn(`Afterleaf could not load audio ${url}.`, error);
+        if (DEV && !disposed && !this.#disposed) console.warn(`Afterleaf could not load audio ${url}.`, error);
       });
 
     return {
@@ -200,8 +183,7 @@ export class ShopAudioManager {
     node.setRolloffFactor(options.rolloffFactor);
     node.setVolume(options.volume);
     const cone = options.cone;
-    if (cone)
-      node.setDirectionalCone(cone.innerAngle, cone.outerAngle, cone.outerGain);
+    if (cone) node.setDirectionalCone(cone.innerAngle, cone.outerAngle, cone.outerGain);
     this.#sources.add(node);
     return node;
   }
@@ -242,9 +224,7 @@ export class ShopAudioManager {
   }
 
   #setBusVolume(gain: GainNode, volume: number) {
-    const clampedVolume = Number.isFinite(volume)
-      ? Math.min(1, Math.max(0, volume))
-      : 1;
+    const clampedVolume = Number.isFinite(volume) ? Math.min(1, Math.max(0, volume)) : 1;
     gain.gain.setValueAtTime(clampedVolume, this.listener.context.currentTime);
   }
 }

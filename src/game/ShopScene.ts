@@ -18,10 +18,7 @@ import {
 } from "three";
 import {TRASH_CAN_PROP_ID} from "~/game/discardBin";
 import {physicalBookWidth} from "~/game/bookDimensions";
-import {
-  INSPECTION_FRAME_FILL,
-  INSPECTION_PAGE_GUTTER,
-} from "~/game/bookInspectionTuning";
+import {INSPECTION_FRAME_FILL, INSPECTION_PAGE_GUTTER} from "~/game/bookInspectionTuning";
 import {dotWithPhysicsQuaternion} from "~/game/mathHelpers";
 import {BOOK_HEIGHT} from "~/game/bookTuning";
 import {type ShopArcadeCabinet} from "~/game/ShopArcadeCabinet";
@@ -35,10 +32,7 @@ import {INSPECTION_TRANSITION_SPEED} from "~/game/bookInspectionTuning";
 import type {ShopArcadePlayRequest} from "~/game/ShopArcadeCabinet";
 import {disposeObject} from "~/game/threeDisposal";
 import type {MovablePropRegistration} from "~/game/propRegistration";
-import {
-  GameStateEmitter,
-  type GameSnapshotInput,
-} from "~/game/gameStateEmitter";
+import {GameStateEmitter, type GameSnapshotInput} from "~/game/gameStateEmitter";
 import type {ShopSignKind} from "~/game/signs/ShopSignSystem";
 import {shopSignKey} from "~/game/signs/ShopSignSystem";
 import type {DigitalArtFramePasteTarget} from "~/game/artFrameSystem";
@@ -54,41 +48,20 @@ import {TvVideoImporter} from "~/game/tvVideoImporter";
 import {ArtFrameTextureCache} from "~/game/artFrameTextureCache";
 import {BookTextureRuntime} from "~/game/bookTextureRuntime";
 import {BookCarryActions, type BookCarryHost} from "~/game/bookCarryActions";
-import {
-  InteractionScanner,
-  type InteractionScannerHost,
-} from "~/game/interactionScanner";
-import {
-  MovablePropLifecycle,
-  type MovablePropLifecycleHost,
-} from "~/game/movablePropSystem";
+import {InteractionScanner, type InteractionScannerHost} from "~/game/interactionScanner";
+import {MovablePropLifecycle, type MovablePropLifecycleHost} from "~/game/movablePropSystem";
 import {ShopInputController} from "~/game/shopInputController";
 import {ShopBookLifecycle} from "~/game/shopBookLifecycle";
-import {
-  ShopBookPresentation,
-  type ShopBookPresentationHost,
-} from "~/game/shopBookPresentation";
+import {ShopBookPresentation, type ShopBookPresentationHost} from "~/game/shopBookPresentation";
 import {ShopPlayerMovement} from "~/game/shopPlayerMovement";
 import {ShopWorldPersistence} from "~/game/shopWorldPersistence";
-import {
-  cloneFloorMaterial,
-  ShopInteriorAssets,
-} from "~/game/shopInteriorAssets";
+import {cloneFloorMaterial, ShopInteriorAssets} from "~/game/shopInteriorAssets";
 import {ShopMediaController} from "~/game/shopMediaController";
-import {
-  bookSignature as catalogBookSignature,
-  ShopCatalogSync,
-} from "~/game/shopCatalogSync";
-import {
-  createShopInteractionCommands,
-  type ShopInteractionCommands,
-} from "~/game/shopInteractionCommands";
+import {bookSignature as catalogBookSignature, ShopCatalogSync} from "~/game/shopCatalogSync";
+import {createShopInteractionCommands, type ShopInteractionCommands} from "~/game/shopInteractionCommands";
 import {ShopViewportController} from "~/game/shopViewportController";
 import {ShopShaderWarmup} from "~/game/shopShaderWarmup";
-import {
-  createShopTargetState,
-  type ShopTargetState,
-} from "~/game/shopTargetState";
+import {createShopTargetState, type ShopTargetState} from "~/game/shopTargetState";
 import {ShopArcadeSessionController} from "~/game/shopArcadeSessionController";
 
 import type {CatalogAtlases, CatalogIdentity, CatalogItem} from "~/catalog";
@@ -100,11 +73,7 @@ import {type UiMode} from "~/game/uiMode";
 import {type ShopCollisionWorld} from "~/game/shopGameplay";
 import {loadShortcuts, type ShortcutsConfig} from "~/game/input/bindings";
 import {InputManager, type InputMode} from "~/game/input/inputManager";
-import {
-  loadPadMappingOverrides,
-  padForwardEvent,
-  type ArcadePadMappingOverrides,
-} from "~/arcade/controllerMappings";
+import {loadPadMappingOverrides, padForwardEvent, type ArcadePadMappingOverrides} from "~/arcade/controllerMappings";
 import {findArcadeSystem} from "~/arcade/systems";
 
 import {ShelfPresentation} from "~/game/shelfPlacement";
@@ -115,25 +84,14 @@ import {
   type BookPhysicsPose,
   type MutableBookPhysicsTransform,
 } from "~/game/ShopPhysicsWorld";
-import {
-  ShopTelevision,
-  type ShopTelevisionInteraction,
-} from "~/game/ShopTelevision";
+import {ShopTelevision, type ShopTelevisionInteraction} from "~/game/ShopTelevision";
 import type {ShopMediaCatalog} from "~/game/shopMediaCatalog";
 import type {WorldSaveV1} from "~/game/worldSave";
-import {
-  getWideReaderPageIndices,
-  readerPageSourceUrl,
-  subscribeToWideReaderPages,
-} from "~/reader/pageSpreadDetection";
+import {getWideReaderPageIndices, readerPageSourceUrl, subscribeToWideReaderPages} from "~/reader/pageSpreadDetection";
 import {getReaderSpread, type ReaderNavigation} from "~/reader/pagination";
 import {tvChannelId, tvVideoImportUrl, type TvVideo} from "~/tv/protocol";
 import type {PosterAsset} from "~/posters/protocol";
-import type {
-  MovablePropRecord,
-  ShopGameSnapshot,
-  SpineShelfDefinition,
-} from "~/game/shopTypes";
+import type {MovablePropRecord, ShopGameSnapshot, SpineShelfDefinition} from "~/game/shopTypes";
 
 const SHOP_PLAYER_START_X = 0;
 const SHOP_PLAYER_START_Z = 25;
@@ -160,18 +118,10 @@ export type ShopSceneOptions = {
   initialWorldSave?: WorldSaveV1;
   worldSaveWritable: () => boolean;
   initialPageIndex?: (publicationId: string) => number;
-  importArtFrameImage?: (
-    image: Blob,
-    channelId: string,
-    signal: AbortSignal,
-  ) => Promise<ArtFrameImage>;
+  importArtFrameImage?: (image: Blob, channelId: string, signal: AbortSignal) => Promise<ArtFrameImage>;
   loadMediaCatalog?: (signal: AbortSignal) => Promise<ShopMediaCatalog>;
   importPoster?: (image: Blob, signal: AbortSignal) => Promise<PosterAsset>;
-  importTvVideo?: (
-    url: string,
-    channelId: string,
-    signal: AbortSignal,
-  ) => Promise<TvVideo>;
+  importTvVideo?: (url: string, channelId: string, signal: AbortSignal) => Promise<TvVideo>;
   mouseSensitivity?: () => number;
   /** Multiplier on the base right-stick look speed. */
   gamepadLookSensitivity?: () => number;
@@ -227,9 +177,7 @@ export class ShopScene {
   readonly #catalogIdentity: () => CatalogIdentity;
   readonly #catalogItems: () => readonly CatalogItem[];
   readonly #heldLocalPosition = new Vector3(0.5, -0.36, -1.08);
-  readonly #heldLocalRotation = new Quaternion().setFromEuler(
-    new Euler(-0.16, -0.48, -0.08),
-  );
+  readonly #heldLocalRotation = new Quaternion().setFromEuler(new Euler(-0.16, -0.48, -0.08));
   readonly #heldTargetPosition = new Vector3();
   readonly #heldTargetRotation = new Quaternion();
   readonly #heldTargetPose: BookPhysicsPose = {
@@ -267,18 +215,10 @@ export class ShopScene {
   readonly #gamepadLookSensitivity: () => number;
   readonly #newPublicationIds: () => readonly string[];
   readonly #tvScreenLighting: () => boolean;
-  readonly #onDiscardPublication:
-    | ((publicationId: string) => Promise<boolean>)
-    | undefined;
-  readonly #onMediaChannelCreateRequest:
-    | ((kind: "art-frame" | "tv") => void)
-    | undefined;
-  readonly #onGameStateChange:
-    | ((snapshot: ShopGameSnapshot) => void)
-    | undefined;
-  readonly #onPageIndexChange:
-    | ((publicationId: string, pageIndex: number) => void)
-    | undefined;
+  readonly #onDiscardPublication: ((publicationId: string) => Promise<boolean>) | undefined;
+  readonly #onMediaChannelCreateRequest: ((kind: "art-frame" | "tv") => void) | undefined;
+  readonly #onGameStateChange: ((snapshot: ShopGameSnapshot) => void) | undefined;
+  readonly #onPageIndexChange: ((publicationId: string, pageIndex: number) => void) | undefined;
   readonly #onSelectPublication: (publicationId: string) => void;
   readonly #observedArrivalIds = new Set<string>();
   readonly #paused: () => boolean;
@@ -377,8 +317,7 @@ export class ShopScene {
     // rebinding from the menu should apply without rebuilding the scene.
     const fallbackShortcuts = loadShortcuts();
     this.#getShortcuts = options.shortcutsConfig ?? (() => fallbackShortcuts);
-    this.#getPadMappingOverrides =
-      options.padMappingOverrides ?? loadPadMappingOverrides;
+    this.#getPadMappingOverrides = options.padMappingOverrides ?? loadPadMappingOverrides;
     this.#input = new InputManager({
       getShortcuts: this.#getShortcuts,
       handleAction: (action, phase) => {
@@ -394,13 +333,10 @@ export class ShopScene {
       },
       onKeyEvent: (event) => this.#inputController.observeKeyboardEvent(event),
     });
-    this.#input.setKeyboardInterceptor((event) =>
-      this.#inputController.forwardArcadeKey(event),
-    );
+    this.#input.setKeyboardInterceptor((event) => this.#inputController.forwardArcadeKey(event));
     this.#input.setRawGamepadForward((name, down) => {
       const cabinet =
-        this.#arcadeSessionController.activeArcadeCabinet?.sessionStatus ===
-        "playing"
+        this.#arcadeSessionController.activeArcadeCabinet?.sessionStatus === "playing"
           ? this.#arcadeSessionController.activeArcadeCabinet
           : undefined;
       if (!cabinet) return;
@@ -410,11 +346,7 @@ export class ShopScene {
       if (!systemId) return;
       const system = findArcadeSystem(systemId);
       if (!system) return;
-      const keyEvent = padForwardEvent(
-        system.id,
-        name,
-        this.#getPadMappingOverrides(),
-      );
+      const keyEvent = padForwardEvent(system.id, name, this.#getPadMappingOverrides());
       if (!keyEvent) return;
       cabinet.forwardKey(down, keyEvent);
     });
@@ -462,8 +394,7 @@ export class ShopScene {
       getBooks: () => this.#booksById,
       isDisposed: () => this.#disposed,
       isActiveDetailTarget: (publicationId) =>
-        publicationId === this.#hoveredPublicationId ||
-        publicationId === this.#lastSelectedPublicationId,
+        publicationId === this.#hoveredPublicationId || publicationId === this.#lastSelectedPublicationId,
       isBookInFlight: (publicationId) =>
         this.#carriedPublicationIds.includes(publicationId) ||
         publicationId === this.#inspection.inspectionPublicationId ||
@@ -490,8 +421,7 @@ export class ShopScene {
       camera: () => this.#camera,
       catalogItems: () => this.#catalogItems(),
       bookTextures: () => this.#bookTextures,
-      onPageIndexChange: (publicationId, pageIndex) =>
-        this.#onPageIndexChange?.(publicationId, pageIndex),
+      onPageIndexChange: (publicationId, pageIndex) => this.#onPageIndexChange?.(publicationId, pageIndex),
       physicsPosePosition: () => this.#physicsPosePosition,
       physicsPoseRotation: () => this.#physicsPoseRotation,
       physicsPose: () => this.#physicsPose,
@@ -500,21 +430,14 @@ export class ShopScene {
       horizontalFieldOfView: () => this.#horizontalFieldOfView(),
       disposed: () => this.#disposed,
       physicsTransform: () => this.#physicsTransform,
-      setHoveredPublicationId: (publicationId) =>
-        this.#targetState.setHoveredPublicationId(publicationId),
+      setHoveredPublicationId: (publicationId) => this.#targetState.setHoveredPublicationId(publicationId),
       onSelectPublication: this.#onSelectPublication,
-      initialPageIndex: (publicationId) =>
-        this.#initialPageIndex(publicationId),
+      initialPageIndex: (publicationId) => this.#initialPageIndex(publicationId),
       applyBookStates: () => this.#bookLifecycle.applyBookStates(),
       releasePointerLock: () => this.#inputController.releasePointerLock(),
       requestPointerLock: () => this.#inputController.requestPointerLock(),
       dropCarriedBook: (fromCurrentPose, throwBook, charge, override) =>
-        this.#bookActions.dropCarriedBook(
-          fromCurrentPose,
-          throwBook,
-          charge,
-          override,
-        ),
+        this.#bookActions.dropCarriedBook(fromCurrentPose, throwBook, charge, override),
       raycaster: () => this.#raycaster,
       viewportWidth: () => this.#viewportController.width(),
       textureLoader: () => this.#textureLoader,
@@ -531,15 +454,12 @@ export class ShopScene {
       releasePointerLock: () => this.#inputController.releasePointerLock(),
       requestPointerLock: () => this.#inputController.requestPointerLock(),
     });
-    this.#props = new MovablePropLifecycle(
-      this.#createMovablePropLifecycleHost(),
-    );
+    this.#props = new MovablePropLifecycle(this.#createMovablePropLifecycleHost());
     this.#bookActions = new BookCarryActions(this.#createBookCarryHost());
     this.#scanner = new InteractionScanner(this.#createScannerHost());
     this.#worldPersistence = new ShopWorldPersistence({
       ...this.#createWorldCapabilities(),
-      applyPlayerPose: (position, quaternion) =>
-        this.#applyPlayerPose(position, quaternion),
+      applyPlayerPose: (position, quaternion) => this.#applyPlayerPose(position, quaternion),
       artFrames: () => this.#artFrames,
       booksById: () => this.#booksById,
       catalogAvailable: () => this.#catalogAvailable(),
@@ -571,15 +491,11 @@ export class ShopScene {
       },
       shelfHoverMeshesByShelf: this.#shelfHoverMeshesByShelf,
       spineShelfDefinitions: () => this.#spineShelfDefinitions,
-      syncCarriedBookPresentation: () =>
-        this.#bookPresentation.syncCarriedBookPresentation(),
-      takeCompatibleWorldSave: () =>
-        this.#worldPersistence.takeCompatibleWorldSave(),
+      syncCarriedBookPresentation: () => this.#bookPresentation.syncCarriedBookPresentation(),
+      takeCompatibleWorldSave: () => this.#worldPersistence.takeCompatibleWorldSave(),
       ungroupedShelfHoverMeshes: this.#ungroupedShelfHoverMeshes,
     });
-    this.#bookPresentation = new ShopBookPresentation(
-      this.#createBookPresentationHost(),
-    );
+    this.#bookPresentation = new ShopBookPresentation(this.#createBookPresentationHost());
     this.#interactionCommands = createShopInteractionCommands({
       artFrames: () => this.#artFrames,
       bookActions: () => this.#bookActions,
@@ -597,8 +513,7 @@ export class ShopScene {
         this.#carriedPublicationId = publicationId;
       },
       signs: () => this.#signs,
-      syncCarriedBookPresentation: () =>
-        this.#bookPresentation.syncCarriedBookPresentation(),
+      syncCarriedBookPresentation: () => this.#bookPresentation.syncCarriedBookPresentation(),
       targetedArcadeCabinet: () => this.#targetedArcadeCabinet,
       targetedProp: () => this.#targetedProp,
       targetedTelevision: () => this.#targetedTelevision,
@@ -618,8 +533,7 @@ export class ShopScene {
       hoveredPublicationId: () => this.#hoveredPublicationId,
       resetTelevisionWheel: () => {
         this.#inputController.state.tvWheelScrubDirection = undefined;
-        this.#inputController.state.tvWheelScrubLastAt =
-          Number.NEGATIVE_INFINITY;
+        this.#inputController.state.tvWheelScrubLastAt = Number.NEGATIVE_INFINITY;
         this.#inputController.state.tvWheelScrubStepIndex = 0;
       },
       scanner: () => this.#scanner,
@@ -640,53 +554,40 @@ export class ShopScene {
     });
     this.#inputController = new ShopInputController({
       ...this.#createInputCapabilities(),
-      activeArcadeCabinet: () =>
-        this.#arcadeSessionController.activeArcadeCabinet,
-      arcadeStatusForUi: () =>
-        this.#arcadeSessionController.arcadeStatusForUi(),
+      activeArcadeCabinet: () => this.#arcadeSessionController.activeArcadeCabinet,
+      arcadeStatusForUi: () => this.#arcadeSessionController.arcadeStatusForUi(),
       artFrames: () => this.#artFrames,
       bookActions: () => this.#bookActions,
       booksById: () => this.#booksById,
       carriedPublicationId: () => this.#carriedPublicationId,
       carriedPublicationIds: () => this.#carriedPublicationIds,
-      cycleCarriedBook: (direction) =>
-        this.#interactionCommands.cycleCarriedBook(direction),
+      cycleCarriedBook: (direction) => this.#interactionCommands.cycleCarriedBook(direction),
       gamepadLookSensitivity: () => this.#gamepadLookSensitivity(),
-      handleImagePaste: (event) =>
-        this.#mediaController.handleImagePaste(event),
+      handleImagePaste: (event) => this.#mediaController.handleImagePaste(event),
       hoveredPublicationId: () => this.#hoveredPublicationId,
-      interact: (allowNonBookPropPickup) =>
-        this.#interactionCommands.interact(allowNonBookPropPickup),
+      interact: (allowNonBookPropPickup) => this.#interactionCommands.interact(allowNonBookPropPickup),
       inspection: () => this.#inspection,
       mouseSensitivity: () => this.#mouseSensitivity(),
       onMediaChannelCreateRequest: this.#onMediaChannelCreateRequest,
       posters: () => this.#posters,
       props: () => this.#props,
-      refreshMediaCatalogIfActive: () =>
-        this.#mediaController.refreshIfActive(),
+      refreshMediaCatalogIfActive: () => this.#mediaController.refreshIfActive(),
       scanner: () => this.#scanner,
-      setArcadeTargeted: (cabinet) =>
-        this.#targetState.setArcadeTargeted(cabinet),
+      setArcadeTargeted: (cabinet) => this.#targetState.setArcadeTargeted(cabinet),
       setChannelEditorDigitalArtFrameId: (id) => {
         this.#channelEditorDigitalArtFrameId = id;
       },
       setChannelEditorTelevision: (television) => {
         this.#channelEditorTelevision = television;
       },
-      setHoveredPublicationId: (publicationId) =>
-        this.#targetState.setHoveredPublicationId(publicationId),
+      setHoveredPublicationId: (publicationId) => this.#targetState.setHoveredPublicationId(publicationId),
       setPropTargeted: (record) => this.#targetState.setPropTargeted(record),
       setShelfPresentation: (presentation) => {
         this.#shelfPresentation = presentation;
       },
       setTelevisionTargeted: (targeted, interaction, television) =>
-        this.#targetState.setTelevisionTargeted(
-          targeted,
-          interaction,
-          television,
-        ),
-      setTrashTargeted: (targeted) =>
-        this.#targetState.setTrashTargeted(targeted),
+        this.#targetState.setTelevisionTargeted(targeted, interaction, television),
+      setTrashTargeted: (targeted) => this.#targetState.setTrashTargeted(targeted),
       signs: () => this.#signs,
       shelfPresentation: () => this.#shelfPresentation,
       targetedArcadeCabinet: () => this.#targetedArcadeCabinet,
@@ -699,13 +600,10 @@ export class ShopScene {
       quitActiveArcadeGame: () => this.quitActiveArcadeGame(),
     });
     this.#snapshotInput = {
-      activeArcadeCabinet: () =>
-        this.#arcadeSessionController.activeArcadeCabinet,
+      activeArcadeCabinet: () => this.#arcadeSessionController.activeArcadeCabinet,
       arcadeProps: () => this.#props.arcadeProps,
-      arcadeStatusForUi: () =>
-        this.#arcadeSessionController.arcadeStatusForUi(),
-      arcadeSystemIdForUi: () =>
-        this.#arcadeSessionController.arcadeSystemIdForUi(),
+      arcadeStatusForUi: () => this.#arcadeSessionController.arcadeStatusForUi(),
+      arcadeSystemIdForUi: () => this.#arcadeSessionController.arcadeSystemIdForUi(),
       artFrames: () => this.#artFrames,
       booksById: () => this.#booksById,
       carriedProp: () => this.#props.carriedProp,
@@ -719,15 +617,13 @@ export class ShopScene {
       input: () => this.#input,
       inspectionCloseAction: () => this.#inspection.inspectionCloseAction,
       inspectionMode: () => this.#inspection.inspectionMode,
-      inspectionOpenAngleTarget: () =>
-        this.#inspection.inspectionOpenAngleTarget,
+      inspectionOpenAngleTarget: () => this.#inspection.inspectionOpenAngleTarget,
       inspectionPageIndex: () => this.#inspection.inspectionPageIndex,
       inspectionPageLoadCount: () => this.#inspection.inspectionPageLoadCount,
       inspectionPublication: () => this.#inspection.inspectionPublication(),
       keyboardLayout: () => this.#inputController.state.keyboardLayout,
       mode: () => this.#mode,
-      modelAnimationLabel: (record) =>
-        this.#props.modelAnimationLabel(record) ?? "",
+      modelAnimationLabel: (record) => this.#props.modelAnimationLabel(record) ?? "",
       modelImportError: () => this.#props.modelImportError,
       modelPlacement: () => this.#props.modelPlacement,
       onGameStateChange: () => this.#onGameStateChange,
@@ -778,16 +674,12 @@ export class ShopScene {
     this.#discardBin = new DiscardBin({
       ghostObject: (object) => this.#props.ghostObject(object),
       getMovableProp: (id) => this.#props.records.get(id),
-      isCarried: (record) =>
-        this.#props.carriedProp === (record as unknown as MovablePropRecord),
+      isCarried: (record) => this.#props.carriedProp === (record as unknown as MovablePropRecord),
       isDisposed: () => this.#disposed,
       markWorldStateDirty: () => this.#worldPersistence.markDirty(),
       modelMixers: this.#props.modelMixers,
       needsSeedPass: (version) => this.#props.needsSeedPass(version),
-      registerMovableProp: (registration) =>
-        this.#props.registerMovableProp(
-          registration as MovablePropRegistration,
-        ),
+      registerMovableProp: (registration) => this.#props.registerMovableProp(registration as MovablePropRegistration),
       updatePropPose: (id, pose) =>
         this.#physicsWorld.updatePropPose(id, {
           position: pose.position,
@@ -859,19 +751,9 @@ export class ShopScene {
     this.#inputController.bind();
     void this.#inputController.loadKeyboardLayout();
     this.#viewportController.observe();
-    const unsubscribeFromWidePages = subscribeToWideReaderPages((url) =>
-      this.#handleDetectedWidePage(url),
-    );
-    this.#abortController.signal.addEventListener(
-      "abort",
-      () => this.#fpsHud.dispose(),
-      {once: true},
-    );
-    this.#abortController.signal.addEventListener(
-      "abort",
-      unsubscribeFromWidePages,
-      {once: true},
-    );
+    const unsubscribeFromWidePages = subscribeToWideReaderPages((url) => this.#handleDetectedWidePage(url));
+    this.#abortController.signal.addEventListener("abort", () => this.#fpsHud.dispose(), {once: true});
+    this.#abortController.signal.addEventListener("abort", unsubscribeFromWidePages, {once: true});
   }
 
   /**
@@ -883,12 +765,7 @@ export class ShopScene {
    * first playable frames.
    */
   async start() {
-    if (
-      this.#disposed ||
-      this.#stagedBootStarted ||
-      this.#frameHandle !== undefined
-    )
-      return;
+    if (this.#disposed || this.#stagedBootStarted || this.#frameHandle !== undefined) return;
     this.#stagedBootStarted = true;
     const stage = (label: string) => {
       if (DEV) performance.mark(`afterleaf-boot:${label}`);
@@ -899,42 +776,30 @@ export class ShopScene {
     await ShopScene.nextFrame();
     if (this.#disposed) return;
     buildShopInterior({
-      addBox: (p, size, pos, mat, castShadow) =>
-        this.#interiorAssets.addBox(p, size, pos, mat, castShadow),
+      addBox: (p, size, pos, mat, castShadow) => this.#interiorAssets.addBox(p, size, pos, mat, castShadow),
       artFrames: this.#artFrames,
-      cacheBuiltinPropTemplate: (registration) =>
-        this.#props.cacheBuiltinPropTemplate(registration),
+      cacheBuiltinPropTemplate: (registration) => this.#props.cacheBuiltinPropTemplate(registration),
       cloneFloorMaterial,
       createFloorMaterial: () => this.#interiorAssets.createFloorMaterial(),
-      createPosterSurface: (p, id, w, h, pos, rot) =>
-        this.#interiorAssets.createPosterSurface(p, id, w, h, pos, rot),
-      createFaceOutDisplay: (p, wood, backing, deps) =>
-        createFaceOutDisplay(p, wood, backing, deps),
+      createPosterSurface: (p, id, w, h, pos, rot) => this.#interiorAssets.createPosterSurface(p, id, w, h, pos, rot),
+      createFaceOutDisplay: (p, wood, backing, deps) => createFaceOutDisplay(p, wood, backing, deps),
       createSpawnedCrtTelevision: (asset, id, scale, pose) =>
         this.#props.createSpawnedCrtTelevision(asset, id, scale, pose),
       createUpperReadingFurniture: (p, wood, furnitureMaterials) =>
-        this.#interiorAssets.createUpperReadingFurniture(
-          p,
-          wood,
-          furnitureMaterials,
-        ),
+        this.#interiorAssets.createUpperReadingFurniture(p, wood, furnitureMaterials),
       discardBin: this.#discardBin,
       disposed: this.#disposed,
       doors: this.#doors,
       modelMixers: this.#props.modelMixers,
       needsSeedPass: (version) => this.#props.needsSeedPass(version),
       pendingWorldSave: this.#worldPersistence.pendingWorldSave(),
-      registerMovableProp: (registration) =>
-        this.#props.registerMovableProp(registration),
-      registerPropPlacementSupport: (object) =>
-        this.#props.registerPropPlacementSupport(object),
-      registerTelevision: (saveId, television) =>
-        this.#props.registerTelevision(saveId, television),
+      registerMovableProp: (registration) => this.#props.registerMovableProp(registration),
+      registerPropPlacementSupport: (object) => this.#props.registerPropPlacementSupport(object),
+      registerTelevision: (saveId, television) => this.#props.registerTelevision(saveId, television),
       renderer: this.#renderer,
       scene: this.#scene,
       seedDefaultProps: () => this.#props.seedDefaultProps(),
-      sharedTelevisionOptions: (channelId, volume) =>
-        this.#props.sharedTelevisionOptions(channelId, volume),
+      sharedTelevisionOptions: (channelId, volume) => this.#props.sharedTelevisionOptions(channelId, volume),
       shelfSnapMesh: this.#scanner.shelfSnapMesh,
       shelfTargetMeshes: this.#shelfTargetMeshes,
       signs: this.#signs,
@@ -965,18 +830,8 @@ export class ShopScene {
     if (this.#disposed) return;
     stage("ready");
     if (DEV)
-      for (const label of [
-        "configure-scene",
-        "interior",
-        "sync-inputs",
-        "first-render",
-        "warm-shaders",
-      ])
-        performance.measure(
-          `afterleaf-boot:${label}`,
-          `afterleaf-boot:${label}-start`,
-          `afterleaf-boot:ready`,
-        );
+      for (const label of ["configure-scene", "interior", "sync-inputs", "first-render", "warm-shaders"])
+        performance.measure(`afterleaf-boot:${label}`, `afterleaf-boot:${label}-start`, `afterleaf-boot:ready`);
     this.#shaderWarmup.precompile();
     this.#markReady();
   }
@@ -984,8 +839,7 @@ export class ShopScene {
   requestPointerLock() {
     // Modes stay exclusive: an arcade session owns the cursor until its
     // ladder exits, so external re-lock requests are ignored meanwhile.
-    if (this.#disposed || this.#arcadeSessionController.arcadeStatusForUi())
-      return;
+    if (this.#disposed || this.#arcadeSessionController.arcadeStatusForUi()) return;
     this.#inputSuspended = false;
     if (this.#inspection.inspectionMode === "spread") return;
     this.#inputController.requestPointerLock();
@@ -1000,11 +854,7 @@ export class ShopScene {
 
   unstuckPlayer() {
     if (this.#disposed) return;
-    this.#camera.position.set(
-      SHOP_PLAYER_START_X,
-      SHOP_PHYSICS_PLAYER_EYE_HEIGHT,
-      SHOP_PLAYER_START_Z,
-    );
+    this.#camera.position.set(SHOP_PLAYER_START_X, SHOP_PHYSICS_PLAYER_EYE_HEIGHT, SHOP_PLAYER_START_Z);
     this.#physicsWorld.resetPlayer(this.#camera.position);
     this.#playerMovementController.reset();
     this.#worldPersistence.markDirty();
@@ -1058,8 +908,7 @@ export class ShopScene {
         if (record.state.status !== "carried") continue;
         this.#scene.attach(record.mesh);
       }
-      if (this.#props.carriedProp)
-        this.#scene.attach(this.#props.carriedProp.object);
+      if (this.#props.carriedProp) this.#scene.attach(this.#props.carriedProp.object);
       this.#updateHeldPhysicsTarget();
       this.#emitGameState();
     } catch (error) {
@@ -1072,10 +921,7 @@ export class ShopScene {
     this.#worldPersistence.stopScheduler();
     this.#worldPersistence.flush();
     this.#disposed = true;
-    if (this.#props.carriedProp)
-      this.#props.restoreGhostedObject(
-        this.#props.carriedProp.ghostMaterialSwaps,
-      );
+    if (this.#props.carriedProp) this.#props.restoreGhostedObject(this.#props.carriedProp.ghostMaterialSwaps);
     this.#inputController.releasePointerLock();
     this.#abortController.abort();
     this.#tvVideos.clearMessageTimer();
@@ -1092,8 +938,7 @@ export class ShopScene {
     this.#targetedTelevision = undefined;
     this.#props.televisionProps.clear();
     this.#audioManager.dispose();
-    for (const record of this.#artFrames.records.values())
-      record.frame.dispose();
+    for (const record of this.#artFrames.records.values()) record.frame.dispose();
     this.#artFrames.clearRecords();
     this.#artFrames.preview?.dispose();
     this.#artFrames.preview = undefined;
@@ -1103,18 +948,15 @@ export class ShopScene {
     this.#viewportController.dispose();
     this.#ktx2Loader?.dispose();
     this.#ktx2Loader = undefined;
-    if (this.#frameHandle !== undefined)
-      cancelAnimationFrame(this.#frameHandle);
+    if (this.#frameHandle !== undefined) cancelAnimationFrame(this.#frameHandle);
     this.#frameHandle = undefined;
-    if (this.#mediaCatalogRefreshHandle !== undefined)
-      window.clearInterval(this.#mediaCatalogRefreshHandle);
+    if (this.#mediaCatalogRefreshHandle !== undefined) window.clearInterval(this.#mediaCatalogRefreshHandle);
     this.#mediaCatalogRefreshHandle = undefined;
     this.#shaderWarmup.dispose();
 
     this.#bookTextures.bumpRevision();
     this.#bookTextures.disposeBookAtlasBatches();
-    for (const record of this.#booksById.values())
-      this.#bookLifecycle.disposeBookRecord(record);
+    for (const record of this.#booksById.values()) this.#bookLifecycle.disposeBookRecord(record);
     this.#booksById.clear();
     this.#bookTextures.clearStandaloneIds();
     this.#interactiveMeshes = [];
@@ -1128,11 +970,7 @@ export class ShopScene {
     this.#renderer.renderLists.dispose();
     this.#renderer.dispose();
     const performanceDebugWindow = window as ShopPerformanceDebugWindow;
-    if (
-      DEV &&
-      performanceDebugWindow.__AFTERLEAF_PERFORMANCE_DEBUG__?.renderer ===
-        this.#renderer
-    )
+    if (DEV && performanceDebugWindow.__AFTERLEAF_PERFORMANCE_DEBUG__?.renderer === this.#renderer)
       delete performanceDebugWindow.__AFTERLEAF_PERFORMANCE_DEBUG__;
     this.#canvas.style.cursor = "";
   }
@@ -1145,16 +983,14 @@ export class ShopScene {
 
     this.#catalogSync.sync();
     this.#viewportController.syncPixelRatio();
-    if (this.#viewportController.resizeDirty())
-      this.#viewportController.applyResize();
+    if (this.#viewportController.resizeDirty()) this.#viewportController.applyResize();
 
     const paused = this.#paused();
     // Polling runs in every mode so Start keeps toggling the menu and arcade
     // sessions keep receiving forwarded pad buttons.
     const inputMode: InputMode = paused
       ? "paused"
-      : this.#arcadeSessionController.activeArcadeCabinet?.sessionStatus ===
-          "playing"
+      : this.#arcadeSessionController.activeArcadeCabinet?.sessionStatus === "playing"
         ? "arcade"
         : "shop";
     this.#input.update(inputMode);
@@ -1163,10 +999,7 @@ export class ShopScene {
       television.update(deltaSeconds);
     }
     this.#arcadeSessionController.update(deltaSeconds);
-    this.#fpsHud.update(
-      deltaSeconds,
-      this.#arcadeSessionController.activeArcadeCabinet?.perfSample,
-    );
+    this.#fpsHud.update(deltaSeconds, this.#arcadeSessionController.activeArcadeCabinet?.perfSample);
     if (paused) {
       if (!this.#inputSuspended) {
         this.#inputSuspended = true;
@@ -1178,8 +1011,7 @@ export class ShopScene {
     // While an arcade session is active the world holds still around the
     // player (no movement, targeting, or physics) but keeps rendering so
     // every cabinet's attract mode and live screens stay animated.
-    const arcadeActive =
-      this.#arcadeSessionController.arcadeStatusForUi() !== undefined;
+    const arcadeActive = this.#arcadeSessionController.arcadeStatusForUi() !== undefined;
     if (arcadeActive) {
       this.#inputController.updateCameraLook(deltaSeconds);
       this.#renderer.render(this.#scene, this.#camera);
@@ -1192,16 +1024,8 @@ export class ShopScene {
     this.#inputController.updateCameraLook(deltaSeconds);
     this.#bookActions.updateThrowCharge(deltaSeconds);
     this.#playerMovementController.update(deltaSeconds);
-    this.#doors.updateRareRoom(
-      deltaSeconds,
-      this.#camera.position.x,
-      this.#camera.position.z,
-    );
-    this.#doors.updateHallway(
-      deltaSeconds,
-      this.#camera.position.x,
-      this.#camera.position.z,
-    );
+    this.#doors.updateRareRoom(deltaSeconds, this.#camera.position.x, this.#camera.position.z);
+    this.#doors.updateHallway(deltaSeconds, this.#camera.position.x, this.#camera.position.z);
     this.#scanner.update();
     this.#inspection.inspectionZoom = MathUtils.damp(
       this.#inspection.inspectionZoom,
@@ -1224,8 +1048,7 @@ export class ShopScene {
     this.#updateHeldPhysicsTarget();
     this.#physicsWorld.step(deltaSeconds);
     this.#syncMovablePropPhysics();
-    for (const record of this.#artFrames.records.values())
-      record.frame.update(deltaSeconds);
+    for (const record of this.#artFrames.records.values()) record.frame.update(deltaSeconds);
     this.#bookPresentation.animate(deltaSeconds);
     this.#bookActions.animateShelve(deltaSeconds);
     this.#bookTextures.syncBookAtlasBatches();
@@ -1244,11 +1067,7 @@ export class ShopScene {
     this.#scene.environmentIntensity = 0.16;
     this.#camera.far = 110;
     this.#camera.updateProjectionMatrix();
-    this.#camera.position.set(
-      SHOP_PLAYER_START_X,
-      SHOP_PHYSICS_PLAYER_EYE_HEIGHT,
-      SHOP_PLAYER_START_Z,
-    );
+    this.#camera.position.set(SHOP_PLAYER_START_X, SHOP_PHYSICS_PLAYER_EYE_HEIGHT, SHOP_PLAYER_START_Z);
     this.#camera.rotation.order = "YXZ";
     this.#camera.rotation.set(0, 0, 0);
     this.#camera.add(this.#audioManager.listener);
@@ -1273,12 +1092,7 @@ export class ShopScene {
     });
   }
 
-  setSignContent(
-    kind: ShopSignKind,
-    id: string,
-    title: string,
-    subtitle: string,
-  ) {
+  setSignContent(kind: ShopSignKind, id: string, title: string, subtitle: string) {
     const key = shopSignKey(kind, id);
     if (!this.#signs.has(key)) return false;
     this.#signs.setSign(key, title, subtitle);
@@ -1309,16 +1123,12 @@ export class ShopScene {
     const placement = this.#artFrames.placement;
     if (placement) placement.channelId = channelId;
     const frameId = this.#channelEditorDigitalArtFrameId;
-    if (!placement && frameId)
-      this.#artFrames.targetImportChannel = {channelId, frameId};
+    if (!placement && frameId) this.#artFrames.targetImportChannel = {channelId, frameId};
     let target: DigitalArtFramePasteTarget | undefined;
     if (placement) target = {channelId, kind: "placement"};
     else if (frameId) target = {channelId, frameId, kind: "frame"};
     if (!target) return false;
-    const imported = await this.#artFrames.importPastedArtFrameImage(
-      image,
-      target,
-    );
+    const imported = await this.#artFrames.importPastedArtFrameImage(image, target);
     if (imported) this.#channelEditorDigitalArtFrameId = undefined;
     return imported;
   }
@@ -1328,13 +1138,7 @@ export class ShopScene {
     const url = tvVideoImportUrl(text);
     const television = this.#channelEditorTelevision;
     if (!channelId || !url || !television) return false;
-    const imported = await this.#tvVideos.import(
-      television,
-      url,
-      channelId,
-      label.trim(),
-      true,
-    );
+    const imported = await this.#tvVideos.import(television, url, channelId, label.trim(), true);
     if (imported) this.#channelEditorTelevision = undefined;
     return imported;
   }
@@ -1351,24 +1155,14 @@ export class ShopScene {
     this.#gameStateEmitter.emit(this.#snapshotInput);
   }
 
-  #applyPlayerPose(
-    position: WorldSaveV1["player"]["position"],
-    quaternion: WorldSaveV1["player"]["quaternion"],
-  ) {
+  #applyPlayerPose(position: WorldSaveV1["player"]["position"], quaternion: WorldSaveV1["player"]["quaternion"]) {
     this.#camera.position.set(position.x, position.y, position.z);
-    this.#camera.quaternion.set(
-      quaternion.x,
-      quaternion.y,
-      quaternion.z,
-      quaternion.w,
-    );
+    this.#camera.quaternion.set(quaternion.x, quaternion.y, quaternion.z, quaternion.w);
     this.#physicsPoseEuler.setFromQuaternion(this.#camera.quaternion, "YXZ");
     this.#inputController.state.lookAngles.pitch = this.#physicsPoseEuler.x;
     this.#inputController.state.lookAngles.yaw = this.#physicsPoseEuler.y;
-    this.#inputController.state.lookTarget.pitch =
-      this.#inputController.state.lookAngles.pitch;
-    this.#inputController.state.lookTarget.yaw =
-      this.#inputController.state.lookAngles.yaw;
+    this.#inputController.state.lookTarget.pitch = this.#inputController.state.lookAngles.pitch;
+    this.#inputController.state.lookTarget.yaw = this.#inputController.state.lookAngles.yaw;
     this.#camera.rotation.set(
       this.#inputController.state.lookAngles.pitch,
       this.#inputController.state.lookAngles.yaw,
@@ -1380,15 +1174,8 @@ export class ShopScene {
 
   #handleDetectedWidePage(url: string) {
     const publication = this.#inspection.inspectionPublication();
-    if (
-      this.#disposed ||
-      this.#inspection.inspectionMode !== "spread" ||
-      !publication
-    )
-      return;
-    const pageIndex = publication.pages.findIndex(
-      (page) => readerPageSourceUrl(page) === url,
-    );
+    if (this.#disposed || this.#inspection.inspectionMode !== "spread" || !publication) return;
+    const pageIndex = publication.pages.findIndex((page) => readerPageSourceUrl(page) === url);
     if (pageIndex <= 0) return;
     const record = this.#booksById.get(publication.id);
     if (!record) return;
@@ -1402,10 +1189,7 @@ export class ShopScene {
     ).start;
     this.#inspection.configureInspectionPages(record, publication);
     void this.#inspection.syncInspectionPageTextures(publication);
-    this.#onPageIndexChange?.(
-      publication.id,
-      this.#inspection.inspectionPageIndex,
-    );
+    this.#onPageIndexChange?.(publication.id, this.#inspection.inspectionPageIndex);
     this.#emitGameState();
   }
 
@@ -1420,19 +1204,9 @@ export class ShopScene {
     const spreadWidth = bookWidth * 2 + INSPECTION_PAGE_GUTTER;
     const spreadHeight = BOOK_HEIGHT;
     const verticalFieldOfView = MathUtils.degToRad(this.#camera.fov);
-    const horizontalDistance =
-      spreadWidth /
-      2 /
-      (Math.tan(this.#horizontalFieldOfView() / 2) * INSPECTION_FRAME_FILL);
-    const verticalDistance =
-      spreadHeight /
-      2 /
-      (Math.tan(verticalFieldOfView / 2) * INSPECTION_FRAME_FILL);
-    return Math.max(
-      this.#camera.near + 0.1,
-      horizontalDistance,
-      verticalDistance,
-    );
+    const horizontalDistance = spreadWidth / 2 / (Math.tan(this.#horizontalFieldOfView() / 2) * INSPECTION_FRAME_FILL);
+    const verticalDistance = spreadHeight / 2 / (Math.tan(verticalFieldOfView / 2) * INSPECTION_FRAME_FILL);
+    return Math.max(this.#camera.near + 0.1, horizontalDistance, verticalDistance);
   }
 
   #updateHeldPhysicsTarget() {
@@ -1445,31 +1219,18 @@ export class ShopScene {
         .applyMatrix4(this.#camera.matrixWorld);
       if (this.#props.propPlacementSnapping) {
         this.#heldTargetPosition.x =
-          Math.round(this.#heldTargetPosition.x / PROP_PLACEMENT_GRID_SIZE) *
-          PROP_PLACEMENT_GRID_SIZE;
+          Math.round(this.#heldTargetPosition.x / PROP_PLACEMENT_GRID_SIZE) * PROP_PLACEMENT_GRID_SIZE;
         this.#heldTargetPosition.y =
-          Math.round(this.#heldTargetPosition.y / PROP_PLACEMENT_HEIGHT_STEP) *
-          PROP_PLACEMENT_HEIGHT_STEP;
+          Math.round(this.#heldTargetPosition.y / PROP_PLACEMENT_HEIGHT_STEP) * PROP_PLACEMENT_HEIGHT_STEP;
         this.#heldTargetPosition.z =
-          Math.round(this.#heldTargetPosition.z / PROP_PLACEMENT_GRID_SIZE) *
-          PROP_PLACEMENT_GRID_SIZE;
+          Math.round(this.#heldTargetPosition.z / PROP_PLACEMENT_GRID_SIZE) * PROP_PLACEMENT_GRID_SIZE;
       }
       const yaw = this.#props.resolvedPropPlacementYaw(prop.rotationSnapStep);
       const halfHeight = prop.halfHeight;
-      this.#heldTargetPosition.y = Math.max(
-        halfHeight,
-        this.#heldTargetPosition.y,
-      );
-      this.#props.snapHeldPropToSupport(
-        prop,
-        prop.halfWidth,
-        halfHeight,
-        prop.halfDepth,
-        yaw,
-      );
+      this.#heldTargetPosition.y = Math.max(halfHeight, this.#heldTargetPosition.y);
+      this.#props.snapHeldPropToSupport(prop, prop.halfWidth, halfHeight, prop.halfDepth, yaw);
       this.#heldTargetRotation.setFromAxisAngle(this.#upAxis, yaw);
-      if (this.#props.propPlacementSnapping)
-        this.#physicsWorld.snapHeldProp(prop.id, this.#heldTargetPose);
+      if (this.#props.propPlacementSnapping) this.#physicsWorld.snapHeldProp(prop.id, this.#heldTargetPose);
       else this.#physicsWorld.setHeldPropTarget(prop.id, this.#heldTargetPose);
       return;
     }
@@ -1545,8 +1306,7 @@ export class ShopScene {
       inspection: () => this.#inspection,
       markScannerDirty: () => this.#scanner.markDirty(),
       setInteractiveMeshes: () => this.#bookLifecycle.syncInteractiveMeshes(),
-      setPhysicsPose: (position, rotation) =>
-        this.#bookLifecycle.setPhysicsPose(position, rotation),
+      setPhysicsPose: (position, rotation) => this.#bookLifecycle.setPhysicsPose(position, rotation),
       spineShelfDefinitions: () => this.#spineShelfDefinitions,
     };
   }
@@ -1554,34 +1314,27 @@ export class ShopScene {
   #createMovablePropLifecycleHost(): MovablePropLifecycleHost {
     return {
       ...this.#createWorldCapabilities(),
-      activeArcadeCabinet: () =>
-        this.#arcadeSessionController.activeArcadeCabinet,
+      activeArcadeCabinet: () => this.#arcadeSessionController.activeArcadeCabinet,
       arcadeCabinets: () => this.#arcadeSessionController.cabinets,
       audioManager: () => this.#audioManager,
       carriedPublicationId: () => this.#carriedPublicationId,
       discardBin: () => this.#discardBin,
-      enterArcadeBrowsing: (cabinet) =>
-        this.#arcadeSessionController.enterArcadeBrowsing(cabinet),
+      enterArcadeBrowsing: (cabinet) => this.#arcadeSessionController.enterArcadeBrowsing(cabinet),
       heldTargetPosition: () => this.#heldTargetPosition,
       markTelevisionSettingChanged: () => this.#worldPersistence.markDirty(),
       pendingWorldSave: () => this.#worldPersistence.pendingWorldSave(),
       physicsPose: () => this.#physicsPose,
       physicsPosePosition: () => this.#physicsPosePosition,
       playerVelocity: () => this.#playerVelocity,
-      savedTelevisionChannels: () =>
-        this.#worldPersistence.savedTelevisionChannels(),
-      savedTelevisionVolumes: () =>
-        this.#worldPersistence.savedTelevisionVolumes(),
+      savedTelevisionChannels: () => this.#worldPersistence.savedTelevisionChannels(),
+      savedTelevisionVolumes: () => this.#worldPersistence.savedTelevisionVolumes(),
       setActiveArcadeCabinet: (cabinet) => {
         this.#arcadeSessionController.activeArcadeCabinet = cabinet;
       },
-      setArcadeTargeted: (cabinet) =>
-        this.#targetState.setArcadeTargeted(cabinet),
-      setHoveredPublicationId: (publicationId) =>
-        this.#targetState.setHoveredPublicationId(publicationId),
+      setArcadeTargeted: (cabinet) => this.#targetState.setArcadeTargeted(cabinet),
+      setHoveredPublicationId: (publicationId) => this.#targetState.setHoveredPublicationId(publicationId),
       setPropTargeted: (record) => this.#targetState.setPropTargeted(record),
-      setTelevisionTargeted: (targeted) =>
-        this.#targetState.setTelevisionTargeted(targeted),
+      setTelevisionTargeted: (targeted) => this.#targetState.setTelevisionTargeted(targeted),
       targetedArcadeCabinet: () => this.#targetedArcadeCabinet,
       targetedProp: () => this.#targetedProp,
       targetedTelevision: () => this.#targetedTelevision,
@@ -1600,8 +1353,7 @@ export class ShopScene {
     return {
       arcadeCabinets: () => this.#arcadeSessionController.cabinets,
       arcadeProps: () => this.#props.arcadeProps,
-      arcadeStatusForUi: () =>
-        this.#arcadeSessionController.arcadeStatusForUi(),
+      arcadeStatusForUi: () => this.#arcadeSessionController.arcadeStatusForUi(),
       artFrames: () => this.#artFrames,
       booksById: () => this.#booksById,
       camera: () => this.#camera,
@@ -1619,19 +1371,12 @@ export class ShopScene {
       pointerLocked: () => this.#inputController.state.pointerLocked,
       posters: () => this.#posters,
       raycaster: () => this.#raycaster,
-      setArcadeTargeted: (cabinet) =>
-        this.#targetState.setArcadeTargeted(cabinet),
-      setHoveredPublicationId: (publicationId) =>
-        this.#targetState.setHoveredPublicationId(publicationId),
+      setArcadeTargeted: (cabinet) => this.#targetState.setArcadeTargeted(cabinet),
+      setHoveredPublicationId: (publicationId) => this.#targetState.setHoveredPublicationId(publicationId),
       setPropTargeted: (record) => this.#targetState.setPropTargeted(record),
       setTelevisionTargeted: (targeted, interaction, television) =>
-        this.#targetState.setTelevisionTargeted(
-          targeted,
-          interaction,
-          television,
-        ),
-      setTrashTargeted: (targeted) =>
-        this.#targetState.setTrashTargeted(targeted),
+        this.#targetState.setTelevisionTargeted(targeted, interaction, television),
+      setTrashTargeted: (targeted) => this.#targetState.setTrashTargeted(targeted),
       shelfHoverMeshesByShelf: () => this.#shelfHoverMeshesByShelf,
       shelfPresentation: () => this.#shelfPresentation,
       shelfTargetMeshes: () => this.#shelfTargetMeshes,
@@ -1655,8 +1400,7 @@ export class ShopScene {
         this.#scanner.shelfTargetSelection = undefined;
       },
       discardBinGroup: () => this.#discardBin.group,
-      disposeBookRecord: (record) =>
-        this.#bookLifecycle.disposeBookRecord(record),
+      disposeBookRecord: (record) => this.#bookLifecycle.disposeBookRecord(record),
       flushWorldSave: () => this.#worldPersistence.flush(),
       heldTargetPose: () => this.#heldTargetPose,
       hoveredPublicationId: () => this.#hoveredPublicationId,
@@ -1665,28 +1409,21 @@ export class ShopScene {
       movableProps: () => this.#props.records,
       onDiscardPublication: () => this.#onDiscardPublication,
       playerVelocity: () => this.#playerVelocity,
-      removeCarriedPublication: (publicationId) =>
-        this.#bookLifecycle.removeCarriedPublication(publicationId),
+      removeCarriedPublication: (publicationId) => this.#bookLifecycle.removeCarriedPublication(publicationId),
       setCarriedPublicationId: (publicationId) => {
         this.#carriedPublicationId = publicationId;
       },
-      setHoveredPublicationId: (publicationId) =>
-        this.#targetState.setHoveredPublicationId(publicationId),
-      setPhysicsPose: (position, rotation) =>
-        this.#bookLifecycle.setPhysicsPose(position, rotation),
-      setShelfPosition: (record) =>
-        this.#bookLifecycle.setShelfPosition(record),
-      setShelfRotation: (record, publicationId) =>
-        this.#bookLifecycle.setShelfRotation(record, publicationId),
+      setHoveredPublicationId: (publicationId) => this.#targetState.setHoveredPublicationId(publicationId),
+      setPhysicsPose: (position, rotation) => this.#bookLifecycle.setPhysicsPose(position, rotation),
+      setShelfPosition: (record) => this.#bookLifecycle.setShelfPosition(record),
+      setShelfRotation: (record, publicationId) => this.#bookLifecycle.setShelfRotation(record, publicationId),
       setShelfPresentation: (presentation) => {
         this.#shelfPresentation = presentation;
       },
-      setTrashTargeted: (targeted) =>
-        this.#targetState.setTrashTargeted(targeted),
+      setTrashTargeted: (targeted) => this.#targetState.setTrashTargeted(targeted),
       shelfTargetSelection: () => this.#scanner.shelfTargetSelection,
       spineShelfDefinitions: () => this.#spineShelfDefinitions,
-      syncCarriedBookPresentation: () =>
-        this.#bookPresentation.syncCarriedBookPresentation(),
+      syncCarriedBookPresentation: () => this.#bookPresentation.syncCarriedBookPresentation(),
       syncInteractiveMeshes: () => this.#bookLifecycle.syncInteractiveMeshes(),
       targetedTrashBinId: () => this.#scanner.targetedTrashBinId,
       throwVelocity: () => this.#throwVelocity,
@@ -1695,45 +1432,24 @@ export class ShopScene {
       viewDirection: () => this.#viewDirection,
       writeHeldBookTargetPose: (index, publicationId) =>
         this.#bookPresentation.writeHeldBookTargetPose(index, publicationId),
-      writeHeldBookLocalPosition: (index, output) =>
-        this.#bookPresentation.writeHeldBookLocalPosition(index, output),
-      writeHeldBookLocalRotation: (index, output) =>
-        this.#bookPresentation.writeHeldBookLocalRotation(index, output),
+      writeHeldBookLocalPosition: (index, output) => this.#bookPresentation.writeHeldBookLocalPosition(index, output),
+      writeHeldBookLocalRotation: (index, output) => this.#bookPresentation.writeHeldBookLocalRotation(index, output),
     };
   }
 
   #syncMovablePropPhysics() {
     for (const record of this.#props.records.values()) {
-      if (
-        !this.#physicsWorld.sampleInterpolatedPropTransform(
-          record.id,
-          this.#physicsTransform,
-        )
-      )
-        continue;
-      if (record.object.parent !== this.#scene)
-        this.#scene.attach(record.object);
-      const positionChanged =
-        record.currentPosition.distanceToSquared(
-          this.#physicsTransform.position,
-        ) > 1e-8;
+      if (!this.#physicsWorld.sampleInterpolatedPropTransform(record.id, this.#physicsTransform)) continue;
+      if (record.object.parent !== this.#scene) this.#scene.attach(record.object);
+      const positionChanged = record.currentPosition.distanceToSquared(this.#physicsTransform.position) > 1e-8;
       const rotationChanged =
-        1 -
-          Math.abs(
-            dotWithPhysicsQuaternion(
-              record.currentRotation,
-              this.#physicsTransform.rotation,
-            ),
-          ) >
-        1e-7;
+        1 - Math.abs(dotWithPhysicsQuaternion(record.currentRotation, this.#physicsTransform.rotation)) > 1e-7;
       record.object.position.copy(this.#physicsTransform.position);
       record.object.quaternion.copy(this.#physicsTransform.rotation);
       record.currentPosition.copy(this.#physicsTransform.position);
       record.currentRotation.copy(this.#physicsTransform.rotation);
-      if (record.id === TRASH_CAN_PROP_ID)
-        this.#discardBin.position.copy(record.currentPosition);
-      if (positionChanged || rotationChanged)
-        this.#worldPersistence.markDirty();
+      if (record.id === TRASH_CAN_PROP_ID) this.#discardBin.position.copy(record.currentPosition);
+      if (positionChanged || rotationChanged) this.#worldPersistence.markDirty();
     }
   }
 

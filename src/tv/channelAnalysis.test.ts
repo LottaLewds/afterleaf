@@ -3,10 +3,7 @@ import {mkdtemp, readFile, rm, writeFile} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {resolve} from "node:path";
 
-import {
-  createCachedTvVideoAnalyzer,
-  type CachedTvVideoAnalyzerOptions,
-} from "~/tv/channelAnalysis";
+import {createCachedTvVideoAnalyzer, type CachedTvVideoAnalyzerOptions} from "~/tv/channelAnalysis";
 import {FULL_ACTIVE_PICTURE_RECT} from "~/tv/activePicture";
 
 const roots: string[] = [];
@@ -57,9 +54,7 @@ describe("TV channel analysis cache", () => {
     expect(analysisCount).toBe(1);
 
     await writeFile(filePath, "changed video");
-    await expect(fromDisk(filePath, "afterleaf/sample.mp4")).resolves.toEqual(
-      FULL_ACTIVE_PICTURE_RECT,
-    );
+    await expect(fromDisk(filePath, "afterleaf/sample.mp4")).resolves.toEqual(FULL_ACTIVE_PICTURE_RECT);
     expect(analysisCount).toBe(2);
     expect(JSON.parse(await readFile(cachePath, "utf8"))).toMatchObject({
       version: 1,

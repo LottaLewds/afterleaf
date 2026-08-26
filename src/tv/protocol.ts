@@ -35,8 +35,7 @@ export type TvMediaRequest =
   | {kind: "media"; channelId: string; videoId: string}
   | {kind: "unscoped"};
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null;
+const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null;
 
 export const isSafeTvPathSegment = (value: string) =>
   value.length > 0 &&
@@ -144,16 +143,10 @@ export const parseTvChannelManifest = (value: unknown): TvChannelManifest => {
         typeof video.url !== "string" ||
         !video.url.startsWith(TV_MEDIA_ENDPOINT_PREFIX)
       )
-        throw new Error(
-          `TV channel ${channel.id} video ${videoIndex} is invalid`,
-        );
-      if (video.activePicture === undefined)
-        return {id: video.id, url: video.url} satisfies TvVideo;
+        throw new Error(`TV channel ${channel.id} video ${videoIndex} is invalid`);
+      if (video.activePicture === undefined) return {id: video.id, url: video.url} satisfies TvVideo;
       const activePicture = parseActivePictureRect(video.activePicture);
-      if (!activePicture)
-        throw new Error(
-          `TV channel ${channel.id} video ${videoIndex} active picture is invalid`,
-        );
+      if (!activePicture) throw new Error(`TV channel ${channel.id} video ${videoIndex} active picture is invalid`);
       return {
         activePicture,
         id: video.id,
@@ -171,9 +164,7 @@ export const parseTvChannelManifest = (value: unknown): TvChannelManifest => {
   return {channels};
 };
 
-export const parseTvVideoImportRequest = (
-  value: unknown,
-): TvVideoImportRequest => {
+export const parseTvVideoImportRequest = (value: unknown): TvVideoImportRequest => {
   if (
     !isRecord(value) ||
     Object.keys(value).length !== 2 ||
@@ -187,10 +178,7 @@ export const parseTvVideoImportRequest = (
   return {channelId: value.channelId, url};
 };
 
-export const parseTvVideoImportResponse = (
-  value: unknown,
-  channelId: string,
-): TvVideoImportResponse => {
+export const parseTvVideoImportResponse = (value: unknown, channelId: string): TvVideoImportResponse => {
   if (!isRecord(value)) throw new Error("TV video import response is invalid");
   const video = parseTvChannelManifest({
     channels: [{id: channelId, label: channelId, videos: [value.video]}],

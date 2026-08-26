@@ -1,26 +1,12 @@
-import {
-  type Group,
-  MeshStandardMaterial,
-  Quaternion,
-  Vector3,
-  type Object3D,
-  type TextureLoader,
-} from "three";
-import {
-  ShopTelevision,
-  type ShopTelevisionOptions,
-} from "~/game/ShopTelevision";
+import {type Group, MeshStandardMaterial, Quaternion, Vector3, type Object3D, type TextureLoader} from "three";
+import {ShopTelevision, type ShopTelevisionOptions} from "~/game/ShopTelevision";
 import {BUILTIN_CRT_TV_ASSET_ID} from "~/game/propAssetIds";
 import {BUILTIN_SPAWNABLE_PROP_ASSETS} from "~/game/propTemplates";
 import {DEFAULT_MODEL_SCALE} from "~/game/propTuning";
 import {INITIAL_WORLD_SEEDING_VERSION} from "~/game/worldSave";
 import type {WorldModelPropSave} from "~/game/worldSave";
 import {SHOP_MODEL_TELEVISION_SIZE} from "~/game/shopLayout";
-import {
-  SHOP_THEATRE,
-  SHOP_TV_CAVE,
-  SHOP_TV_CAVE_SHELF_BOARD_Y_CENTERS,
-} from "~/game/shopExpansionLayout";
+import {SHOP_THEATRE, SHOP_TV_CAVE, SHOP_TV_CAVE_SHELF_BOARD_Y_CENTERS} from "~/game/shopExpansionLayout";
 import {SHOP_UPPER_FLOOR_Y} from "~/game/shopExpansionLayout";
 import {loadUpholsteryTextures} from "~/game/upholsteryMaterials";
 import {createUpholsteryMaterial} from "~/game/upholsteryMaterials";
@@ -53,14 +39,7 @@ export const THEATRE_TELEVISION_SAVE_ID = "moonlight-theatre";
 
 export type SharedTelevisionOptions = Omit<
   ShopTelevisionOptions,
-  | "flatScreen"
-  | "initialChannelId"
-  | "initialVolume"
-  | "model"
-  | "parent"
-  | "position"
-  | "rotationY"
-  | "tableMaterial"
+  "flatScreen" | "initialChannelId" | "initialVolume" | "model" | "parent" | "position" | "rotationY" | "tableMaterial"
 > & {
   initialChannelId?: string;
   initialVolume?: number;
@@ -78,17 +57,12 @@ export const createTelevisionRooms = (
     televisionVolumes?: Readonly<Record<string, number>> | undefined;
   },
 ) => {
-  const upholsteryTextures = loadUpholsteryTextures(
-    deps.textureLoader as TextureLoader,
-    deps.maxTextureAnisotropy,
-  );
+  const upholsteryTextures = loadUpholsteryTextures(deps.textureLoader as TextureLoader, deps.maxTextureAnisotropy);
   const acousticMaterial = createUpholsteryMaterial(upholsteryTextures);
   const theatreTelevision = new ShopTelevision({
     ...deps.sharedTelevisionOptions(
-      deps.televisionChannels?.[THEATRE_TELEVISION_SAVE_ID] ??
-        deps.televisionChannels?.[FIXED_TELEVISION_SAVE_ID],
-      deps.televisionVolumes?.[THEATRE_TELEVISION_SAVE_ID] ??
-        deps.televisionVolumes?.[FIXED_TELEVISION_SAVE_ID],
+      deps.televisionChannels?.[THEATRE_TELEVISION_SAVE_ID] ?? deps.televisionChannels?.[FIXED_TELEVISION_SAVE_ID],
+      deps.televisionVolumes?.[THEATRE_TELEVISION_SAVE_ID] ?? deps.televisionVolumes?.[FIXED_TELEVISION_SAVE_ID],
     ),
     flatScreen: {height: 6.6, width: 11.75},
     parent,
@@ -110,28 +84,11 @@ export const createTelevisionRooms = (
     [-33.05, SHOP_UPPER_FLOOR_Y + 0.16, SHOP_THEATRE.centerZ],
     theatreTrimMaterial,
   );
-  for (const z of [12.35, 24.65])
-    deps.addBox(
-      parent,
-      [0.3, 7.35, 0.34],
-      [-33.64, 9.78, z],
-      theatreTrimMaterial,
-    );
-  deps.addBox(
-    parent,
-    [0.3, 0.3, 12.65],
-    [-33.64, 13.42, SHOP_THEATRE.centerZ],
-    theatreTrimMaterial,
-  );
+  for (const z of [12.35, 24.65]) deps.addBox(parent, [0.3, 7.35, 0.34], [-33.64, 9.78, z], theatreTrimMaterial);
+  deps.addBox(parent, [0.3, 0.3, 12.65], [-33.64, 13.42, SHOP_THEATRE.centerZ], theatreTrimMaterial);
   for (const x of [-20, -24, -28, -32]) {
-    for (const z of [10.68, 26.32])
-      deps.addBox(parent, [2.25, 2.2, 0.16], [x, 9.15, z], acousticMaterial);
-    deps.addBox(
-      parent,
-      [2.6, 0.12, 12.5],
-      [x, 15.38, SHOP_THEATRE.centerZ],
-      acousticMaterial,
-    );
+    for (const z of [10.68, 26.32]) deps.addBox(parent, [2.25, 2.2, 0.16], [x, 9.15, z], acousticMaterial);
+    deps.addBox(parent, [2.6, 0.12, 12.5], [x, 15.38, SHOP_THEATRE.centerZ], acousticMaterial);
   }
 
   const shelfMaterial = woodMaterial.clone();
@@ -144,13 +101,7 @@ export const createTelevisionRooms = (
     length: number,
   ) => {
     const alongX = axis === "x";
-    deps.addBox(
-      parent,
-      alongX ? [length, 4.05, 0.34] : [0.34, 4.05, length],
-      backingPosition,
-      shelfMaterial,
-      true,
-    );
+    deps.addBox(parent, alongX ? [length, 4.05, 0.34] : [0.34, 4.05, length], backingPosition, shelfMaterial, true);
     for (const y of shelfYs) {
       const shelf = deps.addBox(
         parent,
@@ -164,30 +115,16 @@ export const createTelevisionRooms = (
   };
   addShelfBank("z", [23.03, 6.95, 18.3], [22.6, 18.3], 8.2);
   addShelfBank("z", [16.97, 6.95, 16.45], [17.4, 16.45], 4.7);
-  addShelfBank(
-    "x",
-    [SHOP_TV_CAVE.centerX, 6.95, 14.27],
-    [SHOP_TV_CAVE.centerX, 14.7],
-    6.45,
-  );
-  addShelfBank(
-    "x",
-    [SHOP_TV_CAVE.centerX, 6.95, 22.33],
-    [SHOP_TV_CAVE.centerX, 21.9],
-    6.45,
-  );
+  addShelfBank("x", [SHOP_TV_CAVE.centerX, 6.95, 14.27], [SHOP_TV_CAVE.centerX, 14.7], 6.45);
+  addShelfBank("x", [SHOP_TV_CAVE.centerX, 6.95, 22.33], [SHOP_TV_CAVE.centerX, 21.9], 6.45);
 
-  const rowYs = shelfYs
-    .slice(0, 3)
-    .map((y) => y + SHOP_MODEL_TELEVISION_SIZE.height / 2 + 0.04);
+  const rowYs = shelfYs.slice(0, 3).map((y) => y + SHOP_MODEL_TELEVISION_SIZE.height / 2 + 0.04);
   // Cave CRTs are ordinary spawned televisions: seeded once onto the
   // shelf banks, then persisted through modelProps like any other prop.
   // Worlds that already seeded restore them from their saves instead of
   // re-spawning deleted or moved units.
   if (deps.needsSeedPass(INITIAL_WORLD_SEEDING_VERSION)) {
-    const crtAsset = BUILTIN_SPAWNABLE_PROP_ASSETS.find(
-      (asset) => asset.id === BUILTIN_CRT_TV_ASSET_ID,
-    );
+    const crtAsset = BUILTIN_SPAWNABLE_PROP_ASSETS.find((asset) => asset.id === BUILTIN_CRT_TV_ASSET_ID);
     if (crtAsset) {
       const addCrt = (
         wall: "east" | "north" | "south" | "west",
@@ -197,10 +134,7 @@ export const createTelevisionRooms = (
         rotationY: number,
       ) => {
         const id = `tv-cave-v6-${wall}-${row + 1}-${column + 1}`;
-        const quaternion = new Quaternion().setFromAxisAngle(
-          UP_AXIS,
-          rotationY,
-        );
+        const quaternion = new Quaternion().setFromAxisAngle(UP_AXIS, rotationY);
         deps.createSpawnedCrtTelevision(crtAsset, id, DEFAULT_MODEL_SCALE, {
           position: {x: position[0], y: position[1], z: position[2]},
           quaternion: {
@@ -216,10 +150,8 @@ export const createTelevisionRooms = (
       const westColumnZs = [14.7, 16.3, 17.9] as const;
       const crossWallColumnXs = [17.5, 19.5, 21.5] as const;
       for (const [row, y] of rowYs.entries()) {
-        for (const [column, z] of eastColumnZs.entries())
-          addCrt("east", row, column, [22.4, y, z], Math.PI / 2);
-        for (const [column, z] of westColumnZs.entries())
-          addCrt("west", row, column, [17.6, y, z], -Math.PI / 2);
+        for (const [column, z] of eastColumnZs.entries()) addCrt("east", row, column, [22.4, y, z], Math.PI / 2);
+        for (const [column, z] of westColumnZs.entries()) addCrt("west", row, column, [17.6, y, z], -Math.PI / 2);
         for (const [column, x] of crossWallColumnXs.entries()) {
           addCrt("north", row, column, [x, y, 14.4], Math.PI);
           addCrt("south", row, column, [x, y, 22.2], 0);

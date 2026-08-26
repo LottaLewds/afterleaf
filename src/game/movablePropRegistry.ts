@@ -20,25 +20,15 @@ export const createMovablePropRecord = (
   id: registration.id,
   label: registration.label,
   locked: registration.locked ?? false,
-  ...(registration.modelAnimationIndex === undefined
-    ? {}
-    : {modelAnimationIndex: registration.modelAnimationIndex}),
-  ...(registration.modelAnimations
-    ? {modelAnimations: registration.modelAnimations}
-    : {}),
+  ...(registration.modelAnimationIndex === undefined ? {} : {modelAnimationIndex: registration.modelAnimationIndex}),
+  ...(registration.modelAnimations ? {modelAnimations: registration.modelAnimations} : {}),
   ...(registration.modelAsset ? {modelAsset: registration.modelAsset} : {}),
-  ...(registration.modelBaseSize
-    ? {modelBaseSize: registration.modelBaseSize}
-    : {}),
+  ...(registration.modelBaseSize ? {modelBaseSize: registration.modelBaseSize} : {}),
   ...(registration.modelMixer ? {modelMixer: registration.modelMixer} : {}),
-  ...(registration.modelScale === undefined
-    ? {}
-    : {modelScale: registration.modelScale}),
+  ...(registration.modelScale === undefined ? {} : {modelScale: registration.modelScale}),
   object: registration.object,
   placementSupport: registration.placementSupport ?? registration.object,
   rotationSnapStep: registration.rotationSnapStep ?? PROP_ROTATION_SNAP_STEP,
-  ...(registration.spawnAssetId
-    ? {spawnAssetId: registration.spawnAssetId}
-    : {}),
+  ...(registration.spawnAssetId ? {spawnAssetId: registration.spawnAssetId} : {}),
   spawned: registration.spawned ?? false,
 });

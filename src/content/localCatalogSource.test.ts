@@ -8,11 +8,7 @@ import {alternateTitleKey} from "~/content/publicationAlternates";
 const temporaryDirectories: string[] = [];
 
 afterEach(async () => {
-  await Promise.all(
-    temporaryDirectories
-      .splice(0)
-      .map((directory) => rm(directory, {force: true, recursive: true})),
-  );
+  await Promise.all(temporaryDirectories.splice(0).map((directory) => rm(directory, {force: true, recursive: true})));
 });
 
 test("local catalog source excludes blacklisted publication IDs", async () => {
@@ -36,17 +32,11 @@ test("local catalog source excludes blacklisted publication IDs", async () => {
     ).map(async ([id, language]) => {
       const directory = resolve(root, id);
       await mkdir(directory);
-      await writeFile(
-        resolve(directory, "publication.json"),
-        JSON.stringify(publication(id, language)),
-      );
+      await writeFile(resolve(directory, "publication.json"), JSON.stringify(publication(id, language)));
     }),
   );
   const source = new LocalCatalogSource(root, {
-    excludedPublicationIds: new Set([
-      "local-blacklisted-01",
-      "local-blacklisted-02",
-    ]),
+    excludedPublicationIds: new Set(["local-blacklisted-01", "local-blacklisted-02"]),
   });
   const references = await source.search({
     excludedTags: [],
@@ -56,9 +46,7 @@ test("local catalog source excludes blacklisted publication IDs", async () => {
     seed: "blacklist-test",
     tags: [],
   });
-  const publications = await Promise.all(
-    references.map((reference) => source.getMetadata(reference)),
-  );
+  const publications = await Promise.all(references.map((reference) => source.getMetadata(reference)));
   const publicationIds = publications.map(({document}) => document.id);
 
   expect(publicationIds).not.toContain("local-blacklisted-01");
@@ -88,14 +76,8 @@ test("local catalog source rejects legacy nHentai manifests whose language was i
     title: id,
   });
   await Promise.all([
-    writeFile(
-      resolve(englishDirectory, "publication.json"),
-      JSON.stringify(publication("nhentai-english", "english")),
-    ),
-    writeFile(
-      resolve(chineseDirectory, "publication.json"),
-      JSON.stringify(publication("nhentai-chinese", "chinese")),
-    ),
+    writeFile(resolve(englishDirectory, "publication.json"), JSON.stringify(publication("nhentai-english", "english"))),
+    writeFile(resolve(chineseDirectory, "publication.json"), JSON.stringify(publication("nhentai-chinese", "chinese"))),
   ]);
   const source = new LocalCatalogSource(root, {
     requiresLanguageTag: () => true,
@@ -123,10 +105,7 @@ test("local catalog source ignores interrupted hidden staging directories", asyn
   temporaryDirectories.push(root);
   const stagingDirectory = resolve(root, ".catalog.archive-staging-test");
   await mkdir(stagingDirectory);
-  await writeFile(
-    resolve(stagingDirectory, "publication.json"),
-    "not a publication manifest",
-  );
+  await writeFile(resolve(stagingDirectory, "publication.json"), "not a publication manifest");
   const source = new LocalCatalogSource(root);
 
   const references = await source.search({
@@ -159,14 +138,9 @@ test("local catalog source prefers nested manifests and deduplicates overlapping
   await Promise.all([
     writeFile(
       resolve(container, "publication.json"),
-      JSON.stringify(
-        publication("accidental-container", "author/book/001.jpg"),
-      ),
+      JSON.stringify(publication("accidental-container", "author/book/001.jpg")),
     ),
-    writeFile(
-      resolve(publicationDirectory, "publication.json"),
-      JSON.stringify(publication("real-book", "001.jpg")),
-    ),
+    writeFile(resolve(publicationDirectory, "publication.json"), JSON.stringify(publication("real-book", "001.jpg"))),
     writeFile(resolve(publicationDirectory, "001.jpg"), "page"),
   ]);
   const source = new LocalCatalogSource([root, container]);
@@ -180,9 +154,7 @@ test("local catalog source prefers nested manifests and deduplicates overlapping
     tags: [],
   });
 
-  expect(references.map(({sourceId}) => sourceId)).toEqual([
-    "manga/author/book",
-  ]);
+  expect(references.map(({sourceId}) => sourceId)).toEqual(["manga/author/book"]);
   expect(source.diagnostics).toEqual([
     expect.objectContaining({
       code: "shadowed-manifest",
@@ -196,11 +168,7 @@ test("local catalog source prefers nested manifests and deduplicates overlapping
 test("associates near-name duplicates, prefers uncensored editions, and keeps source tags reversible", async () => {
   const root = await mkdtemp(resolve(tmpdir(), "afterleaf-alternates-"));
   temporaryDirectories.push(root);
-  const writePublication = async (
-    id: string,
-    title: string,
-    tags: string[],
-  ) => {
+  const writePublication = async (id: string, title: string, tags: string[]) => {
     const directory = resolve(root, id);
     await mkdir(directory);
     await writeFile(
@@ -240,9 +208,7 @@ test("associates near-name duplicates, prefers uncensored editions, and keeps so
     ...query,
     languages: [...query.languages],
   });
-  const canonical = references[0]
-    ? await source.getMetadata(references[0])
-    : undefined;
+  const canonical = references[0] ? await source.getMetadata(references[0]) : undefined;
 
   expect(references).toHaveLength(1);
   expect(canonical).toMatchObject({
@@ -258,9 +224,7 @@ test("associates near-name duplicates, prefers uncensored editions, and keeps so
       },
     ],
   });
-  expect(source.diagnostics).toEqual([
-    expect.objectContaining({code: "suspected-duplicate"}),
-  ]);
+  expect(source.diagnostics).toEqual([expect.objectContaining({code: "suspected-duplicate"})]);
 
   const censoredManifest = resolve(root, "nhentai-666192/publication.json");
   const declassified = JSON.parse(await Bun.file(censoredManifest).text()) as {
@@ -275,9 +239,7 @@ test("associates near-name duplicates, prefers uncensored editions, and keeps so
   const declassifiedCandidates = await Promise.all(
     declassifiedReferences.map((reference) => source.getMetadata(reference)),
   );
-  const restored = declassifiedCandidates.find(
-    ({document}) => document.id === "nhentai-666192",
-  );
+  const restored = declassifiedCandidates.find(({document}) => document.id === "nhentai-666192");
 
   expect(declassifiedReferences).toHaveLength(2);
   expect(restored?.normalizedTags).toEqual(["big-breasts", "group"]);
@@ -285,12 +247,8 @@ test("associates near-name duplicates, prefers uncensored editions, and keeps so
 });
 
 test("ignores trailing edition markers without discarding a leading bracketed author", () => {
-  expect(
-    alternateTitleKey(
-      "[Horori] Z.Z.Z Gravure #06 [Digital] [English] [Uncensored]",
-    ),
-  ).toBe(alternateTitleKey("[Horori] Z.Z.Z Gravure #6"));
-  expect(alternateTitleKey("[Digital] Example Book")).not.toBe(
-    alternateTitleKey("Example Book"),
+  expect(alternateTitleKey("[Horori] Z.Z.Z Gravure #06 [Digital] [English] [Uncensored]")).toBe(
+    alternateTitleKey("[Horori] Z.Z.Z Gravure #6"),
   );
+  expect(alternateTitleKey("[Digital] Example Book")).not.toBe(alternateTitleKey("Example Book"));
 });

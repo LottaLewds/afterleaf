@@ -3,10 +3,7 @@ import {join} from "node:path";
 
 import {describe, expect, test} from "bun:test";
 
-import {
-  GAMEPAD_BUTTON_NAMES,
-  GAMEPAD_BUTTON_PRESENTATION,
-} from "~/game/input/bindings";
+import {GAMEPAD_BUTTON_NAMES, GAMEPAD_BUTTON_PRESENTATION} from "~/game/input/bindings";
 
 const ICON_DIRECTORY = join(import.meta.dir, "../../assets/input-prompts");
 
@@ -29,10 +26,7 @@ describe("prompt iconography", () => {
   test("every icon asset is a non-empty SVG", () => {
     expect(availableIcons.size).toBeGreaterThan(0);
     for (const icon of availableIcons) {
-      const contents = readFileSync(
-        join(ICON_DIRECTORY, `${icon}.svg`),
-        "utf8",
-      );
+      const contents = readFileSync(join(ICON_DIRECTORY, `${icon}.svg`), "utf8");
       expect(contents.startsWith("<svg")).toBe(true);
     }
   });

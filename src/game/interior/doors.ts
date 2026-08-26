@@ -1,16 +1,5 @@
-import {
-  CylinderGeometry,
-  Group,
-  MathUtils,
-  Mesh,
-  MeshStandardMaterial,
-  PlaneGeometry,
-} from "three";
-import {
-  RARE_ROOM_CENTER_X,
-  RARE_ROOM_CENTER_Z,
-  RARE_ROOM_DOOR_CENTER_X,
-} from "~/game/shopLayout";
+import {CylinderGeometry, Group, MathUtils, Mesh, MeshStandardMaterial, PlaneGeometry} from "three";
+import {RARE_ROOM_CENTER_X, RARE_ROOM_CENTER_Z, RARE_ROOM_DOOR_CENTER_X} from "~/game/shopLayout";
 import {SHOP_UPPER_FLOOR_Y} from "~/game/shopExpansionLayout";
 import type {AddBox} from "~/game/interior/interiorPrimitives";
 /** Callback signature for building a spine-shelf fixture. */
@@ -55,33 +44,17 @@ export class DoorSystem {
   }
 
   updateRareRoom(deltaSeconds: number, cameraX: number, cameraZ: number) {
-    const distance = Math.hypot(
-      cameraX - RARE_ROOM_DOOR_CENTER_X,
-      cameraZ - RARE_ROOM_DOOR_Z,
-    );
+    const distance = Math.hypot(cameraX - RARE_ROOM_DOOR_CENTER_X, cameraZ - RARE_ROOM_DOOR_Z);
     const target = distance < 3.35 ? 1 : 0;
-    this.#rareRoomOpen = MathUtils.damp(
-      this.#rareRoomOpen,
-      target,
-      target > 0 ? 9 : 5,
-      deltaSeconds,
-    );
+    this.#rareRoomOpen = MathUtils.damp(this.#rareRoomOpen, target, target > 0 ? 9 : 5, deltaSeconds);
     this.rareRoomPivot.rotation.y = this.#rareRoomOpen * Math.PI * 0.52;
   }
 
   updateHallway(deltaSeconds: number, cameraX: number, cameraZ: number) {
     for (const door of this.#hallway) {
-      const distance = Math.hypot(
-        cameraX - door.centerX,
-        cameraZ - door.centerZ,
-      );
+      const distance = Math.hypot(cameraX - door.centerX, cameraZ - door.centerZ);
       const target = distance < 3.35 ? 1 : 0;
-      door.open = MathUtils.damp(
-        door.open,
-        target,
-        target > 0 ? 9 : 5,
-        deltaSeconds,
-      );
+      door.open = MathUtils.damp(door.open, target, target > 0 ? 9 : 5, deltaSeconds);
       door.pivot.rotation.y = door.open * door.openAngle;
     }
   }
@@ -105,8 +78,7 @@ export const createHallwayDoor = (
   const framePostOffset = 1.42;
   const frameHeaderCenterY = SHOP_UPPER_FLOOR_Y + 2.52;
   const leafHalfWidth = framePostOffset - frameThickness / 2;
-  const leafHeight =
-    frameHeaderCenterY - frameThickness / 2 - SHOP_UPPER_FLOOR_Y;
+  const leafHeight = frameHeaderCenterY - frameThickness / 2 - SHOP_UPPER_FLOOR_Y;
   const frameCenterY = SHOP_UPPER_FLOOR_Y + 1.3;
   const doorGroup = new Group();
   doorGroup.name = `upper-hallway-door-${id}`;
@@ -117,20 +89,8 @@ export const createHallwayDoor = (
   if (wallAxis === "z") doorGroup.rotation.y = Math.PI / 2;
   parent.add(doorGroup);
   for (const z of [-framePostOffset, framePostOffset])
-    addBox(
-      doorGroup,
-      [frameThickness, 2.6, frameThickness],
-      [0, frameCenterY, z],
-      frameMaterial,
-      true,
-    );
-  addBox(
-    doorGroup,
-    [frameThickness, frameThickness, 3],
-    [0, frameHeaderCenterY, 0],
-    frameMaterial,
-    true,
-  );
+    addBox(doorGroup, [frameThickness, 2.6, frameThickness], [0, frameCenterY, z], frameMaterial, true);
+  addBox(doorGroup, [frameThickness, frameThickness, 3], [0, frameHeaderCenterY, 0], frameMaterial, true);
   const doors: AutomaticDoor[] = [];
   for (const side of [-1, 1] as const) {
     const pivot = new Group();
@@ -139,29 +99,12 @@ export const createHallwayDoor = (
     doorGroup.add(pivot);
 
     const leafCenterZ = (-side * leafHalfWidth) / 2;
-    addBox(
-      pivot,
-      [0.12, leafHeight, leafHalfWidth],
-      [0, leafHeight / 2, leafCenterZ],
-      doorMaterial,
-      true,
-    );
+    addBox(pivot, [0.12, leafHeight, leafHalfWidth], [0, leafHeight / 2, leafCenterZ], doorMaterial, true);
     for (const face of [-1, 1] as const)
       for (const y of [0.68, 1.72])
-        addBox(
-          pivot,
-          [0.055, 0.76, 0.92],
-          [face * 0.085, y, leafCenterZ],
-          frameMaterial,
-          true,
-        );
+        addBox(pivot, [0.055, 0.76, 0.92], [face * 0.085, y, leafCenterZ], frameMaterial, true);
     for (const face of [-1, 1] as const)
-      addBox(
-        pivot,
-        [0.1, 0.09, 0.09],
-        [face * 0.13, 1.16, -side * 1.08],
-        frameMaterial,
-      );
+      addBox(pivot, [0.1, 0.09, 0.09], [face * 0.13, 1.16, -side * 1.08], frameMaterial);
     doors.push({
       centerX,
       centerZ,
@@ -196,12 +139,7 @@ export const createRareRoom = (
   carpet.receiveShadow = true;
   parent.add(carpet);
 
-  deps.addBox(
-    parent,
-    [0.18, 4.55, 8.5],
-    [5.45, 2.275, RARE_ROOM_CENTER_Z],
-    wallMaterial,
-  );
+  deps.addBox(parent, [0.18, 4.55, 8.5], [5.45, 2.275, RARE_ROOM_CENTER_Z], wallMaterial);
 
   deps.createSpineShelfFixture(
     parent,
@@ -223,27 +161,9 @@ export const createRareRoom = (
   const frameMaterial = woodMaterial.clone();
   frameMaterial.color.set("#7d6658");
   frameMaterial.roughness = 0.8;
-  deps.addBox(
-    parent,
-    [0.16, 3.05, 0.28],
-    [7.43, 1.525, -1.98],
-    frameMaterial,
-    true,
-  );
-  deps.addBox(
-    parent,
-    [0.16, 3.05, 0.28],
-    [9.37, 1.525, -1.98],
-    frameMaterial,
-    true,
-  );
-  deps.addBox(
-    parent,
-    [2.1, 0.18, 0.28],
-    [8.4, 3.01, -1.98],
-    frameMaterial,
-    true,
-  );
+  deps.addBox(parent, [0.16, 3.05, 0.28], [7.43, 1.525, -1.98], frameMaterial, true);
+  deps.addBox(parent, [0.16, 3.05, 0.28], [9.37, 1.525, -1.98], frameMaterial, true);
+  deps.addBox(parent, [2.1, 0.18, 0.28], [8.4, 3.01, -1.98], frameMaterial, true);
 
   const door = deps.doors.rareRoomPivot;
   door.name = "special-collection-door";
@@ -257,14 +177,7 @@ export const createRareRoom = (
   doorMaterial.roughness = 0.72;
   deps.addBox(door, [1.77, 2.9, 0.12], [0.885, 1.45, 0], doorMaterial, true);
   for (const side of [-1, 1])
-    for (const y of [0.75, 2.05])
-      deps.addBox(
-        door,
-        [1.29, 0.9, 0.055],
-        [0.885, y, side * 0.085],
-        frameMaterial,
-        true,
-      );
+    for (const y of [0.75, 2.05]) deps.addBox(door, [1.29, 0.9, 0.055], [0.885, y, side * 0.085], frameMaterial, true);
   const handleMaterial = new MeshStandardMaterial({
     color: "#b89a55",
     metalness: 0.82,

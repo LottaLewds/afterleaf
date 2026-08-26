@@ -21,9 +21,7 @@ describe("art frame protocol", () => {
   test("parses channel catalogs and media URLs", () => {
     expect(
       parseArtFrameCatalog({
-        channels: [
-          {id: "night-scenes", images: [image], label: "Night Scenes"},
-        ],
+        channels: [{id: "night-scenes", images: [image], label: "Night Scenes"}],
       }),
     ).toEqual({
       channels: [{id: "night-scenes", images: [image], label: "Night Scenes"}],
@@ -60,10 +58,6 @@ describe("art frame protocol", () => {
         ],
       }),
     ).toThrow("duplicate channel IDs");
-    expect(
-      parseArtFrameMediaRequest(
-        `${ART_FRAME_MEDIA_ENDPOINT_PREFIX}not-hex.webp`,
-      ),
-    ).toEqual({kind: "invalid"});
+    expect(parseArtFrameMediaRequest(`${ART_FRAME_MEDIA_ENDPOINT_PREFIX}not-hex.webp`)).toEqual({kind: "invalid"});
   });
 });

@@ -30,9 +30,7 @@ describe("ReaderPagePreloader", () => {
       maxEntries: 4,
     });
 
-    await expect(preloader.preload("/page.webp")).rejects.toThrow(
-      "temporary failure",
-    );
+    await expect(preloader.preload("/page.webp")).rejects.toThrow("temporary failure");
     await preloader.preload("/page.webp");
 
     expect(attempts).toBe(2);

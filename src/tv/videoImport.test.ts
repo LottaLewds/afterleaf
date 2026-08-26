@@ -3,11 +3,7 @@ import {mkdir, mkdtemp, readFile, rm, writeFile} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {resolve} from "node:path";
 
-import {
-  importTvVideoToChannel,
-  TvVideoImportInputError,
-  type TvVideoDownloader,
-} from "~/tv/videoImport";
+import {importTvVideoToChannel, TvVideoImportInputError, type TvVideoDownloader} from "~/tv/videoImport";
 
 const roots: string[] = [];
 
@@ -19,9 +15,7 @@ const createRoot = async () => {
 };
 
 afterEach(async () => {
-  await Promise.all(
-    roots.splice(0).map((root) => rm(root, {force: true, recursive: true})),
-  );
+  await Promise.all(roots.splice(0).map((root) => rm(root, {force: true, recursive: true})));
 });
 
 describe("TV video URL import", () => {
@@ -44,9 +38,7 @@ describe("TV video URL import", () => {
       id: "Night_Show_[42].mp4",
       url: "/api/media/tv/channels/late-night/Night_Show_%5B42%5D.mp4",
     });
-    expect(await readFile(resolve(root, "late-night", video.id), "utf8")).toBe(
-      "video-content",
-    );
+    expect(await readFile(resolve(root, "late-night", video.id), "utf8")).toBe("video-content");
   });
 
   test("preserves existing programs when a filename collides", async () => {
@@ -66,9 +58,7 @@ describe("TV video URL import", () => {
     });
 
     expect(video.id).toBe("Show (2).mp4");
-    expect(
-      await readFile(resolve(root, "late-night", "Show.mp4"), "utf8"),
-    ).toBe("existing");
+    expect(await readFile(resolve(root, "late-night", "Show.mp4"), "utf8")).toBe("existing");
   });
 
   test("creates a missing channel from its first imported video", async () => {
@@ -86,9 +76,7 @@ describe("TV video URL import", () => {
       url: "https://example.com/pilot",
     });
 
-    expect(
-      await readFile(resolve(root, "documentaries", video.id), "utf8"),
-    ).toBe("new-channel-video");
+    expect(await readFile(resolve(root, "documentaries", video.id), "utf8")).toBe("new-channel-video");
   });
 
   test("rejects invalid URLs, channel IDs, and escaped output paths", async () => {

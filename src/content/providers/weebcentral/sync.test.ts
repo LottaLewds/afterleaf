@@ -1,13 +1,5 @@
 import {afterEach, expect, test} from "bun:test";
-import {
-  mkdtemp,
-  readFile,
-  readdir,
-  rename,
-  rm,
-  stat,
-  writeFile,
-} from "node:fs/promises";
+import {mkdtemp, readFile, readdir, rename, rm, stat, writeFile} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {resolve} from "node:path";
 import {BOOK_ASPECT_RATIO_INFERENCE_VERSION} from "~/content/bookAspectRatio";
@@ -19,11 +11,7 @@ import {stubFetch} from "~/test/fetchStub";
 const temporaryDirectories: string[] = [];
 
 afterEach(async () => {
-  await Promise.all(
-    temporaryDirectories
-      .splice(0)
-      .map((directory) => rm(directory, {force: true, recursive: true})),
-  );
+  await Promise.all(temporaryDirectories.splice(0).map((directory) => rm(directory, {force: true, recursive: true})));
 });
 
 const seriesHtml = (tags = ["Action"]) => `<main>
@@ -38,8 +26,7 @@ const seriesHtml = (tags = ["Action"]) => `<main>
   <a href="/search?adult=False">No</a>
 </main>`;
 const chapterListHtml = (uppercaseIds = false) => {
-  const chapterId = (number: number) =>
-    `${uppercaseIds ? "CHAPTER" : "chapter"}-${number}`;
+  const chapterId = (number: number) => `${uppercaseIds ? "CHAPTER" : "chapter"}-${number}`;
   return `<div><a href="/chapters/${chapterId(3)}"><span>Chapter 3</span><time datetime="2026-01-03T00:00:00.000Z"></time></a></div>
   <div><a href="/chapters/${chapterId(2)}"><span>Chapter 2</span><time datetime="2026-01-02T00:00:00.000Z"></time></a></div>
   <div><a href="/chapters/${chapterId(1)}"><span>Chapter 1</span><time datetime="2026-01-01T00:00:00.000Z"></time></a></div>`;
@@ -47,8 +34,7 @@ const chapterListHtml = (uppercaseIds = false) => {
 const pageListHtml = (pageCount = 4) =>
   Array.from(
     {length: pageCount},
-    (_, index) =>
-      `<img alt="Page ${index + 1}" src="https://images.test/${String(index + 1).padStart(3, "0")}.png">`,
+    (_, index) => `<img alt="Page ${index + 1}" src="https://images.test/${String(index + 1).padStart(3, "0")}.png">`,
   ).join("");
 
 const createClient = (
@@ -83,8 +69,7 @@ const createClient = (
           headers: {"content-type": "text/html"},
         });
       if (url.hostname === "images.test") {
-        if (options.imageFailure && url.pathname.endsWith("004.png"))
-          throw new Error("Synthetic image failure");
+        if (options.imageFailure && url.pathname.endsWith("004.png")) throw new Error("Synthetic image failure");
         return new Response(new Uint8Array([1, 2, 3]), {
           headers: {"content-type": "image/png"},
         });
@@ -117,14 +102,12 @@ test("WeebCentral sync writes a sparse local catalog", async () => {
     now: () => new Date("2026-08-05T12:00:00.000Z"),
   });
   const publicationDirectory = resolve(root, "weebcentral-series-id-chapter-1");
-  const manifest = JSON.parse(
-    await readFile(resolve(publicationDirectory, "publication.json"), "utf8"),
-  ) as Record<string, unknown>;
+  const manifest = JSON.parse(await readFile(resolve(publicationDirectory, "publication.json"), "utf8")) as Record<
+    string,
+    unknown
+  >;
   const sparseMetadata = JSON.parse(
-    await readFile(
-      resolve(publicationDirectory, WEEBCENTRAL_SPARSE_METADATA_FILE),
-      "utf8",
-    ),
+    await readFile(resolve(publicationDirectory, WEEBCENTRAL_SPARSE_METADATA_FILE), "utf8"),
   ) as Record<string, unknown>;
 
   expect(report).toMatchObject({
@@ -161,12 +144,8 @@ test("WeebCentral sync writes a sparse local catalog", async () => {
     ],
     schemaVersion: 1,
   });
-  await expect(
-    stat(resolve(publicationDirectory, "pages/001.png")),
-  ).resolves.toBeDefined();
-  await expect(
-    stat(resolve(publicationDirectory, "pages/004.png")),
-  ).resolves.toBeDefined();
+  await expect(stat(resolve(publicationDirectory, "pages/001.png"))).resolves.toBeDefined();
+  await expect(stat(resolve(publicationDirectory, "pages/004.png"))).resolves.toBeDefined();
 });
 
 test("WeebCentral unseen sync advances through complete chapters", async () => {
@@ -174,18 +153,10 @@ test("WeebCentral unseen sync advances through complete chapters", async () => {
   temporaryDirectories.push(root);
   const client = createClient();
   const first = await syncWeebCentralCatalog(syncOptions(root), {client});
-  const second = await syncWeebCentralCatalog(
-    {...syncOptions(root), limit: 2},
-    {client},
-  );
+  const second = await syncWeebCentralCatalog({...syncOptions(root), limit: 2}, {client});
 
-  expect(first.selectedPublicationIds).toEqual([
-    "weebcentral-series-id-chapter-1",
-  ]);
-  expect(second.selectedPublicationIds).toEqual([
-    "weebcentral-series-id-chapter-2",
-    "weebcentral-series-id-chapter-3",
-  ]);
+  expect(first.selectedPublicationIds).toEqual(["weebcentral-series-id-chapter-1"]);
+  expect(second.selectedPublicationIds).toEqual(["weebcentral-series-id-chapter-2", "weebcentral-series-id-chapter-3"]);
   expect(second.addedCount).toBe(2);
 });
 
@@ -200,9 +171,7 @@ test("WeebCentral skips blacklisted chapters without disturbing oldest-first ord
     {client: createClient()},
   );
 
-  expect(report.selectedPublicationIds).toEqual([
-    "weebcentral-series-id-chapter-2",
-  ]);
+  expect(report.selectedPublicationIds).toEqual(["weebcentral-series-id-chapter-2"]);
   expect(report.diagnostics).toContainEqual(
     expect.objectContaining({
       code: "blacklisted",
@@ -251,8 +220,7 @@ test("WeebCentral keeps remote ULIDs but canonicalizes and repairs local IDs", a
 
   expect(repaired).toMatchObject({addedCount: 0, updatedCount: 1});
   await expect(stat(publicationDirectory)).resolves.toBeDefined();
-  if (process.platform === "win32")
-    expect(await readdir(root)).toContain(publicationId);
+  if (process.platform === "win32") expect(await readdir(root)).toContain(publicationId);
   else await expect(stat(legacyDirectory)).rejects.toThrow();
 });
 
@@ -266,9 +234,7 @@ test("WeebCentral dry run does not fetch pages or write", async () => {
     {client: createClient({track: requests})},
   );
 
-  expect(report.selectedPublicationIds).toEqual([
-    "weebcentral-series-id-chapter-1",
-  ]);
+  expect(report.selectedPublicationIds).toEqual(["weebcentral-series-id-chapter-1"]);
   expect(requests.some((url) => url.includes("/images"))).toBe(false);
   await expect(stat(outputDirectory)).rejects.toThrow();
 });
@@ -280,10 +246,7 @@ test("WeebCentral sync deduplicates representative pages for short chapters", as
     client: createClient({pageCount: 2}),
   });
   const manifest = JSON.parse(
-    await readFile(
-      resolve(root, "weebcentral-series-id-chapter-1/publication.json"),
-      "utf8",
-    ),
+    await readFile(resolve(root, "weebcentral-series-id-chapter-1/publication.json"), "utf8"),
   ) as {
     assets: {back: string; front?: string; pages: string[]};
     pageCount: number;
@@ -307,9 +270,7 @@ test("WeebCentral sync filters blocked tags after parsing details", async () => 
   );
 
   expect(report.selectedPublicationIds).toEqual([]);
-  expect(report.diagnostics).toContainEqual(
-    expect.objectContaining({code: "blocked-tag"}),
-  );
+  expect(report.diagnostics).toContainEqual(expect.objectContaining({code: "blocked-tag"}));
   expect(requests.some((url) => url.includes("full-chapter-list"))).toBe(false);
 });
 
@@ -322,9 +283,7 @@ test("WeebCentral sync removes interrupted staging directories", async () => {
       client: createClient({imageFailure: true}),
     }),
   ).rejects.toThrow("Synthetic image failure");
-  expect(
-    (await readdir(root)).filter((entry) => entry.includes(".staging-")),
-  ).toEqual([]);
+  expect((await readdir(root)).filter((entry) => entry.includes(".staging-"))).toEqual([]);
 });
 
 const deferred = () => {
@@ -388,17 +347,13 @@ test("WeebCentral materialization overlaps continued paginated discovery", async
       return {
         hasNextPage: page === 1,
         series: [references[page - 1]].filter(
-          (reference): reference is (typeof references)[number] =>
-            reference !== undefined,
+          (reference): reference is (typeof references)[number] => reference !== undefined,
         ),
       };
     },
   } as unknown as WeebCentralClient;
 
-  const syncing = syncWeebCentralCatalog(
-    {...syncOptions(root), limit: 2, maxSearchPages: 2},
-    {client},
-  );
+  const syncing = syncWeebCentralCatalog({...syncOptions(root), limit: 2, maxSearchPages: 2}, {client});
   await secondSearch.promise;
   expect(activeDownloads).toBe(1);
   firstDownload.resolve();
@@ -419,9 +374,7 @@ test("WeebCentral bounds concurrent chapter materializations", async () => {
     path: `/series/${id}/Test-Manga`,
     slug: "Test-Manga",
   }));
-  const downloadGates = new Map(
-    references.map(({id}) => [id, deferred()] as const),
-  );
+  const downloadGates = new Map(references.map(({id}) => [id, deferred()] as const));
   const twoDownloadsStarted = deferred();
   const thirdDownloadStarted = deferred();
   let activeDownloads = 0;
@@ -434,10 +387,7 @@ test("WeebCentral bounds concurrent chapter materializations", async () => {
       if (!seriesId) throw new Error(`Unexpected page URL ${pageUrl}`);
       activeDownloads += 1;
       startedDownloads += 1;
-      maximumActiveDownloads = Math.max(
-        maximumActiveDownloads,
-        activeDownloads,
-      );
+      maximumActiveDownloads = Math.max(maximumActiveDownloads, activeDownloads);
       if (startedDownloads === 2) twoDownloadsStarted.resolve();
       if (startedDownloads === 3) thirdDownloadStarted.resolve();
       await downloadGates.get(seriesId)?.promise;
@@ -458,10 +408,7 @@ test("WeebCentral bounds concurrent chapter materializations", async () => {
     },
   } as unknown as WeebCentralClient;
 
-  const syncing = syncWeebCentralCatalog(
-    {...syncOptions(root), limit: 3},
-    {client},
-  );
+  const syncing = syncWeebCentralCatalog({...syncOptions(root), limit: 3}, {client});
   await twoDownloadsStarted.promise;
   expect(startedDownloads).toBe(2);
   downloadGates.get("series-a")?.resolve();

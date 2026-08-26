@@ -5,14 +5,8 @@ import type {ArtFrameSystem} from "~/game/artFrameSystem";
 import type {BookRecord} from "~/game/bookFactory";
 import type {PosterSystem} from "~/game/posters/PosterSystem";
 import type {ShopArcadeCabinet} from "~/game/ShopArcadeCabinet";
-import type {
-  InteractionUiState,
-  ShopInteractionMode,
-} from "~/game/shopInteractionView";
-import {
-  resolveShopInteractionMode,
-  resolveShopInteractionView,
-} from "~/game/shopInteractionView";
+import type {InteractionUiState, ShopInteractionMode} from "~/game/shopInteractionView";
+import {resolveShopInteractionMode, resolveShopInteractionView} from "~/game/shopInteractionView";
 import type {ShopSignSystem} from "~/game/signs/ShopSignSystem";
 import type {MovablePropRecord} from "~/game/shopTypes";
 
@@ -22,9 +16,7 @@ const book = (status: "floor" | "shelved" = "floor") =>
     state: {status},
   }) as unknown as BookRecord;
 
-const createState = (
-  overrides: Partial<InteractionUiState> = {},
-): InteractionUiState =>
+const createState = (overrides: Partial<InteractionUiState> = {}): InteractionUiState =>
   ({
     activeArcadeCabinet: undefined,
     arcadeProps: new Map(),
@@ -108,11 +100,7 @@ describe("shop interaction view", () => {
 
     expect(view.mode).toBe("inspection-spread");
     expect(view.prompt).toContain("return to shelf");
-    expect(view.interactions.map(({label}) => label)).toEqual([
-      "Turn page",
-      "Zoom",
-      "Return to shelf",
-    ]);
+    expect(view.interactions.map(({label}) => label)).toEqual(["Turn page", "Zoom", "Return to shelf"]);
   });
 
   test("includes default actions only when the player owns pointer input", () => {
@@ -120,12 +108,7 @@ describe("shop interaction view", () => {
     const view = resolveShopInteractionView(state);
 
     expect(view.mode).toBe("none");
-    expect(view.interactions.map(({key}) => key)).toEqual([
-      "M",
-      "P",
-      "V",
-      "Space",
-    ]);
+    expect(view.interactions.map(({key}) => key)).toEqual(["M", "P", "V", "Space"]);
   });
 
   test("keeps carried-book prompt and rows aligned with shelf targeting", () => {

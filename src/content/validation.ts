@@ -19,8 +19,7 @@ const expectRecord = (value: unknown, field: string) => {
 };
 
 const expectString = (value: unknown, field: string) => {
-  if (typeof value !== "string" || value.trim().length === 0)
-    throw new Error(`${field} must be a non-empty string`);
+  if (typeof value !== "string" || value.trim().length === 0) throw new Error(`${field} must be a non-empty string`);
   return value.trim();
 };
 
@@ -34,8 +33,7 @@ const expectId = (value: unknown, field: string) => {
 };
 
 const expectStringArray = (value: unknown, field: string) => {
-  if (!Array.isArray(value) || value.length === 0)
-    throw new Error(`${field} must be a non-empty string array`);
+  if (!Array.isArray(value) || value.length === 0) throw new Error(`${field} must be a non-empty string array`);
   return value.map((entry, index) => expectString(entry, `${field}[${index}]`));
 };
 
@@ -47,46 +45,29 @@ const expectPossiblyEmptyStringArray = (value: unknown, field: string) => {
 const optionalString = (value: unknown, field: string) =>
   value === undefined ? undefined : expectString(value, field);
 
-const parseKind = (
-  value: unknown,
-  field: string,
-): PublicationKind | undefined => {
+const parseKind = (value: unknown, field: string): PublicationKind | undefined => {
   if (value === undefined) return undefined;
   const kind = expectString(value, field);
   const matchedKind = PUBLICATION_KINDS.find((candidate) => candidate === kind);
-  if (!matchedKind)
-    throw new Error(`${field} must be one of: ${PUBLICATION_KINDS.join(", ")}`);
+  if (!matchedKind) throw new Error(`${field} must be one of: ${PUBLICATION_KINDS.join(", ")}`);
   return matchedKind;
 };
 
-const parsePositiveInteger = (
-  value: unknown,
-  field: string,
-): number | undefined => {
+const parsePositiveInteger = (value: unknown, field: string): number | undefined => {
   if (value === undefined) return undefined;
-  if (!Number.isSafeInteger(value) || Number(value) <= 0)
-    throw new Error(`${field} must be a positive integer`);
+  if (!Number.isSafeInteger(value) || Number(value) <= 0) throw new Error(`${field} must be a positive integer`);
   return Number(value);
 };
 
-const parseIssue = (
-  value: unknown,
-  field: string,
-): PublicationIssue | undefined => {
+const parseIssue = (value: unknown, field: string): PublicationIssue | undefined => {
   if (value === undefined) return undefined;
   const issue = expectRecord(value, field);
   const year = parsePositiveInteger(issue.year, `${field}.year`);
   const month = parsePositiveInteger(issue.month, `${field}.month`);
   const number = parsePositiveInteger(issue.number, `${field}.number`);
   const label = optionalString(issue.label, `${field}.label`);
-  if (month !== undefined && month > 12)
-    throw new Error(`${field}.month must be between 1 and 12`);
-  if (
-    year === undefined &&
-    month === undefined &&
-    number === undefined &&
-    label === undefined
-  )
+  if (month !== undefined && month > 12) throw new Error(`${field}.month must be between 1 and 12`);
+  if (year === undefined && month === undefined && number === undefined && label === undefined)
     throw new Error(`${field} must contain at least one issue value`);
   return {
     ...(year === undefined ? {} : {year}),
@@ -113,8 +94,7 @@ const parseSource = (value: unknown): PublicationProvenance | undefined => {
   if (value === undefined) return undefined;
   const source = expectRecord(value, "source");
   const retrievedAt = expectString(source.retrievedAt, "source.retrievedAt");
-  if (Number.isNaN(Date.parse(retrievedAt)))
-    throw new Error("source.retrievedAt must be an ISO date");
+  if (Number.isNaN(Date.parse(retrievedAt))) throw new Error("source.retrievedAt must be an ISO date");
   return {
     provider: expectString(source.provider, "source.provider"),
     remoteId: expectString(source.remoteId, "source.remoteId"),
@@ -129,24 +109,17 @@ const parsePhysical = (value: unknown): PublicationPhysical | undefined => {
   const physical = expectRecord(value, "physical");
   const direction = physical.readingDirection;
   if (direction !== undefined && direction !== "ltr" && direction !== "rtl")
-    throw new Error(
-      'physical.readingDirection must be "ltr", "rtl", or omitted',
-    );
+    throw new Error('physical.readingDirection must be "ltr", "rtl", or omitted');
   const thicknessMm = physical.thicknessMm;
   if (
     thicknessMm !== undefined &&
-    (typeof thicknessMm !== "number" ||
-      !Number.isFinite(thicknessMm) ||
-      thicknessMm <= 0)
+    (typeof thicknessMm !== "number" || !Number.isFinite(thicknessMm) || thicknessMm <= 0)
   )
     throw new Error("physical.thicknessMm must be a positive number");
   const aspectRatio = physical.aspectRatio;
   if (
     aspectRatio !== undefined &&
-    (typeof aspectRatio !== "number" ||
-      !Number.isFinite(aspectRatio) ||
-      aspectRatio < 0.35 ||
-      aspectRatio > 1.5)
+    (typeof aspectRatio !== "number" || !Number.isFinite(aspectRatio) || aspectRatio < 0.35 || aspectRatio > 1.5)
   )
     throw new Error("physical.aspectRatio must be between 0.35 and 1.5");
   const trim = optionalString(physical.trim, "physical.trim");
@@ -158,15 +131,10 @@ const parsePhysical = (value: unknown): PublicationPhysical | undefined => {
   };
 };
 
-export const parseLocalPublicationDocument = (
-  value: unknown,
-  fileName: string,
-): LocalPublicationDocument => {
+export const parseLocalPublicationDocument = (value: unknown, fileName: string): LocalPublicationDocument => {
   const document = expectRecord(value, fileName);
   if (document.schemaVersion !== CONTENT_SCHEMA_VERSION)
-    throw new Error(
-      `${fileName}: schemaVersion must be ${CONTENT_SCHEMA_VERSION}`,
-    );
+    throw new Error(`${fileName}: schemaVersion must be ${CONTENT_SCHEMA_VERSION}`);
   const aspectRatioInferenceVersion = parsePositiveInteger(
     document.aspectRatioInferenceVersion,
     `${fileName}.aspectRatioInferenceVersion`,
@@ -176,24 +144,15 @@ export const parseLocalPublicationDocument = (
   const kind = parseKind(document.kind, `${fileName}.kind`);
   const physical = parsePhysical(document.physical);
   const source = parseSource(document.source);
-  const pageCount = parsePositiveInteger(
-    document.pageCount,
-    `${fileName}.pageCount`,
-  );
+  const pageCount = parsePositiveInteger(document.pageCount, `${fileName}.pageCount`);
   const assets = parseAssets(document.assets);
   if (assets.pages.length === 0 && pageCount === undefined)
-    throw new Error(
-      `${fileName}.pageCount is required when assets.pages is empty`,
-    );
+    throw new Error(`${fileName}.pageCount is required when assets.pages is empty`);
   if (pageCount !== undefined && pageCount < assets.pages.length)
-    throw new Error(
-      `${fileName}.pageCount cannot be smaller than assets.pages`,
-    );
+    throw new Error(`${fileName}.pageCount cannot be smaller than assets.pages`);
   return {
     schemaVersion: CONTENT_SCHEMA_VERSION,
-    ...(aspectRatioInferenceVersion === undefined
-      ? {}
-      : {aspectRatioInferenceVersion}),
+    ...(aspectRatioInferenceVersion === undefined ? {} : {aspectRatioInferenceVersion}),
     id: expectId(document.id, `${fileName}.id`),
     ...(groupId === undefined ? {} : {groupId}),
     ...(issue === undefined ? {} : {issue}),
@@ -209,19 +168,12 @@ export const parseLocalPublicationDocument = (
 };
 
 export const resolveContainedPath = (root: string, candidate: string) => {
-  if (candidate.includes("\\"))
-    throw new Error(`Asset path must use portable separators: ${candidate}`);
-  if (isAbsolute(candidate))
-    throw new Error(`Asset path must be relative: ${candidate}`);
+  if (candidate.includes("\\")) throw new Error(`Asset path must use portable separators: ${candidate}`);
+  if (isAbsolute(candidate)) throw new Error(`Asset path must be relative: ${candidate}`);
   const resolvedRoot = resolve(root);
   const resolvedCandidate = resolve(resolvedRoot, candidate);
   const relativePath = relative(resolvedRoot, resolvedCandidate);
-  if (
-    relativePath === "" ||
-    relativePath === ".." ||
-    relativePath.startsWith(`..${sep}`) ||
-    isAbsolute(relativePath)
-  )
+  if (relativePath === "" || relativePath === ".." || relativePath.startsWith(`..${sep}`) || isAbsolute(relativePath))
     throw new Error(`Asset path escapes publication directory: ${candidate}`);
   return resolvedCandidate;
 };

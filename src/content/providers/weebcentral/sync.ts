@@ -1,13 +1,5 @@
 import {createHash, randomUUID} from "node:crypto";
-import {
-  access,
-  mkdir,
-  readdir,
-  readFile,
-  rename,
-  rm,
-  writeFile,
-} from "node:fs/promises";
+import {access, mkdir, readdir, readFile, rename, rm, writeFile} from "node:fs/promises";
 import {basename, parse, resolve} from "node:path";
 import {replaceDirectory} from "~/content/replaceDirectory";
 import {
@@ -24,15 +16,8 @@ import {
   type LibraryProviderSyncReport,
   type LocalPublicationDocument,
 } from "@afterleaf/provider-sdk";
-import {
-  WeebCentralClient,
-  type WeebCentralChapter,
-  type WeebCentralSeries,
-} from "./client";
-import {
-  WEEBCENTRAL_SPARSE_METADATA_FILE,
-  createWeebCentralSparseMetadata,
-} from "./sparseMetadata";
+import {WeebCentralClient, type WeebCentralChapter, type WeebCentralSeries} from "./client";
+import {WEEBCENTRAL_SPARSE_METADATA_FILE, createWeebCentralSparseMetadata} from "./sparseMetadata";
 
 const PROVIDER_ID = "weebcentral";
 const MAX_CONCURRENT_CHAPTER_MATERIALIZATIONS = 2;
@@ -55,14 +40,11 @@ const assertSafeOutputDirectory = (path: string) => {
   return outputDirectory;
 };
 
-const remotePublicationId = (seriesId: string, chapterId: string) =>
-  `${PROVIDER_ID}-${seriesId}-${chapterId}`;
+const remotePublicationId = (seriesId: string, chapterId: string) => `${PROVIDER_ID}-${seriesId}-${chapterId}`;
 
-const publicationId = (seriesId: string, chapterId: string) =>
-  remotePublicationId(seriesId, chapterId).toLowerCase();
+const publicationId = (seriesId: string, chapterId: string) => remotePublicationId(seriesId, chapterId).toLowerCase();
 
-const publicationGroupId = (seriesId: string) =>
-  `${PROVIDER_ID}-${seriesId}`.toLowerCase();
+const publicationGroupId = (seriesId: string) => `${PROVIDER_ID}-${seriesId}`.toLowerCase();
 
 const logicalChapterKey = (seriesId: string, chapterNumber: number) =>
   `${seriesId.toLowerCase()}:english:chapter:${chapterNumber}`;
@@ -74,29 +56,17 @@ const manifestLogicalChapterKey = (manifest: LocalPublicationDocument) => {
     manifest.issue?.number === undefined
   )
     return undefined;
-  return logicalChapterKey(
-    manifest.groupId.slice(`${PROVIDER_ID}-`.length),
-    manifest.issue.number,
-  );
+  return logicalChapterKey(manifest.groupId.slice(`${PROVIDER_ID}-`.length), manifest.issue.number);
 };
 
 const pageExtension = (pageUrl: string) => {
-  const extension = new URL(pageUrl).pathname
-    .match(/\.([a-z\d]+)$/iu)?.[1]
-    ?.toLowerCase();
-  return extension === "png" ||
-    extension === "webp" ||
-    extension === "jpeg" ||
-    extension === "avif"
+  const extension = new URL(pageUrl).pathname.match(/\.([a-z\d]+)$/iu)?.[1]?.toLowerCase();
+  return extension === "png" || extension === "webp" || extension === "jpeg" || extension === "avif"
     ? extension
     : "jpg";
 };
 
-const metadataHash = (
-  series: WeebCentralSeries,
-  chapter: WeebCentralChapter,
-  pages: readonly string[],
-) =>
+const metadataHash = (series: WeebCentralSeries, chapter: WeebCentralChapter, pages: readonly string[]) =>
   createHash("sha256")
     .update(
       JSON.stringify({
@@ -123,25 +93,20 @@ const manifestForChapter = (
   retrievedAt: string,
   sourceOrigin: string,
 ): LocalPublicationDocument => {
-  if (pageUrls.length === 0)
-    throw new Error(`WeebCentral chapter ${chapter.id} has no pages`);
+  if (pageUrls.length === 0) throw new Error(`WeebCentral chapter ${chapter.id} has no pages`);
   const title = `${series.title} · ${chapter.label}`;
   const tags = normalizeTags(["manga", "english", ...series.tags]);
   const identity = inferPreparedPublicationIdentity(title, tags);
   const pageDigits = Math.max(3, String(pageUrls.length).length);
   const pagePath = (pageIndex: number) => {
     const pageUrl = pageUrls[pageIndex];
-    if (!pageUrl)
-      throw new Error(
-        `WeebCentral chapter ${chapter.id} lacks page metadata for page ${pageIndex + 1}`,
-      );
+    if (!pageUrl) throw new Error(`WeebCentral chapter ${chapter.id} lacks page metadata for page ${pageIndex + 1}`);
     return `pages/${String(pageIndex + 1).padStart(pageDigits, "0")}.${pageExtension(pageUrl)}`;
   };
   const pagePlan = createRepresentativePagePlan(pageUrls.length);
   const pages = pagePlan.initialPageIndexes.map(pagePath);
   const firstPage = pages[0];
-  if (!firstPage)
-    throw new Error(`WeebCentral chapter ${chapter.id} has no pages`);
+  if (!firstPage) throw new Error(`WeebCentral chapter ${chapter.id} has no pages`);
   return {
     schemaVersion: CONTENT_SCHEMA_VERSION,
     id: publicationId(series.id, chapter.id),
@@ -168,27 +133,17 @@ const manifestForChapter = (
   };
 };
 
-const publicationAssetsMatch = (
-  first: LocalPublicationDocument,
-  second: LocalPublicationDocument,
-) =>
+const publicationAssetsMatch = (first: LocalPublicationDocument, second: LocalPublicationDocument) =>
   first.source?.metadataHash === second.source?.metadataHash &&
   first.assets.front === second.assets.front &&
   first.assets.back === second.assets.back &&
   first.assets.pages.length === second.assets.pages.length &&
-  first.assets.pages.every(
-    (page, index) => page === second.assets.pages[index],
-  );
+  first.assets.pages.every((page, index) => page === second.assets.pages[index]);
 
 const existingManifest = async (publicationDirectory: string) => {
   try {
     return parseLocalPublicationDocument(
-      JSON.parse(
-        await readFile(
-          resolve(publicationDirectory, "publication.json"),
-          "utf8",
-        ),
-      ) as unknown,
+      JSON.parse(await readFile(resolve(publicationDirectory, "publication.json"), "utf8")) as unknown,
       resolve(publicationDirectory, "publication.json"),
     );
   } catch {
@@ -196,19 +151,14 @@ const existingManifest = async (publicationDirectory: string) => {
   }
 };
 
-const publicationIsComplete = async (
-  publicationDirectory: string,
-  manifest: LocalPublicationDocument,
-) => {
+const publicationIsComplete = async (publicationDirectory: string, manifest: LocalPublicationDocument) => {
   const paths = [
     ...manifest.assets.pages,
     ...(manifest.assets.front ? [manifest.assets.front] : []),
     ...(manifest.assets.back ? [manifest.assets.back] : []),
     ...(manifest.assets.spine ? [manifest.assets.spine] : []),
   ];
-  return paths.every((asset) =>
-    fileExists(resolve(publicationDirectory, asset)),
-  );
+  return paths.every((asset) => fileExists(resolve(publicationDirectory, asset)));
 };
 
 const cachedPublicationState = async (outputDirectory: string) => {
@@ -227,8 +177,7 @@ const cachedPublicationState = async (outputDirectory: string) => {
     const publicationDirectory = resolve(outputDirectory, entry.name);
     const manifest = await existingManifest(publicationDirectory);
     if (!manifest || manifest.id !== entry.name) continue;
-    if (!(await publicationIsComplete(publicationDirectory, manifest)))
-      continue;
+    if (!(await publicationIsComplete(publicationDirectory, manifest))) continue;
     completePublicationIds.add(manifest.id);
     const logicalKey = manifestLogicalChapterKey(manifest);
     if (logicalKey) completeLogicalChapterKeys.add(logicalKey);
@@ -236,10 +185,7 @@ const cachedPublicationState = async (outputDirectory: string) => {
   return {completeLogicalChapterKeys, completePublicationIds};
 };
 
-const commitPublication = async (
-  stagingDirectory: string,
-  publicationDirectory: string,
-) => {
+const commitPublication = async (stagingDirectory: string, publicationDirectory: string) => {
   if (!(await fileExists(publicationDirectory))) {
     await replaceDirectory(stagingDirectory, publicationDirectory);
     return "added" as const;
@@ -251,8 +197,7 @@ const commitPublication = async (
     await rm(backupDirectory, {recursive: true, force: true});
     return "updated" as const;
   } catch (error) {
-    if (!(await fileExists(publicationDirectory)))
-      await rename(backupDirectory, publicationDirectory);
+    if (!(await fileExists(publicationDirectory))) await rename(backupDirectory, publicationDirectory);
     throw error;
   }
 };
@@ -266,53 +211,33 @@ const materializeChapter = async (
   pageUrls: readonly string[],
   markStarted: () => void,
 ) => {
-  const document = manifestForChapter(
-    series,
-    chapter,
-    pageUrls,
-    retrievedAt,
-    client.origin,
-  );
+  const document = manifestForChapter(series, chapter, pageUrls, retrievedAt, client.origin);
   const publicationDirectory = resolve(outputDirectory, document.id);
   const documentMetadataHash = document.source?.metadataHash;
-  if (!documentMetadataHash)
-    throw new Error(`WeebCentral chapter ${chapter.id} lacks a metadata hash`);
+  if (!documentMetadataHash) throw new Error(`WeebCentral chapter ${chapter.id} lacks a metadata hash`);
   const sparseMetadata = `${JSON.stringify(
     createWeebCentralSparseMetadata(chapter.id, documentMetadataHash, pageUrls),
     null,
     2,
   )}\n`;
-  const legacyPublicationDirectory = resolve(
-    outputDirectory,
-    remotePublicationId(series.id, chapter.id),
-  );
+  const legacyPublicationDirectory = resolve(outputDirectory, remotePublicationId(series.id, chapter.id));
   const legacyAndCanonicalAreSame =
     process.platform === "win32"
-      ? legacyPublicationDirectory.toLowerCase() ===
-        publicationDirectory.toLowerCase()
+      ? legacyPublicationDirectory.toLowerCase() === publicationDirectory.toLowerCase()
       : legacyPublicationDirectory === publicationDirectory;
-  const hasLegacyPublication =
-    !legacyAndCanonicalAreSame &&
-    (await fileExists(legacyPublicationDirectory));
+  const hasLegacyPublication = !legacyAndCanonicalAreSame && (await fileExists(legacyPublicationDirectory));
   const existing = await existingManifest(publicationDirectory);
   if (
     existing &&
     publicationAssetsMatch(existing, document) &&
     (await publicationIsComplete(publicationDirectory, existing))
   ) {
-    const sparseMetadataPath = resolve(
-      publicationDirectory,
-      WEEBCENTRAL_SPARSE_METADATA_FILE,
-    );
-    if (!(await fileExists(sparseMetadataPath)))
-      await writeFile(sparseMetadataPath, sparseMetadata);
+    const sparseMetadataPath = resolve(publicationDirectory, WEEBCENTRAL_SPARSE_METADATA_FILE);
+    if (!(await fileExists(sparseMetadataPath))) await writeFile(sparseMetadataPath, sparseMetadata);
     return "unchanged" as const;
   }
 
-  const stagingDirectory = resolve(
-    outputDirectory,
-    `.${document.id}.staging-${randomUUID()}`,
-  );
+  const stagingDirectory = resolve(outputDirectory, `.${document.id}.staging-${randomUUID()}`);
   await mkdir(resolve(stagingDirectory, "pages"), {recursive: true});
   try {
     const pagePlan = createRepresentativePagePlan(pageUrls.length);
@@ -329,37 +254,19 @@ const materializeChapter = async (
           nextDownloadIndex += 1;
           if (!download) continue;
           const pageUrl = pageUrls[download.pageIndex];
-          if (!pageUrl)
-            throw new Error(
-              `WeebCentral chapter ${chapter.id} has incomplete page metadata`,
-            );
+          if (!pageUrl) throw new Error(`WeebCentral chapter ${chapter.id} has incomplete page metadata`);
           markStarted();
           const bytes = await client.downloadPage(pageUrl);
           downloadedPages.push({bytes, pageIndex: download.pageIndex});
-          if (
-            document.assets.pages[download.pageIndex] ||
-            download.pageIndex === pagePlan.backPageIndex
-          )
+          if (document.assets.pages[download.pageIndex] || download.pageIndex === pagePlan.backPageIndex)
             await writeFile(resolve(stagingDirectory, download.path), bytes);
         }
       }),
     );
-    const finalizedDocument = await finalizeProviderPublicationDocument(
-      document,
-      downloadedPages,
-    );
-    await writeFile(
-      resolve(stagingDirectory, "publication.json"),
-      `${JSON.stringify(finalizedDocument, null, 2)}\n`,
-    );
-    await writeFile(
-      resolve(stagingDirectory, WEEBCENTRAL_SPARSE_METADATA_FILE),
-      sparseMetadata,
-    );
-    const result = await commitPublication(
-      stagingDirectory,
-      publicationDirectory,
-    );
+    const finalizedDocument = await finalizeProviderPublicationDocument(document, downloadedPages);
+    await writeFile(resolve(stagingDirectory, "publication.json"), `${JSON.stringify(finalizedDocument, null, 2)}\n`);
+    await writeFile(resolve(stagingDirectory, WEEBCENTRAL_SPARSE_METADATA_FILE), sparseMetadata);
+    const result = await commitPublication(stagingDirectory, publicationDirectory);
     if (!hasLegacyPublication) return result;
     await rm(legacyPublicationDirectory, {recursive: true, force: true});
     return result === "added" ? "updated" : result;
@@ -369,17 +276,10 @@ const materializeChapter = async (
   }
 };
 
-const writeSyncLedger = async (
-  outputDirectory: string,
-  report: LibraryProviderSyncReport,
-  syncedAt: string,
-) => {
+const writeSyncLedger = async (outputDirectory: string, report: LibraryProviderSyncReport, syncedAt: string) => {
   const path = resolve(outputDirectory, ".weebcentral-sync.json");
   const temporaryPath = `${path}.staging-${randomUUID()}`;
-  await writeFile(
-    temporaryPath,
-    `${JSON.stringify({schemaVersion: 1, syncedAt, ...report}, null, 2)}\n`,
-  );
+  await writeFile(temporaryPath, `${JSON.stringify({schemaVersion: 1, syncedAt, ...report}, null, 2)}\n`);
   await rename(temporaryPath, path);
 };
 
@@ -392,13 +292,9 @@ export const syncWeebCentralCatalog = async (
 ): Promise<LibraryProviderSyncReport> => {
   if (!Number.isSafeInteger(options.limit) || options.limit <= 0)
     throw new Error("WeebCentral sync limit must be a positive integer");
-  if (
-    !Number.isSafeInteger(options.maxSearchPages) ||
-    options.maxSearchPages <= 0
-  )
+  if (!Number.isSafeInteger(options.maxSearchPages) || options.maxSearchPages <= 0)
     throw new Error("WeebCentral search pages must be a positive integer");
-  if (!options.languages.includes("english"))
-    throw new Error("WeebCentral sync requires English catalog language");
+  if (!options.languages.includes("english")) throw new Error("WeebCentral sync requires English catalog language");
 
   const outputDirectory = assertSafeOutputDirectory(options.outputDirectory);
   const client = dependencies.client ?? new WeebCentralClient();
@@ -428,20 +324,14 @@ export const syncWeebCentralCatalog = async (
   type SelectedChapter = (typeof selected)[number];
   type PreparedChapter = SelectedChapter & {pageUrls: readonly string[]};
   type MaterializationResult = Awaited<ReturnType<typeof materializeChapter>>;
-  const acquisitions = createConcurrentAcquisitionPipeline<
-    SelectedChapter,
-    PreparedChapter,
-    MaterializationResult
-  >({
+  const acquisitions = createConcurrentAcquisitionPipeline<SelectedChapter, PreparedChapter, MaterializationResult>({
     concurrency: MAX_CONCURRENT_CHAPTER_MATERIALIZATIONS,
     prepare: async (entry) => ({
       ...entry,
       pageUrls: await client.getPageList(entry.chapter.id),
     }),
     acquire: (entry, {markStarted}) => {
-      options.onProgress?.(
-        `Downloading WeebCentral publication ${entry.selectionIndex + 1} of ${options.limit}`,
-      );
+      options.onProgress?.(`Downloading WeebCentral publication ${entry.selectionIndex + 1} of ${options.limit}`);
       return materializeChapter(
         client,
         entry.series,
@@ -452,25 +342,15 @@ export const syncWeebCentralCatalog = async (
         markStarted,
       ).finally(() => {
         stepCompletedCount += 1;
-        options.onStep?.(
-          Math.min(stepCompletedCount, stepTotalCount),
-          stepTotalCount,
-        );
+        options.onStep?.(Math.min(stepCompletedCount, stepTotalCount), stepTotalCount);
       });
     },
   });
 
   try {
     for (let page = 1; page <= options.maxSearchPages; page += 1) {
-      options.onProgress?.(
-        `Searching WeebCentral page ${page} of ${options.maxSearchPages} for new publications`,
-      );
-      const searchPage = await client.searchSeries(
-        options.query,
-        page,
-        options.languages,
-        options.blockedTags,
-      );
+      options.onProgress?.(`Searching WeebCentral page ${page} of ${options.maxSearchPages} for new publications`);
+      const searchPage = await client.searchSeries(options.query, page, options.languages, options.blockedTags);
       let firstPageAcquisitionStarted: Promise<void> | undefined;
       for (const reference of searchPage.series) {
         if (seenSeriesIds.has(reference.id)) continue;
@@ -493,8 +373,7 @@ export const syncWeebCentralCatalog = async (
           continue;
         }
         const chapters = (await client.getChapterList(series.id)).toSorted(
-          (left, right) =>
-            left.number - right.number || left.id.localeCompare(right.id),
+          (left, right) => left.number - right.number || left.id.localeCompare(right.id),
         );
         for (const chapter of chapters) {
           const logicalKey = logicalChapterKey(series.id, chapter.number);
@@ -524,10 +403,7 @@ export const syncWeebCentralCatalog = async (
           selected.push(entry);
           if (options.write) {
             stepTotalCount += 1;
-            options.onStep?.(
-              Math.min(stepCompletedCount, stepTotalCount),
-              stepTotalCount,
-            );
+            options.onStep?.(Math.min(stepCompletedCount, stepTotalCount), stepTotalCount);
             const acquisition = acquisitions.enqueue(entry);
             firstPageAcquisitionStarted ??= acquisition.started;
           }
@@ -545,9 +421,7 @@ export const syncWeebCentralCatalog = async (
     throw error;
   }
 
-  const selectedPublicationIds = selected.map(({chapter, series}) =>
-    publicationId(series.id, chapter.id),
-  );
+  const selectedPublicationIds = selected.map(({chapter, series}) => publicationId(series.id, chapter.id));
   let addedCount = 0;
   let unchangedCount = 0;
   let updatedCount = 0;

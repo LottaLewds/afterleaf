@@ -54,12 +54,9 @@ export const addInteriorBox = (
   posterRaycastMeshes: Mesh[],
 ) => {
   let geometry: BoxGeometry;
-  if (material.userData.boxUvMode === "wallpaper")
-    geometry = createWallpaperBoxGeometry(size, position);
-  else if (material.userData.boxUvMode === "upholstery")
-    geometry = createUpholsteryBoxGeometry(size, position);
-  else if (material.userData.boxUvMode === "ceiling")
-    geometry = createCeilingBoxGeometry(size, position);
+  if (material.userData.boxUvMode === "wallpaper") geometry = createWallpaperBoxGeometry(size, position);
+  else if (material.userData.boxUvMode === "upholstery") geometry = createUpholsteryBoxGeometry(size, position);
+  else if (material.userData.boxUvMode === "ceiling") geometry = createCeilingBoxGeometry(size, position);
   else if (material.map) geometry = createWoodBoxGeometry(size, position);
   else geometry = new BoxGeometry(...size);
   const mesh = new Mesh(geometry, material);
@@ -173,21 +170,15 @@ export const resolveWallPlacement = (
   const framedHeight = 1 + border;
   const cosine = Math.abs(Math.cos(rotation));
   const sine = Math.abs(Math.sin(rotation));
-  const boundingWidthPerHeight =
-    cosine * framedAspectRatio + sine * framedHeight;
-  const boundingHeightPerHeight =
-    sine * framedAspectRatio + cosine * framedHeight;
+  const boundingWidthPerHeight = cosine * framedAspectRatio + sine * framedHeight;
+  const boundingHeightPerHeight = sine * framedAspectRatio + cosine * framedHeight;
   const maximumHeight = Math.min(
     MAX_POSTER_HEIGHT,
     (surface.height - POSTER_SURFACE_MARGIN) / boundingHeightPerHeight,
     (surface.width - POSTER_SURFACE_MARGIN) / boundingWidthPerHeight,
   );
   if (maximumHeight < MIN_POSTER_HEIGHT) return undefined;
-  const height = MathUtils.clamp(
-    desiredHeight,
-    MIN_POSTER_HEIGHT,
-    maximumHeight,
-  );
+  const height = MathUtils.clamp(desiredHeight, MIN_POSTER_HEIGHT, maximumHeight);
   const halfWidth = (boundingWidthPerHeight * height) / 2;
   const halfHeight = (boundingHeightPerHeight * height) / 2;
   const point = localPoint.copy(worldPoint);

@@ -9,7 +9,7 @@
   "tabWidth": 2,
   "useTabs": false,
   "sortTailwindcss": {},
-  "printWidth": 80,
+  "printWidth": 120,
   "sortPackageJson": false,
   "ignorePatterns": ["**/.bun-cache/**"]
 }

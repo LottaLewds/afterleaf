@@ -32,9 +32,7 @@ describe("poster protocol", () => {
       parsePosterCatalog({
         posters: [{aspectRatio: 1.5, id, label: "Legacy Poster", url}],
       }).posters,
-    ).toEqual([
-      {aspectRatio: 1.5, hasAlpha: false, id, label: "Legacy Poster", url},
-    ]);
+    ).toEqual([{aspectRatio: 1.5, hasAlpha: false, id, label: "Legacy Poster", url}]);
   });
 
   test("rejects traversal and catalog URL mismatches", () => {

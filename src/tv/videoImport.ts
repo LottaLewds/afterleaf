@@ -2,18 +2,11 @@ import {spawn} from "node:child_process";
 import {copyFile, link, lstat, mkdir, mkdtemp, rm} from "node:fs/promises";
 import {basename, extname, relative, resolve} from "node:path";
 
-import {
-  isSafeTvChannelId,
-  isSafeTvPathSegment,
-  tvMediaUrl,
-  tvVideoImportUrl,
-  type TvVideo,
-} from "./protocol";
+import {isSafeTvChannelId, isSafeTvPathSegment, tvMediaUrl, tvVideoImportUrl, type TvVideo} from "./protocol";
 
 const MAX_PROCESS_OUTPUT_BYTES = 1024 * 1024;
 const OUTPUT_TEMPLATE = "%(title).140B [%(id)s].%(ext)s";
-const PLAYABLE_FORMAT =
-  "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/bv*[ext=webm]+ba[ext=webm]/b[ext=webm]";
+const PLAYABLE_FORMAT = "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/bv*[ext=webm]+ba[ext=webm]/b[ext=webm]";
 
 export class TvVideoImportInputError extends Error {
   constructor(message: string) {
@@ -22,20 +15,14 @@ export class TvVideoImportInputError extends Error {
   }
 }
 
-export type TvVideoDownloader = (
-  url: string,
-  stagingDirectory: string,
-) => Promise<string>;
+export type TvVideoDownloader = (url: string, stagingDirectory: string) => Promise<string>;
 
 const processFailureDetail = (stderr: Buffer) => {
   const lines = stderr.toString("utf8").trim().split("\n");
   return lines.findLast((line) => line.trim().length > 0)?.trim();
 };
 
-export const downloadTvVideoWithYtDlp: TvVideoDownloader = (
-  url,
-  stagingDirectory,
-) =>
+export const downloadTvVideoWithYtDlp: TvVideoDownloader = (url, stagingDirectory) =>
   new Promise((resolveDownload, rejectDownload) => {
     const temporaryDirectory = resolve(stagingDirectory, "temporary");
     const child = spawn(
@@ -85,12 +72,7 @@ export const downloadTvVideoWithYtDlp: TvVideoDownloader = (
       child.kill("SIGTERM");
       rejectDownload(error);
     };
-    const capture = (
-      chunks: Buffer[],
-      chunk: Buffer,
-      currentBytes: number,
-      stream: string,
-    ) => {
+    const capture = (chunks: Buffer[], chunk: Buffer, currentBytes: number, stream: string) => {
       const nextBytes = currentBytes + chunk.byteLength;
       if (nextBytes > MAX_PROCESS_OUTPUT_BYTES) {
         fail(new Error(`yt-dlp produced too much ${stream} output`));
@@ -106,20 +88,14 @@ export const downloadTvVideoWithYtDlp: TvVideoDownloader = (
       stderrBytes = capture(stderr, chunk, stderrBytes, "diagnostic");
     });
     child.on("error", (error: NodeJS.ErrnoException) => {
-      fail(
-        error.code === "ENOENT"
-          ? new Error("yt-dlp is not installed or unavailable on PATH")
-          : error,
-      );
+      fail(error.code === "ENOENT" ? new Error("yt-dlp is not installed or unavailable on PATH") : error);
     });
     child.on("close", (code) => {
       if (settled) return;
       settled = true;
       if (code !== 0) {
         const detail = processFailureDetail(Buffer.concat(stderr));
-        rejectDownload(
-          new Error(detail ?? `yt-dlp exited with code ${code ?? "unknown"}`),
-        );
+        rejectDownload(new Error(detail ?? `yt-dlp exited with code ${code ?? "unknown"}`));
         return;
       }
       const outputPath = Buffer.concat(stdout)
@@ -136,12 +112,8 @@ export const downloadTvVideoWithYtDlp: TvVideoDownloader = (
     });
   });
 
-const ensureChannelDirectory = async (
-  channelsDirectory: string,
-  channelId: string,
-) => {
-  if (!isSafeTvChannelId(channelId))
-    throw new TvVideoImportInputError("TV channel is invalid");
+const ensureChannelDirectory = async (channelsDirectory: string, channelId: string) => {
+  if (!isSafeTvChannelId(channelId)) throw new TvVideoImportInputError("TV channel is invalid");
   const root = resolve(channelsDirectory);
   const channelDirectory = resolve(root, channelId);
   const channelRelativePath = relative(root, channelDirectory);
@@ -163,10 +135,7 @@ const ensureChannelDirectory = async (
   return channelDirectory;
 };
 
-const downloadedVideoPath = async (
-  stagingDirectory: string,
-  outputPath: string,
-) => {
+const downloadedVideoPath = async (stagingDirectory: string, outputPath: string) => {
   const stagingRoot = resolve(stagingDirectory);
   const candidate = resolve(outputPath);
   const candidateRelativePath = relative(stagingRoot, candidate);
@@ -179,8 +148,7 @@ const downloadedVideoPath = async (
   const extension = extname(candidate).toLowerCase();
   if (extension !== ".mp4" && extension !== ".webm")
     throw new Error("yt-dlp could not produce a Chrome-compatible video");
-  if (!isSafeTvPathSegment(basename(candidate)))
-    throw new Error("yt-dlp produced an unsafe video filename");
+  if (!isSafeTvPathSegment(basename(candidate))) throw new Error("yt-dlp produced an unsafe video filename");
   const file = await lstat(candidate);
   if (!file.isFile() || file.isSymbolicLink() || file.size <= 0)
     throw new Error("yt-dlp produced an invalid video file");
@@ -192,13 +160,7 @@ const downloadedVideoPath = async (
  * example a cross-device staging directory, or exFAT/FAT32 channel
  * storage); the publish falls back to copying instead of failing.
  */
-const LINK_UNAVAILABLE_CODES = new Set([
-  "EACCES",
-  "EMLINK",
-  "ENOTSUP",
-  "EPERM",
-  "EXDEV",
-]);
+const LINK_UNAVAILABLE_CODES = new Set(["EACCES", "EMLINK", "ENOTSUP", "EPERM", "EXDEV"]);
 
 const publishVideo = async (sourcePath: string, channelDirectory: string) => {
   const sourceName = basename(sourcePath);
@@ -214,14 +176,7 @@ const publishVideo = async (sourcePath: string, channelDirectory: string) => {
       if ((error as NodeJS.ErrnoException).code === "EEXIST") continue;
       // The staged download may live on another volume from the channel;
       // copy the finished file into place rather than losing the import.
-      if (
-        !(
-          error instanceof Error &&
-          "code" in error &&
-          LINK_UNAVAILABLE_CODES.has(String(error.code))
-        )
-      )
-        throw error;
+      if (!(error instanceof Error && "code" in error && LINK_UNAVAILABLE_CODES.has(String(error.code)))) throw error;
       await copyFile(sourcePath, destinationPath);
       return videoId;
     }
@@ -235,23 +190,15 @@ export const importTvVideoToChannel = async (options: {
   url: string;
 }): Promise<TvVideo> => {
   const url = tvVideoImportUrl(options.url);
-  if (!url)
-    throw new TvVideoImportInputError("Paste a valid HTTP or HTTPS video URL");
-  if (!isSafeTvChannelId(options.channelId))
-    throw new TvVideoImportInputError("TV channel is invalid");
+  if (!url) throw new TvVideoImportInputError("Paste a valid HTTP or HTTPS video URL");
+  if (!isSafeTvChannelId(options.channelId)) throw new TvVideoImportInputError("TV channel is invalid");
   const stagingRoot = resolve(options.channelsDirectory, ".imports");
   await mkdir(stagingRoot, {recursive: true});
   const stagingDirectory = await mkdtemp(resolve(stagingRoot, "video-"));
   try {
-    const outputPath = await (options.download ?? downloadTvVideoWithYtDlp)(
-      url,
-      stagingDirectory,
-    );
+    const outputPath = await (options.download ?? downloadTvVideoWithYtDlp)(url, stagingDirectory);
     const sourcePath = await downloadedVideoPath(stagingDirectory, outputPath);
-    const channelDirectory = await ensureChannelDirectory(
-      options.channelsDirectory,
-      options.channelId,
-    );
+    const channelDirectory = await ensureChannelDirectory(options.channelsDirectory, options.channelId);
     const videoId = await publishVideo(sourcePath, channelDirectory);
     return {
       id: videoId,

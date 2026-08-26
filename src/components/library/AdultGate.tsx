@@ -7,9 +7,7 @@ export const AdultGate = (props: {onEnter: () => void}) => (
       <div class="mb-10 flex items-start justify-between">
         <div>
           <p class="font-serif text-3xl tracking-[-0.04em]">Afterleaf</p>
-          <p class="mt-1 text-[10px] font-semibold tracking-[0.25em] text-[#b8aaa0] uppercase">
-            After-hours library
-          </p>
+          <p class="mt-1 text-[10px] font-semibold tracking-[0.25em] text-[#b8aaa0] uppercase">After-hours library</p>
         </div>
         <span class="grid size-11 place-items-center rounded-full border border-[#cf4a3c]/45 bg-[#cf4a3c]/10 text-sm font-semibold text-[#ef796b]">
           18+
@@ -22,8 +20,7 @@ export const AdultGate = (props: {onEnter: () => void}) => (
         Your library awaits.
       </p>
       <p class="mt-5 max-w-sm text-sm leading-6 text-[#aeb9b4]">
-        This library contains adult-only publications. Confirm that you are of
-        legal age in your region to continue.
+        This library contains adult-only publications. Confirm that you are of legal age in your region to continue.
       </p>
 
       <button

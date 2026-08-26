@@ -1,8 +1,4 @@
-import type {
-  PublicationProvenance,
-  PublicationKind,
-  SupportedLanguage,
-} from "../schema";
+import type {PublicationProvenance, PublicationKind, SupportedLanguage} from "../schema";
 
 export const LIBRARY_PROVIDER_API_VERSION = 1 as const;
 
@@ -103,10 +99,7 @@ export interface LibraryProvider {
   /** Recognizes pasted text without acquiring content; the host starts sync. */
   resolvePastedImport?(
     text: string,
-  ):
-    | LibraryProviderPasteImport
-    | Promise<LibraryProviderPasteImport | undefined>
-    | undefined;
+  ): LibraryProviderPasteImport | Promise<LibraryProviderPasteImport | undefined> | undefined;
   sync(options: LibraryProviderSyncOptions): Promise<LibraryProviderSyncReport>;
 }
 
@@ -116,7 +109,5 @@ export interface LibraryProviderPluginContext {
 }
 
 export interface LibraryProviderPluginModule {
-  createProvider(
-    context: LibraryProviderPluginContext,
-  ): LibraryProvider | Promise<LibraryProvider>;
+  createProvider(context: LibraryProviderPluginContext): LibraryProvider | Promise<LibraryProvider>;
 }
