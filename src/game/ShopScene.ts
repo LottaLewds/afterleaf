@@ -4,33 +4,23 @@ import {
   AnimationMixer,
   BoxGeometry,
   Color,
-  EquirectangularReflectionMapping,
   Euler,
-  Group,
   MathUtils,
   Mesh,
   MeshStandardMaterial,
-  NoColorSpace,
   Object3D,
   PCFSoftShadowMap,
   PerspectiveCamera,
   Quaternion,
   Raycaster,
-  RepeatWrapping,
   Scene,
   SRGBColorSpace,
   Texture,
   TextureLoader,
-  Vector2,
   Vector3,
   WebGLRenderer,
   type AnimationClip,
-  type ColorSpace,
 } from "three";
-import floorAlbedoUrl from "~/assets/materials/laminate-floor-albedo.webp";
-import floorNormalUrl from "~/assets/materials/laminate-floor-normal.webp";
-import floorSurfaceUrl from "~/assets/materials/laminate-floor-surface.webp";
-import moonriseSkyUrl from "~/assets/materials/qwantani-moonrise-sky.webp";
 import {TRASH_CAN_PROP_ID} from "~/game/discardBin";
 import {physicalBookWidth} from "~/game/bookDimensions";
 import {
@@ -65,11 +55,6 @@ import {
 import type {ShopSignKind} from "~/game/signs/ShopSignSystem";
 import {shopSignKey} from "~/game/signs/ShopSignSystem";
 import type {DigitalArtFramePasteTarget} from "~/game/artFrameSystem";
-import {addInteriorBox} from "~/game/interior/interiorPrimitives";
-import {createPosterSurface as createPosterSurfaceTarget} from "~/game/interior/interiorPrimitives";
-import type {ReadingFurnitureMaterials} from "~/game/propRegistration";
-import {createReadingChairInstance} from "~/game/interior/readingFurniture";
-import {createDeskLamps} from "~/game/interior/lightingProps";
 import {createFaceOutDisplay} from "~/game/interior/shelfFixtures";
 import {buildShopInterior} from "~/game/interior/shopComposition";
 import {InspectionController} from "~/game/inspection/InspectionController";
@@ -98,6 +83,7 @@ import {
 } from "~/game/shopBookPresentation";
 import {ShopPlayerMovement} from "~/game/shopPlayerMovement";
 import {ShopWorldPersistence} from "~/game/shopWorldPersistence";
+import {ShopInteriorAssets} from "~/game/shopInteriorAssets";
 
 import type {CatalogAtlases, CatalogIdentity, CatalogItem} from "~/catalog";
 import type {ArtFrameImage} from "~/artFrames/protocol";
@@ -122,17 +108,12 @@ import {
 } from "~/arcade/controllerMappings";
 import {findArcadeSystem} from "~/arcade/systems";
 import {type InteractionPromptToken} from "~/game/input/hints";
-import {SHOP_UPPER_FLOOR_Y} from "~/game/shopExpansionLayout";
 
 import {
   ShelfPresentation,
   type SpineShelfPlacement,
 } from "~/game/shelfPlacement";
-import {
-  READING_FURNITURE_BOXES,
-  SHOP_BOUNDS,
-  SHOP_INTERIOR_FOOTPRINTS,
-} from "~/game/shopLayout";
+import {SHOP_BOUNDS, SHOP_INTERIOR_FOOTPRINTS} from "~/game/shopLayout";
 import {
   ShopPhysicsWorld,
   SHOP_PHYSICS_PLAYER_EYE_HEIGHT,
@@ -422,6 +403,7 @@ export class ShopScene {
   readonly #artFrames: ArtFrameSystem;
   readonly #tvVideos: TvVideoImporter;
   readonly #artFrameTextures: ArtFrameTextureCache;
+  readonly #interiorAssets: ShopInteriorAssets;
   readonly #bookTextures: BookTextureRuntime;
   readonly #gameStateEmitter = new GameStateEmitter();
   readonly #inspection: InspectionController;
@@ -936,6 +918,14 @@ export class ShopScene {
           rotation: pose.rotation,
         }),
     });
+    this.#interiorAssets = new ShopInteriorAssets({
+      disposed: () => this.#disposed,
+      posterRaycastMeshes: this.#posterRaycastMeshes,
+      posterSurfaces: this.#posters.surfaces,
+      props: () => this.#props,
+      renderer: () => this.#renderer,
+      textureLoader: () => this.#textureLoader,
+    });
     this.#playerMovementController = new ShopPlayerMovement({
       camera: () => this.#camera,
       collisionWorld: SHOP_COLLISION_WORLD,
@@ -998,21 +988,25 @@ export class ShopScene {
     if (this.#disposed) return;
     buildShopInterior({
       addBox: (p, size, pos, mat, castShadow) =>
-        this.#addBox(p, size, pos, mat, castShadow),
+        this.#interiorAssets.addBox(p, size, pos, mat, castShadow),
       artFrames: this.#artFrames,
       cacheBuiltinPropTemplate: (registration) =>
         this.#props.cacheBuiltinPropTemplate(registration),
       cloneFloorMaterial: (material, repeatX, repeatY) =>
         this.#cloneFloorMaterial(material, repeatX, repeatY),
-      createFloorMaterial: () => this.#createFloorMaterial(),
+      createFloorMaterial: () => this.#interiorAssets.createFloorMaterial(),
       createPosterSurface: (p, id, w, h, pos, rot) =>
-        this.#createPosterSurface(p, id, w, h, pos, rot),
+        this.#interiorAssets.createPosterSurface(p, id, w, h, pos, rot),
       createFaceOutDisplay: (p, wood, backing, deps) =>
         createFaceOutDisplay(p, wood, backing, deps),
       createSpawnedCrtTelevision: (asset, id, scale, pose) =>
         this.#props.createSpawnedCrtTelevision(asset, id, scale, pose),
       createUpperReadingFurniture: (p, wood, furnitureMaterials) =>
-        this.#createUpperReadingFurniture(p, wood, furnitureMaterials),
+        this.#interiorAssets.createUpperReadingFurniture(
+          p,
+          wood,
+          furnitureMaterials,
+        ),
       discardBin: this.#discardBin,
       disposed: this.#disposed,
       doors: this.#doors,
@@ -1479,7 +1473,7 @@ export class ShopScene {
 
   #configureScene() {
     RectAreaLightUniformsLib.init();
-    this.#moonEnvironment = this.#createMoonEnvironment();
+    this.#moonEnvironment = this.#interiorAssets.createMoonEnvironment();
     this.#scene.background = this.#moonEnvironment;
     this.#scene.backgroundIntensity = 0.34;
     this.#scene.environment = this.#moonEnvironment;
@@ -1520,112 +1514,6 @@ export class ShopScene {
    * `new MeshBasicMaterial({color})` per call) share one batch even though
    * they are separate instances.
    */
-
-  #createFloorMaterial() {
-    const anisotropy = Math.min(
-      8,
-      this.#renderer.capabilities.getMaxAnisotropy(),
-    );
-    const loadTexture = (
-      url: string,
-      colorSpace: ColorSpace = NoColorSpace,
-    ) => {
-      const texture = this.#textureLoader.load(url);
-      texture.colorSpace = colorSpace;
-      texture.wrapS = RepeatWrapping;
-      texture.wrapT = RepeatWrapping;
-      texture.repeat.set(6.5, 9.75);
-      texture.anisotropy = anisotropy;
-      return texture;
-    };
-    const surface = loadTexture(floorSurfaceUrl);
-    surface.channel = 0;
-    return new MeshStandardMaterial({
-      aoMap: surface,
-      aoMapIntensity: 0.72,
-      map: loadTexture(floorAlbedoUrl, SRGBColorSpace),
-      metalness: 0,
-      normalMap: loadTexture(floorNormalUrl),
-      normalScale: new Vector2(0.72, 0.72),
-      roughness: 0.82,
-      roughnessMap: surface,
-    });
-  }
-
-  /**
-   * Rides an invisible discard volume inside every trash can prop so any
-   * spawned, saved, or seeded bin accepts discards.
-   */
-  #createMoonEnvironment() {
-    const environment = this.#textureLoader.load(moonriseSkyUrl);
-    environment.colorSpace = SRGBColorSpace;
-    environment.mapping = EquirectangularReflectionMapping;
-    return environment;
-  }
-
-  /** Builds the upper-floor reading tables and chairs. */
-  #createUpperReadingFurniture(
-    parent: Group,
-    woodMaterial: MeshStandardMaterial,
-    furnitureMaterials: ReadingFurnitureMaterials,
-  ) {
-    const chairTemplate = READING_FURNITURE_BOXES.filter(
-      (box) => box.movableId === "reading-chair-1",
-    );
-    const chairMinY = Math.min(
-      ...chairTemplate.map((box) => box.position.y - box.halfExtents.y),
-    );
-    const chairMaxY = Math.max(
-      ...chairTemplate.map((box) => box.position.y + box.halfExtents.y),
-    );
-    const chairCenterY = SHOP_UPPER_FLOOR_Y + (chairMinY + chairMaxY) / 2;
-    for (const table of [
-      {id: "west", x: -8.25},
-      {id: "center", x: -3.5},
-    ] as const) {
-      const x = table.x;
-      this.#addBox(parent, [2.7, 0.14, 1.3], [x, 5.72, 23], woodMaterial, true);
-      for (const offsetX of [-1.08, 1.08])
-        for (const offsetZ of [-0.43, 0.43])
-          this.#addBox(
-            parent,
-            [0.09, 0.78, 0.09],
-            [x + offsetX, 5.29, 23 + offsetZ],
-            furnitureMaterials.leg,
-            true,
-          );
-      for (const z of [21.95, 24.05]) {
-        createReadingChairInstance(
-          parent,
-          `upper-reading-chair-${table.id}-${z < 23 ? "north" : "south"}`,
-          chairTemplate,
-          furnitureMaterials,
-          {
-            addBox: (parent2, size, position2, material, castShadow) =>
-              this.#addBox(parent2, size, position2, material, castShadow),
-            cacheBuiltinPropTemplate: (registration) =>
-              this.#props.cacheBuiltinPropTemplate(registration),
-            createDeskLamps: async (parent2) => {
-              await createDeskLamps(parent2, {
-                cacheBuiltinPropTemplate: (registration) =>
-                  this.#props.cacheBuiltinPropTemplate(registration),
-                isDisposed: () => this.#disposed,
-                modelMixers: this.#props.modelMixers,
-                needsSeedPass: (version) => this.#props.needsSeedPass(version),
-                registerMovableProp: (registration) =>
-                  this.#props.registerMovableProp(registration),
-              });
-            },
-            needsSeedPass: (version) => this.#props.needsSeedPass(version),
-            registerMovableProp: (registration) =>
-              this.#props.registerMovableProp(registration),
-          },
-          [x, chairCenterY, z],
-          z < 23 ? -Math.PI / 2 : Math.PI / 2,
-        );
-      }
-    }
-  }
 
   setSignContent(
     kind: ShopSignKind,
@@ -1691,43 +1579,6 @@ export class ShopScene {
     );
     if (imported) this.#channelEditorTelevision = undefined;
     return imported;
-  }
-
-  #addBox(
-    parent: Group,
-    size: readonly [number, number, number],
-    position: readonly [number, number, number],
-    material: MeshStandardMaterial,
-    castShadow = false,
-  ) {
-    return addInteriorBox(
-      parent,
-      size,
-      position,
-      material,
-      castShadow,
-      this.#posterRaycastMeshes,
-    );
-  }
-
-  #createPosterSurface(
-    parent: Group,
-    id: string,
-    width: number,
-    height: number,
-    position: readonly [number, number, number],
-    rotationY: number,
-  ) {
-    createPosterSurfaceTarget(
-      parent,
-      id,
-      width,
-      height,
-      position,
-      rotationY,
-      this.#posterRaycastMeshes,
-      this.#posters.surfaces,
-    );
   }
 
   readonly #refreshMediaCatalogIfActive = () => {
