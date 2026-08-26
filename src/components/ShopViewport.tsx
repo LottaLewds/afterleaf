@@ -27,8 +27,8 @@ import {
   ShopScene,
   type ShopGameSnapshot,
   type ShopInteraction,
-  type ShopSignEditRequest,
 } from "~/game/ShopScene";
+import type {ShopSignEditRequest} from "~/game/signs/ShopSignSystem";
 import {
   loadServerWorldSave,
   queueServerWorldSave,

@@ -110,6 +110,13 @@ import {
 } from "~/game/mathHelpers";
 import {normalizePosterRotation} from "~/game/wallDecorTuning";
 import {
+  createSignVisual,
+  shopSignKey,
+  ShopSignSystem,
+  type ShopSignEditRequest,
+  type ShopSignKind,
+} from "~/game/signs/ShopSignSystem";
+import {
   type MovablePropRegistration,
   type ReadingFurnitureMaterials,
 } from "~/game/propRegistration";
@@ -277,6 +284,9 @@ import {
   FACE_OUT_DISPLAY,
   READING_FURNITURE_BOXES,
   SHOP_BOUNDS,
+  FACE_DISPLAY_COLUMNS,
+  FACE_DISPLAY_COLUMN_SPACING,
+  RARE_ROOM_DOOR_CENTER_X,
   SHOP_INTERIOR_FOOTPRINTS,
   SHOP_MODEL_TELEVISION_SCALE,
   SHOP_MODEL_TELEVISION_SIZE,
@@ -360,11 +370,9 @@ import {
 } from "~/tv/protocol";
 import type {PosterAsset} from "~/posters/protocol";
 
-const FACE_DISPLAY_COLUMNS = 8;
 const FACE_DISPLAY_ROWS = 4;
 const FACE_SHELF_SLOT_COUNT = FACE_DISPLAY_COLUMNS * FACE_DISPLAY_ROWS;
 const FACE_SHELF_ID = "new-arrivals";
-const FACE_DISPLAY_COLUMN_SPACING = 1.12;
 const FACE_DISPLAY_SHELF_HALF_WIDTH = 4.4;
 const FACE_DISPLAY_SHELF_INSET = 0.15;
 const FACE_DISPLAY_SHELF_FRONT_Z = -9.54;
@@ -382,6 +390,7 @@ const SPECIAL_COLLECTION_BACKING_THICKNESS = 0.22;
 const BOOK_HEIGHT = 0.74;
 const BOOK_VOID_RECOVERY_Y = -BOOK_HEIGHT / 2;
 const BOOK_UNDER_SHELF_RECOVERY_Y = BOOK_HEIGHT / 2;
+const SIGN_TEXTURE_MAX_ANISOTROPY = 4;
 const MAX_PIXEL_RATIO = 2;
 const PLAYER_RADIUS = 0.3;
 const WALK_SPEED = 2.65;
@@ -498,7 +507,6 @@ const CEILING_LIGHT_PLACEMENTS: readonly CeilingLightPlacement[] = [
     z: RARE_ROOM_CENTER_Z,
   },
 ];
-const RARE_ROOM_DOOR_CENTER_X = 8.4;
 const RARE_ROOM_DOOR_Z = -1.92;
 const LEGACY_TV_CAVE_BOUNDS = Object.freeze({
   maxX: 23.5,
@@ -670,26 +678,6 @@ type ModelPlacementSession = {
   assetIndex: number;
   id: string;
   revision: number;
-};
-
-export type ShopSignKind = "aisle" | "shelf";
-
-export type ShopSignEditRequest = {
-  id: string;
-  kind: ShopSignKind;
-  label: string;
-  subtitle: string;
-  title: string;
-};
-
-type ShopSignSlot = ShopSignEditRequest & {
-  backgroundColor: string;
-  column?: number;
-  group: Group;
-  height: number;
-  sign: Group | undefined;
-  target: Mesh<PlaneGeometry, MeshBasicMaterial>;
-  width: number;
 };
 
 type DiscardAnimation = {
@@ -913,8 +901,6 @@ type ShopPerformanceDebugWindow = Window & {
 
 const STANDALONE_BOOK_TEXTURE_CACHE_SIZE = 24;
 
-const shopSignKey = (kind: ShopSignKind, id: string) => `${kind}:${id}`;
-
 /**
  * A deliberately bounded visual scene: one persistent renderer and at most
  * twenty interactive covers. The accessors keep catalog ownership in Solid
@@ -1000,6 +986,7 @@ export class ShopScene {
   readonly #loadMediaCatalog: (
     signal: AbortSignal,
   ) => Promise<ShopMediaCatalog>;
+  readonly #signs: ShopSignSystem;
   readonly #input: InputManager;
   readonly #getShortcuts: () => ShortcutsConfig;
   readonly #getPadMappingOverrides: () => ArcadePadMappingOverrides;
@@ -1044,9 +1031,6 @@ export class ShopScene {
     | ((publicationId: string, pageIndex: number) => void)
     | undefined;
   readonly #onSelectPublication: (publicationId: string) => void;
-  readonly #onSignEditRequest:
-    | ((request: ShopSignEditRequest) => void)
-    | undefined;
   readonly #onWorldSave:
     | ((save: WorldSaveV1) => boolean | void | Promise<boolean | void>)
     | undefined;
@@ -1104,10 +1088,7 @@ export class ShopScene {
   #lastAimSweepTimeMs = -Infinity;
   readonly #renderer: WebGLRenderer;
   readonly #scene = new Scene();
-  readonly #signSlots = new Map<string, ShopSignSlot>();
-  readonly #signTargetMeshes: Mesh[] = [];
   readonly #spineShelfDefinitions = new Map<string, SpineShelfDefinition>();
-  readonly #shelfSignPreviewTargetMeshes: Mesh[] = [];
   readonly #selectedPublicationId: () => string | null | undefined;
   readonly #shelfTargetMeshes: Mesh[] = [];
   readonly #shelfSnapMesh = new Mesh(
@@ -1314,8 +1295,6 @@ export class ShopScene {
   #interactionTargetsDirty = true;
   #shelfBrowsePublicationId: string | undefined;
   #shelfBrowseReadyAt = 0;
-  #shelfSignPreviewKey: string | undefined;
-  #targetedSignKey: string | undefined;
   #targetedPosterId: string | undefined;
   #targetedDigitalArtFrameId: string | undefined;
   #channelEditorDigitalArtFrameId: string | undefined;
@@ -1379,7 +1358,6 @@ export class ShopScene {
     this.#onMediaChannelCreateRequest = options.onMediaChannelCreateRequest;
     this.#onGameStateChange = options.onGameStateChange;
     this.#onPageIndexChange = options.onPageIndexChange;
-    this.#onSignEditRequest = options.onSignEditRequest;
     this.#onWorldSave = options.onWorldSave;
     this.#worldSaveWritable = options.worldSaveWritable;
     this.#pendingWorldSave = options.initialWorldSave;
@@ -1449,6 +1427,12 @@ export class ShopScene {
     this.#renderer.shadowMap.type = PCFSoftShadowMap;
     this.#renderer.toneMapping = ACESFilmicToneMapping;
     this.#renderer.toneMappingExposure = 1.08;
+
+    this.#signs = new ShopSignSystem({
+      maxTextureAnisotropy: this.#renderer.capabilities.getMaxAnisotropy(),
+      onEditRequest: options.onSignEditRequest,
+      releasePointerLock: () => this.#releasePointerLock(),
+    });
 
     if (DEV)
       (window as ShopPerformanceDebugWindow).__AFTERLEAF_PERFORMANCE_DEBUG__ = {
@@ -2258,22 +2242,23 @@ export class ShopScene {
     this.#seedDefaultProps();
     this.#createTelevisionTableShelf(architecture);
 
-    this.#createAisleSignSlot(
+    this.#signs.createAisleSignSlot(
       architecture,
       "gondola-1",
       -4.2,
       "成人向けコミック  18+",
       "ADULT COMICS · AISLE 01",
     );
-    this.#createAisleSignSlot(architecture, "gondola-2", 4.2, "", "");
+    this.#signs.createAisleSignSlot(architecture, "gondola-2", 4.2, "", "");
 
-    const recommendationCard = this.#createSign(
+    const recommendationCard = createSignVisual(
       "STAFF PICK",
       "深夜のおすすめ",
       1.05,
       0.48,
       "#241b18",
       "#d9b96f",
+      SIGN_TEXTURE_MAX_ANISOTROPY,
     );
     recommendationCard.position.set(1.52, 3.38, -9.93);
     recommendationCard.rotation.z = -0.035;
@@ -2703,8 +2688,8 @@ export class ShopScene {
     );
     signPreviewTarget.userData.shelfId = faceDisplayShelfId(0);
     parent.add(signPreviewTarget);
-    this.#shelfSignPreviewTargetMeshes.push(signPreviewTarget);
-    this.#createShelfSignSlots(parent);
+    this.#signs.registerPreviewTarget(signPreviewTarget);
+    this.#signs.createShelfSignSlots(parent);
   }
 
   #createTelevisionTableShelf(parent: Group) {
@@ -2739,55 +2724,6 @@ export class ShopScene {
     this.#shelfTargetMeshes.push(target);
   }
 
-  #createShelfSignSlots(parent: Group) {
-    const targetGeometry = new PlaneGeometry(1.02, 0.52);
-    for (let column = 0; column < FACE_DISPLAY_COLUMNS; column += 1) {
-      const group = new Group();
-      group.position.set(
-        -2 +
-          (column - (FACE_DISPLAY_COLUMNS - 1) / 2) *
-            FACE_DISPLAY_COLUMN_SPACING,
-        4.18,
-        -9.82,
-      );
-      const target = new Mesh(
-        targetGeometry,
-        new MeshBasicMaterial({
-          color: "#d9b96f",
-          depthTest: false,
-          depthWrite: false,
-          opacity: 0.1,
-          side: FrontSide,
-          transparent: true,
-        }),
-      );
-      target.name = `shelf-sign-target-${column}`;
-      // Hidden raycast proxy; #updateSignTargetVisuals reveals it on demand.
-      target.visible = false;
-      const id = String(column);
-      const key = shopSignKey("shelf", id);
-      target.userData.signKey = key;
-      group.add(target);
-      parent.add(group);
-      this.#signTargetMeshes.push(target);
-      this.#signSlots.set(key, {
-        backgroundColor: column === 0 ? "#b83931" : "#354843",
-        column,
-        group,
-        height: 0.46,
-        id,
-        kind: "shelf",
-        label: `DISPLAY ${String(column + 1).padStart(2, "0")}`,
-        sign: undefined,
-        subtitle: "",
-        target,
-        title: "",
-        width: 1.02,
-      });
-    }
-    this.#setShelfSign(0, "NEW ARRIVALS", "DISPLAY 01");
-  }
-
   async #createTrashcan(parent: Group) {
     // The discard bin is a seeded default like any other prop: injected
     // once as a spawned, deletable prop and persisted through modelProps.
@@ -2799,13 +2735,14 @@ export class ShopScene {
     trashcan.position.copy(this.#trashcanPosition);
     parent.add(trashcan);
 
-    const sign = this.#createSign(
+    const sign = createSignVisual(
       "DISCARDS  /  廃棄",
       "REMOVE FROM LIBRARY",
       1.35,
       0.42,
       "#f3ecdc",
       "#7b302a",
+      SIGN_TEXTURE_MAX_ANISOTROPY,
     );
     sign.position.set(0, 1.26 - TRASH_CAN_HEIGHT / 2, 0.025);
     trashcan.add(sign);
@@ -3387,7 +3324,7 @@ export class ShopScene {
       const signKeys = new Map<number, string>();
       for (let bay = 0; bay < bayCount; bay += 1) {
         const bayCenter = -length / 2 + bayWidth * (bay + 0.5);
-        const signKey = this.#createSpineShelfSignSlot(
+        const signKey = this.#signs.createSpineShelfSignSlot(
           parent,
           `${fixtureId.toUpperCase()} · BAY ${String(bay + 1).padStart(2, "0")}`,
           alongX ? x + bayCenter : x + normal * 0.57,
@@ -3417,7 +3354,7 @@ export class ShopScene {
         signPreviewTarget.rotation.y = targetRotationY;
         signPreviewTarget.userData.shelfId = `${fixtureId}:${face}:0:${bay}`;
         parent.add(signPreviewTarget);
-        this.#shelfSignPreviewTargetMeshes.push(signPreviewTarget);
+        this.#signs.registerPreviewTarget(signPreviewTarget);
       }
       for (let row = 0; row < 4; row += 1) {
         for (let bay = 0; bay < bayCount; bay += 1) {
@@ -3462,103 +3399,6 @@ export class ShopScene {
         }
       }
     }
-  }
-
-  #createSpineShelfSignSlot(
-    parent: Group,
-    label: string,
-    x: number,
-    z: number,
-    width: number,
-    rotationY: number,
-    elevation = 0,
-  ) {
-    const column = [...this.#signSlots.values()].filter(
-      (slot) => slot.kind === "shelf",
-    ).length;
-    const group = new Group();
-    group.position.set(x, elevation + 4.2, z);
-    group.rotation.y = rotationY;
-    const target = new Mesh(
-      new PlaneGeometry(width, 0.5),
-      new MeshBasicMaterial({
-        color: "#d9b96f",
-        depthTest: false,
-        depthWrite: false,
-        opacity: 0.1,
-        side: FrontSide,
-        transparent: true,
-      }),
-    );
-    target.name = `spine-shelf-sign-target-${column}`;
-    // Hidden raycast proxy; #updateSignTargetVisuals reveals it on demand.
-    target.visible = false;
-    const id = String(column);
-    const key = shopSignKey("shelf", id);
-    target.userData.signKey = key;
-    group.add(target);
-    parent.add(group);
-    this.#signTargetMeshes.push(target);
-    this.#signSlots.set(key, {
-      backgroundColor: "#354843",
-      column,
-      group,
-      height: 0.46,
-      id,
-      kind: "shelf",
-      label,
-      sign: undefined,
-      subtitle: "",
-      target,
-      title: "",
-      width,
-    });
-    return key;
-  }
-
-  #createAisleSignSlot(
-    parent: Group,
-    id: string,
-    x: number,
-    title: string,
-    subtitle: string,
-  ) {
-    const key = shopSignKey("aisle", id);
-    const group = new Group();
-    group.position.set(x, 4.35, 0.7);
-    group.rotation.y = x < 0 ? 0.08 : -0.08;
-    const target = new Mesh(
-      new PlaneGeometry(2.6, 0.72),
-      new MeshBasicMaterial({
-        color: "#d9b96f",
-        depthTest: false,
-        depthWrite: false,
-        opacity: 0.1,
-        side: FrontSide,
-        transparent: true,
-      }),
-    );
-    target.name = `aisle-sign-target-${id}`;
-    // Hidden raycast proxy; #updateSignTargetVisuals reveals it on demand.
-    target.visible = false;
-    target.userData.signKey = key;
-    group.add(target);
-    parent.add(group);
-    this.#signTargetMeshes.push(target);
-    this.#signSlots.set(key, {
-      backgroundColor: "#242e2b",
-      group,
-      height: 0.72,
-      id,
-      kind: "aisle",
-      label: `AISLE ${id === "gondola-1" ? "01" : "02"}`,
-      sign: undefined,
-      subtitle: "",
-      target,
-      title: "",
-      width: 2.6,
-    });
-    this.#setSign(key, title, subtitle);
   }
 
   /** Builds one procedural reading table visual (meshes only). */
@@ -3663,45 +3503,7 @@ export class ShopScene {
       door.add(handle);
     }
 
-    this.#createRareRoomSignSlot(parent);
-  }
-
-  #createRareRoomSignSlot(parent: Group) {
-    const id = "special-collection";
-    const key = shopSignKey("aisle", id);
-    const group = new Group();
-    group.position.set(RARE_ROOM_DOOR_CENTER_X, 3.55, -1.88);
-    const target = new Mesh(
-      new PlaneGeometry(2.65, 0.58),
-      new MeshBasicMaterial({
-        color: "#d9b96f",
-        depthTest: false,
-        depthWrite: false,
-        opacity: 0.1,
-        side: FrontSide,
-        transparent: true,
-      }),
-    );
-    target.name = "special-collection-sign-target";
-    // Invisible raycast proxy; reveal it only while the sign is targeted.
-    target.visible = false;
-    target.userData.signKey = key;
-    group.add(target);
-    parent.add(group);
-    this.#signTargetMeshes.push(target);
-    this.#signSlots.set(key, {
-      backgroundColor: "#3e251e",
-      group,
-      height: 0.58,
-      id,
-      kind: "aisle",
-      label: "SPECIAL COLLECTION",
-      sign: undefined,
-      subtitle: "",
-      target,
-      title: "",
-      width: 2.65,
-    });
+    this.#signs.createRareRoomSignSlot(parent);
   }
 
   #updateRareRoomDoor(deltaSeconds: number) {
@@ -3860,53 +3662,6 @@ export class ShopScene {
         );
       }
     }
-  }
-
-  #createRoomSignSlot(
-    parent: Group,
-    id: string,
-    label: string,
-    title: string,
-    subtitle: string,
-    position: readonly [x: number, y: number, z: number],
-    rotationY: number,
-  ) {
-    const key = shopSignKey("aisle", id);
-    const group = new Group();
-    group.position.set(...position);
-    group.rotation.y = rotationY;
-    const target = new Mesh(
-      new PlaneGeometry(2.8, 0.64),
-      new MeshBasicMaterial({
-        color: "#d9b96f",
-        depthTest: false,
-        depthWrite: false,
-        opacity: 0.1,
-        side: FrontSide,
-        transparent: true,
-      }),
-    );
-    target.name = `${id}-sign-target`;
-    // Hidden raycast proxy; #updateSignTargetVisuals reveals it on demand.
-    target.visible = false;
-    target.userData.signKey = key;
-    group.add(target);
-    parent.add(group);
-    this.#signTargetMeshes.push(target);
-    this.#signSlots.set(key, {
-      backgroundColor: id === "moonlight-theatre" ? "#25213c" : "#24353d",
-      group,
-      height: 0.64,
-      id,
-      kind: "aisle",
-      label,
-      sign: undefined,
-      subtitle: "",
-      target,
-      title: "",
-      width: 2.8,
-    });
-    this.#setSign(key, title, subtitle);
   }
 
   #createHallwayDoor(
@@ -4408,7 +4163,7 @@ export class ShopScene {
         this.#addBox(parent2, size, position2, material, castShadow),
     );
     this.#createTelevisionRooms(parent, woodMaterial);
-    this.#createRoomSignSlot(
+    this.#signs.createRoomSignSlot(
       parent,
       "moonlight-theatre",
       "MOONLIGHT THEATRE",
@@ -4417,7 +4172,7 @@ export class ShopScene {
       [-12.37, 7.72, 18.5],
       Math.PI / 2,
     );
-    this.#createRoomSignSlot(
+    this.#signs.createRoomSignSlot(
       parent,
       "tv-cave",
       "TV CAVE",
@@ -4500,117 +4255,6 @@ export class ShopScene {
     );
   }
 
-  #createSign(
-    title: string,
-    subtitle: string,
-    width: number,
-    height: number,
-    textColor: string,
-    backgroundColor: string,
-  ) {
-    const sign = new Group();
-    // Signs are replaced when users customize their content. Keeping the
-    // visual subtree out of static batching prevents the old canvas texture
-    // from surviving in a permanent batch beside the replacement sign.
-    sign.userData.excludeFromStaticBatch = true;
-    const canvas = document.createElement("canvas");
-    canvas.width = 1024;
-    canvas.height = Math.max(128, Math.round(canvas.width * (height / width)));
-    const context = canvas.getContext("2d");
-    if (!context) {
-      const geometry = new PlaneGeometry(width, height);
-      const front = new Mesh(
-        geometry,
-        new MeshBasicMaterial({color: backgroundColor, side: FrontSide}),
-      );
-      const back = new Mesh(geometry, front.material.clone());
-      back.rotation.y = Math.PI;
-      sign.add(front, back);
-      return sign;
-    }
-
-    context.fillStyle = backgroundColor;
-    context.fillRect(0, 0, canvas.width, canvas.height);
-    context.strokeStyle = textColor;
-    context.globalAlpha = 0.28;
-    context.lineWidth = 5;
-    const inset = Math.max(12, Math.round(canvas.height * 0.065));
-    context.strokeRect(
-      inset,
-      inset,
-      canvas.width - inset * 2,
-      canvas.height - inset * 2,
-    );
-    context.globalAlpha = 1;
-    context.fillStyle = textColor;
-    context.font = `700 ${Math.round(canvas.height * 0.28)}px "Yu Gothic", "Hiragino Kaku Gothic ProN", sans-serif`;
-    context.textAlign = "center";
-    context.textBaseline = "middle";
-    context.fillText(title, canvas.width / 2, canvas.height * 0.42);
-    context.globalAlpha = 0.72;
-    context.font = `600 ${Math.round(canvas.height * 0.12)}px Inter, "Yu Gothic", sans-serif`;
-    context.letterSpacing = `${Math.max(1, canvas.height * 0.012)}px`;
-    context.fillText(subtitle, canvas.width / 2, canvas.height * 0.72);
-
-    const texture = new CanvasTexture(canvas);
-    texture.colorSpace = SRGBColorSpace;
-    texture.minFilter = LinearFilter;
-    texture.anisotropy = Math.min(
-      4,
-      this.#renderer.capabilities.getMaxAnisotropy(),
-    );
-    const material = new MeshBasicMaterial({
-      map: texture,
-      side: FrontSide,
-      toneMapped: false,
-    });
-    const geometry = new PlaneGeometry(width, height);
-    const front = new Mesh(geometry, material);
-    const back = new Mesh(geometry, material.clone());
-    front.position.z = 0.001;
-    back.position.z = -0.001;
-    back.rotation.y = Math.PI;
-    sign.add(front, back);
-    return sign;
-  }
-
-  #setSign(key: string, title: string, subtitle: string) {
-    const slot = this.#signSlots.get(key);
-    if (!slot) return;
-    if (slot.sign) {
-      slot.group.remove(slot.sign);
-      disposeObject(slot.sign);
-      slot.sign = undefined;
-    }
-    slot.title = title.trim().slice(0, 48);
-    slot.subtitle = subtitle.trim().slice(0, 72);
-    if (!slot.title) {
-      slot.subtitle = "";
-      slot.target.visible = false;
-      slot.target.material.opacity = 0;
-      return;
-    }
-    const sign = this.#createSign(
-      slot.title,
-      slot.subtitle,
-      slot.width,
-      slot.height,
-      "#efe5cc",
-      slot.backgroundColor,
-    );
-    sign.position.z = -0.012;
-    slot.sign = sign;
-    slot.target.visible = false;
-    slot.target.material.opacity = 0;
-    slot.group.add(sign);
-  }
-
-  #setShelfSign(column: number, title: string, subtitle?: string) {
-    const key = shopSignKey("shelf", String(column));
-    const slot = this.#signSlots.get(key);
-    this.#setSign(key, title, subtitle ?? slot?.label ?? "");
-  }
-
   setSignContent(
     kind: ShopSignKind,
     id: string,
@@ -4618,9 +4262,9 @@ export class ShopScene {
     subtitle: string,
   ) {
     const key = shopSignKey(kind, id);
-    if (!this.#signSlots.has(key)) return false;
-    this.#setSign(key, title, subtitle);
-    this.#updateSignTargetVisuals();
+    if (!this.#signs.has(key)) return false;
+    this.#signs.setSign(key, title, subtitle);
+    this.#signs.updateTargetVisuals();
     this.#worldStateDirty = true;
     this.#emitGameState();
     return true;
@@ -8052,9 +7696,9 @@ export class ShopScene {
     this.#setHoveredPublicationId(undefined);
     this.#shelfTargeted = false;
     this.#shelfTargetSelection = undefined;
-    this.#shelfSignPreviewKey = undefined;
-    this.#targetedSignKey = undefined;
-    this.#updateSignTargetVisuals();
+    this.#signs.previewKey = undefined;
+    this.#signs.targetedKey = undefined;
+    this.#signs.updateTargetVisuals();
     this.#setPropTargeted(undefined);
     this.#setTelevisionTargeted(false);
     this.#setArcadeTargeted(undefined);
@@ -8229,19 +7873,19 @@ export class ShopScene {
     this.#pendingWorldSave = undefined;
     if (!exactMatch) this.#worldStateDirty = true;
     if (save.shelfSigns) {
-      for (const slot of this.#signSlots.values()) {
+      for (const slot of this.#signs.slots.values()) {
         if (slot.kind === "shelf" && slot.column !== undefined)
-          this.#setShelfSign(slot.column, "");
+          this.#signs.setShelfSign(slot.column, "");
       }
       for (const sign of save.shelfSigns)
-        this.#setShelfSign(sign.column, sign.text, sign.subtitle);
+        this.#signs.setShelfSign(sign.column, sign.text, sign.subtitle);
     }
     if (save.aisleSigns) {
-      for (const [key, slot] of this.#signSlots) {
-        if (slot.kind === "aisle") this.#setSign(key, "", "");
+      for (const [key, slot] of this.#signs.slots) {
+        if (slot.kind === "aisle") this.#signs.setSign(key, "", "");
       }
       for (const sign of save.aisleSigns)
-        this.#setSign(
+        this.#signs.setSign(
           shopSignKey("aisle", sign.id),
           sign.title,
           sign.subtitle ?? "",
@@ -11327,7 +10971,7 @@ export class ShopScene {
       FACE_DISPLAY_COLUMNS - 1,
     );
     const key = shopSignKey("shelf", String(column));
-    return this.#signSlots.has(key) ? key : undefined;
+    return this.#signs.has(key) ? key : undefined;
   }
 
   #cycleCarriedBook(direction: number) {
@@ -11424,21 +11068,6 @@ export class ShopScene {
     return undefined;
   }
 
-  #editTargetedSign() {
-    const key = this.#targetedSignKey;
-    if (!key || !this.#onSignEditRequest) return;
-    const signSlot = this.#signSlots.get(key);
-    if (!signSlot) return;
-    this.#releasePointerLock();
-    this.#onSignEditRequest({
-      id: signSlot.id,
-      kind: signSlot.kind,
-      label: signSlot.label,
-      subtitle: signSlot.subtitle,
-      title: signSlot.title,
-    });
-  }
-
   #setDigitalArtFrameTargeted(frameId?: string) {
     if (frameId === this.#targetedDigitalArtFrameId) return;
     if (this.#targetedDigitalArtFrameId)
@@ -11454,15 +11083,15 @@ export class ShopScene {
   #updateInteractionTarget() {
     // An arcade session owns the screen; retargeting would fight its UI.
     if (this.#arcadeStatusForUi()) {
-      this.#clearShelfSignPreview();
+      this.#signs.clearShelfSignPreview();
       return;
     }
     if (this.#inspectionMode !== "none") {
       this.#setHoveredPublicationId(undefined);
       this.#shelfTargeted = false;
       this.#shelfTargetSelection = undefined;
-      this.#clearShelfSignPreview();
-      this.#targetedSignKey = undefined;
+      this.#signs.clearShelfSignPreview();
+      this.#signs.targetedKey = undefined;
       this.#targetedPosterId = undefined;
       this.#setDigitalArtFrameTargeted();
       this.#setPropTargeted(undefined);
@@ -11475,19 +11104,19 @@ export class ShopScene {
       this.#setHoveredPublicationId(undefined);
       this.#shelfTargeted = false;
       this.#shelfTargetSelection = undefined;
-      this.#clearShelfSignPreview();
-      this.#targetedSignKey = undefined;
+      this.#signs.clearShelfSignPreview();
+      this.#signs.targetedKey = undefined;
       this.#targetedPosterId = undefined;
       this.#setDigitalArtFrameTargeted();
       this.#setPropTargeted(undefined);
       this.#setTrashTargeted(false);
       this.#setTelevisionTargeted(false);
       this.#updateShelfTargetVisuals();
-      this.#updateSignTargetVisuals();
+      this.#signs.updateTargetVisuals();
       return;
     }
     if (!this.#pointerLocked) {
-      this.#clearShelfSignPreview();
+      this.#signs.clearShelfSignPreview();
       this.#updatePosterPlacementTarget();
       this.#updateDigitalArtFramePlacementTarget();
       this.#setHoveredPublicationId(undefined);
@@ -11498,11 +11127,11 @@ export class ShopScene {
         this.#targetedProp !== undefined ||
         this.#targetedDigitalArtFrameId !== undefined ||
         this.#targetedPosterId !== undefined ||
-        this.#targetedSignKey !== undefined
+        this.#signs.targetedKey !== undefined
       ) {
         this.#shelfTargeted = false;
         this.#shelfTargetSelection = undefined;
-        this.#targetedSignKey = undefined;
+        this.#signs.targetedKey = undefined;
         this.#targetedPosterId = undefined;
         this.#setDigitalArtFrameTargeted();
         this.#setPropTargeted(undefined);
@@ -11510,7 +11139,7 @@ export class ShopScene {
         this.#setTelevisionTargeted(false);
         this.#setArcadeTargeted(undefined);
         this.#updateShelfTargetVisuals();
-        this.#updateSignTargetVisuals();
+        this.#signs.updateTargetVisuals();
         this.#emitGameState();
       }
       return;
@@ -11540,15 +11169,15 @@ export class ShopScene {
       this.#setHoveredPublicationId(undefined);
       this.#shelfTargeted = false;
       this.#shelfTargetSelection = undefined;
-      this.#clearShelfSignPreview();
-      this.#targetedSignKey = undefined;
+      this.#signs.clearShelfSignPreview();
+      this.#signs.targetedKey = undefined;
       this.#targetedPosterId = undefined;
       this.#setDigitalArtFrameTargeted();
       this.#setPropTargeted(undefined);
       this.#setTrashTargeted(false);
       this.#setTelevisionTargeted(false);
       this.#updateShelfTargetVisuals();
-      this.#updateSignTargetVisuals();
+      this.#signs.updateTargetVisuals();
       this.#updateDigitalArtFramePlacementTarget();
       return;
     }
@@ -11556,8 +11185,8 @@ export class ShopScene {
       this.#setHoveredPublicationId(undefined);
       this.#shelfTargeted = false;
       this.#shelfTargetSelection = undefined;
-      this.#clearShelfSignPreview();
-      this.#targetedSignKey = undefined;
+      this.#signs.clearShelfSignPreview();
+      this.#signs.targetedKey = undefined;
       this.#targetedPosterId = undefined;
       this.#setDigitalArtFrameTargeted();
       this.#setPropTargeted(undefined);
@@ -11565,7 +11194,7 @@ export class ShopScene {
       this.#setTelevisionTargeted(false);
       this.#setArcadeTargeted(undefined);
       this.#updateShelfTargetVisuals();
-      this.#updateSignTargetVisuals();
+      this.#signs.updateTargetVisuals();
       this.#updatePosterPlacementTarget();
       return;
     }
@@ -11573,8 +11202,8 @@ export class ShopScene {
       this.#setHoveredPublicationId(undefined);
       this.#shelfTargeted = false;
       this.#shelfTargetSelection = undefined;
-      this.#clearShelfSignPreview();
-      this.#targetedSignKey = undefined;
+      this.#signs.clearShelfSignPreview();
+      this.#signs.targetedKey = undefined;
       this.#targetedPosterId = undefined;
       this.#setDigitalArtFrameTargeted();
       this.#setPropTargeted(undefined);
@@ -11582,11 +11211,11 @@ export class ShopScene {
       this.#setTelevisionTargeted(false);
       this.#setArcadeTargeted(undefined);
       this.#updateShelfTargetVisuals();
-      this.#updateSignTargetVisuals();
+      this.#signs.updateTargetVisuals();
       return;
     }
     if (this.#carriedPublicationId) {
-      this.#targetedSignKey = undefined;
+      this.#signs.targetedKey = undefined;
       this.#targetedPosterId = undefined;
       this.#setDigitalArtFrameTargeted();
       this.#setPropTargeted(undefined);
@@ -11634,10 +11263,10 @@ export class ShopScene {
         this.#setHoveredPublicationId(pickupPublicationId);
         this.#shelfTargeted = false;
         this.#shelfTargetSelection = undefined;
-        this.#clearShelfSignPreview();
+        this.#signs.clearShelfSignPreview();
         this.#setTrashTargeted(false);
         this.#updateShelfTargetVisuals();
-        this.#updateSignTargetVisuals();
+        this.#signs.updateTargetVisuals();
         return;
       }
       this.#setHoveredPublicationId(undefined);
@@ -11659,12 +11288,12 @@ export class ShopScene {
       }
       this.#shelfTargeted = selection !== undefined;
       this.#shelfTargetSelection = selection;
-      this.#shelfSignPreviewKey = selection
+      this.#signs.previewKey = selection
         ? this.#shelfSignKeyForTarget(selection.shelfId, selection.offset)
         : undefined;
       this.#setTrashTargeted(trashTargeted);
       this.#updateShelfTargetVisuals();
-      this.#updateSignTargetVisuals();
+      this.#signs.updateTargetVisuals();
       this.#emitGameState();
       return;
     }
@@ -11718,14 +11347,14 @@ export class ShopScene {
       arcadeIntersection.distance <= ARCADE_INTERACTION_DISTANCE;
     this.#setArcadeTargeted(arcadeTargeted ? arcadeCabinet : undefined);
     if (arcadeTargeted) {
-      this.#clearShelfSignPreview();
+      this.#signs.clearShelfSignPreview();
       this.#setTelevisionTargeted(false);
       this.#setPropTargeted(undefined);
       this.#setTrashTargeted(false);
-      this.#targetedSignKey = undefined;
+      this.#signs.targetedKey = undefined;
       this.#targetedPosterId = undefined;
       this.#setDigitalArtFrameTargeted();
-      this.#updateSignTargetVisuals();
+      this.#signs.updateTargetVisuals();
       this.#setHoveredPublicationId(undefined);
       return;
     }
@@ -11778,13 +11407,13 @@ export class ShopScene {
       television,
     );
     if (televisionTargeted) {
-      this.#clearShelfSignPreview();
+      this.#signs.clearShelfSignPreview();
       this.#setPropTargeted(undefined);
       this.#setTrashTargeted(false);
-      this.#targetedSignKey = undefined;
+      this.#signs.targetedKey = undefined;
       this.#targetedPosterId = undefined;
       this.#setDigitalArtFrameTargeted();
-      this.#updateSignTargetVisuals();
+      this.#signs.updateTargetVisuals();
       this.#setHoveredPublicationId(undefined);
       return;
     }
@@ -11808,18 +11437,18 @@ export class ShopScene {
         : undefined;
     this.#setPropTargeted(targetedProp);
     if (targetedProp) {
-      this.#clearShelfSignPreview();
+      this.#signs.clearShelfSignPreview();
       this.#setTrashTargeted(false);
-      this.#targetedSignKey = undefined;
+      this.#signs.targetedKey = undefined;
       this.#targetedPosterId = undefined;
       this.#setDigitalArtFrameTargeted();
-      this.#updateSignTargetVisuals();
+      this.#signs.updateTargetVisuals();
       this.#setHoveredPublicationId(undefined);
       return;
     }
     this.#setTrashTargeted(false);
     const shelfIntersection = this.#raycaster
-      .intersectObjects(this.#shelfSignPreviewTargetMeshes, false)
+      .intersectObjects(this.#signs.previewTargetMeshes, false)
       .find((candidate) => candidate.distance <= SHELF_INTERACTION_DISTANCE);
     const shelfId = shelfIntersection?.object.userData.shelfId;
     const shelf =
@@ -11838,19 +11467,19 @@ export class ShopScene {
         ? this.#shelfSignKeyForTarget(shelfId, shelfOffset)
         : undefined;
     const signIntersection = this.#raycaster
-      .intersectObjects(this.#signTargetMeshes, false)
+      .intersectObjects(this.#signs.targetMeshes, false)
       .find((candidate) => candidate.distance <= SIGN_INTERACTION_DISTANCE);
     const signKey = signIntersection?.object.userData.signKey;
     const targetedSignKey = typeof signKey === "string" ? signKey : undefined;
     const nextShelfSignPreviewKey =
       signIntersection === undefined ? shelfSignPreviewKey : undefined;
     const shelfSignPreviewChanged =
-      nextShelfSignPreviewKey !== this.#shelfSignPreviewKey;
-    this.#shelfSignPreviewKey = nextShelfSignPreviewKey;
-    const targetedSignChanged = targetedSignKey !== this.#targetedSignKey;
+      nextShelfSignPreviewKey !== this.#signs.previewKey;
+    this.#signs.previewKey = nextShelfSignPreviewKey;
+    const targetedSignChanged = targetedSignKey !== this.#signs.targetedKey;
     if (targetedSignChanged || shelfSignPreviewChanged) {
-      this.#targetedSignKey = targetedSignKey;
-      this.#updateSignTargetVisuals();
+      this.#signs.targetedKey = targetedSignKey;
+      this.#signs.updateTargetVisuals();
       if (targetedSignChanged) this.#emitGameState();
     }
     if (targetedSignKey !== undefined) {
@@ -11960,8 +11589,8 @@ export class ShopScene {
       if (allowNonBookPropPickup) this.#pickUpProp(this.#targetedProp);
       return;
     }
-    if (this.#targetedSignKey !== undefined) {
-      this.#editTargetedSign();
+    if (this.#signs.targetedKey !== undefined) {
+      this.#signs.requestEdit();
       return;
     }
     if (this.#targetedDigitalArtFrameId) {
@@ -12529,7 +12158,7 @@ export class ShopScene {
     }
     const catalog = this.#catalogIdentity();
     const playerQuaternion = this.#camera.quaternion;
-    const shelfSigns = [...this.#signSlots.values()].flatMap((slot) =>
+    const shelfSigns = [...this.#signs.slots.values()].flatMap((slot) =>
       slot.kind === "shelf" && slot.column !== undefined && slot.title
         ? [
             {
@@ -12540,7 +12169,7 @@ export class ShopScene {
           ]
         : [],
     );
-    const aisleSigns = [...this.#signSlots.values()].flatMap((slot) =>
+    const aisleSigns = [...this.#signs.slots.values()].flatMap((slot) =>
       slot.kind === "aisle" && slot.title
         ? [
             {
@@ -12829,22 +12458,6 @@ export class ShopScene {
     );
   }
 
-  #updateSignTargetVisuals() {
-    for (const [key, slot] of this.#signSlots) {
-      const targeted = key === this.#targetedSignKey;
-      const shelfPreview =
-        key === this.#shelfSignPreviewKey && slot.sign === undefined;
-      slot.target.visible = targeted || shelfPreview;
-      slot.target.material.opacity = targeted ? 0.32 : shelfPreview ? 0.2 : 0;
-    }
-  }
-
-  #clearShelfSignPreview() {
-    if (this.#shelfSignPreviewKey === undefined) return;
-    this.#shelfSignPreviewKey = undefined;
-    this.#updateSignTargetVisuals();
-  }
-
   #emitGameState() {
     if (!this.#onGameStateChange) return;
     let taskBookCount = 0;
@@ -12974,8 +12587,8 @@ export class ShopScene {
     } else if (this.#targetedProp) {
       const animationLabel = this.#modelAnimationLabel(this.#targetedProp);
       prompt = `T project ${this.#targetedProp.label} for placement${animationLabel ? ` · Q/E animation (${animationLabel})` : ""}${this.#targetedProp.locked ? " · L unlock" : " · L lock"}${this.#targetedProp.spawned ? " · Del remove" : ""}`;
-    } else if (this.#targetedSignKey !== undefined)
-      prompt = `E customize ${this.#signSlots.get(this.#targetedSignKey)?.label ?? "shop sign"}`;
+    } else if (this.#signs.targetedKey !== undefined)
+      prompt = `E customize ${this.#signs.slots.get(this.#signs.targetedKey)?.label ?? "shop sign"}`;
     else if (this.#targetedDigitalArtFrameId) {
       const frame = this.#digitalArtFrameRecords.get(
         this.#targetedDigitalArtFrameId,
@@ -13360,7 +12973,7 @@ export class ShopScene {
         },
         {key: "N", label: "New channel", actions: ["channelEditorOpen"]},
       ];
-    } else if (this.#targetedSignKey !== undefined)
+    } else if (this.#signs.targetedKey !== undefined)
       interactions = [
         {key: "E", label: "Customize sign", actions: ["interact"]},
       ];

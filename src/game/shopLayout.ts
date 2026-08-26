@@ -325,3 +325,9 @@ export const SHOP_COLLISION_BOXES: readonly ShopCollisionBox[] = [
     position: box.position,
   })),
 ];
+
+/** Face-out display shelf grid used by new-arrival signage and shelves. */
+export const FACE_DISPLAY_COLUMNS = 8;
+export const FACE_DISPLAY_COLUMN_SPACING = 1.12;
+
+export const RARE_ROOM_DOOR_CENTER_X = 8.4;
