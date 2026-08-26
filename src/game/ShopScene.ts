@@ -11,7 +11,6 @@ import {
   EquirectangularReflectionMapping,
   Euler,
   Group,
-  ImageBitmapLoader,
   LinearFilter,
   MathUtils,
   Mesh,
@@ -122,6 +121,7 @@ import {
   TRASH_CAN_HEIGHT,
   TRASH_CAN_PROP_ID,
 } from "~/game/discardBin";
+import {ArtFrameTextureCache} from "~/game/artFrameTextureCache";
 import {PosterSystem} from "~/game/posters/PosterSystem";
 import {resolveWallPlacement} from "~/game/interior/interiorPrimitives";
 import {
@@ -171,12 +171,10 @@ import {
   SHELF_RETURN_ROTATION_HANDOFF_EPSILON,
 } from "~/game/bookInspectionTuning";
 import {
-  ART_FRAME_TEXTURE_UPLOAD_IDLE_BUDGET_MS,
   DEFAULT_POSTER_HEIGHT,
   DIGITAL_ART_FRAME_BORDER,
   DIGITAL_ART_FRAME_DEFAULT_INTERVAL_SECONDS,
   DIGITAL_ART_FRAME_INTERVALS,
-  MAX_UNUSED_ART_FRAME_TEXTURES,
   MAX_POSTER_HEIGHT,
   MIN_POSTER_HEIGHT,
   POSTER_INTERACTION_DISTANCE,
@@ -546,25 +544,6 @@ type DigitalArtFrameRecord = {
   rotation: number;
 };
 
-type ArtFrameTextureCacheEntry = {
-  lastUsed: number;
-  loadState: ArtFrameTextureLoadState;
-  promise: Promise<Texture>;
-  references: number;
-};
-
-type ArtFrameTextureLoadState = {
-  // Explicitly nullable so queue removal can clear the back-reference.
-  preparation?: ArtFrameTexturePreparation | undefined;
-  priority: "display" | "preload";
-};
-
-type ArtFrameTexturePreparation = {
-  loadState: ArtFrameTextureLoadState;
-  resolve: () => void;
-  texture: Texture;
-};
-
 type DigitalArtFramePlacementSession = {
   assetIndex: number;
   aspectRatio: number;
@@ -878,6 +857,7 @@ export class ShopScene {
   readonly #discardBin: DiscardBin;
   readonly #doors: DoorSystem;
   readonly #posters: PosterSystem;
+  readonly #artFrameTextures: ArtFrameTextureCache;
   readonly #artFramePlacementPosition = new Vector3();
   readonly #artFramePlacementRotation = new Quaternion();
   readonly #artFrameLocalPoint = new Vector3();
@@ -955,12 +935,6 @@ export class ShopScene {
   readonly #posterRaycastMeshes: Mesh[] = [];
   readonly #digitalArtFrameRecords = new Map<string, DigitalArtFrameRecord>();
   readonly #digitalArtFrameTargetMeshes: Mesh[] = [];
-  readonly #artFrameImageBitmapLoader = new ImageBitmapLoader().setOptions({
-    imageOrientation: "flipY",
-    premultiplyAlpha: "none",
-  });
-  readonly #artFrameTextureCache = new Map<string, ArtFrameTextureCacheEntry>();
-  readonly #artFrameTexturePreparationQueue: ArtFrameTexturePreparation[] = [];
   readonly #modelMixers = new Set<AnimationMixer>();
   readonly #modelTemplatePromises = new Map<string, Promise<ModelTemplate>>();
   readonly #builtinPropTemplates = new PropTemplateCache();
@@ -1126,9 +1100,6 @@ export class ShopScene {
   #artFrameTargetImportChannel:
     | {channelId: string; frameId: string}
     | undefined;
-  #artFrameTextureCacheClock = 0;
-  #artFrameTexturePreparationHandle: number | undefined;
-  #artFrameTexturePreparationUsesIdleCallback = false;
   #artFrameSaveRestoreCompleted = false;
   #pendingDigitalArtFrameSaves: readonly WorldDigitalArtFrameSave[] = [];
   #pendingModelPropSaves: readonly WorldModelPropSave[] = [];
@@ -1297,6 +1268,11 @@ export class ShopScene {
       releasePointerLock: () => this.#releasePointerLock(),
     });
 
+    this.#artFrameTextures = new ArtFrameTextureCache({
+      isDisposed: () => this.#disposed,
+      renderer: this.#renderer,
+      textureLoader: this.#textureLoader,
+    });
     this.#posters = new PosterSystem({
       abortSignal: this.#abortController.signal,
       camera: this.#camera,
@@ -1782,12 +1758,8 @@ export class ShopScene {
     this.#moonEnvironment?.dispose();
     this.#moonEnvironment = undefined;
     this.#posters.disposePendingTextures();
-    this.#cancelArtFrameTexturePreparation();
-    for (const entry of this.#artFrameTextureCache.values())
-      void entry.promise
-        .then((texture) => this.#disposeArtFrameTexture(texture))
-        .catch(() => {});
-    this.#artFrameTextureCache.clear();
+    this.#artFrameTextures.cancelPreparation();
+    this.#artFrameTextures.disposeAll();
     this.#renderer.renderLists.dispose();
     this.#renderer.dispose();
     const performanceDebugWindow = window as ShopPerformanceDebugWindow;
@@ -4732,177 +4704,6 @@ export class ShopScene {
     this.#emitGameState();
   }
 
-  #artFrameTexture(
-    image: ArtFrameImage,
-    priority: ArtFrameTextureLoadState["priority"],
-  ) {
-    const cached = this.#artFrameTextureCache.get(image.id);
-    if (cached) {
-      cached.references += 1;
-      cached.lastUsed = this.#artFrameTextureCacheClock += 1;
-      if (priority === "display") this.#promoteArtFrameTexture(cached);
-      return cached.promise;
-    }
-    this.#trimArtFrameTextureCache();
-    const loadState: ArtFrameTextureLoadState = {priority};
-    const pending = this.#loadArtFrameTexture(image, loadState);
-    const entry: ArtFrameTextureCacheEntry = {
-      lastUsed: (this.#artFrameTextureCacheClock += 1),
-      loadState,
-      promise: pending,
-      references: 1,
-    };
-    this.#artFrameTextureCache.set(image.id, entry);
-    void pending.catch(() => {
-      if (this.#artFrameTextureCache.get(image.id) === entry)
-        this.#artFrameTextureCache.delete(image.id);
-    });
-    return pending;
-  }
-
-  async #loadArtFrameTexture(
-    image: ArtFrameImage,
-    loadState: ArtFrameTextureLoadState,
-  ) {
-    let texture: Texture;
-    if (typeof globalThis.createImageBitmap === "function") {
-      const bitmap = await this.#artFrameImageBitmapLoader.loadAsync(image.url);
-      texture = new Texture(bitmap);
-      texture.needsUpdate = true;
-    } else texture = await this.#textureLoader.loadAsync(image.url);
-    if (this.#disposed) return texture;
-    texture.colorSpace = SRGBColorSpace;
-    texture.generateMipmaps = false;
-    texture.minFilter = LinearFilter;
-    texture.anisotropy = Math.min(
-      8,
-      this.#renderer.capabilities.getMaxAnisotropy(),
-    );
-    if (loadState.priority === "display") this.#renderer.initTexture(texture);
-    else await this.#prepareArtFrameTexture(texture, loadState);
-    return texture;
-  }
-
-  #promoteArtFrameTexture(entry: ArtFrameTextureCacheEntry) {
-    entry.loadState.priority = "display";
-    const preparation = entry.loadState.preparation;
-    if (!preparation) return;
-    const preparationIndex =
-      this.#artFrameTexturePreparationQueue.indexOf(preparation);
-    if (preparationIndex >= 0)
-      this.#artFrameTexturePreparationQueue.splice(preparationIndex, 1);
-    entry.loadState.preparation = undefined;
-    try {
-      this.#renderer.initTexture(preparation.texture);
-    } catch (error) {
-      if (DEV)
-        console.warn("Afterleaf could not upload an art texture.", error);
-    }
-    preparation.resolve();
-  }
-
-  #releaseArtFrameTexture(imageId: string) {
-    const entry = this.#artFrameTextureCache.get(imageId);
-    if (!entry) return;
-    entry.references = Math.max(0, entry.references - 1);
-    entry.lastUsed = this.#artFrameTextureCacheClock += 1;
-  }
-
-  #trimArtFrameTextureCache() {
-    const unusedEntries = [...this.#artFrameTextureCache.entries()]
-      .filter(([, entry]) => entry.references === 0)
-      .sort(([, left], [, right]) => left.lastUsed - right.lastUsed);
-    const removalCount = unusedEntries.length - MAX_UNUSED_ART_FRAME_TEXTURES;
-    if (removalCount <= 0) return;
-    for (const [imageId, entry] of unusedEntries.slice(0, removalCount)) {
-      if (this.#artFrameTextureCache.get(imageId) !== entry) continue;
-      this.#artFrameTextureCache.delete(imageId);
-      void entry.promise
-        .then((texture) => this.#disposeArtFrameTexture(texture))
-        .catch(() => {});
-    }
-  }
-
-  #disposeArtFrameTexture(texture: Texture) {
-    texture.dispose();
-    const image = texture.image as {close?: () => void} | undefined;
-    image?.close?.();
-  }
-
-  #prepareArtFrameTexture(
-    texture: Texture,
-    loadState: ArtFrameTextureLoadState,
-  ) {
-    if (this.#disposed) return Promise.resolve();
-    return new Promise<void>((resolve) => {
-      const preparation = {loadState, resolve, texture};
-      loadState.preparation = preparation;
-      this.#artFrameTexturePreparationQueue.push(preparation);
-      this.#scheduleArtFrameTexturePreparation();
-    });
-  }
-
-  #scheduleArtFrameTexturePreparation() {
-    if (
-      this.#disposed ||
-      this.#artFrameTexturePreparationHandle !== undefined ||
-      this.#artFrameTexturePreparationQueue.length === 0
-    )
-      return;
-    const prepareNext = (deadline?: IdleDeadline) => {
-      this.#artFrameTexturePreparationHandle = undefined;
-      if (
-        deadline &&
-        deadline.timeRemaining() < ART_FRAME_TEXTURE_UPLOAD_IDLE_BUDGET_MS
-      ) {
-        this.#scheduleArtFrameTexturePreparation();
-        return;
-      }
-      const preparation = this.#artFrameTexturePreparationQueue.shift();
-      if (!preparation) return;
-      preparation.loadState.preparation = undefined;
-      if (!this.#disposed) {
-        try {
-          this.#renderer.initTexture(preparation.texture);
-        } catch (error) {
-          if (DEV)
-            console.warn(
-              "Afterleaf could not pre-upload an art texture.",
-              error,
-            );
-        }
-      }
-      preparation.resolve();
-      this.#scheduleArtFrameTexturePreparation();
-    };
-    if (typeof window.requestIdleCallback === "function") {
-      this.#artFrameTexturePreparationUsesIdleCallback = true;
-      this.#artFrameTexturePreparationHandle =
-        window.requestIdleCallback(prepareNext);
-      return;
-    }
-    this.#artFrameTexturePreparationUsesIdleCallback = false;
-    this.#artFrameTexturePreparationHandle = window.setTimeout(prepareNext, 0);
-  }
-
-  #cancelArtFrameTexturePreparation() {
-    const handle = this.#artFrameTexturePreparationHandle;
-    if (handle !== undefined) {
-      if (
-        this.#artFrameTexturePreparationUsesIdleCallback &&
-        typeof window.cancelIdleCallback === "function"
-      )
-        window.cancelIdleCallback(handle);
-      else window.clearTimeout(handle);
-    }
-    this.#artFrameTexturePreparationHandle = undefined;
-    for (const preparation of this.#artFrameTexturePreparationQueue) {
-      preparation.loadState.preparation = undefined;
-      preparation.resolve();
-    }
-    this.#artFrameTexturePreparationQueue.length = 0;
-  }
-
   #artFrameCatalogMatches(channels: readonly ArtFrameChannel[]) {
     return JSON.stringify(channels) === JSON.stringify(this.#artFrameChannels);
   }
@@ -4950,11 +4751,11 @@ export class ShopScene {
             : {}),
           intervalSeconds: savedFrame.intervalSeconds,
           loadTexture: (image, priority) =>
-            this.#artFrameTexture(image, priority),
+            this.#artFrameTextures.get(image, priority),
           onImageChange: () => {
             this.#worldStateDirty = true;
           },
-          releaseTexture: (imageId) => this.#releaseArtFrameTexture(imageId),
+          releaseTexture: (imageId) => this.#artFrameTextures.release(imageId),
         });
         if (this.#disposed) {
           frame.dispose();
@@ -5035,11 +4836,12 @@ export class ShopScene {
       fit,
       imageId: asset.id,
       intervalSeconds,
-      loadTexture: (image, priority) => this.#artFrameTexture(image, priority),
+      loadTexture: (image, priority) =>
+        this.#artFrameTextures.get(image, priority),
       onImageChange: () => {
         this.#worldStateDirty = true;
       },
-      releaseTexture: (imageId) => this.#releaseArtFrameTexture(imageId),
+      releaseTexture: (imageId) => this.#artFrameTextures.release(imageId),
     });
   }
 
