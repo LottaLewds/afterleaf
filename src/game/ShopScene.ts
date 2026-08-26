@@ -124,6 +124,7 @@ import {
 import {ArtFrameTextureCache} from "~/game/artFrameTextureCache";
 import type {DigitalArtFramePasteTarget} from "~/game/artFrameSystem";
 import {ArtFrameSystem} from "~/game/artFrameSystem";
+import {TvVideoImporter} from "~/game/tvVideoImporter";
 import {PosterSystem} from "~/game/posters/PosterSystem";
 import {
   createHallwayDoor,
@@ -775,13 +776,6 @@ export class ShopScene {
         signal: AbortSignal,
       ) => Promise<ArtFrameImage>)
     | undefined;
-  readonly #importTvVideo:
-    | ((
-        url: string,
-        channelId: string,
-        signal: AbortSignal,
-      ) => Promise<TvVideo>)
-    | undefined;
   readonly #onTextPaste:
     | ((text: string) => boolean | Promise<boolean>)
     | undefined;
@@ -820,6 +814,7 @@ export class ShopScene {
   readonly #doors: DoorSystem;
   readonly #posters: PosterSystem;
   readonly #artFrames: ArtFrameSystem;
+  readonly #tvVideos: TvVideoImporter;
   readonly #artFrameTextures: ArtFrameTextureCache;
   readonly #input: InputManager;
   readonly #getShortcuts: () => ShortcutsConfig;
@@ -1077,10 +1072,6 @@ export class ShopScene {
   #tvWheelScrubDirection: -1 | 1 | undefined;
   #tvWheelScrubLastAt = Number.NEGATIVE_INFINITY;
   #tvWheelScrubStepIndex = 0;
-  #tvVideoImportCount = 0;
-  #tvVideoImportError: string | undefined;
-  #tvVideoImportMessage: string | undefined;
-  #tvVideoImportMessageTimer: number | undefined;
   #tvChannels: readonly TvChannel[] = [];
   #televisionTableMaterial: MeshStandardMaterial | undefined;
   #savedTelevisionChannels: WorldTelevisionChannels = {};
@@ -1108,7 +1099,6 @@ export class ShopScene {
     this.#initialPageIndex = options.initialPageIndex ?? (() => 0);
     this.#importPoster = options.importPoster;
     this.#importArtFrameImage = options.importArtFrameImage;
-    this.#importTvVideo = options.importTvVideo;
     this.#onTextPaste = options.onTextPaste;
     this.#loadMediaCatalog =
       options.loadMediaCatalog ??
@@ -1225,6 +1215,12 @@ export class ShopScene {
       raycaster: this.#raycaster,
       scene: this.#scene,
       textureLoader: this.#textureLoader,
+    });
+    this.#tvVideos = new TvVideoImporter({
+      abortSignal: this.#abortController.signal,
+      emitGameState: () => this.#emitGameState(),
+      importTvVideo: options.importTvVideo,
+      isDisposed: () => this.#disposed,
     });
     this.#artFrames = new ArtFrameSystem(
       {
@@ -1664,9 +1660,7 @@ export class ShopScene {
       this.#restoreGhostedObject(this.#carriedProp.ghostMaterialSwaps);
     this.#releasePointerLock();
     this.#abortController.abort();
-    if (this.#tvVideoImportMessageTimer !== undefined)
-      window.clearTimeout(this.#tvVideoImportMessageTimer);
-    this.#tvVideoImportMessageTimer = undefined;
+    this.#tvVideos.clearMessageTimer();
     for (const mixer of this.#modelMixers) mixer.stopAllAction();
     this.#modelMixers.clear();
     this.#physicsWorld.dispose();
@@ -3539,7 +3533,7 @@ export class ShopScene {
     const url = tvVideoImportUrl(text);
     const television = this.#channelEditorTelevision;
     if (!channelId || !url || !television) return false;
-    const imported = await this.#importPastedTvVideo(
+    const imported = await this.#tvVideos.import(
       television,
       url,
       channelId,
@@ -4758,54 +4752,7 @@ export class ShopScene {
     if (handled) return;
     const url = tvVideoImportUrl(text);
     if (!television || !channelId || !channelLabel || !url) return;
-    await this.#importPastedTvVideo(television, url, channelId, channelLabel);
-  }
-
-  async #importPastedTvVideo(
-    television: ShopTelevision,
-    url: string,
-    channelId: string,
-    channelLabel: string,
-    selectImportedChannel = false,
-  ) {
-    const importVideo = this.#importTvVideo;
-    if (!importVideo) return false;
-    this.#tvVideoImportCount += 1;
-    this.#tvVideoImportError = undefined;
-    this.#tvVideoImportMessage = undefined;
-    if (this.#tvVideoImportMessageTimer !== undefined)
-      window.clearTimeout(this.#tvVideoImportMessageTimer);
-    this.#tvVideoImportMessageTimer = undefined;
-    this.#emitGameState();
-    try {
-      const video = await importVideo(
-        url,
-        channelId,
-        this.#abortController.signal,
-      );
-      if (this.#disposed) return false;
-      if (selectImportedChannel)
-        television.playImportedChannel(channelId, video, channelLabel);
-      else
-        television.playVideoIfChannelSelected(channelId, video, channelLabel);
-      this.#tvVideoImportMessage = `Added ${video.id} to ${channelLabel}`;
-      this.#tvVideoImportMessageTimer = window.setTimeout(() => {
-        this.#tvVideoImportMessageTimer = undefined;
-        this.#tvVideoImportMessage = undefined;
-        if (!this.#disposed) this.#emitGameState();
-      }, 6_000);
-      return true;
-    } catch (error) {
-      if (this.#abortController.signal.aborted) return false;
-      this.#tvVideoImportError =
-        error instanceof Error && error.message
-          ? error.message
-          : "Video URL could not be imported";
-      return false;
-    } finally {
-      this.#tvVideoImportCount = Math.max(0, this.#tvVideoImportCount - 1);
-      if (!this.#disposed) this.#emitGameState();
-    }
+    await this.#tvVideos.import(television, url, channelId, channelLabel);
   }
 
   /** Resolves both poster and digital-frame placement against the same wall snap. */
@@ -10841,12 +10788,12 @@ export class ShopScene {
         : {}),
       ...(this.#posters.importCount > 0 ? {posterImporting: true} : {}),
       ...(this.#posters.placement ? {posterPlacementActive: true} : {}),
-      ...(this.#tvVideoImportError
-        ? {tvVideoImportError: this.#tvVideoImportError}
+      ...(this.#tvVideos.error
+        ? {tvVideoImportError: this.#tvVideos.error}
         : {}),
-      ...(this.#tvVideoImportCount > 0 ? {tvVideoImporting: true} : {}),
-      ...(this.#tvVideoImportMessage
-        ? {tvVideoImportMessage: this.#tvVideoImportMessage}
+      ...(this.#tvVideos.count > 0 ? {tvVideoImporting: true} : {}),
+      ...(this.#tvVideos.message
+        ? {tvVideoImportMessage: this.#tvVideos.message}
         : {}),
       ...(arcadeStatus
         ? {
