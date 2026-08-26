@@ -84,6 +84,7 @@ import {
 import {ShopPlayerMovement} from "~/game/shopPlayerMovement";
 import {ShopWorldPersistence} from "~/game/shopWorldPersistence";
 import {ShopInteriorAssets} from "~/game/shopInteriorAssets";
+import {ShopMediaController} from "~/game/shopMediaController";
 
 import type {CatalogAtlases, CatalogIdentity, CatalogItem} from "~/catalog";
 import type {ArtFrameImage} from "~/artFrames/protocol";
@@ -133,13 +134,7 @@ import {
   subscribeToWideReaderPages,
 } from "~/reader/pageSpreadDetection";
 import {getReaderSpread, type ReaderNavigation} from "~/reader/pagination";
-import {
-  DEFAULT_TV_CHANNEL_ID,
-  type TvChannel,
-  tvChannelId,
-  tvVideoImportUrl,
-  type TvVideo,
-} from "~/tv/protocol";
+import {tvChannelId, tvVideoImportUrl, type TvVideo} from "~/tv/protocol";
 import type {PosterAsset} from "~/posters/protocol";
 
 const SHOP_PLAYER_START_X = 0;
@@ -379,23 +374,6 @@ export class ShopScene {
     rotation: this.#heldTargetRotation,
   };
   readonly #initialPageIndex: (publicationId: string) => number;
-  readonly #importPoster:
-    | ((image: Blob, signal: AbortSignal) => Promise<PosterAsset>)
-    | undefined;
-  readonly #importArtFrameImage:
-    | ((
-        image: Blob,
-        channelId: string,
-        signal: AbortSignal,
-      ) => Promise<ArtFrameImage>)
-    | undefined;
-  readonly #onTextPaste:
-    | ((text: string) => boolean | Promise<boolean>)
-    | undefined;
-
-  readonly #loadMediaCatalog: (
-    signal: AbortSignal,
-  ) => Promise<ShopMediaCatalog>;
   readonly #signs: ShopSignSystem;
   readonly #discardBin: DiscardBin;
   readonly #doors: DoorSystem;
@@ -404,6 +382,7 @@ export class ShopScene {
   readonly #tvVideos: TvVideoImporter;
   readonly #artFrameTextures: ArtFrameTextureCache;
   readonly #interiorAssets: ShopInteriorAssets;
+  readonly #mediaController: ShopMediaController;
   readonly #bookTextures: BookTextureRuntime;
   readonly #gameStateEmitter = new GameStateEmitter();
   readonly #inspection: InspectionController;
@@ -498,7 +477,6 @@ export class ShopScene {
   #inputSuspended = false;
   #mediaCatalogRefreshHandle: number | undefined;
   #lateShaderPrecompileHandle: number | undefined;
-  #mediaCatalogRequestPending = false;
   #ready = false;
   #resizeDirty = true;
   #resizeObserver: ResizeObserver | undefined;
@@ -511,7 +489,6 @@ export class ShopScene {
   #televisionInteraction: ShopTelevisionInteraction | undefined;
   #televisionTargeted = false;
   #targetedTelevision: ShopTelevision | undefined;
-  #tvChannels: readonly TvChannel[] = [];
   #televisionTableMaterial: MeshStandardMaterial | undefined;
   #viewportHeight = 1;
   #viewportWidth = 1;
@@ -524,18 +501,6 @@ export class ShopScene {
     this.#catalogItems = options.catalogItems;
     this.#newPublicationIds = options.newPublicationIds ?? (() => []);
     this.#initialPageIndex = options.initialPageIndex ?? (() => 0);
-    this.#importPoster = options.importPoster;
-    this.#importArtFrameImage = options.importArtFrameImage;
-    this.#onTextPaste = options.onTextPaste;
-    this.#loadMediaCatalog =
-      options.loadMediaCatalog ??
-      (() =>
-        Promise.resolve({
-          artFrames: {channels: []},
-          models: {models: []},
-          posters: {posters: []},
-          tv: {channels: []},
-        }));
     this.#mouseSensitivity = options.mouseSensitivity ?? (() => 1);
     this.#gamepadLookSensitivity = options.gamepadLookSensitivity ?? (() => 1);
     this.#tvScreenLighting = options.tvScreenLighting ?? (() => false);
@@ -766,7 +731,8 @@ export class ShopScene {
       disposed: () => this.#disposed,
       emitGameState: () => this.#emitGameState(),
       gamepadLookSensitivity: () => this.#gamepadLookSensitivity(),
-      handleImagePaste: this.#handleImagePaste,
+      handleImagePaste: (event) =>
+        this.#mediaController.handleImagePaste(event),
       hoveredPublicationId: () => this.#hoveredPublicationId,
       input: () => this.#input,
       interact: (allowNonBookPropPickup) =>
@@ -779,7 +745,8 @@ export class ShopScene {
       physicsWorld: () => this.#physicsWorld,
       posters: () => this.#posters,
       props: () => this.#props,
-      refreshMediaCatalogIfActive: () => this.#refreshMediaCatalogIfActive(),
+      refreshMediaCatalogIfActive: () =>
+        this.#mediaController.refreshIfActive(),
       scanner: () => this.#scanner,
       setArcadeTargeted: (cabinet) => this.#setArcadeTargeted(cabinet),
       setChannelEditorDigitalArtFrameId: (id) => {
@@ -893,7 +860,7 @@ export class ShopScene {
         markWorldStateDirty: () => this.#worldPersistence.markDirty(),
         posterRaycastMeshes: this.#posterRaycastMeshes,
         raycaster: this.#raycaster,
-        refreshMediaCatalog: () => this.#refreshMediaCatalog(),
+        refreshMediaCatalog: () => this.#mediaController.refresh(),
         scene: this.#scene,
       },
       this.#artFrameTextures,
@@ -925,6 +892,31 @@ export class ShopScene {
       props: () => this.#props,
       renderer: () => this.#renderer,
       textureLoader: () => this.#textureLoader,
+    });
+    this.#mediaController = new ShopMediaController({
+      abortSignal: this.#abortController.signal,
+      artFrames: () => this.#artFrames,
+      disposed: () => this.#disposed,
+      emitGameState: () => this.#emitGameState(),
+      importArtFrameImage: options.importArtFrameImage,
+      importPoster: options.importPoster,
+      loadMediaCatalog:
+        options.loadMediaCatalog ??
+        (() =>
+          Promise.resolve({
+            artFrames: {channels: []},
+            models: {models: []},
+            posters: {posters: []},
+            tv: {channels: []},
+          })),
+      onTextPaste: options.onTextPaste,
+      paused: () => this.#paused(),
+      posters: () => this.#posters,
+      props: () => this.#props,
+      targetedTelevision: () => this.#targetedTelevision,
+      televisionTargeted: () => this.#televisionTargeted,
+      televisions: () => this.#televisions,
+      tvVideos: () => this.#tvVideos,
     });
     this.#playerMovementController = new ShopPlayerMovement({
       camera: () => this.#camera,
@@ -1037,7 +1029,7 @@ export class ShopScene {
     await ShopScene.nextFrame();
     if (this.#disposed) return;
     this.#syncInputs();
-    void this.#refreshMediaCatalog();
+    void this.#mediaController.refresh();
     void this.#initializePhysics();
     this.#lastFrameTime = performance.now();
     this.#applyResize();
@@ -1045,7 +1037,7 @@ export class ShopScene {
     this.#renderer.render(this.#scene, this.#camera);
     this.#worldPersistence.startScheduler();
     this.#mediaCatalogRefreshHandle = window.setInterval(
-      this.#refreshMediaCatalogIfActive,
+      this.#mediaController.refreshIfActive,
       SHOP_MEDIA_CATALOG_REFRESH_INTERVAL_MS,
     );
     this.#frameHandle = requestAnimationFrame(this.#animate);
@@ -1581,102 +1573,6 @@ export class ShopScene {
     return imported;
   }
 
-  readonly #refreshMediaCatalogIfActive = () => {
-    if (
-      document.visibilityState !== "visible" ||
-      !document.hasFocus() ||
-      this.#disposed
-    )
-      return;
-    void this.#refreshMediaCatalog();
-  };
-
-  async #refreshMediaCatalog() {
-    if (this.#mediaCatalogRequestPending || this.#disposed) return;
-    this.#mediaCatalogRequestPending = true;
-    try {
-      const catalog = await this.#loadMediaCatalog(
-        this.#abortController.signal,
-      );
-      if (this.#disposed) return;
-      this.#props.applyModelCatalog(catalog.models.models);
-      await this.#props.restoreSavedModelProps();
-      this.#posters.applyPosterCatalog(catalog.posters.posters);
-      if (!this.#posters.saveRestoreCompleted)
-        await this.#posters.restoreSavedPosters(catalog.posters.posters);
-      this.#artFrames.applyArtFrameCatalog(catalog.artFrames.channels);
-      if (!this.#artFrames.saveRestoreCompleted)
-        await this.#artFrames.restoreSavedDigitalArtFrames(
-          catalog.artFrames.channels,
-        );
-      this.#tvChannels = catalog.tv.channels;
-      for (const television of this.#televisions)
-        television.setChannels(catalog.tv.channels);
-      this.#emitGameState();
-    } catch (error) {
-      for (const television of this.#televisions)
-        television.setChannelLoadError(error);
-      if (DEV && !this.#abortController.signal.aborted)
-        console.warn("Afterleaf could not load the shop media catalog.", error);
-    } finally {
-      this.#mediaCatalogRequestPending = false;
-    }
-  }
-
-  readonly #handleImagePaste = (event: ClipboardEvent) => {
-    if (this.#paused()) return;
-    const artFrameTarget = this.#artFrames.digitalArtFramePasteTarget();
-    const imageItem = Array.from(event.clipboardData?.items ?? []).find(
-      (item) => item.kind === "file" && item.type.startsWith("image/"),
-    );
-    const image = imageItem?.getAsFile();
-    if (image && artFrameTarget && this.#importArtFrameImage) {
-      event.preventDefault();
-      void this.#artFrames.importPastedArtFrameImage(image, artFrameTarget);
-      return;
-    }
-    if (image && this.#posters.placement && this.#importPoster) {
-      event.preventDefault();
-      void this.#posters.importPastedPoster(image);
-      return;
-    }
-    const clipboardText =
-      event.clipboardData?.getData("text/plain") ||
-      event.clipboardData?.getData("text/uri-list");
-    if (!clipboardText) return;
-    const television = this.#televisionTargeted
-      ? this.#targetedTelevision
-      : undefined;
-    const channelId = television?.selectedChannelId();
-    event.preventDefault();
-    void this.#handlePastedText(
-      clipboardText,
-      television,
-      channelId ?? (television ? DEFAULT_TV_CHANNEL_ID : undefined),
-      television?.selectedChannelLabel() ??
-        channelId ??
-        (television ? "Afterleaf TV" : undefined),
-    );
-  };
-
-  async #handlePastedText(
-    text: string,
-    television: ShopTelevision | undefined,
-    channelId: string | undefined,
-    channelLabel: string | undefined,
-  ) {
-    let handled = false;
-    try {
-      handled = (await this.#onTextPaste?.(text)) === true;
-    } catch {
-      // A provider resolver must not prevent the existing TV paste fallback.
-    }
-    if (handled) return;
-    const url = tvVideoImportUrl(text);
-    if (!television || !channelId || !channelLabel || !url) return;
-    await this.#tvVideos.import(television, url, channelId, channelLabel);
-  }
-
   /** Resolves both poster and digital-frame placement against the same wall snap. */
 
   turnInspectionPage(navigation: ReaderNavigation) {
@@ -2193,7 +2089,7 @@ export class ShopScene {
       televisionTableMaterial: () => this.#televisionTableMaterial,
       televisions: () => this.#televisions,
       throwVelocity: () => this.#throwVelocity,
-      tvChannels: () => this.#tvChannels,
+      tvChannels: () => this.#mediaController.tvChannels(),
       tvScreenLighting: () => this.#tvScreenLighting,
       updateHeldPhysicsTarget: () => this.#updateHeldPhysicsTarget(),
       upAxis: () => this.#upAxis,
