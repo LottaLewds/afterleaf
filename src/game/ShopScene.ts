@@ -38,44 +38,18 @@ import {KTX2Loader} from "three/examples/jsm/loaders/KTX2Loader.js";
 import {RectAreaLightUniformsLib} from "three/examples/jsm/lights/RectAreaLightUniformsLib.js";
 import {clone as cloneWithSkeleton} from "three/examples/jsm/utils/SkeletonUtils.js";
 import {DEV} from "solid-js";
-import {
-  batchStaticInteriorMeshes,
-  buildMergedStaticParts,
-} from "~/game/staticModelBatching";
+import {buildMergedStaticParts} from "~/game/staticModelBatching";
 import {createBookExteriorMaterial} from "~/game/bookExteriorMaterial";
 import {disposeObject} from "~/game/threeDisposal";
 import {
   addInteriorBox,
-  createHorizontalShape,
   createPosterSurface as createPosterSurfaceTarget,
-  createTiledFloorSurface,
 } from "~/game/interior/interiorPrimitives";
-import {
-  createAtriumRailings,
-  createStackableStairwell,
-  createUpperFloorStructures,
-  createUpperWindowWall,
-  type CreatePosterSurface,
-} from "~/game/interior/upperFloor";
-import type {AddBox} from "~/game/interior/interiorPrimitives";
-import {
-  createReadingChairInstance,
-  createReadingTables,
-} from "~/game/interior/readingFurniture";
-import {
-  createFaceOutDisplay,
-  createSpineShelfFixture,
-  createTelevisionTableShelf,
-  createWallPosterSurfaces,
-} from "~/game/interior/shelfFixtures";
-import {createTelevisionRooms} from "~/game/interior/televisionRooms";
-import {
-  createNightWindows,
-  createTheatreSeating,
-} from "~/game/interior/seating";
+import {createReadingChairInstance} from "~/game/interior/readingFurniture";
+import {createFaceOutDisplay} from "~/game/interior/shelfFixtures";
+import {buildShopInterior} from "~/game/interior/shopComposition";
 import {
   createCeilingLightRig,
-  createCeilingLightTemplate,
   createDeskLamps,
   playModelAnimations,
 } from "~/game/interior/lightingProps";
@@ -132,16 +106,9 @@ import {
 import {createWorldSave} from "~/game/worldSaveSnapshot";
 import {TvVideoImporter} from "~/game/tvVideoImporter";
 import {PosterSystem} from "~/game/posters/PosterSystem";
+import {DoorSystem} from "~/game/interior/doors";
 import {
-  createHallwayDoor,
-  createRareRoom,
-  DoorSystem,
-  type CreateSpineShelfFixture,
-} from "~/game/interior/doors";
-import {
-  createSignVisual,
   shopSignKey,
-  SIGN_TEXTURE_MAX_ANISOTROPY,
   ShopSignSystem,
   type ShopSignEditRequest,
   type ShopSignKind,
@@ -214,11 +181,6 @@ import {
   getInitialModelAnimationIndex,
 } from "~/game/modelTelevision";
 import {
-  applyCeilingShapeUv,
-  createCeilingMaterial,
-} from "~/game/ceilingMaterials";
-import {createWallpaperMaterial} from "~/game/wallpaperMaterials";
-import {
   getPageBlockSplit,
   writeActiveLeafDeformation,
   writeActiveLeafPositions,
@@ -254,21 +216,8 @@ import {
   type ArcadePadMappingOverrides,
 } from "~/arcade/controllerMappings";
 import {type InteractionPromptToken} from "~/game/input/hints";
-import {
-  SHOP_ATRIUM,
-  SHOP_EXPANSION_WALL_BOXES,
-  SHOP_THEATRE,
-  SHOP_THEATRE_HALL,
-  SHOP_TV_CAVE,
-  SHOP_TV_CAVE_DOOR_CENTER_Z,
-  SHOP_TV_CAVE_HALL,
-  SHOP_UPPER_STACK_CENTER_X,
-  SHOP_UPPER_STACK_LENGTH,
-  SHOP_UPPER_STACK_ZS,
-  SHOP_UPPER_CEILING_Y,
-  SHOP_UPPER_FLOOR_Y,
-  SHOP_STAIR_ROOM,
-} from "~/game/shopExpansionLayout";
+import {SHOP_TV_CAVE, SHOP_UPPER_FLOOR_Y} from "~/game/shopExpansionLayout";
+
 import {
   findAdjacentShelfBook,
   insertSpineShelfBook,
@@ -288,9 +237,6 @@ import {
   SHOP_INTERIOR_FOOTPRINTS,
   SHOP_MODEL_TELEVISION_SCALE,
   SHOP_MODEL_TELEVISION_SIZE,
-  SHOP_STAIR_LOWER_FLIGHT_CENTER_Z,
-  SHOP_STAIR_OPENING_WIDTH,
-  SPINE_SHELF_BACKING_THICKNESS,
 } from "~/game/shopLayout";
 import {
   ShopPhysicsWorld,
@@ -321,7 +267,6 @@ import {
   type WorldTelevisionChannels,
   type WorldTelevisionVolumes,
 } from "~/game/worldSave";
-import {createWoodMaterial, loadWoodTextures} from "~/game/woodMaterials";
 import {
   detectWideReaderPage,
   getWideReaderPageIndices,
@@ -395,7 +340,6 @@ const MODEL_TELEVISION_PHYSICS_ID = "crt-television";
 // television: the node's first mesh becomes the video screen.
 const MODEL_TELEVISION_SCREEN_NODE_NAME = "TVScreen";
 const MODEL_TELEVISION_DENSITY = 60;
-const FIXED_TELEVISION_SAVE_ID = "fixed";
 const DISCARD_TOSS_DURATION_SECONDS = 0.52;
 const SHELVE_BOOK_DURATION_SECONDS = 0.34;
 const LOOK_SENSITIVITY = 0.0021;
@@ -1348,7 +1292,49 @@ export class ShopScene {
     stage("interior-start");
     await ShopScene.nextFrame();
     if (this.#disposed) return;
-    this.#createShopInterior();
+    buildShopInterior({
+      addBox: (p, size, pos, mat, castShadow) =>
+        this.#addBox(p, size, pos, mat, castShadow),
+      artFrames: this.#artFrames,
+      cacheBuiltinPropTemplate: (registration) =>
+        this.#cacheBuiltinPropTemplate(registration),
+      cloneFloorMaterial: (material, repeatX, repeatY) =>
+        this.#cloneFloorMaterial(material, repeatX, repeatY),
+      createFloorMaterial: () => this.#createFloorMaterial(),
+      createPosterSurface: (p, id, w, h, pos, rot) =>
+        this.#createPosterSurface(p, id, w, h, pos, rot),
+      createFaceOutDisplay: (p, wood, backing, deps) =>
+        createFaceOutDisplay(p, wood, backing, deps),
+      createSpawnedCrtTelevision: (asset, id, scale, pose) =>
+        this.#createSpawnedCrtTelevision(asset, id, scale, pose),
+      createUpperReadingFurniture: (p, wood, furnitureMaterials) =>
+        this.#createUpperReadingFurniture(p, wood, furnitureMaterials),
+      discardBin: this.#discardBin,
+      disposed: this.#disposed,
+      doors: this.#doors,
+      modelMixers: this.#modelMixers,
+      needsSeedPass: (version) => this.#needsSeedPass(version),
+      pendingWorldSave: this.#pendingWorldSave,
+      registerMovableProp: (registration) =>
+        this.#registerMovableProp(registration),
+      registerPropPlacementSupport: (object) =>
+        this.#registerPropPlacementSupport(object),
+      registerTelevision: (saveId, television) =>
+        this.#registerTelevision(saveId, television),
+      renderer: this.#renderer,
+      scene: this.#scene,
+      seedDefaultProps: () => this.#seedDefaultProps(),
+      sharedTelevisionOptions: (channelId, volume) =>
+        this.#sharedTelevisionOptions(channelId, volume),
+      shelfSnapMesh: this.#shelfSnapMesh,
+      shelfTargetMeshes: this.#shelfTargetMeshes,
+      signs: this.#signs,
+      spineShelfDefinitions: this.#spineShelfDefinitions,
+      setTelevisionTableMaterial: (material) => {
+        this.#televisionTableMaterial = material;
+      },
+      textureLoader: this.#textureLoader,
+    });
     stage("sync-inputs-start");
     await ShopScene.nextFrame();
     if (this.#disposed) return;
@@ -1874,278 +1860,6 @@ export class ShopScene {
     // Downward ceiling spotlights are no longer hard-wired here: every
     // light in the shop hangs on a seeded, movable ceiling-light prop
     // (see #seedDefaultProps and #createSpawnedCeilingLight).
-  }
-
-  #createShopInterior() {
-    const architecture = new Group();
-    architecture.name = "night-shop-interior";
-    this.#scene.add(architecture);
-    this.#shelfSnapMesh.name = "shelf-snap-helper";
-    this.#shelfSnapMesh.visible = false;
-    architecture.add(this.#shelfSnapMesh);
-
-    const floorMaterial = this.#createFloorMaterial();
-    const floor = new Mesh(new PlaneGeometry(26, 39), floorMaterial);
-    floor.rotation.x = -Math.PI / 2;
-    floor.position.set(0, 0, 8.5);
-    floor.receiveShadow = true;
-    architecture.add(floor);
-    const groundFloorStructure = new Mesh(
-      new BoxGeometry(26, 0.18, 39),
-      new MeshBasicMaterial({color: "#242a28"}),
-    );
-    groundFloorStructure.position.set(0, -0.092, 8.5);
-    architecture.add(groundFloorStructure);
-
-    const wallMaterial = createWallpaperMaterial(
-      this.#textureLoader,
-      this.#renderer.capabilities.getMaxAnisotropy(),
-    );
-    this.#addBox(architecture, [26, 4.8, 0.16], [0, 2.35, -10.5], wallMaterial);
-    this.#addBox(architecture, [26, 4.8, 0.16], [0, 2.35, 28], wallMaterial);
-    this.#addBox(
-      architecture,
-      [0.16, 4.8, 38.5],
-      [-12.5, 2.35, 8.75],
-      wallMaterial,
-    );
-    const lowerStairOpeningMinZ =
-      SHOP_STAIR_LOWER_FLIGHT_CENTER_Z - SHOP_STAIR_OPENING_WIDTH / 2;
-    const lowerStairOpeningMaxZ =
-      SHOP_STAIR_LOWER_FLIGHT_CENTER_Z + SHOP_STAIR_OPENING_WIDTH / 2;
-    this.#addBox(
-      architecture,
-      [0.16, 4.8, lowerStairOpeningMinZ + 10.5],
-      [12.5, 2.35, (-10.5 + lowerStairOpeningMinZ) / 2],
-      wallMaterial,
-    );
-    this.#addBox(
-      architecture,
-      [0.16, 4.8, 28 - lowerStairOpeningMaxZ],
-      [12.5, 2.35, (28 + lowerStairOpeningMaxZ) / 2],
-      wallMaterial,
-    );
-    this.#createPosterSurface(
-      architecture,
-      "back-wall",
-      24.6,
-      4.5,
-      [0, 2.35, -10.405],
-      0,
-    );
-    this.#createPosterSurface(
-      architecture,
-      "front-wall",
-      24.6,
-      4.5,
-      [0, 2.35, 27.905],
-      Math.PI,
-    );
-    this.#createPosterSurface(
-      architecture,
-      "west-wall",
-      37.8,
-      4.5,
-      [-12.405, 2.35, 8.75],
-      Math.PI / 2,
-    );
-    this.#createPosterSurface(
-      architecture,
-      "east-wall",
-      lowerStairOpeningMinZ + 10.1,
-      4.5,
-      [12.405, 2.35, (-10.5 + lowerStairOpeningMinZ) / 2],
-      -Math.PI / 2,
-    );
-
-    const woodTextures = loadWoodTextures(
-      this.#textureLoader,
-      this.#renderer.capabilities.getMaxAnisotropy(),
-    );
-    const woodMaterial = createWoodMaterial(woodTextures);
-    const shelfEdgeMaterial = createWoodMaterial(woodTextures, {
-      color: "#d8c0aa",
-      roughness: 0.76,
-    });
-    const shelfBackingMaterial = createWoodMaterial(woodTextures, {
-      color: "#806f63",
-      roughness: 0.92,
-    });
-    this.#televisionTableMaterial = woodMaterial;
-
-    createFaceOutDisplay(architecture, woodMaterial, shelfBackingMaterial, {
-      addBox: (p, size, pos, mat, castShadow) =>
-        this.#addBox(p, size, pos, mat, castShadow),
-      registerPropPlacementSupport: (object) =>
-        this.#registerPropPlacementSupport(object),
-      shelfTargetMeshes: this.#shelfTargetMeshes,
-      signs: this.#signs,
-      spineShelfDefinitions: this.#spineShelfDefinitions,
-    });
-    void this.#discardBin.create(architecture);
-
-    this.#createSpineShelfFixture(
-      architecture,
-      "west-wall",
-      -11.45,
-      8.25,
-      35.5,
-      9,
-      [1],
-      woodMaterial,
-      shelfBackingMaterial,
-      shelfEdgeMaterial,
-    );
-    this.#createSpineShelfFixture(
-      architecture,
-      "east-wall",
-      11.45,
-      5.75,
-      30.5,
-      8,
-      [-1],
-      woodMaterial,
-      shelfBackingMaterial,
-      shelfEdgeMaterial,
-    );
-    for (const [index, x] of [-4.2, 4.2].entries())
-      this.#createSpineShelfFixture(
-        architecture,
-        `gondola-${index + 1}`,
-        x,
-        10,
-        17,
-        7,
-        [-1, 1],
-        woodMaterial,
-        shelfBackingMaterial,
-        shelfEdgeMaterial,
-      );
-    for (const [index, x] of [-8, 8].entries())
-      this.#createSpineShelfFixture(
-        architecture,
-        `outer-gondola-${index + 1}`,
-        x,
-        12,
-        12,
-        5,
-        [-1, 1],
-        woodMaterial,
-        shelfBackingMaterial,
-        shelfEdgeMaterial,
-      );
-    const readingFurnitureMaterials = createReadingTables(
-      architecture,
-      woodMaterial,
-      {
-        addBox: (parent2, size, position2, material, castShadow) =>
-          this.#addBox(parent2, size, position2, material, castShadow),
-        cacheBuiltinPropTemplate: (registration) =>
-          this.#cacheBuiltinPropTemplate(registration),
-        createDeskLamps: async (parent2) => {
-          await createDeskLamps(parent2, {
-            cacheBuiltinPropTemplate: (registration) =>
-              this.#cacheBuiltinPropTemplate(registration),
-            isDisposed: () => this.#disposed,
-            modelMixers: this.#modelMixers,
-            needsSeedPass: (version) => this.#needsSeedPass(version),
-            registerMovableProp: (registration) =>
-              this.#registerMovableProp(registration),
-          });
-        },
-        needsSeedPass: (version) => this.#needsSeedPass(version),
-        registerMovableProp: (registration) =>
-          this.#registerMovableProp(registration),
-      },
-    );
-    createRareRoom(
-      architecture,
-      wallMaterial,
-      woodMaterial,
-      shelfBackingMaterial,
-      shelfEdgeMaterial,
-      {
-        addBox: (parent2, size, position2, material, castShadow) =>
-          this.#addBox(parent2, size, position2, material, castShadow),
-        createSpineShelfFixture: (...args) =>
-          this.#createSpineShelfFixture(
-            ...(args as Parameters<CreateSpineShelfFixture>),
-          ),
-        doors: this.#doors,
-        signs: this.#signs,
-      },
-    );
-    const upperFloorMaterial = this.#cloneFloorMaterial(
-      floorMaterial,
-      0.25,
-      0.25,
-    );
-    this.#createShopExpansion(
-      architecture,
-      upperFloorMaterial,
-      wallMaterial,
-      woodMaterial,
-      shelfBackingMaterial,
-      shelfEdgeMaterial,
-      readingFurnitureMaterials,
-    );
-    // Ceiling-light fixtures live on the spawnable props now; the template
-    // is registered here so menu spawning works on every world.
-    createCeilingLightTemplate({
-      cacheBuiltinPropTemplate: (registration) =>
-        this.#cacheBuiltinPropTemplate(registration),
-      isDisposed: () => this.#disposed,
-      modelMixers: this.#modelMixers,
-      needsSeedPass: (version) => this.#needsSeedPass(version),
-      registerMovableProp: (registration) =>
-        this.#registerMovableProp(registration),
-    });
-    createNightWindows(
-      architecture,
-      (parent2, size, position2, material, castShadow) =>
-        this.#addBox(parent2, size, position2, material, castShadow),
-    );
-    const fixedTelevision = new ShopTelevision({
-      ...this.#sharedTelevisionOptions(
-        this.#pendingWorldSave?.televisionChannels?.[FIXED_TELEVISION_SAVE_ID],
-        this.#pendingWorldSave?.televisionVolumes?.[FIXED_TELEVISION_SAVE_ID],
-      ),
-      parent: architecture,
-      tableMaterial: woodMaterial,
-    });
-    this.#registerTelevision(FIXED_TELEVISION_SAVE_ID, fixedTelevision);
-    // Default movable props are not hard-wired into the shop: on fresh and
-    // legacy worlds they are injected once through the regular spawn
-    // factories and from then on live in the world save like any prop the
-    // player placed. Deleting one is permanent.
-    this.#seedDefaultProps();
-    createTelevisionTableShelf(architecture, {
-      shelfTargetMeshes: this.#shelfTargetMeshes,
-      spineShelfDefinitions: this.#spineShelfDefinitions,
-    });
-
-    this.#signs.createAisleSignSlot(
-      architecture,
-      "gondola-1",
-      -4.2,
-      "成人向けコミック  18+",
-      "ADULT COMICS · AISLE 01",
-    );
-    this.#signs.createAisleSignSlot(architecture, "gondola-2", 4.2, "", "");
-
-    const recommendationCard = createSignVisual(
-      "STAFF PICK",
-      "深夜のおすすめ",
-      1.05,
-      0.48,
-      "#241b18",
-      "#d9b96f",
-      SIGN_TEXTURE_MAX_ANISOTROPY,
-    );
-    recommendationCard.position.set(1.52, 3.38, -9.93);
-    recommendationCard.rotation.z = -0.035;
-    architecture.add(recommendationCard);
-    batchStaticInteriorMeshes(architecture);
   }
 
   // Two exclusion tiers:
@@ -2679,362 +2393,6 @@ export class ShopScene {
       ...(initialChannelId === undefined ? {} : {initialChannelId}),
       ...(initialVolume === undefined ? {} : {initialVolume}),
     };
-  }
-
-  #createShopExpansion(
-    parent: Group,
-    floorMaterial: MeshStandardMaterial,
-    wallMaterial: MeshStandardMaterial,
-    woodMaterial: MeshStandardMaterial,
-    shelfBackingMaterial: MeshStandardMaterial,
-    shelfEdgeMaterial: MeshStandardMaterial,
-    readingFurnitureMaterials: ReadingFurnitureMaterials,
-  ) {
-    const ceilingMaterial = createCeilingMaterial(
-      this.#textureLoader,
-      this.#renderer.capabilities.getMaxAnisotropy(),
-    );
-    createUpperFloorStructures(parent, ceilingMaterial, (object) =>
-      this.#registerPropPlacementSupport(object),
-    );
-    const stairFloorStructure = new Mesh(
-      new BoxGeometry(
-        SHOP_STAIR_ROOM.maxX - SHOP_STAIR_ROOM.minX,
-        0.18,
-        SHOP_STAIR_ROOM.maxZ - SHOP_STAIR_ROOM.minZ,
-      ),
-      new MeshBasicMaterial({color: "#242a28"}),
-    );
-    stairFloorStructure.position.set(
-      (SHOP_STAIR_ROOM.minX + SHOP_STAIR_ROOM.maxX) / 2,
-      -0.092,
-      (SHOP_STAIR_ROOM.minZ + SHOP_STAIR_ROOM.maxZ) / 2,
-    );
-    parent.add(stairFloorStructure);
-    createTiledFloorSurface(parent, SHOP_STAIR_ROOM, floorMaterial, [], 0.012);
-    createTiledFloorSurface(
-      parent,
-      {maxX: 12.5, maxZ: 28, minX: -12.5, minZ: -10.5},
-      floorMaterial,
-      [SHOP_ATRIUM],
-    );
-    createTiledFloorSurface(
-      parent,
-      {
-        maxX: SHOP_THEATRE_HALL.centerX + SHOP_THEATRE_HALL.width / 2,
-        maxZ: SHOP_THEATRE_HALL.centerZ + SHOP_THEATRE_HALL.depth / 2,
-        minX: SHOP_THEATRE_HALL.centerX - SHOP_THEATRE_HALL.width / 2,
-        minZ: SHOP_THEATRE_HALL.centerZ - SHOP_THEATRE_HALL.depth / 2,
-      },
-      floorMaterial,
-    );
-    createTiledFloorSurface(
-      parent,
-      {
-        maxX: SHOP_TV_CAVE_HALL.centerX + SHOP_TV_CAVE_HALL.width / 2,
-        maxZ: SHOP_TV_CAVE_HALL.centerZ + SHOP_TV_CAVE_HALL.depth / 2,
-        minX: SHOP_TV_CAVE_HALL.centerX - SHOP_TV_CAVE_HALL.width / 2,
-        minZ: SHOP_TV_CAVE_HALL.centerZ - SHOP_TV_CAVE_HALL.depth / 2,
-      },
-      floorMaterial,
-    );
-    createTiledFloorSurface(
-      parent,
-      {
-        maxX: SHOP_TV_CAVE.centerX + SHOP_TV_CAVE.width / 2,
-        maxZ: SHOP_TV_CAVE.centerZ + SHOP_TV_CAVE.depth / 2,
-        minX: SHOP_TV_CAVE.centerX - SHOP_TV_CAVE.width / 2,
-        minZ: SHOP_TV_CAVE.centerZ - SHOP_TV_CAVE.depth / 2,
-      },
-      floorMaterial,
-    );
-    const theatreCarpet = new Mesh(
-      new PlaneGeometry(SHOP_THEATRE.width, SHOP_THEATRE.depth),
-      new MeshStandardMaterial({
-        color: "#211c2b",
-        roughness: 1,
-      }),
-    );
-    theatreCarpet.rotation.x = -Math.PI / 2;
-    theatreCarpet.position.set(
-      SHOP_THEATRE.centerX,
-      SHOP_UPPER_FLOOR_Y + 0.012,
-      SHOP_THEATRE.centerZ,
-    );
-    theatreCarpet.receiveShadow = true;
-    parent.add(theatreCarpet);
-
-    const upperWallMaterial = wallMaterial.clone();
-    upperWallMaterial.color.set("#d7ddd6");
-    const darkWallMaterial = wallMaterial.clone();
-    darkWallMaterial.color.set("#59626a");
-    const frameMaterial = woodMaterial.clone();
-    frameMaterial.color.set("#473c36");
-    const glassMaterial = new MeshBasicMaterial({
-      color: "#183b4d",
-      depthWrite: false,
-      opacity: 0.32,
-      side: DoubleSide,
-      transparent: true,
-    });
-    glassMaterial.forceSinglePass = true;
-    const addBox: AddBox = (parent2, size, position2, material, castShadow) =>
-      this.#addBox(parent2, size, position2, material, castShadow);
-    const createPosterSurface: CreatePosterSurface = (
-      parent2,
-      id,
-      width,
-      height,
-      position2,
-      rotationY,
-    ) =>
-      this.#createPosterSurface(
-        parent2,
-        id,
-        width,
-        height,
-        position2,
-        rotationY,
-      );
-    createUpperWindowWall(
-      parent,
-      -10.5,
-      0,
-      upperWallMaterial,
-      frameMaterial,
-      glassMaterial,
-      addBox,
-      createPosterSurface,
-    );
-    createUpperWindowWall(
-      parent,
-      28,
-      Math.PI,
-      upperWallMaterial,
-      frameMaterial,
-      glassMaterial,
-      addBox,
-      createPosterSurface,
-    );
-    for (const [index, box] of SHOP_EXPANSION_WALL_BOXES.entries()) {
-      if (index < 2) continue;
-      let roomWall = upperWallMaterial;
-      if (box.position[1] < SHOP_UPPER_FLOOR_Y) roomWall = wallMaterial;
-      else if (box.position[0] < -16) roomWall = darkWallMaterial;
-      this.#addBox(parent, box.size, box.position, roomWall);
-      createWallPosterSurfaces(
-        parent,
-        `expansion-wall-${index + 1}`,
-        box,
-        (p2, id2, w2, h2, pos2, rot2) =>
-          this.#createPosterSurface(p2, id2, w2, h2, pos2, rot2),
-      );
-    }
-
-    const doorAddBox: AddBox = (
-      parent2,
-      size,
-      position2,
-      material,
-      castShadow,
-    ) => this.#addBox(parent2, size, position2, material, castShadow);
-    for (const door of createHallwayDoor(
-      parent,
-      "theatre",
-      SHOP_THEATRE_HALL.centerX + SHOP_THEATRE_HALL.width / 2 + 0.12,
-      SHOP_THEATRE_HALL.centerZ,
-      "x",
-      -1,
-      woodMaterial,
-      doorAddBox,
-    ))
-      this.#doors.registerHallwayDoor(door);
-    for (const door of createHallwayDoor(
-      parent,
-      "tv-cave",
-      12.38,
-      SHOP_TV_CAVE_DOOR_CENTER_Z,
-      "x",
-      1,
-      woodMaterial,
-      doorAddBox,
-    ))
-      this.#doors.registerHallwayDoor(door);
-
-    createAtriumRailings(
-      parent,
-      woodMaterial,
-      (parent2, size, position2, material, castShadow) =>
-        this.#addBox(parent2, size, position2, material, castShadow),
-    );
-    createStackableStairwell(
-      parent,
-      woodMaterial,
-      (parent2, size, position2, material, castShadow) =>
-        this.#addBox(parent2, size, position2, material, castShadow),
-    );
-    this.#createSpineShelfFixture(
-      parent,
-      "mezzanine-west",
-      -11.45,
-      -5,
-      9,
-      3,
-      [1],
-      woodMaterial,
-      shelfBackingMaterial,
-      shelfEdgeMaterial,
-      SPINE_SHELF_BACKING_THICKNESS,
-      SHOP_UPPER_FLOOR_Y,
-    );
-    this.#createSpineShelfFixture(
-      parent,
-      "mezzanine-east",
-      11.45,
-      -5,
-      9,
-      3,
-      [-1],
-      woodMaterial,
-      shelfBackingMaterial,
-      shelfEdgeMaterial,
-      SPINE_SHELF_BACKING_THICKNESS,
-      SHOP_UPPER_FLOOR_Y,
-    );
-    for (const side of [-1, 1] as const)
-      for (const [index, z] of SHOP_UPPER_STACK_ZS.entries())
-        this.#createSpineShelfFixture(
-          parent,
-          `mezzanine-${side < 0 ? "west" : "east"}-stack-${index + 1}`,
-          side * SHOP_UPPER_STACK_CENTER_X,
-          z,
-          SHOP_UPPER_STACK_LENGTH,
-          2,
-          [-1, 1],
-          woodMaterial,
-          shelfBackingMaterial,
-          shelfEdgeMaterial,
-          SPINE_SHELF_BACKING_THICKNESS,
-          SHOP_UPPER_FLOOR_Y,
-          "x",
-        );
-    this.#createUpperReadingFurniture(
-      parent,
-      woodMaterial,
-      readingFurnitureMaterials,
-    );
-    createTheatreSeating(
-      parent,
-      (parent2, size, position2, material, castShadow) =>
-        this.#addBox(parent2, size, position2, material, castShadow),
-    );
-    createTelevisionRooms(parent, woodMaterial, {
-      addBox: (p, size, pos, mat, castShadow) =>
-        this.#addBox(p, size, pos, mat, castShadow),
-      createSpawnedCrtTelevision: (asset, id, scale, pose) =>
-        this.#createSpawnedCrtTelevision(asset, id, scale, pose),
-      needsSeedPass: (version) => this.#needsSeedPass(version),
-      registerPropPlacementSupport: (object) =>
-        this.#registerPropPlacementSupport(object),
-      registerTelevision: (saveId, television) =>
-        this.#registerTelevision(saveId, television),
-      sharedTelevisionOptions: (channelId, volume) =>
-        this.#sharedTelevisionOptions(channelId, volume),
-      textureLoader: this.#textureLoader,
-      maxTextureAnisotropy: this.#renderer.capabilities.getMaxAnisotropy(),
-      televisionChannels: this.#pendingWorldSave?.televisionChannels,
-      televisionVolumes: this.#pendingWorldSave?.televisionVolumes,
-    });
-    this.#signs.createRoomSignSlot(
-      parent,
-      "moonlight-theatre",
-      "MOONLIGHT THEATRE",
-      "MOONLIGHT THEATRE",
-      "SCREENING ROOM · WEST HALL",
-      [-12.37, 7.72, 18.5],
-      Math.PI / 2,
-    );
-    this.#signs.createRoomSignSlot(
-      parent,
-      "tv-cave",
-      "TV CAVE",
-      "TV CAVE",
-      "SIMULCAST CRT ROOM · EAST ANNEX",
-      [12.37, 7.72, SHOP_TV_CAVE_DOOR_CENTER_Z],
-      -Math.PI / 2,
-    );
-
-    const roofMaterial = ceilingMaterial;
-    const skylight = SHOP_ATRIUM;
-    const skylightWidth = skylight.maxX - skylight.minX;
-    const skylightDepth = skylight.maxZ - skylight.minZ;
-    const skylightCenterX = (skylight.minX + skylight.maxX) / 2;
-    const skylightCenterZ = (skylight.minZ + skylight.maxZ) / 2;
-    const roof = createHorizontalShape(
-      parent,
-      {maxX: 12.5, maxZ: 28, minX: -12.5, minZ: -10.5},
-      [skylight],
-      SHOP_UPPER_CEILING_Y,
-      roofMaterial,
-    );
-    applyCeilingShapeUv(roof.geometry);
-    roof.name = "main-roof";
-    const stairRoof = createHorizontalShape(
-      parent,
-      SHOP_STAIR_ROOM,
-      [],
-      SHOP_UPPER_CEILING_Y,
-      roofMaterial,
-    );
-    applyCeilingShapeUv(stairRoof.geometry);
-    stairRoof.name = "stair-tower-roof";
-    const skylightGlass = new Mesh(
-      new PlaneGeometry(skylightWidth, skylightDepth),
-      glassMaterial,
-    );
-    skylightGlass.rotation.x = -Math.PI / 2;
-    skylightGlass.position.set(
-      skylightCenterX,
-      SHOP_UPPER_CEILING_Y + 0.015,
-      skylightCenterZ,
-    );
-    parent.add(skylightGlass);
-    for (const [size, position] of [
-      [
-        [skylightWidth + 0.15, 0.16, 0.16],
-        [skylightCenterX, SHOP_UPPER_CEILING_Y + 0.07, skylight.minZ],
-      ],
-      [
-        [skylightWidth + 0.15, 0.16, 0.16],
-        [skylightCenterX, SHOP_UPPER_CEILING_Y + 0.07, skylight.maxZ],
-      ],
-      [
-        [0.16, 0.16, skylightDepth + 0.15],
-        [skylight.minX, SHOP_UPPER_CEILING_Y + 0.07, skylightCenterZ],
-      ],
-      [
-        [0.16, 0.16, skylightDepth + 0.15],
-        [skylight.maxX, SHOP_UPPER_CEILING_Y + 0.07, skylightCenterZ],
-      ],
-      [
-        [0.11, 0.12, skylightDepth],
-        [skylightCenterX, SHOP_UPPER_CEILING_Y + 0.09, skylightCenterZ],
-      ],
-    ] as const)
-      this.#addBox(parent, size, position, frameMaterial, true);
-
-    this.#addBox(
-      parent,
-      [SHOP_THEATRE.width, 0.18, SHOP_THEATRE.depth],
-      [SHOP_THEATRE.centerX, 15.82, SHOP_THEATRE.centerZ],
-      roofMaterial,
-    );
-    this.#addBox(
-      parent,
-      [SHOP_TV_CAVE.width, 0.18, SHOP_TV_CAVE.depth],
-      [SHOP_TV_CAVE.centerX, 9.72, SHOP_TV_CAVE.centerZ],
-      roofMaterial,
-    );
   }
 
   setSignContent(
@@ -4207,50 +3565,6 @@ export class ShopScene {
   }
 
   /** Resolves both poster and digital-frame placement against the same wall snap. */
-
-  /** Scene-local adapter for the extracted spine-shelf fixture builder. */
-  #createSpineShelfFixture(
-    parent: Group,
-    fixtureId: string,
-    x: number,
-    z: number,
-    length: number,
-    bayCount: number,
-    faceNormals: readonly (-1 | 1)[],
-    woodMaterial: MeshStandardMaterial,
-    backingMaterial: MeshStandardMaterial,
-    shelfEdgeMaterial: MeshStandardMaterial,
-    backingThickness = SPINE_SHELF_BACKING_THICKNESS,
-    elevation = 0,
-    axis: "x" | "z" = "z",
-  ) {
-    createSpineShelfFixture(
-      parent,
-      fixtureId,
-      x,
-      z,
-      length,
-      bayCount,
-      faceNormals,
-      woodMaterial,
-      backingMaterial,
-      shelfEdgeMaterial,
-      backingThickness,
-      elevation,
-      axis,
-      {
-        addBox: (p, size, pos, mat, castShadow) =>
-          this.#addBox(p, size, pos, mat, castShadow),
-        createPosterSurface: (p, id, w, h, pos, rot) =>
-          this.#createPosterSurface(p, id, w, h, pos, rot),
-        registerPropPlacementSupport: (object) =>
-          this.#registerPropPlacementSupport(object),
-        shelfTargetMeshes: this.#shelfTargetMeshes,
-        signs: this.#signs,
-        spineShelfDefinitions: this.#spineShelfDefinitions,
-      },
-    );
-  }
 
   #emitGameState() {
     this.#gameStateEmitter.emit(this.#snapshotInput);
