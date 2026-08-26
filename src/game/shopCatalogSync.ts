@@ -18,6 +18,11 @@ export type ShopCatalogSyncHost = {
   bookTextures: () => BookTextureRuntime;
 };
 
+const bookAssetSignature = (url: string | undefined, fallback: string) => {
+  if (url === undefined) return fallback;
+  return url.split(/[?#]/u, 1)[0] ?? url;
+};
+
 /** Keeps catalog synchronization state outside the scene runtime. */
 export class ShopCatalogSync {
   readonly #host: ShopCatalogSyncHost;
@@ -78,5 +83,10 @@ export class ShopCatalogSync {
   }
 }
 
+/**
+ * Runtime asset URLs carry a catalog-wide cache-busting query. Book identity
+ * should follow the content path, not that query, so catalog refreshes do not
+ * replace every unchanged record.
+ */
 export const bookSignature = (item: CatalogItem) =>
-  `${item.cover}|${item.detailCover ?? "no-detail-cover"}|${item.back ?? "solid-back"}|${item.spine ?? "generated-spine"}|${item.accent}|${item.thicknessMm}|${item.aspectRatio ?? "default-aspect"}|${item.direction}|${item.title}`;
+  `${bookAssetSignature(item.cover, "no-cover")}|${bookAssetSignature(item.detailCover, "no-detail-cover")}|${bookAssetSignature(item.back, "solid-back")}|${bookAssetSignature(item.spine, "generated-spine")}|${item.accent}|${item.thicknessMm}|${item.aspectRatio ?? "default-aspect"}|${item.direction}|${item.title}`;
