@@ -94,7 +94,7 @@ const createShelfEndPosterSurfaces = (
     );
 };
 
-const createSpineShelfFace = (
+const createSpineShelfSignTargets = (
   parent: Group,
   fixtureId: string,
   x: number,
@@ -105,15 +105,10 @@ const createSpineShelfFace = (
   elevation: number,
   alongX: boolean,
   bayWidth: number,
-  backingThickness: number,
+  targetRotationY: number,
+  face: string,
   deps: SpineShelfFixtureDeps,
 ) => {
-  const shelfAxis = new Vector3(alongX ? 1 : 0, 0, alongX ? 0 : 1);
-  const shelfNormal = new Vector3(alongX ? 0 : normal, 0, alongX ? normal : 0);
-  let targetRotationY = normal > 0 ? Math.PI / 2 : -Math.PI / 2;
-  if (alongX) targetRotationY = normal > 0 ? 0 : Math.PI;
-  let face = normal > 0 ? "east" : "west";
-  if (alongX) face = normal > 0 ? "south" : "north";
   const signKeys = new Map<number, string>();
   for (let bay = 0; bay < bayCount; bay += 1) {
     const bayCenter = -length / 2 + bayWidth * (bay + 0.5);
@@ -149,6 +144,44 @@ const createSpineShelfFace = (
     parent.add(signPreviewTarget);
     deps.signs.registerPreviewTarget(signPreviewTarget);
   }
+  return signKeys;
+};
+
+const createSpineShelfFace = (
+  parent: Group,
+  fixtureId: string,
+  x: number,
+  z: number,
+  length: number,
+  bayCount: number,
+  normal: -1 | 1,
+  elevation: number,
+  alongX: boolean,
+  bayWidth: number,
+  backingThickness: number,
+  deps: SpineShelfFixtureDeps,
+) => {
+  const shelfAxis = new Vector3(alongX ? 1 : 0, 0, alongX ? 0 : 1);
+  const shelfNormal = new Vector3(alongX ? 0 : normal, 0, alongX ? normal : 0);
+  let targetRotationY = normal > 0 ? Math.PI / 2 : -Math.PI / 2;
+  if (alongX) targetRotationY = normal > 0 ? 0 : Math.PI;
+  let face = normal > 0 ? "east" : "west";
+  if (alongX) face = normal > 0 ? "south" : "north";
+  const signKeys = createSpineShelfSignTargets(
+    parent,
+    fixtureId,
+    x,
+    z,
+    length,
+    bayCount,
+    normal,
+    elevation,
+    alongX,
+    bayWidth,
+    targetRotationY,
+    face,
+    deps,
+  );
   for (let row = 0; row < 4; row += 1) {
     for (let bay = 0; bay < bayCount; bay += 1) {
       const shelfId = `${fixtureId}:${face}:${row}:${bay}`;

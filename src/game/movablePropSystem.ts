@@ -233,14 +233,12 @@ export class MovablePropLifecycle {
 
   /** Drops the discard volume that lived inside a deleted trash can. */
 
-  registerMovableProp(registration: MovablePropRegistration) {
-    const host = this.#host;
-    registration.object.updateWorldMatrix(true, false);
-    const currentPosition = registration.object.getWorldPosition(new Vector3());
-    const currentRotation = registration.object.getWorldQuaternion(
-      new Quaternion(),
-    );
-    const record: MovablePropRecord = {
+  #createMovablePropRecord(
+    registration: MovablePropRegistration,
+    currentPosition: Vector3,
+    currentRotation: Quaternion,
+  ): MovablePropRecord {
+    return {
       currentPosition,
       currentRotation,
       ghostMaterialSwaps: [],
@@ -274,6 +272,20 @@ export class MovablePropLifecycle {
         : {}),
       spawned: registration.spawned ?? false,
     };
+  }
+
+  registerMovableProp(registration: MovablePropRegistration) {
+    const host = this.#host;
+    registration.object.updateWorldMatrix(true, false);
+    const currentPosition = registration.object.getWorldPosition(new Vector3());
+    const currentRotation = registration.object.getWorldQuaternion(
+      new Quaternion(),
+    );
+    const record = this.#createMovablePropRecord(
+      registration,
+      currentPosition,
+      currentRotation,
+    );
     if (registration.targetable !== false)
       (registration.targetObject ?? registration.object).traverse((object) => {
         if (!(object instanceof Mesh)) return;
@@ -1360,6 +1372,59 @@ export class MovablePropLifecycle {
     return this.createPropFromBuiltinTemplate(asset, id, scale, pose);
   }
 
+  async #restoreSavedModelProp(
+    savedProp: WorldModelPropSave,
+    assetsById: ReadonlyMap<string, SpawnablePropAsset>,
+    unresolved: WorldModelPropSave[],
+  ) {
+    const host = this.#host;
+    if (this.records.has(savedProp.id)) return true;
+    const asset = assetsById.get(savedProp.assetId);
+    if (!asset) {
+      // The content pack renamed or dropped this asset; the saved prop
+      // cannot come back, but it must not block anything else either.
+      if (DEV && !this.#missingPropAssetIds.has(savedProp.assetId)) {
+        this.#missingPropAssetIds.add(savedProp.assetId);
+        console.warn(
+          `Afterleaf cannot restore prop ${savedProp.id}: its asset "${savedProp.assetId}" is no longer in the spawnable catalog.`,
+        );
+      }
+      unresolved.push(savedProp);
+      return true;
+    }
+    // A template-spawned builtin may still be loading its template;
+    // defer quietly, #cacheBuiltinPropTemplate retries once it lands.
+    if (
+      TEMPLATE_SPAWNED_BUILTIN_ASSET_IDS.has(savedProp.assetId) &&
+      !this.#builtinPropTemplates.has(savedProp.assetId)
+    ) {
+      unresolved.push(savedProp);
+      return true;
+    }
+    try {
+      const record = await this.createSpawnableProp(
+        asset,
+        savedProp.id,
+        savedProp.scale,
+        savedProp.pose,
+        savedProp.animationClip,
+      );
+      if (host.disposed()) return false;
+      if (this.records.get(savedProp.id) !== record)
+        this.removeSpawnedProp(record);
+      else if (savedProp.locked && !record.locked) {
+        record.locked = true;
+        host.physicsWorld().setPropLocked(record.id, true);
+      }
+    } catch (error) {
+      if (host.disposed()) return false;
+      unresolved.push(savedProp);
+      if (DEV)
+        console.warn(`Afterleaf could not restore prop ${asset.id}.`, error);
+    }
+    return true;
+  }
+
   async restoreSavedModelProps() {
     const host = this.#host;
     if (this.#restoreActive || this.pendingModelPropSaves.length === 0) return;
@@ -1371,55 +1436,15 @@ export class MovablePropLifecycle {
     const pending = this.pendingModelPropSaves;
     let restoreAgain = false;
     try {
-      for (const savedProp of pending) {
-        if (this.records.has(savedProp.id)) continue;
-        const asset = assetsById.get(savedProp.assetId);
-        if (!asset) {
-          // The content pack renamed or dropped this asset; the saved prop
-          // cannot come back, but it must not block anything else either.
-          if (DEV && !this.#missingPropAssetIds.has(savedProp.assetId)) {
-            this.#missingPropAssetIds.add(savedProp.assetId);
-            console.warn(
-              `Afterleaf cannot restore prop ${savedProp.id}: its asset "${savedProp.assetId}" is no longer in the spawnable catalog.`,
-            );
-          }
-          unresolved.push(savedProp);
-          continue;
-        }
-        // A template-spawned builtin may still be loading its template;
-        // defer quietly, #cacheBuiltinPropTemplate retries once it lands.
+      for (const savedProp of pending)
         if (
-          TEMPLATE_SPAWNED_BUILTIN_ASSET_IDS.has(savedProp.assetId) &&
-          !this.#builtinPropTemplates.has(savedProp.assetId)
-        ) {
-          unresolved.push(savedProp);
-          continue;
-        }
-        try {
-          const record = await this.createSpawnableProp(
-            asset,
-            savedProp.id,
-            savedProp.scale,
-            savedProp.pose,
-            savedProp.animationClip,
-          );
-          if (host.disposed()) return;
-          if (this.records.get(savedProp.id) !== record) {
-            this.removeSpawnedProp(record);
-          } else if (savedProp.locked && !record.locked) {
-            record.locked = true;
-            host.physicsWorld().setPropLocked(record.id, true);
-          }
-        } catch (error) {
-          if (host.disposed()) return;
-          unresolved.push(savedProp);
-          if (DEV)
-            console.warn(
-              `Afterleaf could not restore prop ${asset.id}.`,
-              error,
-            );
-        }
-      }
+          !(await this.#restoreSavedModelProp(
+            savedProp,
+            assetsById,
+            unresolved,
+          ))
+        )
+          return;
       restoreAgain = this.pendingModelPropSaves !== pending;
       if (!restoreAgain) this.pendingModelPropSaves = unresolved;
       host.emitGameState();

@@ -644,6 +644,37 @@ export class ArtFrameSystem {
     this.#host.emitGameState();
   }
 
+  #applyImportedImage(importChannelId: string, asset: ArtFrameImage) {
+    const existingChannel = this.#channels.find(
+      (channel) => channel.id === importChannelId,
+    );
+    const channel: ArtFrameChannel = {
+      id: importChannelId,
+      images: [
+        ...(existingChannel?.images.filter(
+          (candidate) => candidate.id !== asset.id,
+        ) ?? []),
+        asset,
+      ].sort((left, right) => left.id.localeCompare(right.id)),
+      label:
+        existingChannel?.label ??
+        importChannelId
+          .split("-")
+          .filter(Boolean)
+          .map((word) => `${word[0]?.toUpperCase() ?? ""}${word.slice(1)}`)
+          .join(" "),
+    };
+    this.applyArtFrameCatalog(
+      [
+        ...this.#channels.filter(
+          (candidate) => candidate.id !== importChannelId,
+        ),
+        channel,
+      ].sort((left, right) => left.id.localeCompare(right.id)),
+    );
+    return this.#assets.findIndex((candidate) => candidate.id === asset.id);
+  }
+
   async importPastedArtFrameImage(
     image: Blob,
     target: DigitalArtFramePasteTarget,
@@ -661,36 +692,7 @@ export class ArtFrameSystem {
         this.#host.abortSignal,
       );
       if (this.#host.isDisposed()) return false;
-      const existingChannel = this.#channels.find(
-        (channel) => channel.id === importChannelId,
-      );
-      const channel: ArtFrameChannel = {
-        id: importChannelId,
-        images: [
-          ...(existingChannel?.images.filter(
-            (candidate) => candidate.id !== asset.id,
-          ) ?? []),
-          asset,
-        ].sort((left, right) => left.id.localeCompare(right.id)),
-        label:
-          existingChannel?.label ??
-          importChannelId
-            .split("-")
-            .filter(Boolean)
-            .map((word) => `${word[0]?.toUpperCase() ?? ""}${word.slice(1)}`)
-            .join(" "),
-      };
-      this.applyArtFrameCatalog(
-        [
-          ...this.#channels.filter(
-            (candidate) => candidate.id !== importChannelId,
-          ),
-          channel,
-        ].sort((left, right) => left.id.localeCompare(right.id)),
-      );
-      const assetIndex = this.#assets.findIndex(
-        (candidate) => candidate.id === asset.id,
-      );
+      const assetIndex = this.#applyImportedImage(importChannelId, asset);
       if (assetIndex >= 0) this.#assetIndex = assetIndex;
       if (target.kind === "frame") {
         const record = this.#records.get(target.frameId);

@@ -67,14 +67,19 @@ export class GamepadMonitor {
     const gamepad = findGamepad();
     if (!gamepad) return;
     this.style = detectGamepadStyle(gamepad.id);
+    this.#readButtons(gamepad.buttons);
+    this.#readMovement(gamepad.axes);
+    this.#readLook(gamepad.axes);
+  }
 
-    const buttons = gamepad.buttons;
+  #readButtons(buttons: readonly GamepadButton[]) {
     for (let index = 0; index < GAMEPAD_STANDARD_BUTTON_COUNT; index++) {
       const button = buttons[index];
-      if (button !== undefined && button.pressed) current[index] = 1;
+      if (button !== undefined && button.pressed) this.pressed[index] = 1;
     }
+  }
 
-    const axes = gamepad.axes;
+  #readMovement(axes: readonly number[]) {
     // Left stick always moves; the look modifier only redirects the D-pad.
     if (axes.length >= 2) {
       const x = axes[STANDARD_AXES.leftX] ?? 0;
@@ -86,24 +91,28 @@ export class GamepadMonitor {
     }
     // D-pad contributes to look while R2 is held; otherwise it moves. A
     // diagonal D-pad press never turns and pitches simultaneously.
-    if (current[GAMEPAD_BUTTON_INDEX_R2] === 0) {
+    if (this.pressed[GAMEPAD_BUTTON_INDEX_R2] === 0) {
       this.movement.forward +=
-        Number(current[12] !== 0) - Number(current[13] !== 0);
+        Number(this.pressed[12] !== 0) - Number(this.pressed[13] !== 0);
       this.movement.right +=
-        Number(current[15] !== 0) - Number(current[14] !== 0);
-    } else {
-      const vertical = Number(current[13] !== 0) - Number(current[12] !== 0);
-      const horizontal = Number(current[15] !== 0) - Number(current[14] !== 0);
-      if (!(vertical !== 0 && horizontal !== 0)) {
-        this.look.pitch += vertical;
-        this.look.yaw += horizontal;
-      }
+        Number(this.pressed[15] !== 0) - Number(this.pressed[14] !== 0);
     }
     if (this.movement.forward > 1) this.movement.forward = 1;
     else if (this.movement.forward < -1) this.movement.forward = -1;
     if (this.movement.right > 1) this.movement.right = 1;
     else if (this.movement.right < -1) this.movement.right = -1;
+  }
 
+  #readLook(axes: readonly number[]) {
+    if (this.pressed[GAMEPAD_BUTTON_INDEX_R2] !== 0) {
+      const vertical =
+        Number(this.pressed[13] !== 0) - Number(this.pressed[12] !== 0);
+      const horizontal =
+        Number(this.pressed[15] !== 0) - Number(this.pressed[14] !== 0);
+      if (vertical !== 0 && horizontal !== 0) return;
+      this.look.pitch += vertical;
+      this.look.yaw += horizontal;
+    }
     if (axes.length >= 4) {
       const x = axes[STANDARD_AXES.rightX] ?? 0;
       const y = axes[STANDARD_AXES.rightY] ?? 0;

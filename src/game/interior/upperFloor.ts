@@ -270,6 +270,48 @@ export const createStackableStairwell = (
   }
 };
 
+const createUpperWindow = (
+  parent: Group,
+  x: number,
+  glassZ: number,
+  rotationY: number,
+  frameMaterial: MeshStandardMaterial,
+  glassMaterial: MeshBasicMaterial,
+  addBox: AddBox,
+) => {
+  const glass = new Mesh(
+    new PlaneGeometry(UPPER_WINDOW_WIDTH, UPPER_WINDOW_HEIGHT),
+    glassMaterial,
+  );
+  glass.position.set(x, 7.35, glassZ);
+  glass.rotation.y = rotationY;
+  parent.add(glass);
+  for (const frameX of [
+    x - UPPER_WINDOW_WIDTH / 2,
+    x,
+    x + UPPER_WINDOW_WIDTH / 2,
+  ])
+    addBox(
+      parent,
+      [0.09, UPPER_WINDOW_HEIGHT + 0.16, 0.12],
+      [frameX, 7.35, glassZ],
+      frameMaterial,
+      true,
+    );
+  for (const frameY of [
+    7.35 - UPPER_WINDOW_HEIGHT / 2,
+    7.35,
+    7.35 + UPPER_WINDOW_HEIGHT / 2,
+  ])
+    addBox(
+      parent,
+      [UPPER_WINDOW_WIDTH + 0.12, 0.09, 0.12],
+      [x, frameY, glassZ],
+      frameMaterial,
+      true,
+    );
+};
+
 export const createUpperWindowWall = (
   parent: Group,
   z: number,
@@ -316,36 +358,14 @@ export const createUpperWindowWall = (
 
   const glassZ = z + (rotationY === 0 ? 0.105 : -0.105);
   for (const x of UPPER_WINDOW_CENTERS) {
-    const glass = new Mesh(
-      new PlaneGeometry(UPPER_WINDOW_WIDTH, UPPER_WINDOW_HEIGHT),
-      glassMaterial,
-    );
-    glass.position.set(x, 7.35, glassZ);
-    glass.rotation.y = rotationY;
-    parent.add(glass);
-    for (const frameX of [
-      x - UPPER_WINDOW_WIDTH / 2,
+    createUpperWindow(
+      parent,
       x,
-      x + UPPER_WINDOW_WIDTH / 2,
-    ])
-      addBox(
-        parent,
-        [0.09, UPPER_WINDOW_HEIGHT + 0.16, 0.12],
-        [frameX, 7.35, glassZ],
-        frameMaterial,
-        true,
-      );
-    for (const frameY of [
-      7.35 - UPPER_WINDOW_HEIGHT / 2,
-      7.35,
-      7.35 + UPPER_WINDOW_HEIGHT / 2,
-    ])
-      addBox(
-        parent,
-        [UPPER_WINDOW_WIDTH + 0.12, 0.09, 0.12],
-        [x, frameY, glassZ],
-        frameMaterial,
-        true,
-      );
+      glassZ,
+      rotationY,
+      frameMaterial,
+      glassMaterial,
+      addBox,
+    );
   }
 };

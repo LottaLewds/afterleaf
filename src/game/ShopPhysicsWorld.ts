@@ -728,13 +728,8 @@ export class ShopPhysicsWorld {
     return this.#addBook(definition, false);
   }
 
-  #addBook(
-    definition: BookPhysicsDefinition,
-    staticWhenPlaced: boolean,
-    colliderParts?: readonly PhysicsPropColliderDefinition[],
-  ) {
-    if (
-      this.#disposed ||
+  #isValidBookDefinition(definition: BookPhysicsDefinition) {
+    return (
       !definition.publicationId ||
       this.#books.has(definition.publicationId) ||
       !isValidThickness(definition.thickness) ||
@@ -745,8 +740,15 @@ export class ShopPhysicsWorld {
       (definition.density !== undefined &&
         (!Number.isFinite(definition.density) || definition.density <= 0)) ||
       !isValidPose(definition.pose)
-    )
-      return false;
+    );
+  }
+
+  #addBook(
+    definition: BookPhysicsDefinition,
+    staticWhenPlaced: boolean,
+    colliderParts?: readonly PhysicsPropColliderDefinition[],
+  ) {
+    if (this.#disposed || this.#isValidBookDefinition(definition)) return false;
 
     const pose = createMutablePose(definition.pose);
     const record: BookPhysicsRecord = {

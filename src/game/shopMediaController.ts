@@ -1,7 +1,10 @@
 import {DEV} from "solid-js";
 
 import type {ArtFrameImage} from "~/artFrames/protocol";
-import type {ArtFrameSystem} from "~/game/artFrameSystem";
+import type {
+  ArtFrameSystem,
+  DigitalArtFramePasteTarget,
+} from "~/game/artFrameSystem";
 import type {MovablePropLifecycle} from "~/game/movablePropSystem";
 import type {PosterSystem} from "~/game/posters/PosterSystem";
 import type {ShopTelevision} from "~/game/ShopTelevision";
@@ -104,16 +107,7 @@ export class ShopMediaController {
       (item) => item.kind === "file" && item.type.startsWith("image/"),
     );
     const image = imageItem?.getAsFile();
-    if (image && artFrameTarget && host.importArtFrameImage) {
-      event.preventDefault();
-      void host.artFrames().importPastedArtFrameImage(image, artFrameTarget);
-      return;
-    }
-    if (image && host.posters().placement && host.importPoster) {
-      event.preventDefault();
-      void host.posters().importPastedPoster(image);
-      return;
-    }
+    if (image && this.#handlePastedImage(event, image, artFrameTarget)) return;
     const clipboardText =
       event.clipboardData?.getData("text/plain") ||
       event.clipboardData?.getData("text/uri-list");
@@ -132,6 +126,25 @@ export class ShopMediaController {
         (television ? "Afterleaf TV" : undefined),
     );
   };
+
+  #handlePastedImage(
+    event: ClipboardEvent,
+    image: File,
+    artFrameTarget: DigitalArtFramePasteTarget | undefined,
+  ) {
+    const host = this.#host;
+    if (artFrameTarget && host.importArtFrameImage) {
+      event.preventDefault();
+      void host.artFrames().importPastedArtFrameImage(image, artFrameTarget);
+      return true;
+    }
+    if (host.posters().placement && host.importPoster) {
+      event.preventDefault();
+      void host.posters().importPastedPoster(image);
+      return true;
+    }
+    return false;
+  }
 
   async #handlePastedText(
     text: string,
