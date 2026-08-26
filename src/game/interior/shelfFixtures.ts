@@ -17,8 +17,12 @@ import {
   SPINE_SHELF_DIVIDER_HEIGHT,
   SPINE_SHELF_DIVIDER_THICKNESS,
   SPINE_SHELF_HEIGHT,
+  FACE_OUT_DISPLAY,
+  FACE_DISPLAY_ROWS,
 } from "~/game/shopLayout";
+import {faceDisplayShelfId} from "~/game/bookFactory";
 import type {ShopSignSystem} from "~/game/signs/ShopSignSystem";
+import {MIN_POSTER_HEIGHT, POSTER_SURFACE_OFFSET} from "~/game/wallDecorTuning";
 import type {AddBox} from "~/game/interior/interiorPrimitives";
 
 export const FACE_OUT_SHELF_INSET = 0.1;
@@ -252,4 +256,199 @@ export const createSpineShelfFixture = (
       }
     }
   }
+};
+
+export const FACE_DISPLAY_SHELF_HALF_WIDTH = 4.4;
+export const FACE_DISPLAY_SHELF_INSET = 0.15;
+export const FACE_DISPLAY_SHELF_FRONT_Z = -9.54;
+
+export const TELEVISION_TABLE_SHELF_ID = "television-table:lower";
+export const TELEVISION_TABLE_SHELF_BACK_INSET = 0.91;
+
+export type FaceOutDisplayDeps = {
+  addBox: AddBox;
+  registerPropPlacementSupport: (object: Object3D) => void;
+  shelfTargetMeshes: Mesh[];
+  signs: ShopSignSystem;
+  spineShelfDefinitions: Map<string, SpineShelfDefinition>;
+};
+
+export const createTelevisionTableShelf = (
+  parent: Group,
+  deps: {
+    shelfTargetMeshes: Mesh[];
+    spineShelfDefinitions: Map<string, SpineShelfDefinition>;
+  },
+) => {
+  const frontCenter = new Vector3(0, 0.2 + BOOK_HEIGHT / 2, 26.76);
+  deps.spineShelfDefinitions.set(TELEVISION_TABLE_SHELF_ID, {
+    axis: new Vector3(1, 0, 0),
+    backInset: TELEVISION_TABLE_SHELF_BACK_INSET,
+    faceInset: 0.08,
+    faceTilt: 0,
+    frontCenter,
+    halfWidth: 1.2,
+    id: TELEVISION_TABLE_SHELF_ID,
+    normal: new Vector3(0, 0, -1),
+  });
+
+  const target = new Mesh(
+    new PlaneGeometry(2.42, 0.76),
+    new MeshBasicMaterial({
+      color: "#d94c3f",
+      depthWrite: false,
+      opacity: 0,
+      transparent: true,
+    }),
+  );
+  target.name = `spine-shelf-target-${TELEVISION_TABLE_SHELF_ID}`;
+  target.position.copy(frontCenter);
+  target.rotation.y = Math.PI;
+  target.userData.shelfId = TELEVISION_TABLE_SHELF_ID;
+  // Invisible raycast proxy - see mixed-shelf-target note above.
+  target.visible = false;
+  parent.add(target);
+  deps.shelfTargetMeshes.push(target);
+};
+
+export const createFaceOutDisplay = (
+  parent: Group,
+  woodMaterial: MeshStandardMaterial,
+  backingMaterial: MeshStandardMaterial,
+  deps: FaceOutDisplayDeps,
+) => {
+  deps.addBox(
+    parent,
+    FACE_OUT_DISPLAY.backingSize,
+    FACE_OUT_DISPLAY.backingCenter,
+    backingMaterial,
+  );
+  for (const x of FACE_OUT_DISPLAY.sideOffsetXs)
+    deps.addBox(
+      parent,
+      FACE_OUT_DISPLAY.sideSize,
+      [x, FACE_OUT_DISPLAY.sideCenterY, FACE_OUT_DISPLAY.sideCenterZ],
+      woodMaterial,
+      true,
+    );
+  for (const y of FACE_OUT_DISPLAY.boardYs) {
+    const shelf = deps.addBox(
+      parent,
+      FACE_OUT_DISPLAY.boardSize,
+      [FACE_OUT_DISPLAY.boardCenterX, y, FACE_OUT_DISPLAY.boardZ],
+      woodMaterial,
+      true,
+    );
+    deps.registerPropPlacementSupport(shelf);
+  }
+
+  const targetGeometry = new PlaneGeometry(
+    FACE_DISPLAY_SHELF_HALF_WIDTH * 2,
+    0.76,
+  );
+  for (let row = 0; row < FACE_DISPLAY_ROWS; row += 1) {
+    const shelfId = faceDisplayShelfId(row);
+    const frontCenter = new Vector3(
+      -2,
+      0.595 + row * 0.9,
+      FACE_DISPLAY_SHELF_FRONT_Z,
+    );
+    deps.spineShelfDefinitions.set(shelfId, {
+      axis: new Vector3(1, 0, 0),
+      backInset: 0.55,
+      faceInset: FACE_DISPLAY_SHELF_INSET,
+      faceTilt: -0.1,
+      frontCenter,
+      halfWidth: FACE_DISPLAY_SHELF_HALF_WIDTH,
+      id: shelfId,
+      normal: new Vector3(0, 0, 1),
+    });
+    const targetMaterial = new MeshBasicMaterial({
+      color: "#d94c3f",
+      depthWrite: false,
+      opacity: 0,
+      transparent: true,
+    });
+    const target = new Mesh(targetGeometry, targetMaterial);
+    target.name = `mixed-shelf-target-${shelfId}`;
+    // Invisible raycast proxy: rendering hundreds of fully transparent
+    // quads costs a draw call each while contributing nothing on screen.
+    // Raycaster does not test .visible, so targeting keeps working.
+    target.visible = false;
+    target.position.copy(frontCenter);
+    target.userData.shelfId = shelfId;
+    parent.add(target);
+    deps.shelfTargetMeshes.push(target);
+  }
+  const signPreviewTarget = new Mesh(
+    new PlaneGeometry(
+      FACE_DISPLAY_SHELF_HALF_WIDTH * 2,
+      FACE_OUT_DISPLAY.sideSize[1],
+    ),
+    new MeshBasicMaterial({
+      depthWrite: false,
+      opacity: 0,
+      transparent: true,
+    }),
+  );
+  signPreviewTarget.name = "mixed-shelf-sign-preview-target";
+  // Broad raycast-only surface; keep sign previews independent from book
+  // placement rows and the physical shelf boards between them.
+  signPreviewTarget.visible = false;
+  signPreviewTarget.position.set(
+    FACE_OUT_DISPLAY.boardCenterX,
+    FACE_OUT_DISPLAY.sideCenterY,
+    FACE_DISPLAY_SHELF_FRONT_Z,
+  );
+  signPreviewTarget.userData.shelfId = faceDisplayShelfId(0);
+  parent.add(signPreviewTarget);
+  deps.signs.registerPreviewTarget(signPreviewTarget);
+  deps.signs.createShelfSignSlots(parent);
+};
+
+export const createWallPosterSurfaces = (
+  parent: Group,
+  id: string,
+  wall: {
+    position: readonly [x: number, y: number, z: number];
+    size: readonly [width: number, height: number, depth: number];
+  },
+  createPosterSurfaceTarget: CreatePosterSurfaceFn,
+) => {
+  const [width, height, depth] = wall.size;
+  if (height < 1) return;
+  const surfaceHeight = height - 0.16;
+  if (width >= depth) {
+    const surfaceWidth = width - 0.16;
+    if (surfaceWidth < MIN_POSTER_HEIGHT) return;
+    for (const side of [-1, 1] as const)
+      createPosterSurfaceTarget(
+        parent,
+        `${id}:${side < 0 ? "north" : "south"}`,
+        surfaceWidth,
+        surfaceHeight,
+        [
+          wall.position[0],
+          wall.position[1],
+          wall.position[2] + side * (depth / 2 + POSTER_SURFACE_OFFSET),
+        ],
+        side < 0 ? Math.PI : 0,
+      );
+    return;
+  }
+  const surfaceWidth = depth - 0.16;
+  if (surfaceWidth < MIN_POSTER_HEIGHT) return;
+  for (const side of [-1, 1] as const)
+    createPosterSurfaceTarget(
+      parent,
+      `${id}:${side < 0 ? "west" : "east"}`,
+      surfaceWidth,
+      surfaceHeight,
+      [
+        wall.position[0] + side * (width / 2 + POSTER_SURFACE_OFFSET),
+        wall.position[1],
+        wall.position[2],
+      ],
+      side < 0 ? -Math.PI / 2 : Math.PI / 2,
+    );
 };

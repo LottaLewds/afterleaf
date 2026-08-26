@@ -62,7 +62,12 @@ import {
   createReadingChairInstance,
   createReadingTables,
 } from "~/game/interior/readingFurniture";
-import {createSpineShelfFixture} from "~/game/interior/shelfFixtures";
+import {
+  createFaceOutDisplay,
+  createSpineShelfFixture,
+  createTelevisionTableShelf,
+  createWallPosterSurfaces,
+} from "~/game/interior/shelfFixtures";
 import {createTelevisionRooms} from "~/game/interior/televisionRooms";
 import {
   createNightWindows,
@@ -179,7 +184,6 @@ import {
   MAX_POSTER_HEIGHT,
   MIN_POSTER_HEIGHT,
   POSTER_INTERACTION_DISTANCE,
-  POSTER_SURFACE_OFFSET,
   POSTER_WHEEL_ROTATION_STEP,
 } from "~/game/wallDecorTuning";
 import {FpsHud} from "~/game/FpsHud";
@@ -273,7 +277,6 @@ import {
   type SpineShelfPlacement,
 } from "~/game/shelfPlacement";
 import {
-  FACE_OUT_DISPLAY,
   READING_FURNITURE_BOXES,
   SHOP_BOUNDS,
   FACE_DISPLAY_COLUMNS,
@@ -349,13 +352,9 @@ import {
 import type {PosterAsset} from "~/posters/protocol";
 
 const FACE_SHELF_SLOT_COUNT = FACE_DISPLAY_COLUMNS * FACE_DISPLAY_ROWS;
-const FACE_DISPLAY_SHELF_HALF_WIDTH = 4.4;
-const FACE_DISPLAY_SHELF_INSET = 0.15;
-const FACE_DISPLAY_SHELF_FRONT_Z = -9.54;
 const SHOP_PLAYER_START_X = 0;
 const SHOP_PLAYER_START_Z = 25;
 const SPINE_SHELF_GAP = 0.018;
-const TELEVISION_TABLE_SHELF_BACK_INSET = 0.91;
 const HELD_BOOK_STACK_GAP = 0.012;
 const HELD_BOOK_FAN_X_SPACING = 0.105;
 const HELD_BOOK_FAN_Y_SPACING = 0.008;
@@ -391,7 +390,6 @@ const MOVABLE_PROP_INTERACTION_DISTANCE = 4;
 const SHOP_MEDIA_CATALOG_REFRESH_INTERVAL_MS = 10_000;
 const TV_WHEEL_SCRUB_RESET_MS = 900;
 const TV_WHEEL_SCRUB_STEPS_SECONDS = [3, 5, 10, 15, 30] as const;
-const TELEVISION_TABLE_SHELF_ID = "television-table:lower";
 const MODEL_TELEVISION_PHYSICS_ID = "crt-television";
 // A content model whose GLB contains a node with this name spawns as a
 // television: the node's first mesh becomes the video screen.
@@ -1975,11 +1973,15 @@ export class ShopScene {
     });
     this.#televisionTableMaterial = woodMaterial;
 
-    this.#createFaceOutDisplay(
-      architecture,
-      woodMaterial,
-      shelfBackingMaterial,
-    );
+    createFaceOutDisplay(architecture, woodMaterial, shelfBackingMaterial, {
+      addBox: (p, size, pos, mat, castShadow) =>
+        this.#addBox(p, size, pos, mat, castShadow),
+      registerPropPlacementSupport: (object) =>
+        this.#registerPropPlacementSupport(object),
+      shelfTargetMeshes: this.#shelfTargetMeshes,
+      signs: this.#signs,
+      spineShelfDefinitions: this.#spineShelfDefinitions,
+    });
     void this.#discardBin.create(architecture);
 
     this.#createSpineShelfFixture(
@@ -2117,7 +2119,10 @@ export class ShopScene {
     // factories and from then on live in the world save like any prop the
     // player placed. Deleting one is permanent.
     this.#seedDefaultProps();
-    this.#createTelevisionTableShelf(architecture);
+    createTelevisionTableShelf(architecture, {
+      shelfTargetMeshes: this.#shelfTargetMeshes,
+      spineShelfDefinitions: this.#spineShelfDefinitions,
+    });
 
     this.#signs.createAisleSignSlot(
       architecture,
@@ -2191,156 +2196,6 @@ export class ShopScene {
       roughness: 0.82,
       roughnessMap: surface,
     });
-  }
-
-  #cloneFloorMaterial(
-    source: MeshStandardMaterial,
-    repeatX: number,
-    repeatY: number,
-  ) {
-    const material = source.clone();
-    const clones = new Map<Texture, Texture>();
-    const cloneTexture = (texture: Texture | null) => {
-      if (!texture) return null;
-      const existing = clones.get(texture);
-      if (existing) return existing;
-      const clone = texture.clone();
-      clone.repeat.set(repeatX, repeatY);
-      clone.needsUpdate = true;
-      clones.set(texture, clone);
-      return clone;
-    };
-    material.aoMap = cloneTexture(source.aoMap);
-    material.map = cloneTexture(source.map);
-    material.normalMap = cloneTexture(source.normalMap);
-    material.roughnessMap = cloneTexture(source.roughnessMap);
-    return material;
-  }
-
-  #createFaceOutDisplay(
-    parent: Group,
-    woodMaterial: MeshStandardMaterial,
-    backingMaterial: MeshStandardMaterial,
-  ) {
-    this.#addBox(
-      parent,
-      FACE_OUT_DISPLAY.backingSize,
-      FACE_OUT_DISPLAY.backingCenter,
-      backingMaterial,
-    );
-    for (const x of FACE_OUT_DISPLAY.sideOffsetXs)
-      this.#addBox(
-        parent,
-        FACE_OUT_DISPLAY.sideSize,
-        [x, FACE_OUT_DISPLAY.sideCenterY, FACE_OUT_DISPLAY.sideCenterZ],
-        woodMaterial,
-        true,
-      );
-    for (const y of FACE_OUT_DISPLAY.boardYs) {
-      const shelf = this.#addBox(
-        parent,
-        FACE_OUT_DISPLAY.boardSize,
-        [FACE_OUT_DISPLAY.boardCenterX, y, FACE_OUT_DISPLAY.boardZ],
-        woodMaterial,
-        true,
-      );
-      this.#registerPropPlacementSupport(shelf);
-    }
-
-    const targetGeometry = new PlaneGeometry(
-      FACE_DISPLAY_SHELF_HALF_WIDTH * 2,
-      0.76,
-    );
-    for (let row = 0; row < FACE_DISPLAY_ROWS; row += 1) {
-      const shelfId = faceDisplayShelfId(row);
-      const frontCenter = new Vector3(
-        -2,
-        0.595 + row * 0.9,
-        FACE_DISPLAY_SHELF_FRONT_Z,
-      );
-      this.#spineShelfDefinitions.set(shelfId, {
-        axis: new Vector3(1, 0, 0),
-        backInset: 0.55,
-        faceInset: FACE_DISPLAY_SHELF_INSET,
-        faceTilt: -0.1,
-        frontCenter,
-        halfWidth: FACE_DISPLAY_SHELF_HALF_WIDTH,
-        id: shelfId,
-        normal: new Vector3(0, 0, 1),
-      });
-      const targetMaterial = new MeshBasicMaterial({
-        color: "#d94c3f",
-        depthWrite: false,
-        opacity: 0,
-        transparent: true,
-      });
-      const target = new Mesh(targetGeometry, targetMaterial);
-      target.name = `mixed-shelf-target-${shelfId}`;
-      // Invisible raycast proxy: rendering hundreds of fully transparent
-      // quads costs a draw call each while contributing nothing on screen.
-      // Raycaster does not test .visible, so targeting keeps working.
-      target.visible = false;
-      target.position.copy(frontCenter);
-      target.userData.shelfId = shelfId;
-      parent.add(target);
-      this.#shelfTargetMeshes.push(target);
-    }
-    const signPreviewTarget = new Mesh(
-      new PlaneGeometry(
-        FACE_DISPLAY_SHELF_HALF_WIDTH * 2,
-        FACE_OUT_DISPLAY.sideSize[1],
-      ),
-      new MeshBasicMaterial({
-        depthWrite: false,
-        opacity: 0,
-        transparent: true,
-      }),
-    );
-    signPreviewTarget.name = "mixed-shelf-sign-preview-target";
-    // Broad raycast-only surface; keep sign previews independent from book
-    // placement rows and the physical shelf boards between them.
-    signPreviewTarget.visible = false;
-    signPreviewTarget.position.set(
-      FACE_OUT_DISPLAY.boardCenterX,
-      FACE_OUT_DISPLAY.sideCenterY,
-      FACE_DISPLAY_SHELF_FRONT_Z,
-    );
-    signPreviewTarget.userData.shelfId = faceDisplayShelfId(0);
-    parent.add(signPreviewTarget);
-    this.#signs.registerPreviewTarget(signPreviewTarget);
-    this.#signs.createShelfSignSlots(parent);
-  }
-
-  #createTelevisionTableShelf(parent: Group) {
-    const frontCenter = new Vector3(0, 0.2 + BOOK_HEIGHT / 2, 26.76);
-    this.#spineShelfDefinitions.set(TELEVISION_TABLE_SHELF_ID, {
-      axis: new Vector3(1, 0, 0),
-      backInset: TELEVISION_TABLE_SHELF_BACK_INSET,
-      faceInset: 0.08,
-      faceTilt: 0,
-      frontCenter,
-      halfWidth: 1.2,
-      id: TELEVISION_TABLE_SHELF_ID,
-      normal: new Vector3(0, 0, -1),
-    });
-
-    const target = new Mesh(
-      new PlaneGeometry(2.42, 0.76),
-      new MeshBasicMaterial({
-        color: "#d94c3f",
-        depthWrite: false,
-        opacity: 0,
-        transparent: true,
-      }),
-    );
-    target.name = `spine-shelf-target-${TELEVISION_TABLE_SHELF_ID}`;
-    target.position.copy(frontCenter);
-    target.rotation.y = Math.PI;
-    target.userData.shelfId = TELEVISION_TABLE_SHELF_ID;
-    // Invisible raycast proxy - see mixed-shelf-target note above.
-    target.visible = false;
-    parent.add(target);
-    this.#shelfTargetMeshes.push(target);
   }
 
   /**
@@ -2967,10 +2822,12 @@ export class ShopScene {
       if (box.position[1] < SHOP_UPPER_FLOOR_Y) roomWall = wallMaterial;
       else if (box.position[0] < -16) roomWall = darkWallMaterial;
       this.#addBox(parent, box.size, box.position, roomWall);
-      this.#createWallPosterSurfaces(
+      createWallPosterSurfaces(
         parent,
         `expansion-wall-${index + 1}`,
         box,
+        (p2, id2, w2, h2, pos2, rot2) =>
+          this.#createPosterSurface(p2, id2, w2, h2, pos2, rot2),
       );
     }
 
@@ -3281,52 +3138,6 @@ export class ShopScene {
       this.#posterRaycastMeshes,
       this.#posters.surfaces,
     );
-  }
-
-  #createWallPosterSurfaces(
-    parent: Group,
-    id: string,
-    wall: {
-      position: readonly [x: number, y: number, z: number];
-      size: readonly [width: number, height: number, depth: number];
-    },
-  ) {
-    const [width, height, depth] = wall.size;
-    if (height < 1) return;
-    const surfaceHeight = height - 0.16;
-    if (width >= depth) {
-      const surfaceWidth = width - 0.16;
-      if (surfaceWidth < MIN_POSTER_HEIGHT) return;
-      for (const side of [-1, 1] as const)
-        this.#createPosterSurface(
-          parent,
-          `${id}:${side < 0 ? "north" : "south"}`,
-          surfaceWidth,
-          surfaceHeight,
-          [
-            wall.position[0],
-            wall.position[1],
-            wall.position[2] + side * (depth / 2 + POSTER_SURFACE_OFFSET),
-          ],
-          side < 0 ? Math.PI : 0,
-        );
-      return;
-    }
-    const surfaceWidth = depth - 0.16;
-    if (surfaceWidth < MIN_POSTER_HEIGHT) return;
-    for (const side of [-1, 1] as const)
-      this.#createPosterSurface(
-        parent,
-        `${id}:${side < 0 ? "west" : "east"}`,
-        surfaceWidth,
-        surfaceHeight,
-        [
-          wall.position[0] + side * (width / 2 + POSTER_SURFACE_OFFSET),
-          wall.position[1],
-          wall.position[2],
-        ],
-        side < 0 ? -Math.PI / 2 : Math.PI / 2,
-      );
   }
 
   #modelCatalogMatches(assets: readonly ModelAsset[]) {
@@ -4443,6 +4254,30 @@ export class ShopScene {
 
   #emitGameState() {
     this.#gameStateEmitter.emit(this.#snapshotInput);
+  }
+
+  #cloneFloorMaterial(
+    source: MeshStandardMaterial,
+    repeatX: number,
+    repeatY: number,
+  ) {
+    const material = source.clone();
+    const clones = new Map<Texture, Texture>();
+    const cloneTexture = (texture: Texture | null) => {
+      if (!texture) return null;
+      const existing = clones.get(texture);
+      if (existing) return existing;
+      const clone = texture.clone();
+      clone.repeat.set(repeatX, repeatY);
+      clone.needsUpdate = true;
+      clones.set(texture, clone);
+      return clone;
+    };
+    material.aoMap = cloneTexture(source.aoMap);
+    material.map = cloneTexture(source.map);
+    material.normalMap = cloneTexture(source.normalMap);
+    material.roughnessMap = cloneTexture(source.roughnessMap);
+    return material;
   }
 
   #bindInput() {
