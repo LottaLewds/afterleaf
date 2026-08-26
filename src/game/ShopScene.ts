@@ -122,8 +122,9 @@ import {
   TRASH_CAN_PROP_ID,
 } from "~/game/discardBin";
 import {ArtFrameTextureCache} from "~/game/artFrameTextureCache";
+import type {DigitalArtFramePasteTarget} from "~/game/artFrameSystem";
+import {ArtFrameSystem} from "~/game/artFrameSystem";
 import {PosterSystem} from "~/game/posters/PosterSystem";
-import {resolveWallPlacement} from "~/game/interior/interiorPrimitives";
 import {
   createHallwayDoor,
   createRareRoom,
@@ -140,6 +141,7 @@ import {
 } from "~/game/signs/ShopSignSystem";
 import {
   type MovablePropRegistration,
+  type PropMaterialSwap,
   type ReadingFurnitureMaterials,
 } from "~/game/propRegistration";
 import {
@@ -171,22 +173,16 @@ import {
   SHELF_RETURN_ROTATION_HANDOFF_EPSILON,
 } from "~/game/bookInspectionTuning";
 import {
-  DEFAULT_POSTER_HEIGHT,
-  DIGITAL_ART_FRAME_BORDER,
-  DIGITAL_ART_FRAME_DEFAULT_INTERVAL_SECONDS,
   DIGITAL_ART_FRAME_INTERVALS,
   MAX_POSTER_HEIGHT,
   MIN_POSTER_HEIGHT,
   POSTER_INTERACTION_DISTANCE,
-  POSTER_PLACEMENT_DISTANCE,
   POSTER_SURFACE_OFFSET,
   POSTER_WHEEL_ROTATION_STEP,
 } from "~/game/wallDecorTuning";
 import {FpsHud} from "~/game/FpsHud";
 
-import type {ArtFrameFit} from "~/artFrames/aspect";
-import {artFrameChannelId} from "~/artFrames/protocol";
-import type {ArtFrameChannel, ArtFrameImage} from "~/artFrames/protocol";
+import {artFrameChannelId, type ArtFrameImage} from "~/artFrames/protocol";
 import {describeKeyboardEvent} from "~/arcade/emulatorHost";
 import {findArcadeSystem} from "~/arcade/systems";
 import floorAlbedoUrl from "~/assets/materials/laminate-floor-albedo.webp";
@@ -211,7 +207,6 @@ import {
   type ArcadeSessionStatus,
   type ShopArcadePlayRequest,
 } from "~/game/ShopArcadeCabinet";
-import {DigitalArtFrame} from "~/game/DigitalArtFrame";
 import {PageTextureCache} from "~/game/PageTextureCache";
 import {ShopAudioManager} from "~/game/ShopAudioManager";
 import {
@@ -537,39 +532,6 @@ type ShelfTargetSelection = {
   slotIndex: number;
 };
 
-type DigitalArtFrameRecord = {
-  frame: DigitalArtFrame;
-  height: number;
-  id: string;
-  rotation: number;
-};
-
-type DigitalArtFramePlacementSession = {
-  assetIndex: number;
-  aspectRatio: number;
-  channelId: string;
-  desiredHeight: number;
-  fit: ArtFrameFit;
-  gridSnap: boolean;
-  intervalSeconds: number;
-  movingFrameId?: string;
-  rotation: number;
-};
-
-type DigitalArtFramePlacementSelection = {
-  height: number;
-};
-
-type DigitalArtFramePasteTarget =
-  | {channelId: string; kind: "placement"}
-  | {channelId: string; frameId: string; kind: "frame"};
-
-type PropMaterialSwap = {
-  material: Material | Material[];
-  mesh: Mesh;
-  renderOrder: number;
-};
-
 type MovablePropRecord = {
   currentPosition: Vector3;
   currentRotation: Quaternion;
@@ -857,10 +819,8 @@ export class ShopScene {
   readonly #discardBin: DiscardBin;
   readonly #doors: DoorSystem;
   readonly #posters: PosterSystem;
+  readonly #artFrames: ArtFrameSystem;
   readonly #artFrameTextures: ArtFrameTextureCache;
-  readonly #artFramePlacementPosition = new Vector3();
-  readonly #artFramePlacementRotation = new Quaternion();
-  readonly #artFrameLocalPoint = new Vector3();
   readonly #input: InputManager;
   readonly #getShortcuts: () => ShortcutsConfig;
   readonly #getPadMappingOverrides: () => ArcadePadMappingOverrides;
@@ -933,8 +893,6 @@ export class ShopScene {
   readonly #physicsWorld = new ShopPhysicsWorld();
   readonly #playerVelocity = new Vector3();
   readonly #posterRaycastMeshes: Mesh[] = [];
-  readonly #digitalArtFrameRecords = new Map<string, DigitalArtFrameRecord>();
-  readonly #digitalArtFrameTargetMeshes: Mesh[] = [];
   readonly #modelMixers = new Set<AnimationMixer>();
   readonly #modelTemplatePromises = new Map<string, Promise<ModelTemplate>>();
   readonly #builtinPropTemplates = new PropTemplateCache();
@@ -1082,26 +1040,6 @@ export class ShopScene {
   #mediaCatalogRefreshHandle: number | undefined;
   #lateShaderPrecompileHandle: number | undefined;
   #mediaCatalogRequestPending = false;
-  #artFrameAssets: readonly ArtFrameImage[] = [];
-  #artFrameAssetIndex = 0;
-  #artFrameChannels: readonly ArtFrameChannel[] = [];
-  #artFrameImportCount = 0;
-  #artFrameImportError: string | undefined;
-  #artFramePlacement: DigitalArtFramePlacementSession | undefined;
-  #artFramePlacementRevision = 0;
-  #artFramePlacementSelection: DigitalArtFramePlacementSelection | undefined;
-  #artFramePreview: DigitalArtFrame | undefined;
-  #artFramePreviewMaterialStates: Array<{
-    depthWrite: boolean;
-    material: Material;
-    opacity: number;
-    transparent: boolean;
-  }> = [];
-  #artFrameTargetImportChannel:
-    | {channelId: string; frameId: string}
-    | undefined;
-  #artFrameSaveRestoreCompleted = false;
-  #pendingDigitalArtFrameSaves: readonly WorldDigitalArtFrameSave[] = [];
   #pendingModelPropSaves: readonly WorldModelPropSave[] = [];
   #pendingPropSaves = new Map<string, WorldPropSave>();
   #propPlacementDistance = 2;
@@ -1130,7 +1068,6 @@ export class ShopScene {
   #interactionTargetsDirty = true;
   #shelfBrowsePublicationId: string | undefined;
   #shelfBrowseReadyAt = 0;
-  #targetedDigitalArtFrameId: string | undefined;
   #channelEditorDigitalArtFrameId: string | undefined;
   #channelEditorTelevision: ShopTelevision | undefined;
   #targetedProp: MovablePropRecord | undefined;
@@ -1289,6 +1226,27 @@ export class ShopScene {
       scene: this.#scene,
       textureLoader: this.#textureLoader,
     });
+    this.#artFrames = new ArtFrameSystem(
+      {
+        abortSignal: this.#abortController.signal,
+        camera: this.#camera,
+        emitGameState: () => this.#emitGameState(),
+        getPosterSurface: (surfaceId) => this.#posters.surfaces.get(surfaceId),
+        hasPosterPlacement: () => this.#posters.placement !== undefined,
+        importArtFrameImage: options.importArtFrameImage,
+        importPoster: options.importPoster,
+        isDisposed: () => this.#disposed,
+        isPointerLocked: () => this.#pointerLocked,
+        markWorldStateDirty: () => {
+          this.#worldStateDirty = true;
+        },
+        posterRaycastMeshes: this.#posterRaycastMeshes,
+        raycaster: this.#raycaster,
+        refreshMediaCatalog: () => this.#refreshMediaCatalog(),
+        scene: this.#scene,
+      },
+      this.#artFrameTextures,
+    );
     this.#doors = new DoorSystem();
     this.#discardBin = new DiscardBin({
       ghostObject: (object) => this.#ghostObject(object),
@@ -1724,11 +1682,11 @@ export class ShopScene {
     this.#targetedTelevision = undefined;
     this.#televisionProps.clear();
     this.#audioManager.dispose();
-    for (const record of this.#digitalArtFrameRecords.values())
+    for (const record of this.#artFrames.records.values())
       record.frame.dispose();
-    this.#digitalArtFrameRecords.clear();
-    this.#artFramePreview?.dispose();
-    this.#artFramePreview = undefined;
+    this.#artFrames.clearRecords();
+    this.#artFrames.preview?.dispose();
+    this.#artFrames.preview = undefined;
     this.#inspectionPageTextureCache.dispose();
     this.#inspectionTurningBackTexture?.dispose();
     this.#inspectionTurningBackTexture = undefined;
@@ -1853,7 +1811,7 @@ export class ShopScene {
     this.#updateHeldPhysicsTarget();
     this.#physicsWorld.step(deltaSeconds);
     this.#syncMovablePropPhysics();
-    for (const record of this.#digitalArtFrameRecords.values())
+    for (const record of this.#artFrames.records.values())
       record.frame.update(deltaSeconds);
     this.#animateBooks(deltaSeconds);
     this.#animateShelve(deltaSeconds);
@@ -3544,14 +3502,14 @@ export class ShopScene {
   setArtFrameImportChannel(label: string) {
     const channelId = artFrameChannelId(label);
     if (!channelId) return;
-    const placement = this.#artFramePlacement;
+    const placement = this.#artFrames.placement;
     if (placement) placement.channelId = channelId;
     else {
-      const frameId = this.#targetedDigitalArtFrameId;
-      if (!frameId || !this.#digitalArtFrameRecords.has(frameId)) return;
-      this.#artFrameTargetImportChannel = {channelId, frameId};
+      const frameId = this.#artFrames.targetedId;
+      if (!frameId || !this.#artFrames.records.has(frameId)) return;
+      this.#artFrames.targetImportChannel = {channelId, frameId};
     }
-    this.#artFrameImportError = undefined;
+    this.#artFrames.importError = undefined;
     this.#emitGameState();
     return channelId;
   }
@@ -3559,16 +3517,19 @@ export class ShopScene {
   async importArtFrameChannelImage(label: string, image: Blob) {
     const channelId = artFrameChannelId(label);
     if (!channelId) return false;
-    const placement = this.#artFramePlacement;
+    const placement = this.#artFrames.placement;
     if (placement) placement.channelId = channelId;
     const frameId = this.#channelEditorDigitalArtFrameId;
     if (!placement && frameId)
-      this.#artFrameTargetImportChannel = {channelId, frameId};
+      this.#artFrames.targetImportChannel = {channelId, frameId};
     let target: DigitalArtFramePasteTarget | undefined;
     if (placement) target = {channelId, kind: "placement"};
     else if (frameId) target = {channelId, frameId, kind: "frame"};
     if (!target) return false;
-    const imported = await this.#importPastedArtFrameImage(image, target);
+    const imported = await this.#artFrames.importPastedArtFrameImage(
+      image,
+      target,
+    );
     if (imported) this.#channelEditorDigitalArtFrameId = undefined;
     return imported;
   }
@@ -4704,84 +4665,6 @@ export class ShopScene {
     this.#emitGameState();
   }
 
-  #artFrameCatalogMatches(channels: readonly ArtFrameChannel[]) {
-    return JSON.stringify(channels) === JSON.stringify(this.#artFrameChannels);
-  }
-
-  #applyArtFrameCatalog(channels: readonly ArtFrameChannel[]) {
-    if (this.#artFrameCatalogMatches(channels)) return;
-    const selectedAssetId = this.#artFrameAssets[this.#artFrameAssetIndex]?.id;
-    const activeAssetId = this.#artFramePlacement
-      ? this.#artFrameAssets[this.#artFramePlacement.assetIndex]?.id
-      : undefined;
-    this.#artFrameChannels = channels;
-    this.#artFrameAssets = channels.flatMap((channel) => channel.images);
-    const selectedIndex = selectedAssetId
-      ? this.#artFrameAssets.findIndex((asset) => asset.id === selectedAssetId)
-      : -1;
-    this.#artFrameAssetIndex = Math.max(0, selectedIndex);
-    for (const record of this.#digitalArtFrameRecords.values())
-      record.frame.setChannels(channels);
-    if (this.#artFramePlacement && activeAssetId) {
-      const activeIndex = this.#artFrameAssets.findIndex(
-        (asset) => asset.id === activeAssetId,
-      );
-      if (activeIndex < 0) this.#cancelDigitalArtFramePlacement();
-      else {
-        this.#artFramePlacement.assetIndex = activeIndex;
-        this.#artFrameAssetIndex = activeIndex;
-      }
-    }
-    this.#emitGameState();
-  }
-
-  async #restoreSavedDigitalArtFrames(channels: readonly ArtFrameChannel[]) {
-    const channelIds = new Set(channels.map((channel) => channel.id));
-    const restoredIds = new Set<string>();
-    await Promise.all(
-      this.#pendingDigitalArtFrameSaves.map(async (savedFrame) => {
-        if (!channelIds.has(savedFrame.channelId)) return;
-        const frame = new DigitalArtFrame({
-          aspectRatio: savedFrame.aspectRatio,
-          channelId: savedFrame.channelId,
-          channels,
-          fit: savedFrame.fit,
-          ...(savedFrame.currentImageId
-            ? {imageId: savedFrame.currentImageId}
-            : {}),
-          intervalSeconds: savedFrame.intervalSeconds,
-          loadTexture: (image, priority) =>
-            this.#artFrameTextures.get(image, priority),
-          onImageChange: () => {
-            this.#worldStateDirty = true;
-          },
-          releaseTexture: (imageId) => this.#artFrameTextures.release(imageId),
-        });
-        if (this.#disposed) {
-          frame.dispose();
-          return;
-        }
-        frame.object.position.copy(savedFrame.pose.position);
-        frame.object.quaternion.copy(savedFrame.pose.quaternion);
-        frame.object.scale.setScalar(savedFrame.height);
-        frame.target.userData.digitalArtFrameId = savedFrame.id;
-        this.#scene.add(frame.object);
-        this.#digitalArtFrameRecords.set(savedFrame.id, {
-          frame,
-          height: savedFrame.height,
-          id: savedFrame.id,
-          rotation: savedFrame.rotation ?? 0,
-        });
-        this.#digitalArtFrameTargetMeshes.push(frame.target);
-        restoredIds.add(savedFrame.id);
-      }),
-    );
-    if (restoredIds.size !== this.#pendingDigitalArtFrameSaves.length)
-      this.#worldStateDirty = true;
-    this.#pendingDigitalArtFrameSaves = [];
-    this.#artFrameSaveRestoreCompleted = true;
-  }
-
   readonly #refreshMediaCatalogIfActive = () => {
     if (
       document.visibilityState !== "visible" ||
@@ -4805,9 +4688,11 @@ export class ShopScene {
       this.#posters.applyPosterCatalog(catalog.posters.posters);
       if (!this.#posters.saveRestoreCompleted)
         await this.#posters.restoreSavedPosters(catalog.posters.posters);
-      this.#applyArtFrameCatalog(catalog.artFrames.channels);
-      if (!this.#artFrameSaveRestoreCompleted)
-        await this.#restoreSavedDigitalArtFrames(catalog.artFrames.channels);
+      this.#artFrames.applyArtFrameCatalog(catalog.artFrames.channels);
+      if (!this.#artFrames.saveRestoreCompleted)
+        await this.#artFrames.restoreSavedDigitalArtFrames(
+          catalog.artFrames.channels,
+        );
       this.#tvChannels = catalog.tv.channels;
       for (const television of this.#televisions)
         television.setChannels(catalog.tv.channels);
@@ -4822,382 +4707,16 @@ export class ShopScene {
     }
   }
 
-  #createDigitalArtFrame(
-    asset: ArtFrameImage,
-    aspectRatio: number,
-    channelId: string,
-    fit: ArtFrameFit,
-    intervalSeconds: number,
-  ) {
-    return new DigitalArtFrame({
-      aspectRatio,
-      channelId,
-      channels: this.#artFrameChannels,
-      fit,
-      imageId: asset.id,
-      intervalSeconds,
-      loadTexture: (image, priority) =>
-        this.#artFrameTextures.get(image, priority),
-      onImageChange: () => {
-        this.#worldStateDirty = true;
-      },
-      releaseTexture: (imageId) => this.#artFrameTextures.release(imageId),
-    });
-  }
-
-  #startDigitalArtFramePlacement(
-    assetIndex: number,
-    movingFrameId?: string,
-    desiredHeight = DEFAULT_POSTER_HEIGHT,
-    rotation = 0,
-    lockedAspectRatio?: number,
-    fit: ArtFrameFit = "contain",
-    intervalSeconds = DIGITAL_ART_FRAME_DEFAULT_INTERVAL_SECONDS,
-  ) {
-    if (this.#artFrameAssets.length === 0) return;
-    const normalizedIndex =
-      (assetIndex + this.#artFrameAssets.length) % this.#artFrameAssets.length;
-    const asset = this.#artFrameAssets[normalizedIndex];
-    if (!asset) return;
-    const channelId = asset.id.split("/")[0];
-    if (!channelId) return;
-    const revision = (this.#artFramePlacementRevision += 1);
-    this.#disposeDigitalArtFramePreview();
-    const aspectRatio = lockedAspectRatio ?? asset.aspectRatio;
-    this.#artFramePlacement = {
-      aspectRatio,
-      assetIndex: normalizedIndex,
-      channelId,
-      desiredHeight,
-      fit,
-      gridSnap: true,
-      intervalSeconds,
-      ...(movingFrameId ? {movingFrameId} : {}),
-      rotation,
-    };
-    this.#artFrameAssetIndex = normalizedIndex;
-    const movingFrame = this.#digitalArtFrameRecords.get(movingFrameId ?? "");
-    if (movingFrame) movingFrame.frame.object.visible = false;
-    this.#artFramePlacementSelection = undefined;
-    this.#setDigitalArtFrameTargeted();
-    const preview = this.#createDigitalArtFrame(
-      asset,
-      aspectRatio,
-      channelId,
-      fit,
-      0,
-    );
-    if (
-      this.#disposed ||
-      revision !== this.#artFramePlacementRevision ||
-      this.#artFramePlacement?.assetIndex !== normalizedIndex
-    ) {
-      preview.dispose();
-      return;
-    }
-    preview.object.name = `digital-art-frame-preview-${asset.id}`;
-    this.#ghostDigitalArtFramePreview(preview);
-    preview.object.visible = false;
-    this.#artFramePreview = preview;
-    this.#scene.add(preview.object);
-    this.#updateDigitalArtFramePlacementTarget();
-    this.#emitGameState();
-  }
-
-  #startEmptyDigitalArtFramePlacement() {
-    this.#artFramePlacementRevision += 1;
-    this.#disposeDigitalArtFramePreview();
-    this.#artFramePlacement = {
-      aspectRatio: 1.5,
-      assetIndex: -1,
-      channelId: "pasted",
-      desiredHeight: DEFAULT_POSTER_HEIGHT,
-      fit: "contain",
-      gridSnap: true,
-      intervalSeconds: DIGITAL_ART_FRAME_DEFAULT_INTERVAL_SECONDS,
-      rotation: 0,
-    };
-    this.#artFramePlacementSelection = undefined;
-    this.#setDigitalArtFrameTargeted();
-    this.#emitGameState();
-  }
-
-  #selectDigitalArtFramePlacementAsset(assetIndex: number) {
-    const placement = this.#artFramePlacement;
-    if (!placement) return;
-    this.#startDigitalArtFramePlacement(
-      assetIndex,
-      placement.movingFrameId,
-      placement.desiredHeight,
-      placement.rotation,
-      placement.movingFrameId ? placement.aspectRatio : undefined,
-      placement.fit,
-      placement.intervalSeconds,
-    );
-  }
-
-  #cycleDigitalArtFramePlacementChannel(direction: -1 | 1) {
-    const placement = this.#artFramePlacement;
-    if (!placement || this.#artFrameChannels.length <= 1) return;
-    const channelIndex = this.#artFrameChannels.findIndex(
-      (channel) => channel.id === placement.channelId,
-    );
-    const nextChannel =
-      this.#artFrameChannels[
-        ((channelIndex >= 0 ? channelIndex : -1) +
-          direction +
-          this.#artFrameChannels.length) %
-          this.#artFrameChannels.length
-      ];
-    const image = nextChannel?.images[0];
-    if (!image) return;
-    const assetIndex = this.#artFrameAssets.findIndex(
-      (asset) => asset.id === image.id,
-    );
-    if (assetIndex >= 0) this.#selectDigitalArtFramePlacementAsset(assetIndex);
-  }
-
-  #cycleDigitalArtFramePlacementImage(direction: -1 | 1) {
-    const placement = this.#artFramePlacement;
-    if (!placement) return;
-    const channel = this.#artFrameChannels.find(
-      (candidate) => candidate.id === placement.channelId,
-    );
-    if (!channel || channel.images.length <= 1) return;
-    const currentAsset = this.#artFrameAssets[placement.assetIndex];
-    const imageIndex = channel.images.findIndex(
-      (image) => image.id === currentAsset?.id,
-    );
-    const image =
-      channel.images[
-        ((imageIndex >= 0 ? imageIndex : -1) +
-          direction +
-          channel.images.length) %
-          channel.images.length
-      ];
-    if (!image) return;
-    const assetIndex = this.#artFrameAssets.findIndex(
-      (asset) => asset.id === image.id,
-    );
-    if (assetIndex >= 0) this.#selectDigitalArtFramePlacementAsset(assetIndex);
-  }
-
-  #disposeDigitalArtFramePreview() {
-    const preview = this.#artFramePreview;
-    if (!preview) return;
-    this.#restoreDigitalArtFramePreview();
-    this.#artFramePreview = undefined;
-    preview.dispose();
-  }
-
-  #cancelDigitalArtFramePlacement() {
-    const movingFrameId = this.#artFramePlacement?.movingFrameId;
-    this.#artFramePlacementRevision += 1;
-    this.#disposeDigitalArtFramePreview();
-    const movingFrame = this.#digitalArtFrameRecords.get(movingFrameId ?? "");
-    if (movingFrame) movingFrame.frame.object.visible = true;
-    this.#artFramePlacement = undefined;
-    this.#artFramePlacementSelection = undefined;
-    this.#emitGameState();
-  }
-
-  #setDigitalArtFramePlacementSelection(height?: number) {
-    if (height === this.#artFramePlacementSelection?.height) return;
-    this.#artFramePlacementSelection =
-      height === undefined ? undefined : {height};
-    this.#emitGameState();
-  }
-
-  #ghostDigitalArtFramePreview(preview: DigitalArtFrame) {
-    this.#artFramePreviewMaterialStates = [];
-    preview.object.traverse((child) => {
-      if (!(child instanceof Mesh)) return;
-      const materials = Array.isArray(child.material)
-        ? child.material
-        : [child.material];
-      for (const material of materials) {
-        this.#artFramePreviewMaterialStates.push({
-          depthWrite: material.depthWrite,
-          material,
-          opacity: material.opacity,
-          transparent: material.transparent,
-        });
-        material.transparent = true;
-        material.opacity *= 0.62;
-        material.depthWrite = false;
-      }
-    });
-  }
-
-  #restoreDigitalArtFramePreview() {
-    for (const state of this.#artFramePreviewMaterialStates) {
-      state.material.depthWrite = state.depthWrite;
-      state.material.opacity = state.opacity;
-      state.material.transparent = state.transparent;
-    }
-    this.#artFramePreviewMaterialStates = [];
-  }
-
-  #showDigitalArtFramePlacementGhost(
-    preview: DigitalArtFrame,
-    placement: DigitalArtFramePlacementSession,
-  ) {
-    this.#camera.add(preview.object);
-    preview.object.position.set(0, -0.1, -1.5);
-    preview.object.quaternion.identity();
-    preview.object.scale.setScalar(placement.desiredHeight);
-    preview.object.visible = true;
-  }
-
-  #updateDigitalArtFramePlacementTarget() {
-    const placement = this.#artFramePlacement;
-    const preview = this.#artFramePreview;
-    if (!placement || !preview || !this.#pointerLocked) {
-      if (preview) preview.object.visible = false;
-      this.#setDigitalArtFramePlacementSelection();
-      return;
-    }
-    const intersection = this.#raycaster.intersectObjects(
-      this.#posterRaycastMeshes,
-      false,
-    )[0];
-    const surfaceId = intersection?.object.userData.posterSurfaceId;
-    const surface =
-      typeof surfaceId === "string"
-        ? this.#posters.surfaces.get(surfaceId)
-        : undefined;
-    if (
-      !intersection ||
-      intersection.distance > POSTER_PLACEMENT_DISTANCE ||
-      !surface
-    ) {
-      this.#showDigitalArtFramePlacementGhost(preview, placement);
-      this.#setDigitalArtFramePlacementSelection();
-      return;
-    }
-    const height = resolveWallPlacement(
-      surface,
-      intersection.point,
-      placement.aspectRatio,
-      placement.desiredHeight,
-      placement.rotation,
-      this.#artFramePlacementPosition,
-      this.#artFramePlacementRotation,
-      this.#artFrameLocalPoint,
-      DIGITAL_ART_FRAME_BORDER,
-      placement.gridSnap,
-    );
-    if (height === undefined) {
-      this.#showDigitalArtFramePlacementGhost(preview, placement);
-      this.#setDigitalArtFramePlacementSelection();
-      return;
-    }
-    this.#scene.attach(preview.object);
-    preview.object.position.copy(this.#artFramePlacementPosition);
-    preview.object.quaternion.copy(this.#artFramePlacementRotation);
-    preview.object.rotateZ(placement.rotation);
-    preview.object.scale.setScalar(height);
-    preview.object.visible = true;
-    this.#setDigitalArtFramePlacementSelection(height);
-  }
-
-  #placeDigitalArtFrame() {
-    const placement = this.#artFramePlacement;
-    const selection = this.#artFramePlacementSelection;
-    const preview = this.#artFramePreview;
-    if (!placement || !selection || !preview || !preview.object.visible) return;
-    this.#restoreDigitalArtFramePreview();
-    preview.setIntervalSeconds(placement.intervalSeconds);
-    const existing = placement.movingFrameId
-      ? this.#digitalArtFrameRecords.get(placement.movingFrameId)
-      : undefined;
-    if (existing) {
-      const targetIndex = this.#digitalArtFrameTargetMeshes.indexOf(
-        existing.frame.target,
-      );
-      existing.frame.dispose();
-      existing.frame = preview;
-      existing.height = selection.height;
-      existing.rotation = placement.rotation;
-      preview.target.userData.digitalArtFrameId = existing.id;
-      if (targetIndex >= 0)
-        this.#digitalArtFrameTargetMeshes[targetIndex] = preview.target;
-      else this.#digitalArtFrameTargetMeshes.push(preview.target);
-    } else {
-      const id = globalThis.crypto.randomUUID();
-      preview.target.userData.digitalArtFrameId = id;
-      this.#digitalArtFrameRecords.set(id, {
-        frame: preview,
-        height: selection.height,
-        id,
-        rotation: placement.rotation,
-      });
-      this.#digitalArtFrameTargetMeshes.push(preview.target);
-    }
-    this.#artFramePreview = undefined;
-    this.#artFramePlacement = undefined;
-    this.#artFramePlacementSelection = undefined;
-    this.#worldStateDirty = true;
-    this.#emitGameState();
-  }
-
-  #removeTargetedDigitalArtFrame() {
-    const frameId = this.#targetedDigitalArtFrameId;
-    if (!frameId) return;
-    const record = this.#digitalArtFrameRecords.get(frameId);
-    if (!record) return;
-    record.frame.dispose();
-    this.#digitalArtFrameRecords.delete(frameId);
-    const targetIndex = this.#digitalArtFrameTargetMeshes.indexOf(
-      record.frame.target,
-    );
-    if (targetIndex >= 0)
-      this.#digitalArtFrameTargetMeshes.splice(targetIndex, 1);
-    if (this.#artFrameTargetImportChannel?.frameId === frameId)
-      this.#artFrameTargetImportChannel = undefined;
-    this.#targetedDigitalArtFrameId = undefined;
-    this.#worldStateDirty = true;
-    this.#emitGameState();
-  }
-
-  #cycleTargetedDigitalArtFrameFit() {
-    const record = this.#targetedDigitalArtFrameId
-      ? this.#digitalArtFrameRecords.get(this.#targetedDigitalArtFrameId)
-      : undefined;
-    if (!record) return;
-    record.frame.setFit(record.frame.fit() === "contain" ? "cover" : "contain");
-    this.#worldStateDirty = true;
-    this.#emitGameState();
-  }
-
-  #cycleTargetedDigitalArtFrameInterval() {
-    const record = this.#targetedDigitalArtFrameId
-      ? this.#digitalArtFrameRecords.get(this.#targetedDigitalArtFrameId)
-      : undefined;
-    if (!record) return;
-    const intervalIndex = DIGITAL_ART_FRAME_INTERVALS.indexOf(
-      record.frame.intervalSeconds() as (typeof DIGITAL_ART_FRAME_INTERVALS)[number],
-    );
-    const nextInterval =
-      DIGITAL_ART_FRAME_INTERVALS[
-        (Math.max(0, intervalIndex) + 1) % DIGITAL_ART_FRAME_INTERVALS.length
-      ];
-    if (nextInterval === undefined) return;
-    record.frame.setIntervalSeconds(nextInterval);
-    this.#worldStateDirty = true;
-    this.#emitGameState();
-  }
-
   readonly #handleImagePaste = (event: ClipboardEvent) => {
     if (this.#paused()) return;
-    const artFrameTarget = this.#digitalArtFramePasteTarget();
+    const artFrameTarget = this.#artFrames.digitalArtFramePasteTarget();
     const imageItem = Array.from(event.clipboardData?.items ?? []).find(
       (item) => item.kind === "file" && item.type.startsWith("image/"),
     );
     const image = imageItem?.getAsFile();
     if (image && artFrameTarget && this.#importArtFrameImage) {
       event.preventDefault();
-      void this.#importPastedArtFrameImage(image, artFrameTarget);
+      void this.#artFrames.importPastedArtFrameImage(image, artFrameTarget);
       return;
     }
     if (image && this.#posters.placement && this.#importPoster) {
@@ -5285,122 +4804,6 @@ export class ShopScene {
       return false;
     } finally {
       this.#tvVideoImportCount = Math.max(0, this.#tvVideoImportCount - 1);
-      if (!this.#disposed) this.#emitGameState();
-    }
-  }
-
-  #digitalArtFramePasteTarget(): DigitalArtFramePasteTarget | undefined {
-    const placement = this.#artFramePlacement;
-    if (placement) return {channelId: placement.channelId, kind: "placement"};
-    if (this.#posters.placement) return;
-    const frameId = this.#targetedDigitalArtFrameId;
-    const frame = frameId
-      ? this.#digitalArtFrameRecords.get(frameId)?.frame
-      : undefined;
-    if (!frameId || !frame) return;
-    const pendingChannel = this.#artFrameTargetImportChannel;
-    return {
-      channelId:
-        pendingChannel?.frameId === frameId
-          ? pendingChannel.channelId
-          : frame.channelId(),
-      frameId,
-      kind: "frame",
-    };
-  }
-
-  async #importPastedArtFrameImage(
-    image: Blob,
-    target: DigitalArtFramePasteTarget,
-  ) {
-    const importImage = this.#importArtFrameImage;
-    if (!importImage) return false;
-    const importChannelId = target.channelId;
-    this.#artFrameImportCount += 1;
-    this.#artFrameImportError = undefined;
-    this.#emitGameState();
-    try {
-      const asset = await importImage(
-        image,
-        importChannelId,
-        this.#abortController.signal,
-      );
-      if (this.#disposed) return false;
-      const existingChannel = this.#artFrameChannels.find(
-        (channel) => channel.id === importChannelId,
-      );
-      const channel: ArtFrameChannel = {
-        id: importChannelId,
-        images: [
-          ...(existingChannel?.images.filter(
-            (candidate) => candidate.id !== asset.id,
-          ) ?? []),
-          asset,
-        ].sort((left, right) => left.id.localeCompare(right.id)),
-        label:
-          existingChannel?.label ??
-          importChannelId
-            .split("-")
-            .filter(Boolean)
-            .map((word) => `${word[0]?.toUpperCase() ?? ""}${word.slice(1)}`)
-            .join(" "),
-      };
-      this.#applyArtFrameCatalog(
-        [
-          ...this.#artFrameChannels.filter(
-            (candidate) => candidate.id !== importChannelId,
-          ),
-          channel,
-        ].sort((left, right) => left.id.localeCompare(right.id)),
-      );
-      const assetIndex = this.#artFrameAssets.findIndex(
-        (candidate) => candidate.id === asset.id,
-      );
-      if (assetIndex >= 0) this.#artFrameAssetIndex = assetIndex;
-      if (target.kind === "frame") {
-        const record = this.#digitalArtFrameRecords.get(target.frameId);
-        if (!record) return false;
-        record.frame.setChannel(importChannelId, asset.id);
-        if (
-          this.#artFrameTargetImportChannel?.frameId === target.frameId &&
-          this.#artFrameTargetImportChannel.channelId === importChannelId
-        )
-          this.#artFrameTargetImportChannel = undefined;
-        this.#worldStateDirty = true;
-        this.#emitGameState();
-        return true;
-      }
-      const placement = this.#artFramePlacement;
-      if (!placement) return false;
-      const desiredHeight = placement.desiredHeight;
-      const fit = placement.fit;
-      const intervalSeconds = placement.intervalSeconds;
-      const movingFrameId = placement.movingFrameId;
-      const rotation = placement.rotation;
-      const aspectRatio = movingFrameId
-        ? placement.aspectRatio
-        : asset.aspectRatio;
-      this.#cancelDigitalArtFramePlacement();
-      if (assetIndex >= 0)
-        this.#startDigitalArtFramePlacement(
-          assetIndex,
-          movingFrameId,
-          desiredHeight,
-          rotation,
-          aspectRatio,
-          fit,
-          intervalSeconds,
-        );
-      return true;
-    } catch (error) {
-      if (this.#abortController.signal.aborted) return false;
-      this.#artFrameImportError =
-        error instanceof Error && error.message
-          ? error.message
-          : "Pasted art frame image could not be imported";
-      return false;
-    } finally {
-      this.#artFrameImportCount = Math.max(0, this.#artFrameImportCount - 1);
       if (!this.#disposed) this.#emitGameState();
     }
   }
@@ -5597,7 +5000,7 @@ export class ShopScene {
       this.#zoomInspectionAtPointer(event);
       return;
     }
-    const artFramePlacement = this.#artFramePlacement;
+    const artFramePlacement = this.#artFrames.placement;
     if (this.#pointerLocked && artFramePlacement && event.deltaY !== 0) {
       event.preventDefault();
       if (event.shiftKey)
@@ -5611,7 +5014,7 @@ export class ShopScene {
           MIN_POSTER_HEIGHT,
           MAX_POSTER_HEIGHT,
         );
-      this.#updateDigitalArtFramePlacementTarget();
+      this.#artFrames.updateDigitalArtFramePlacementTarget();
       this.#emitGameState();
       return;
     }
@@ -5878,7 +5281,7 @@ export class ShopScene {
           return true;
         }
         if (
-          !this.#artFramePlacement &&
+          !this.#artFrames.placement &&
           !this.#posters.placement &&
           !this.#carriedPublicationId &&
           !this.#carriedProp
@@ -5886,8 +5289,8 @@ export class ShopScene {
           void this.#startModelPlacement(this.#spawnablePropAssetIndex);
         return true;
       case "toggleArtFramePlacement":
-        if (this.#artFramePlacement) {
-          this.#cancelDigitalArtFramePlacement();
+        if (this.#artFrames.placement) {
+          this.#artFrames.cancelDigitalArtFramePlacement();
           return true;
         }
         if (
@@ -5896,16 +5299,18 @@ export class ShopScene {
           !this.#carriedPublicationId &&
           !this.#carriedProp
         ) {
-          if (this.#artFrameAssets.length > 0)
-            this.#startDigitalArtFramePlacement(this.#artFrameAssetIndex);
-          else this.#startEmptyDigitalArtFramePlacement();
+          if (this.#artFrames.assets.length > 0)
+            this.#artFrames.startDigitalArtFramePlacement(
+              this.#artFrames.assetIndex,
+            );
+          else this.#artFrames.startEmptyDigitalArtFramePlacement();
         }
         return true;
       case "channelEditorOpen":
         if (
           !(
-            this.#artFramePlacement ||
-            this.#targetedDigitalArtFrameId ||
+            this.#artFrames.placement ||
+            this.#artFrames.targetedId ||
             this.#televisionTargeted
           ) ||
           !this.#onMediaChannelCreateRequest
@@ -5916,7 +5321,7 @@ export class ShopScene {
           this.#channelEditorTelevision =
             kind === "tv" ? this.#targetedTelevision : undefined;
           this.#channelEditorDigitalArtFrameId =
-            kind === "art-frame" ? this.#targetedDigitalArtFrameId : undefined;
+            kind === "art-frame" ? this.#artFrames.targetedId : undefined;
           this.#releasePointerLock();
           this.#onMediaChannelCreateRequest(kind);
         }
@@ -5927,7 +5332,7 @@ export class ShopScene {
           return true;
         }
         if (
-          !this.#artFramePlacement &&
+          !this.#artFrames.placement &&
           !this.#modelPlacement &&
           !this.#carriedPublicationId &&
           !this.#carriedProp
@@ -5958,32 +5363,32 @@ export class ShopScene {
         }
         return false;
       case "placementCycleChannelLeft":
-        if (!this.#artFramePlacement) return false;
-        this.#cycleDigitalArtFramePlacementChannel(-1);
+        if (!this.#artFrames.placement) return false;
+        this.#artFrames.cycleDigitalArtFramePlacementChannel(-1);
         return true;
       case "placementCycleChannelRight":
-        if (!this.#artFramePlacement) return false;
-        this.#cycleDigitalArtFramePlacementChannel(1);
+        if (!this.#artFrames.placement) return false;
+        this.#artFrames.cycleDigitalArtFramePlacementChannel(1);
         return true;
       case "placementCycleImageLeft":
-        if (!this.#artFramePlacement) return false;
-        this.#cycleDigitalArtFramePlacementImage(-1);
+        if (!this.#artFrames.placement) return false;
+        this.#artFrames.cycleDigitalArtFramePlacementImage(-1);
         return true;
       case "placementCycleImageRight":
-        if (!this.#artFramePlacement) return false;
-        this.#cycleDigitalArtFramePlacementImage(1);
+        if (!this.#artFrames.placement) return false;
+        this.#artFrames.cycleDigitalArtFramePlacementImage(1);
         return true;
       case "placementToggleFit":
-        if (!this.#artFramePlacement) return false;
-        this.#artFramePlacement.fit =
-          this.#artFramePlacement.fit === "contain" ? "cover" : "contain";
-        this.#artFramePreview?.setFit(this.#artFramePlacement.fit);
+        if (!this.#artFrames.placement) return false;
+        this.#artFrames.placement.fit =
+          this.#artFrames.placement.fit === "contain" ? "cover" : "contain";
+        this.#artFrames.preview?.setFit(this.#artFrames.placement.fit);
         this.#emitGameState();
         return true;
       case "placementToggleInterval": {
-        if (!this.#artFramePlacement) return false;
+        if (!this.#artFrames.placement) return false;
         const intervalIndex = DIGITAL_ART_FRAME_INTERVALS.indexOf(
-          this.#artFramePlacement
+          this.#artFrames.placement
             .intervalSeconds as (typeof DIGITAL_ART_FRAME_INTERVALS)[number],
         );
         const interval =
@@ -5992,7 +5397,7 @@ export class ShopScene {
               DIGITAL_ART_FRAME_INTERVALS.length
           ];
         if (interval !== undefined)
-          this.#artFramePlacement.intervalSeconds = interval;
+          this.#artFrames.placement.intervalSeconds = interval;
         this.#emitGameState();
         return true;
       }
@@ -6028,8 +5433,8 @@ export class ShopScene {
           this.#removeSpawnedProp(this.#targetedProp);
           return true;
         }
-        if (this.#targetedDigitalArtFrameId) {
-          this.#removeTargetedDigitalArtFrame();
+        if (this.#artFrames.targetedId) {
+          this.#artFrames.removeTargetedDigitalArtFrame();
           return true;
         }
         if (this.#posters.targetedId) {
@@ -6040,10 +5445,11 @@ export class ShopScene {
         return false;
       }
       case "placementToggleGridSnap": {
-        if (!this.#artFramePlacement && !this.#posters.placement) return false;
-        const placement = this.#artFramePlacement ?? this.#posters.placement;
+        if (!this.#artFrames.placement && !this.#posters.placement)
+          return false;
+        const placement = this.#artFrames.placement ?? this.#posters.placement;
         if (placement) placement.gridSnap = !placement.gridSnap;
-        this.#updateDigitalArtFramePlacementTarget();
+        this.#artFrames.updateDigitalArtFramePlacementTarget();
         this.#posters.updatePosterPlacementTarget();
         this.#emitGameState();
         return true;
@@ -6053,8 +5459,8 @@ export class ShopScene {
           this.#cancelModelPlacement();
           return true;
         }
-        if (this.#artFramePlacement) {
-          this.#cancelDigitalArtFramePlacement();
+        if (this.#artFrames.placement) {
+          this.#artFrames.cancelDigitalArtFramePlacement();
           return true;
         }
         if (this.#posters.placement) {
@@ -6083,34 +5489,34 @@ export class ShopScene {
           this.#pickUpProp(this.#targetedProp);
           return true;
         }
-        if (this.#targetedDigitalArtFrameId || this.#posters.targetedId) {
+        if (this.#artFrames.targetedId || this.#posters.targetedId) {
           this.#interact();
           return true;
         }
         return false;
       case "artFramePreviousChannel":
-        if (!this.#targetedDigitalArtFrameId) return false;
-        this.#digitalArtFrameRecords
-          .get(this.#targetedDigitalArtFrameId)
+        if (!this.#artFrames.targetedId) return false;
+        this.#artFrames.records
+          .get(this.#artFrames.targetedId)
           ?.frame.changeChannel(-1);
         this.#worldStateDirty = true;
         this.#emitGameState();
         return true;
       case "artFrameNextChannel":
-        if (!this.#targetedDigitalArtFrameId) return false;
-        this.#digitalArtFrameRecords
-          .get(this.#targetedDigitalArtFrameId)
+        if (!this.#artFrames.targetedId) return false;
+        this.#artFrames.records
+          .get(this.#artFrames.targetedId)
           ?.frame.changeChannel(1);
         this.#worldStateDirty = true;
         this.#emitGameState();
         return true;
       case "artFrameInterval":
-        if (!this.#targetedDigitalArtFrameId) return false;
-        this.#cycleTargetedDigitalArtFrameInterval();
+        if (!this.#artFrames.targetedId) return false;
+        this.#artFrames.cycleTargetedDigitalArtFrameInterval();
         return true;
       case "artFrameFit":
-        if (!this.#targetedDigitalArtFrameId) return false;
-        this.#cycleTargetedDigitalArtFrameFit();
+        if (!this.#artFrames.targetedId) return false;
+        this.#artFrames.cycleTargetedDigitalArtFrameFit();
         return true;
       case "tvPreviousChannel":
         if (!this.#televisionTargeted) return false;
@@ -6151,18 +5557,16 @@ export class ShopScene {
         return true;
       case "throw":
         if (this.#televisionTargeted) this.#targetedTelevision?.skip();
-        else if (this.#targetedDigitalArtFrameId)
-          this.#digitalArtFrameRecords
-            .get(this.#targetedDigitalArtFrameId)
-            ?.frame.skip();
+        else if (this.#artFrames.targetedId)
+          this.#artFrames.records.get(this.#artFrames.targetedId)?.frame.skip();
         else if (this.#carriedProp) this.#dropCarriedProp(true);
         else if (this.#carriedPublicationId) this.#startThrowCharge();
         // Held throw state drives shelf browsing; isActionDown covers it.
         return true;
       case "drop":
-        if (this.#artFramePlacement || this.#posters.placement) return true;
-        if (this.#targetedDigitalArtFrameId)
-          this.#removeTargetedDigitalArtFrame();
+        if (this.#artFrames.placement || this.#posters.placement) return true;
+        if (this.#artFrames.targetedId)
+          this.#artFrames.removeTargetedDigitalArtFrame();
         else if (this.#posters.targetedId) this.#posters.removeTargetedPoster();
         else if (this.#carriedProp) this.#dropCarriedProp();
         else this.#dropCarriedBook();
@@ -6525,7 +5929,7 @@ export class ShopScene {
       this.#pendingPropSaves.delete(id);
     }
     this.#posters.pendingSaves = save.posters ?? [];
-    this.#pendingDigitalArtFrameSaves = save.digitalArtFrames ?? [];
+    this.#artFrames.pendingSaves = save.digitalArtFrames ?? [];
     // Saved model props whose ids already exist (registered during boot)
     // adopt their saved pose, scale, and lock here; only genuinely missing
     // ids remain for #restoreSavedModelProps to spawn.
@@ -9387,18 +8791,6 @@ export class ShopScene {
     return undefined;
   }
 
-  #setDigitalArtFrameTargeted(frameId?: string) {
-    if (frameId === this.#targetedDigitalArtFrameId) return;
-    if (this.#targetedDigitalArtFrameId)
-      this.#digitalArtFrameRecords
-        .get(this.#targetedDigitalArtFrameId)
-        ?.frame.setTargeted(false);
-    this.#targetedDigitalArtFrameId = frameId;
-    if (frameId)
-      this.#digitalArtFrameRecords.get(frameId)?.frame.setTargeted(true);
-    this.#emitGameState();
-  }
-
   #updateInteractionTarget() {
     // An arcade session owns the screen; retargeting would fight its UI.
     if (this.#arcadeStatusForUi()) {
@@ -9412,7 +8804,7 @@ export class ShopScene {
       this.#signs.clearShelfSignPreview();
       this.#signs.targetedKey = undefined;
       this.#posters.targetedId = undefined;
-      this.#setDigitalArtFrameTargeted();
+      this.#artFrames.setDigitalArtFrameTargeted();
       this.#setPropTargeted(undefined);
       this.#setTrashTargeted(false);
       this.#setTelevisionTargeted(false);
@@ -9426,7 +8818,7 @@ export class ShopScene {
       this.#signs.clearShelfSignPreview();
       this.#signs.targetedKey = undefined;
       this.#posters.targetedId = undefined;
-      this.#setDigitalArtFrameTargeted();
+      this.#artFrames.setDigitalArtFrameTargeted();
       this.#setPropTargeted(undefined);
       this.#setTrashTargeted(false);
       this.#setTelevisionTargeted(false);
@@ -9437,14 +8829,14 @@ export class ShopScene {
     if (!this.#pointerLocked) {
       this.#signs.clearShelfSignPreview();
       this.#posters.updatePosterPlacementTarget();
-      this.#updateDigitalArtFramePlacementTarget();
+      this.#artFrames.updateDigitalArtFramePlacementTarget();
       this.#setHoveredPublicationId(undefined);
       if (
         this.#shelfTargeted ||
         this.#trashTargeted ||
         this.#televisionTargeted ||
         this.#targetedProp !== undefined ||
-        this.#targetedDigitalArtFrameId !== undefined ||
+        this.#artFrames.targetedId !== undefined ||
         this.#posters.targetedId !== undefined ||
         this.#signs.targetedKey !== undefined
       ) {
@@ -9452,7 +8844,7 @@ export class ShopScene {
         this.#shelfTargetSelection = undefined;
         this.#signs.targetedKey = undefined;
         this.#posters.targetedId = undefined;
-        this.#setDigitalArtFrameTargeted();
+        this.#artFrames.setDigitalArtFrameTargeted();
         this.#setPropTargeted(undefined);
         this.#setTrashTargeted(false);
         this.#setTelevisionTargeted(false);
@@ -9484,20 +8876,20 @@ export class ShopScene {
     this.#lastAimSweepTimeMs = this.#frameNowMs;
     this.#camera.updateMatrixWorld();
     this.#raycaster.setFromCamera(this.#reticle, this.#camera);
-    if (this.#artFramePlacement) {
+    if (this.#artFrames.placement) {
       this.#setHoveredPublicationId(undefined);
       this.#shelfTargeted = false;
       this.#shelfTargetSelection = undefined;
       this.#signs.clearShelfSignPreview();
       this.#signs.targetedKey = undefined;
       this.#posters.targetedId = undefined;
-      this.#setDigitalArtFrameTargeted();
+      this.#artFrames.setDigitalArtFrameTargeted();
       this.#setPropTargeted(undefined);
       this.#setTrashTargeted(false);
       this.#setTelevisionTargeted(false);
       this.#updateShelfTargetVisuals();
       this.#signs.updateTargetVisuals();
-      this.#updateDigitalArtFramePlacementTarget();
+      this.#artFrames.updateDigitalArtFramePlacementTarget();
       return;
     }
     if (this.#posters.placement) {
@@ -9507,7 +8899,7 @@ export class ShopScene {
       this.#signs.clearShelfSignPreview();
       this.#signs.targetedKey = undefined;
       this.#posters.targetedId = undefined;
-      this.#setDigitalArtFrameTargeted();
+      this.#artFrames.setDigitalArtFrameTargeted();
       this.#setPropTargeted(undefined);
       this.#setTrashTargeted(false);
       this.#setTelevisionTargeted(false);
@@ -9524,7 +8916,7 @@ export class ShopScene {
       this.#signs.clearShelfSignPreview();
       this.#signs.targetedKey = undefined;
       this.#posters.targetedId = undefined;
-      this.#setDigitalArtFrameTargeted();
+      this.#artFrames.setDigitalArtFrameTargeted();
       this.#setPropTargeted(undefined);
       this.#setTrashTargeted(false);
       this.#setTelevisionTargeted(false);
@@ -9536,7 +8928,7 @@ export class ShopScene {
     if (this.#carriedPublicationId) {
       this.#signs.targetedKey = undefined;
       this.#posters.targetedId = undefined;
-      this.#setDigitalArtFrameTargeted();
+      this.#artFrames.setDigitalArtFrameTargeted();
       this.#setPropTargeted(undefined);
       this.#setTelevisionTargeted(false);
       const trashIntersection = this.#raycaster.intersectObjects(
@@ -9672,7 +9064,7 @@ export class ShopScene {
       this.#setTrashTargeted(false);
       this.#signs.targetedKey = undefined;
       this.#posters.targetedId = undefined;
-      this.#setDigitalArtFrameTargeted();
+      this.#artFrames.setDigitalArtFrameTargeted();
       this.#signs.updateTargetVisuals();
       this.#setHoveredPublicationId(undefined);
       return;
@@ -9731,7 +9123,7 @@ export class ShopScene {
       this.#setTrashTargeted(false);
       this.#signs.targetedKey = undefined;
       this.#posters.targetedId = undefined;
-      this.#setDigitalArtFrameTargeted();
+      this.#artFrames.setDigitalArtFrameTargeted();
       this.#signs.updateTargetVisuals();
       this.#setHoveredPublicationId(undefined);
       return;
@@ -9760,7 +9152,7 @@ export class ShopScene {
       this.#setTrashTargeted(false);
       this.#signs.targetedKey = undefined;
       this.#posters.targetedId = undefined;
-      this.#setDigitalArtFrameTargeted();
+      this.#artFrames.setDigitalArtFrameTargeted();
       this.#signs.updateTargetVisuals();
       this.#setHoveredPublicationId(undefined);
       return;
@@ -9803,17 +9195,17 @@ export class ShopScene {
     }
     if (targetedSignKey !== undefined) {
       this.#posters.targetedId = undefined;
-      this.#setDigitalArtFrameTargeted();
+      this.#artFrames.setDigitalArtFrameTargeted();
       this.#setHoveredPublicationId(undefined);
       return;
     }
     const artFrameIntersection = this.#raycaster
-      .intersectObjects(this.#digitalArtFrameTargetMeshes, false)
+      .intersectObjects(this.#artFrames.targetMeshes, false)
       .find((candidate) => candidate.distance <= POSTER_INTERACTION_DISTANCE);
     const artFrameId = artFrameIntersection?.object.userData.digitalArtFrameId;
     const targetedArtFrameId =
       typeof artFrameId === "string" ? artFrameId : undefined;
-    this.#setDigitalArtFrameTargeted(targetedArtFrameId);
+    this.#artFrames.setDigitalArtFrameTargeted(targetedArtFrameId);
     if (targetedArtFrameId) {
       this.#posters.targetedId = undefined;
       this.#setHoveredPublicationId(undefined);
@@ -9830,7 +9222,7 @@ export class ShopScene {
       this.#emitGameState();
     }
     if (targetedPosterId) {
-      this.#setDigitalArtFrameTargeted();
+      this.#artFrames.setDigitalArtFrameTargeted();
       this.#setHoveredPublicationId(undefined);
       return;
     }
@@ -9869,8 +9261,8 @@ export class ShopScene {
 
   #interact(allowNonBookPropPickup = true) {
     if (this.#discardBusy || this.#shelveAnimation) return;
-    if (this.#artFramePlacement) {
-      this.#placeDigitalArtFrame();
+    if (this.#artFrames.placement) {
+      this.#artFrames.placeDigitalArtFrame();
       return;
     }
     if (this.#posters.placement) {
@@ -9912,20 +9304,18 @@ export class ShopScene {
       this.#signs.requestEdit();
       return;
     }
-    if (this.#targetedDigitalArtFrameId) {
-      const record = this.#digitalArtFrameRecords.get(
-        this.#targetedDigitalArtFrameId,
-      );
+    if (this.#artFrames.targetedId) {
+      const record = this.#artFrames.records.get(this.#artFrames.targetedId);
       const imageId =
         record?.frame.currentImageId() ??
-        this.#artFrameChannels.find(
+        this.#artFrames.channels.find(
           (channel) => channel.id === record?.frame.channelId(),
         )?.images[0]?.id;
       const assetIndex = imageId
-        ? this.#artFrameAssets.findIndex((asset) => asset.id === imageId)
+        ? this.#artFrames.assets.findIndex((asset) => asset.id === imageId)
         : -1;
       if (record && assetIndex >= 0)
-        this.#startDigitalArtFramePlacement(
+        this.#artFrames.startDigitalArtFramePlacement(
           assetIndex,
           record.id,
           record.height,
@@ -10529,10 +9919,10 @@ export class ShopScene {
         }),
     ];
     const digitalArtFrames: WorldDigitalArtFrameSave[] = [
-      ...this.#pendingDigitalArtFrameSaves.filter(
-        (savedFrame) => !this.#digitalArtFrameRecords.has(savedFrame.id),
-      ),
-      ...[...this.#digitalArtFrameRecords.values()].map((record) => {
+      ...(
+        this.#artFrames.pendingSaves as readonly WorldDigitalArtFrameSave[]
+      ).filter((savedFrame) => !this.#artFrames.records.has(savedFrame.id)),
+      ...[...this.#artFrames.records.values()].map((record) => {
         record.frame.object.updateWorldMatrix(true, false);
         const position = record.frame.object.getWorldPosition(new Vector3());
         const quaternion = record.frame.object.getWorldQuaternion(
@@ -10824,19 +10214,20 @@ export class ShopScene {
             ? "Closing book before throwing…"
             : "Closing book…";
     else if (this.#shelveAnimation) prompt = "Shelving book…";
-    else if (this.#artFramePlacement) {
-      const asset = this.#artFrameAssets[this.#artFramePlacement.assetIndex];
-      const size = this.#artFramePlacementSelection?.height;
+    else if (this.#artFrames.placement) {
+      const asset =
+        this.#artFrames.assets[this.#artFrames.placement.assetIndex];
+      const size = this.#artFrames.placementSelection?.height;
       const rotation = Math.round(
-        MathUtils.radToDeg(this.#artFramePlacement.rotation),
+        MathUtils.radToDeg(this.#artFrames.placement.rotation),
       );
-      const interval = this.#artFramePlacement.intervalSeconds;
+      const interval = this.#artFrames.placement.intervalSeconds;
       if (!asset)
-        prompt = `Paste the first digital art image · N channel (${this.#artFramePlacement.channelId}) · T exit`;
+        prompt = `Paste the first digital art image · N channel (${this.#artFrames.placement.channelId}) · T exit`;
       else
-        prompt = this.#artFramePlacementSelection
-          ? `Click to place ${asset.label} · Q/E channel · F/G image · Wheel resize${size ? ` (${size.toFixed(2)} m)` : ""} · Shift+wheel rotate (${rotation}°) · R ${this.#artFramePlacement.fit} · I ${interval === 0 ? "timer off" : `${interval}s timer`} · N channel (${this.#artFramePlacement.channelId}) · Paste image · T exit`
-          : `Aim ${asset.label} at a wall or shelf end · Q/E channel · F/G image · Wheel resize · R ${this.#artFramePlacement.fit} · I ${interval === 0 ? "timer off" : `${interval}s timer`} · N channel (${this.#artFramePlacement.channelId}) · Paste image · T exit`;
+        prompt = this.#artFrames.placementSelection
+          ? `Click to place ${asset.label} · Q/E channel · F/G image · Wheel resize${size ? ` (${size.toFixed(2)} m)` : ""} · Shift+wheel rotate (${rotation}°) · R ${this.#artFrames.placement.fit} · I ${interval === 0 ? "timer off" : `${interval}s timer`} · N channel (${this.#artFrames.placement.channelId}) · Paste image · T exit`
+          : `Aim ${asset.label} at a wall or shelf end · Q/E channel · F/G image · Wheel resize · R ${this.#artFrames.placement.fit} · I ${interval === 0 ? "timer off" : `${interval}s timer`} · N channel (${this.#artFrames.placement.channelId}) · Paste image · T exit`;
     } else if (this.#posters.placement) {
       const asset = this.#posters.assets[this.#posters.placement.assetIndex];
       const size = this.#posters.placementSelection?.height;
@@ -10910,14 +10301,14 @@ export class ShopScene {
       prompt = `T project ${this.#targetedProp.label} for placement${animationLabel ? ` · Q/E animation (${animationLabel})` : ""}${this.#targetedProp.locked ? " · L unlock" : " · L lock"}${this.#targetedProp.spawned ? " · Del remove" : ""}`;
     } else if (this.#signs.targetedKey !== undefined)
       prompt = `E customize ${this.#signs.slots.get(this.#signs.targetedKey)?.label ?? "shop sign"}`;
-    else if (this.#targetedDigitalArtFrameId) {
-      const frame = this.#digitalArtFrameRecords.get(
-        this.#targetedDigitalArtFrameId,
+    else if (this.#artFrames.targetedId) {
+      const frame = this.#artFrames.records.get(
+        this.#artFrames.targetedId,
       )?.frame;
       const interval = frame?.intervalSeconds() ?? 0;
-      const pendingChannel = this.#artFrameTargetImportChannel;
+      const pendingChannel = this.#artFrames.targetImportChannel;
       const pasteChannel =
-        pendingChannel?.frameId === this.#targetedDigitalArtFrameId
+        pendingChannel?.frameId === this.#artFrames.targetedId
           ? pendingChannel.channelId
           : (frame?.channelLabel() ?? "unavailable");
       prompt = `Paste → ${pasteChannel} · N new channel · T move · Del remove · Q/E channel · F shuffle · R ${frame?.fit() ?? "contain"} · I ${interval === 0 ? "timer off" : `${interval}s timer`}`;
@@ -10967,8 +10358,8 @@ export class ShopScene {
             ]),
       ];
     } else if (this.#shelveAnimation) interactions = [];
-    else if (this.#artFramePlacement) {
-      interactionContext = this.#artFramePlacement.channelId;
+    else if (this.#artFrames.placement) {
+      interactionContext = this.#artFrames.placement.channelId;
       interactions = [
         {key: "Click", label: "Place frame", actions: ["interact"]},
         {
@@ -10983,12 +10374,12 @@ export class ShopScene {
         },
         {
           key: "R",
-          label: `Fit: ${this.#artFramePlacement.fit}`,
+          label: `Fit: ${this.#artFrames.placement.fit}`,
           actions: ["placementToggleFit"],
         },
         {
           key: "I",
-          label: `Timing: ${this.#artFramePlacement.intervalSeconds === 0 ? "Off" : `${this.#artFramePlacement.intervalSeconds}s`}`,
+          label: `Timing: ${this.#artFrames.placement.intervalSeconds === 0 ? "Off" : `${this.#artFrames.placement.intervalSeconds}s`}`,
           actions: ["placementToggleInterval"],
         },
         {key: "N", label: "New channel", actions: ["channelEditorOpen"]},
@@ -11000,7 +10391,7 @@ export class ShopScene {
         },
         {
           key: "X",
-          label: `Grid snap: ${this.#artFramePlacement.gridSnap ? "On" : "Off"}`,
+          label: `Grid snap: ${this.#artFrames.placement.gridSnap ? "On" : "Off"}`,
           actions: ["placementToggleGridSnap"],
         },
         {key: "Wheel", label: "Resize"},
@@ -11267,9 +10658,9 @@ export class ShopScene {
         {key: "T", label: "Move poster", actions: ["pickUpCancel"]},
         {key: "Del", label: "Remove poster", actions: ["removeTargeted"]},
       ];
-    else if (this.#targetedDigitalArtFrameId) {
-      const frame = this.#digitalArtFrameRecords.get(
-        this.#targetedDigitalArtFrameId,
+    else if (this.#artFrames.targetedId) {
+      const frame = this.#artFrames.records.get(
+        this.#artFrames.targetedId,
       )?.frame;
       const interval = frame?.intervalSeconds() ?? 0;
       interactionContext = frame?.channelLabel();
@@ -11434,14 +10825,14 @@ export class ShopScene {
       ...(this.#modelPlacement ? {modelPlacementActive: true} : {}),
       physicsReady: this.#physicsWorld.isReady,
       pointerLocked: this.#pointerLocked,
-      digitalArtFrameCount: this.#digitalArtFrameRecords.size,
-      ...(this.#artFrameImportError
-        ? {digitalArtFrameImportError: this.#artFrameImportError}
+      digitalArtFrameCount: this.#artFrames.records.size,
+      ...(this.#artFrames.importError
+        ? {digitalArtFrameImportError: this.#artFrames.importError}
         : {}),
-      ...(this.#artFrameImportCount > 0
+      ...(this.#artFrames.importCount > 0
         ? {digitalArtFrameImporting: true}
         : {}),
-      ...(this.#artFramePlacement
+      ...(this.#artFrames.placement
         ? {digitalArtFramePlacementActive: true}
         : {}),
       posterCount: this.#posters.assets.length,

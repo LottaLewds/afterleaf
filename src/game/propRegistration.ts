@@ -1,6 +1,8 @@
 import type {
   AnimationClip,
   AnimationMixer,
+  Material,
+  Mesh,
   MeshStandardMaterial,
   Object3D,
   Vector3,
@@ -39,6 +41,13 @@ export type MovablePropRegistration = {
   targetObject?: Object3D;
   templateForSpawning?: boolean;
   width: number;
+};
+
+/** A temporary material swap applied while a prop is carried (ghosted). */
+export type PropMaterialSwap = {
+  material: Material | Material[];
+  mesh: Mesh;
+  renderOrder: number;
 };
 
 /** Material set shared by reading tables and chairs. */
