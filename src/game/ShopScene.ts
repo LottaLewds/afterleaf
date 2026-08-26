@@ -211,11 +211,6 @@ type ShopPerformanceDebugWindow = Window & {
 };
 
 /**
- * Dot product against the physics world's plain quaternion record, avoiding a
- * Quaternion allocation that `Quaternion.dot` would otherwise require.
- */
-
-/**
  * A deliberately bounded visual scene: one persistent renderer and at most
  * twenty interactive covers. The accessors keep catalog ownership in Solid
  * while this runtime owns only imperative Three resources.
@@ -1278,12 +1273,6 @@ export class ShopScene {
     });
   }
 
-  /**
-   * Parameter fingerprint so identical inline materials (builders create
-   * `new MeshBasicMaterial({color})` per call) share one batch even though
-   * they are separate instances.
-   */
-
   setSignContent(
     kind: ShopSignKind,
     id: string,
@@ -1349,8 +1338,6 @@ export class ShopScene {
     if (imported) this.#channelEditorTelevision = undefined;
     return imported;
   }
-
-  /** Resolves both poster and digital-frame placement against the same wall snap. */
 
   turnInspectionPage(navigation: ReaderNavigation) {
     this.#inspection.turnInspectionPage(navigation);
