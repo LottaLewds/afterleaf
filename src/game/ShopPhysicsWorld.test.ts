@@ -167,6 +167,62 @@ describe("ShopPhysicsWorld", () => {
     }
   }, 10_000);
 
+  test("tracks only books and props whose physics pose can change", async () => {
+    const physics = new ShopPhysicsWorld({gravity: {x: 0, y: 0, z: 0}});
+    try {
+      expect(
+        physics.addBook({
+          initialState: "shelved",
+          pose: identityPose(0, 1, 0),
+          publicationId: "shelf-book",
+          thickness: 0.1,
+        }),
+      ).toBe(true);
+      expect(
+        physics.addBook({
+          pose: identityPose(0, 1, 0),
+          publicationId: "loose-book",
+          thickness: 0.1,
+        }),
+      ).toBe(true);
+      expect(
+        physics.addProp({
+          depth: 0.5,
+          height: 0.5,
+          id: "static-prop",
+          pose: identityPose(0, 0.25, 0),
+          staticWhenPlaced: true,
+          width: 0.5,
+        }),
+      ).toBe(true);
+      expect(
+        physics.addProp({
+          depth: 0.5,
+          height: 0.5,
+          id: "dynamic-prop",
+          pose: identityPose(0, 0.25, 0),
+          width: 0.5,
+        }),
+      ).toBe(true);
+      expect(physics.activePhysicsIds).toEqual(new Set(["loose-book", "prop:dynamic-prop"]));
+
+      expect(await physics.initialize()).toBe(true);
+      expect(physics.activePhysicsIds).toEqual(new Set(["loose-book", "prop:dynamic-prop"]));
+
+      expect(physics.holdBook("shelf-book")).toBe(true);
+      expect(physics.activePhysicsIds).toContain("shelf-book");
+      expect(physics.shelveBook("shelf-book", identityPose(0, 1, 0))).toBe(true);
+      expect(physics.activePhysicsIds).not.toContain("shelf-book");
+
+      expect(physics.holdProp("static-prop")).toBe(true);
+      expect(physics.activePhysicsIds).toContain("prop:static-prop");
+      expect(physics.dropProp("static-prop", {pose: identityPose(0, 0.25, 0)})).toBe(true);
+      expect(physics.activePhysicsIds).not.toContain("prop:static-prop");
+    } finally {
+      physics.dispose();
+    }
+  }, 10_000);
+
   test("snaps a held body and its interpolated pose without residual motion", async () => {
     const physics = new ShopPhysicsWorld({gravity: {x: 0, y: 0, z: 0}});
     try {

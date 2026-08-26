@@ -33,7 +33,7 @@ const RELEASED_BOOK_COLLISION_GRACE_SECONDS = 0.35;
 const MIN_BOOK_THICKNESS = 0.01;
 const DEFAULT_BOOK_DENSITY = 6;
 const MIN_BODY_DIMENSION = 0.01;
-const PHYSICS_PROP_PREFIX = "prop:";
+export const PHYSICS_PROP_PREFIX = "prop:";
 const WORLD_COLLISION_GROUP = 0x0001;
 const BOOK_COLLISION_GROUP = 0x0002;
 const PLAYER_COLLISION_GROUP = 0x0004;
@@ -317,6 +317,7 @@ const capVectorLength = (vector: MutableVector3, maxLength: number) => {
  * before `initialize`; disposal is final and wins over a late async init.
  */
 export class ShopPhysicsWorld {
+  readonly #activePhysicsIds = new Set<string>();
   readonly #books = new Map<string, BookPhysicsRecord>();
   readonly #fixedStepSeconds: number;
   readonly #gravity: MutableVector3;
@@ -367,6 +368,10 @@ export class ShopPhysicsWorld {
     let count = 0;
     for (const id of this.#books.keys()) if (!id.startsWith(PHYSICS_PROP_PREFIX)) count += 1;
     return count;
+  }
+
+  get activePhysicsIds(): ReadonlySet<string> {
+    return this.#activePhysicsIds;
   }
 
   get interpolationAlpha() {
@@ -517,6 +522,15 @@ export class ShopPhysicsWorld {
         ),
       );
     if (record.mode === "shelved") body.setEnabled(false);
+    this.#syncActiveRecord(record);
+  }
+
+  #syncActiveRecord(record: BookPhysicsRecord) {
+    const active =
+      record.mode === "held" ||
+      (record.mode === "dynamic" && (record.body?.isDynamic() ?? !isFixedRecord(record)));
+    if (active) this.#activePhysicsIds.add(record.publicationId);
+    else this.#activePhysicsIds.delete(record.publicationId);
   }
 
   #createBookCollider(
@@ -682,6 +696,7 @@ export class ShopPhysicsWorld {
     const world = this.#world;
     const rapier = this.#rapier;
     if (world && rapier) this.#createBookBody(rapier, world, record);
+    else this.#syncActiveRecord(record);
     return true;
   }
 
@@ -755,7 +770,10 @@ export class ShopPhysicsWorld {
     const body = record.body;
     const rapier = this.#rapier;
     // Held props settle their body type on drop; nothing to switch yet.
-    if (!body || !rapier || record.mode === "held") return true;
+    if (!body || !rapier || record.mode === "held") {
+      this.#syncActiveRecord(record);
+      return true;
+    }
     const fixed = isFixedRecord(record);
     body.setBodyType(fixed ? rapier.RigidBodyType.Fixed : rapier.RigidBodyType.Dynamic, !fixed);
     body.enableCcd(!fixed);
@@ -773,6 +791,7 @@ export class ShopPhysicsWorld {
     } else {
       body.wakeUp();
     }
+    this.#syncActiveRecord(record);
     return true;
   }
 
@@ -904,6 +923,7 @@ export class ShopPhysicsWorld {
     const world = this.#world;
     if (world && record.body) world.removeRigidBody(record.body);
     this.#books.delete(publicationId);
+    this.#activePhysicsIds.delete(publicationId);
     return true;
   }
 
@@ -917,10 +937,14 @@ export class ShopPhysicsWorld {
     const body = record.body;
     if (!body) {
       copyPose(record.target, record.pose);
+      this.#syncActiveRecord(record);
       return true;
     }
     const rapier = this.#rapier;
-    if (!rapier) return false;
+    if (!rapier) {
+      this.#syncActiveRecord(record);
+      return false;
+    }
 
     if (isFixedRecord(record)) {
       body.setEnabled(true);
@@ -938,6 +962,7 @@ export class ShopPhysicsWorld {
       copyPose(record.previousPose, record.pose);
       copyVector(record.target.position, position);
       copyNormalizedQuaternion(record.target.rotation, rotation);
+      this.#syncActiveRecord(record);
       return true;
     }
 
@@ -957,6 +982,7 @@ export class ShopPhysicsWorld {
     copyPose(record.previousPose, record.pose);
     copyVector(record.target.position, position);
     copyNormalizedQuaternion(record.target.rotation, rotation);
+    this.#syncActiveRecord(record);
     return true;
   }
 
@@ -1016,9 +1042,15 @@ export class ShopPhysicsWorld {
     copyPose(record.previousPose, drop.pose);
 
     const body = record.body;
-    if (!body) return true;
+    if (!body) {
+      this.#syncActiveRecord(record);
+      return true;
+    }
     const rapier = this.#rapier;
-    if (!rapier) return false;
+    if (!rapier) {
+      this.#syncActiveRecord(record);
+      return false;
+    }
     // A locked prop re-pins wherever it is released (throws included);
     // placed furniture only freezes for gentle placements.
     const fixed = record.locked || (record.staticWhenPlaced && !drop.angularVelocity);
@@ -1037,6 +1069,7 @@ export class ShopPhysicsWorld {
       body.setLinvel(drop.linearVelocity ?? ZERO_VECTOR, true);
       body.setAngvel(drop.angularVelocity ?? ZERO_VECTOR, true);
     }
+    this.#syncActiveRecord(record);
     return true;
   }
 
@@ -1050,9 +1083,15 @@ export class ShopPhysicsWorld {
     copyPose(record.previousPose, pose);
 
     const body = record.body;
-    if (!body) return true;
+    if (!body) {
+      this.#syncActiveRecord(record);
+      return true;
+    }
     const rapier = this.#rapier;
-    if (!rapier) return false;
+    if (!rapier) {
+      this.#syncActiveRecord(record);
+      return false;
+    }
     body.setEnabled(true);
     this.#setBookColliderHeld(record, false);
     body.setBodyType(rapier.RigidBodyType.Dynamic, true);
@@ -1065,6 +1104,7 @@ export class ShopPhysicsWorld {
     body.setAngularDamping(DYNAMIC_ANGULAR_DAMPING);
     body.enableCcd(true);
     body.wakeUp();
+    this.#syncActiveRecord(record);
     return true;
   }
 
@@ -1075,6 +1115,7 @@ export class ShopPhysicsWorld {
     record.mode = "shelved";
     copyPose(record.pose, pose);
     copyPose(record.previousPose, pose);
+    this.#syncActiveRecord(record);
 
     const body = record.body;
     if (!body) return true;
@@ -1139,12 +1180,16 @@ export class ShopPhysicsWorld {
       this.#maxSubsteps,
     );
     for (let index = 0; index < substeps; index += 1) {
-      for (const record of this.#books.values()) copyPose(record.previousPose, record.pose);
+      for (const publicationId of this.#activePhysicsIds) {
+        const record = this.#books.get(publicationId);
+        if (record) copyPose(record.previousPose, record.pose);
+      }
       this.#applyHeldSprings();
       this.#updateReleasedBookCollisionGrace();
       world.step();
-      for (const record of this.#books.values()) {
-        const body = record.body;
+      for (const publicationId of this.#activePhysicsIds) {
+        const record = this.#books.get(publicationId);
+        const body = record?.body;
         if (!body) continue;
         copyVector(record.pose.position, body.translation());
         copyNormalizedQuaternion(record.pose.rotation, body.rotation());
@@ -1156,7 +1201,9 @@ export class ShopPhysicsWorld {
   }
 
   #updateReleasedBookCollisionGrace() {
-    for (const record of this.#books.values()) {
+    for (const publicationId of this.#activePhysicsIds) {
+      const record = this.#books.get(publicationId);
+      if (!record) continue;
       if (!record.releasedCollisionless || record.mode !== "dynamic") continue;
       record.releasedCollisionlessSeconds -= this.#fixedStepSeconds;
       if (record.releasedCollisionlessSeconds > 0) continue;
@@ -1168,7 +1215,9 @@ export class ShopPhysicsWorld {
 
   #applyHeldSprings() {
     const deltaSeconds = this.#fixedStepSeconds;
-    for (const record of this.#books.values()) {
+    for (const publicationId of this.#activePhysicsIds) {
+      const record = this.#books.get(publicationId);
+      if (!record) continue;
       const body = record.body;
       if (record.mode !== "held" || isFixedRecord(record) || !body) continue;
 
@@ -1224,7 +1273,9 @@ export class ShopPhysicsWorld {
   }
 
   #syncDynamicBookCcd() {
-    for (const record of this.#books.values()) {
+    for (const publicationId of this.#activePhysicsIds) {
+      const record = this.#books.get(publicationId);
+      if (!record) continue;
       const body = record.body;
       if (!body || record.mode !== "dynamic") continue;
       if (isFixedRecord(record)) {
@@ -1233,11 +1284,13 @@ export class ShopPhysicsWorld {
           if (!rapier) continue;
           body.setBodyType(rapier.RigidBodyType.Fixed, false);
           body.enableCcd(false);
+          this.#syncActiveRecord(record);
         }
         if (!body.isDynamic()) continue;
       }
       const shouldEnableCcd = !body.isSleeping();
       if (body.isCcdEnabled() !== shouldEnableCcd) body.enableCcd(shouldEnableCcd);
+      this.#syncActiveRecord(record);
     }
   }
 
@@ -1251,6 +1304,7 @@ export class ShopPhysicsWorld {
     this.#playerController = undefined;
     this.#rapier = undefined;
     this.#accumulatorSeconds = 0;
+    this.#activePhysicsIds.clear();
     for (const record of this.#books.values()) {
       record.body = undefined;
       record.colliders.length = 0;
