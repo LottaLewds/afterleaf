@@ -33,7 +33,7 @@ const RELEASED_BOOK_COLLISION_GRACE_SECONDS = 0.35;
 const MIN_BOOK_THICKNESS = 0.01;
 const DEFAULT_BOOK_DENSITY = 6;
 const MIN_BODY_DIMENSION = 0.01;
-export const PHYSICS_PROP_PREFIX = "prop:";
+const PHYSICS_PROP_PREFIX = "prop:";
 const WORLD_COLLISION_GROUP = 0x0001;
 const BOOK_COLLISION_GROUP = 0x0002;
 const PLAYER_COLLISION_GROUP = 0x0004;
@@ -183,6 +183,7 @@ type BookPhysicsRecord = {
   linearScratch: MutableVector3;
   mode: BookPhysicsState;
   previousPose: MutablePose;
+  propId: string | undefined;
   pose: MutablePose;
   publicationId: string;
   target: MutablePose;
@@ -318,6 +319,8 @@ const capVectorLength = (vector: MutableVector3, maxLength: number) => {
  */
 export class ShopPhysicsWorld {
   readonly #activePhysicsIds = new Set<string>();
+  readonly #activeBookPublicationIds = new Set<string>();
+  readonly #activePropIds = new Set<string>();
   readonly #books = new Map<string, BookPhysicsRecord>();
   readonly #fixedStepSeconds: number;
   readonly #gravity: MutableVector3;
@@ -370,8 +373,12 @@ export class ShopPhysicsWorld {
     return count;
   }
 
-  get activePhysicsIds(): ReadonlySet<string> {
-    return this.#activePhysicsIds;
+  get activeBookPublicationIds(): ReadonlySet<string> {
+    return this.#activeBookPublicationIds;
+  }
+
+  get activePropIds(): ReadonlySet<string> {
+    return this.#activePropIds;
   }
 
   get interpolationAlpha() {
@@ -527,10 +534,16 @@ export class ShopPhysicsWorld {
 
   #syncActiveRecord(record: BookPhysicsRecord) {
     const active =
-      record.mode === "held" ||
-      (record.mode === "dynamic" && (record.body?.isDynamic() ?? !isFixedRecord(record)));
-    if (active) this.#activePhysicsIds.add(record.publicationId);
-    else this.#activePhysicsIds.delete(record.publicationId);
+      record.mode === "held" || (record.mode === "dynamic" && (record.body?.isDynamic() ?? !isFixedRecord(record)));
+    const activeIds = record.propId ? this.#activePropIds : this.#activeBookPublicationIds;
+    const activeId = record.propId ?? record.publicationId;
+    if (active) {
+      this.#activePhysicsIds.add(record.publicationId);
+      activeIds.add(activeId);
+    } else {
+      this.#activePhysicsIds.delete(record.publicationId);
+      activeIds.delete(activeId);
+    }
   }
 
   #createBookCollider(
@@ -667,6 +680,7 @@ export class ShopPhysicsWorld {
     definition: BookPhysicsDefinition,
     staticWhenPlaced: boolean,
     colliderParts?: readonly PhysicsPropColliderDefinition[],
+    propId?: string,
   ) {
     if (this.#disposed || this.#isValidBookDefinition(definition)) return false;
 
@@ -687,6 +701,7 @@ export class ShopPhysicsWorld {
       mode: definition.initialState ?? "dynamic",
       pose,
       previousPose: createMutablePose(pose),
+      propId,
       publicationId: definition.publicationId,
       target: createMutablePose(pose),
       thickness: definition.thickness,
@@ -729,6 +744,7 @@ export class ShopPhysicsWorld {
       },
       definition.staticWhenPlaced ?? false,
       definition.colliderParts,
+      definition.id,
     );
   }
 
@@ -924,6 +940,7 @@ export class ShopPhysicsWorld {
     if (world && record.body) world.removeRigidBody(record.body);
     this.#books.delete(publicationId);
     this.#activePhysicsIds.delete(publicationId);
+    (record.propId ? this.#activePropIds : this.#activeBookPublicationIds).delete(record.propId ?? publicationId);
     return true;
   }
 
@@ -1305,6 +1322,8 @@ export class ShopPhysicsWorld {
     this.#rapier = undefined;
     this.#accumulatorSeconds = 0;
     this.#activePhysicsIds.clear();
+    this.#activeBookPublicationIds.clear();
+    this.#activePropIds.clear();
     for (const record of this.#books.values()) {
       record.body = undefined;
       record.colliders.length = 0;

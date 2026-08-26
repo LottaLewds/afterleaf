@@ -58,6 +58,8 @@ export type ShopBookPresentationHost = {
 
 /** Owns the visual and physics presentation of books after their lifecycle state is set. */
 export class ShopBookPresentation {
+  readonly #activeVisualPublicationIds = new Set<string>();
+  readonly #animatedPublicationIds = new Set<string>();
   readonly #host: ShopBookPresentationHost;
   readonly #heldBookFanAxis = new Vector3(0, 0, 1);
   readonly #heldBookFanRotation = new Quaternion();
@@ -67,6 +69,41 @@ export class ShopBookPresentation {
 
   constructor(host: ShopBookPresentationHost) {
     this.#host = host;
+  }
+
+  #queueActiveVisualPublications() {
+    const host = this.#host;
+    const inspectionPublicationId = host.inspection().inspectionPublicationId;
+    if (inspectionPublicationId) this.#activeVisualPublicationIds.add(inspectionPublicationId);
+    const shelvePublicationId = host.bookActions().shelveAnimation?.publicationId;
+    if (shelvePublicationId) this.#activeVisualPublicationIds.add(shelvePublicationId);
+    const hoveredPublicationId = host.hoveredPublicationId();
+    if (hoveredPublicationId && host.booksById().get(hoveredPublicationId)?.state.status === "shelved")
+      this.#activeVisualPublicationIds.add(hoveredPublicationId);
+  }
+
+  #isVisualPublicationActive(publicationId: string, record: BookRecord) {
+    const host = this.#host;
+    if (record.inspectionLightingBlend > 0) return true;
+    if (publicationId === host.inspection().inspectionPublicationId && host.inspection().inspectionMode !== "none")
+      return true;
+    if (publicationId === host.bookActions().shelveAnimation?.publicationId) return true;
+    if (record.state.status !== "shelved") return false;
+    return (
+      record.shelfPreview > 0 || (publicationId === host.hoveredPublicationId() && host.input().isActionDown("throw"))
+    );
+  }
+
+  #animateVisualPublication(publicationId: string, deltaSeconds: number) {
+    const record = this.#host.booksById().get(publicationId);
+    if (!record) {
+      this.#activeVisualPublicationIds.delete(publicationId);
+      return false;
+    }
+    const interactionStateChanged = this.#animateBook(publicationId, record, deltaSeconds);
+    this.#animatedPublicationIds.add(publicationId);
+    if (!this.#isVisualPublicationActive(publicationId, record)) this.#activeVisualPublicationIds.delete(publicationId);
+    return interactionStateChanged;
   }
 
   #animatePhysicsBook(publicationId: string, record: BookRecord, deltaSeconds: number): boolean {
@@ -167,9 +204,18 @@ export class ShopBookPresentation {
 
   animate(deltaSeconds: number) {
     const host = this.#host;
+    this.#queueActiveVisualPublications();
+    this.#animatedPublicationIds.clear();
     let interactionStateChanged = false;
-    for (const [publicationId, record] of host.booksById())
+    for (const publicationId of this.#activeVisualPublicationIds)
+      interactionStateChanged = this.#animateVisualPublication(publicationId, deltaSeconds) || interactionStateChanged;
+    for (const publicationId of host.physicsWorld().activeBookPublicationIds) {
+      if (this.#animatedPublicationIds.has(publicationId)) continue;
+      const record = host.booksById().get(publicationId);
+      if (!record) continue;
       interactionStateChanged = this.#animateBook(publicationId, record, deltaSeconds) || interactionStateChanged;
+    }
+    this.#animatedPublicationIds.clear();
     if (!interactionStateChanged) return;
     host.setInteractiveMeshes();
     host.markWorldStateDirty();

@@ -204,20 +204,22 @@ describe("ShopPhysicsWorld", () => {
           width: 0.5,
         }),
       ).toBe(true);
-      expect(physics.activePhysicsIds).toEqual(new Set(["loose-book", "prop:dynamic-prop"]));
+      expect(physics.activeBookPublicationIds).toEqual(new Set(["loose-book"]));
+      expect(physics.activePropIds).toEqual(new Set(["dynamic-prop"]));
 
       expect(await physics.initialize()).toBe(true);
-      expect(physics.activePhysicsIds).toEqual(new Set(["loose-book", "prop:dynamic-prop"]));
+      expect(physics.activeBookPublicationIds).toEqual(new Set(["loose-book"]));
+      expect(physics.activePropIds).toEqual(new Set(["dynamic-prop"]));
 
       expect(physics.holdBook("shelf-book")).toBe(true);
-      expect(physics.activePhysicsIds).toContain("shelf-book");
+      expect(physics.activeBookPublicationIds).toContain("shelf-book");
       expect(physics.shelveBook("shelf-book", identityPose(0, 1, 0))).toBe(true);
-      expect(physics.activePhysicsIds).not.toContain("shelf-book");
+      expect(physics.activeBookPublicationIds).not.toContain("shelf-book");
 
       expect(physics.holdProp("static-prop")).toBe(true);
-      expect(physics.activePhysicsIds).toContain("prop:static-prop");
+      expect(physics.activePropIds).toContain("static-prop");
       expect(physics.dropProp("static-prop", {pose: identityPose(0, 0.25, 0)})).toBe(true);
-      expect(physics.activePhysicsIds).not.toContain("prop:static-prop");
+      expect(physics.activePropIds).not.toContain("static-prop");
     } finally {
       physics.dispose();
     }

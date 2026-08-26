@@ -1438,7 +1438,9 @@ export class ShopScene {
   }
 
   #syncMovablePropPhysics() {
-    for (const record of this.#props.records.values()) {
+    for (const propId of this.#physicsWorld.activePropIds) {
+      const record = this.#props.records.get(propId);
+      if (!record) continue;
       if (!this.#physicsWorld.sampleInterpolatedPropTransform(record.id, this.#physicsTransform)) continue;
       if (record.object.parent !== this.#scene) this.#scene.attach(record.object);
       const positionChanged = record.currentPosition.distanceToSquared(this.#physicsTransform.position) > 1e-8;
