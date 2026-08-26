@@ -120,6 +120,10 @@ import {ArtFrameTextureCache} from "~/game/artFrameTextureCache";
 import type {DigitalArtFramePasteTarget} from "~/game/artFrameSystem";
 import {ArtFrameSystem} from "~/game/artFrameSystem";
 import {BookTextureRuntime} from "~/game/bookTextureRuntime";
+import {
+  GameStateEmitter,
+  type GameSnapshotInput,
+} from "~/game/gameStateEmitter";
 import {createWorldSave} from "~/game/worldSaveSnapshot";
 import {TvVideoImporter} from "~/game/tvVideoImporter";
 import {PosterSystem} from "~/game/posters/PosterSystem";
@@ -192,7 +196,7 @@ import trashCanModelUrl from "~/assets/models/trash_can.glb?url";
 import type {CatalogAtlases, CatalogIdentity, CatalogItem} from "~/catalog";
 import {bookDropPosition} from "~/game/bookDropPlacement";
 import {physicalBookWidth} from "~/game/bookDimensions";
-import {INTERACTION_ROW_MODES, type UiMode} from "~/game/uiMode";
+import {type UiMode} from "~/game/uiMode";
 import {
   ARCADE_CABINET_HEIGHT,
   ShopArcadeCabinet,
@@ -233,11 +237,7 @@ import {
   type PlanarPoint,
   type ShopCollisionWorld,
 } from "~/game/shopGameplay";
-import {
-  formatInteractionKey,
-  keyboardLayoutEntry,
-  readKeyboardLayout,
-} from "~/game/keyboardLayout";
+import {keyboardLayoutEntry, readKeyboardLayout} from "~/game/keyboardLayout";
 import {
   loadShortcuts,
   type ShortcutAction,
@@ -249,12 +249,7 @@ import {
   padForwardEvent,
   type ArcadePadMappingOverrides,
 } from "~/arcade/controllerMappings";
-import {
-  buildInteractionPrompts,
-  formatInteractionRowKey,
-  type InteractionPromptToken,
-} from "~/game/input/hints";
-import {formatKeyboardCode} from "~/game/input/bindings";
+import {type InteractionPromptToken} from "~/game/input/hints";
 import {
   SHOP_ATRIUM,
   SHOP_EXPANSION_WALL_BOXES,
@@ -274,7 +269,7 @@ import {
   findAdjacentShelfBook,
   insertSpineShelfBook,
   spineShelfBookNormalOffset,
-  type ShelfPresentation,
+  ShelfPresentation,
   type SpineShelfPlacement,
 } from "~/game/shelfPlacement";
 import {
@@ -498,7 +493,7 @@ type SpineShelfDefinition = {
   signKey?: string;
 };
 
-type ShelfTargetSelection = {
+export type ShelfTargetSelection = {
   offset: number;
   placements?: readonly SpineShelfPlacement[];
   presentation: ShelfPresentation;
@@ -506,7 +501,7 @@ type ShelfTargetSelection = {
   slotIndex: number;
 };
 
-type MovablePropRecord = {
+export type MovablePropRecord = {
   currentPosition: Vector3;
   currentRotation: Quaternion;
   /** Pinned in place: fixed body, immune to bumps, still collides. */
@@ -550,7 +545,7 @@ type ModelTemplate = {
   size: Vector3;
 };
 
-type ModelPlacementSession = {
+export type ModelPlacementSession = {
   assetIndex: number;
   id: string;
   revision: number;
@@ -563,7 +558,7 @@ type DiscardAnimation = {
   startRotation: Quaternion;
 };
 
-type ShelveAnimation = {
+export type ShelveAnimation = {
   elapsedSeconds: number;
   placements: readonly SpineShelfPlacement[] | undefined;
   publicationId: string;
@@ -574,9 +569,9 @@ type ShelveAnimation = {
   targetRotation: Quaternion;
 };
 
-type InspectionCloseAction = "drop" | "return" | "throw";
+export type InspectionCloseAction = "drop" | "return" | "throw";
 
-type InspectionMode = "closing" | "none" | "spread";
+export type InspectionMode = "closing" | "none" | "spread";
 
 type InspectionShelfReturnPhase = "close" | "rotate" | "translate";
 
@@ -785,6 +780,8 @@ export class ShopScene {
   readonly #tvVideos: TvVideoImporter;
   readonly #artFrameTextures: ArtFrameTextureCache;
   readonly #bookTextures: BookTextureRuntime;
+  readonly #gameStateEmitter = new GameStateEmitter();
+  readonly #snapshotInput: GameSnapshotInput;
   readonly #input: InputManager;
   readonly #getShortcuts: () => ShortcutsConfig;
   readonly #getPadMappingOverrides: () => ArcadePadMappingOverrides;
@@ -971,7 +968,6 @@ export class ShopScene {
   #ignoreNextLockedPointerMove = false;
   #anomalousPointerMovementCount = 0;
   #lastFrameTime = 0;
-  #lastGameStateSignature = "";
   #lastItems: readonly CatalogItem[] | undefined;
   #lastNewPublicationIds: readonly string[] | undefined;
   #pendingDiscardPublicationId: string | undefined;
@@ -1192,6 +1188,55 @@ export class ShopScene {
       scene: this.#scene,
       textureLoader: this.#textureLoader,
     });
+    this.#snapshotInput = {
+      activeArcadeCabinet: () => this.#activeArcadeCabinet,
+      arcadeProps: () => this.#arcadeProps,
+      arcadeStatusForUi: () => this.#arcadeStatusForUi(),
+      arcadeSystemIdForUi: () => this.#arcadeSystemIdForUi(),
+      artFrames: () => this.#artFrames,
+      booksById: () => this.#booksById,
+      carriedProp: () => this.#carriedProp,
+      carriedPublicationId: () => this.#carriedPublicationId,
+      carriedPublicationIds: () => this.#carriedPublicationIds,
+      discardBusy: () => this.#discardBusy,
+      discardError: () => this.#discardError,
+      discardedPublicationIds: () => this.#discardedPublicationIds,
+      getShortcuts: () => this.#getShortcuts(),
+      hoveredPublicationId: () => this.#hoveredPublicationId,
+      input: () => this.#input,
+      inspectionCloseAction: () => this.#inspectionCloseAction,
+      inspectionMode: () => this.#inspectionMode,
+      inspectionOpenAngleTarget: () => this.#inspectionOpenAngleTarget,
+      inspectionPageIndex: () => this.#inspectionPageIndex,
+      inspectionPageLoadCount: () => this.#inspectionPageLoadCount,
+      inspectionPublication: () => this.#inspectionPublication(),
+      keyboardLayout: () => this.#keyboardLayout,
+      mode: () => this.#mode,
+      modelAnimationLabel: (record) => this.#modelAnimationLabel(record) ?? "",
+      modelImportError: () => this.#modelImportError,
+      modelPlacement: () => this.#modelPlacement,
+      onGameStateChange: () => this.#onGameStateChange,
+      physicsWorld: () => this.#physicsWorld,
+      pointerLocked: () => this.#pointerLocked,
+      posters: () => this.#posters,
+      propPlacementDistance: () => this.#propPlacementDistance,
+      propPlacementSnapping: () => this.#propPlacementSnapping,
+      shelfPresentation: () => this.#shelfPresentation,
+      shelfTargetSelection: () => this.#shelfTargetSelection,
+      shelfTargeted: () => this.#shelfTargeted,
+      shelveAnimation: () => this.#shelveAnimation,
+      signs: () => this.#signs,
+      spawnablePropAssets: () => this.#spawnablePropAssets,
+      targetedArcadeCabinet: () => this.#targetedArcadeCabinet,
+      targetedProp: () => this.#targetedProp,
+      targetedTelevision: () => this.#targetedTelevision,
+      televisionProps: () => this.#televisionProps,
+      televisionTargeted: () => this.#televisionTargeted,
+      throwChargeActive: () => this.#throwChargeActive,
+      throwChargeProgress: () => this.#throwChargeProgress(),
+      trashTargeted: () => this.#trashTargeted,
+      tvVideos: () => this.#tvVideos,
+    };
     this.#posters = new PosterSystem({
       abortSignal: this.#abortController.signal,
       camera: this.#camera,
@@ -4394,6 +4439,10 @@ export class ShopScene {
         spineShelfDefinitions: this.#spineShelfDefinitions,
       },
     );
+  }
+
+  #emitGameState() {
+    this.#gameStateEmitter.emit(this.#snapshotInput);
   }
 
   #bindInput() {
@@ -8965,714 +9014,6 @@ export class ShopScene {
       BOOK_HEIGHT,
       1,
     );
-  }
-
-  #emitGameState() {
-    if (!this.#onGameStateChange) return;
-    let taskBookCount = 0;
-    let shelvedCount = 0;
-    for (const [publicationId, record] of this.#booksById) {
-      if (this.#discardedPublicationIds.has(publicationId)) continue;
-      if (!record.taskBook) continue;
-      taskBookCount += 1;
-      if (record.state.status === "shelved") shelvedCount += 1;
-    }
-    const looseCount = taskBookCount - shelvedCount;
-    const carriedRecord = this.#carriedPublicationId
-      ? this.#booksById.get(this.#carriedPublicationId)
-      : undefined;
-    const inspectionPublication = this.#inspectionPublication();
-    const inspectionWidePages = inspectionPublication
-      ? getWideReaderPageIndices(inspectionPublication.pages)
-      : undefined;
-    const hoveredRecord = this.#hoveredPublicationId
-      ? this.#booksById.get(this.#hoveredPublicationId)
-      : undefined;
-    let prompt: string | undefined;
-    let interactionContext: string | undefined;
-    let interactions: ShopInteraction[] = [];
-    if (this.#inspectionMode === "spread") {
-      const shelfInspection =
-        inspectionPublication?.id !== this.#carriedPublicationId;
-      const openInspectionKey =
-        inspectionPublication?.direction === "RTL" ? "A" : "D";
-      if (this.#inspectionOpenAngleTarget > 0)
-        prompt = shelfInspection
-          ? `Click the cover or press ${openInspectionKey} to open · R return to shelf`
-          : `Click the cover or press ${openInspectionKey} to open · F throw · G drop · R return`;
-      else
-        prompt = shelfInspection
-          ? "Click or drag a page · A/D turn pages · Wheel zooms · R return to shelf"
-          : "Click or drag a page · A/D turn pages · Wheel zooms · F throw · G drop · R return";
-    } else if (this.#inspectionMode === "closing")
-      prompt =
-        this.#inspectionCloseAction === "drop"
-          ? "Closing book before dropping…"
-          : this.#inspectionCloseAction === "throw"
-            ? "Closing book before throwing…"
-            : "Closing book…";
-    else if (this.#shelveAnimation) prompt = "Shelving book…";
-    else if (this.#artFrames.placement) {
-      const asset =
-        this.#artFrames.assets[this.#artFrames.placement.assetIndex];
-      const size = this.#artFrames.placementSelection?.height;
-      const rotation = Math.round(
-        MathUtils.radToDeg(this.#artFrames.placement.rotation),
-      );
-      const interval = this.#artFrames.placement.intervalSeconds;
-      if (!asset)
-        prompt = `Paste the first digital art image · N channel (${this.#artFrames.placement.channelId}) · T exit`;
-      else
-        prompt = this.#artFrames.placementSelection
-          ? `Click to place ${asset.label} · Q/E channel · F/G image · Wheel resize${size ? ` (${size.toFixed(2)} m)` : ""} · Shift+wheel rotate (${rotation}°) · R ${this.#artFrames.placement.fit} · I ${interval === 0 ? "timer off" : `${interval}s timer`} · N channel (${this.#artFrames.placement.channelId}) · Paste image · T exit`
-          : `Aim ${asset.label} at a wall or shelf end · Q/E channel · F/G image · Wheel resize · R ${this.#artFrames.placement.fit} · I ${interval === 0 ? "timer off" : `${interval}s timer`} · N channel (${this.#artFrames.placement.channelId}) · Paste image · T exit`;
-    } else if (this.#posters.placement) {
-      const asset = this.#posters.assets[this.#posters.placement.assetIndex];
-      const size = this.#posters.placementSelection?.height;
-      const rotation = Math.round(
-        MathUtils.radToDeg(this.#posters.placement.rotation),
-      );
-      if (!asset) prompt = "Paste an image to add the first poster · T exit";
-      else
-        prompt = this.#posters.placementSelection
-          ? `Click to place ${asset.label} · Q/E previous/next · Wheel resize${size ? ` (${size.toFixed(2)} m)` : ""} · Shift+wheel rotate (${rotation}°) · Paste image · T exit`
-          : `Aim ${asset.label} at a wall or shelf end · Q/E previous/next · Wheel resize · Shift+wheel rotate · Paste image · T exit`;
-    } else if (this.#modelPlacement && !this.#carriedProp) {
-      const asset = this.#spawnablePropAssets[this.#modelPlacement.assetIndex];
-      prompt = `Loading ${asset?.label ?? "prop"}… · Q/E previous/next · T cancel`;
-    } else if (this.#carriedProp) {
-      const modelScale = this.#carriedProp.modelScale;
-      prompt = `Click/E place ${this.#carriedProp.label} · T cancel · G drop · F throw · Wheel project (${this.#propPlacementDistance.toFixed(1)} m) · Ctrl+wheel rotate${modelScale === undefined ? "" : ` · Shift+wheel scale (${modelScale.toFixed(2)}×)`}${this.#modelPlacement ? " · Q/E previous/next" : ` · Q grid snap ${this.#propPlacementSnapping ? "on" : "off"}`}`;
-    } else if (
-      carriedRecord &&
-      hoveredRecord &&
-      !this.#discardBusy &&
-      !this.#throwChargeActive
-    )
-      prompt = `E pick up ${hoveredRecord.publicationTitle} · ${this.#carriedPublicationIds.length}/${MAX_CARRIED_BOOKS} carried${this.#carriedPublicationIds.length > 1 ? " · Wheel cycle books" : ""}`;
-    else if (carriedRecord && this.#throwChargeActive)
-      prompt = `Throw charged ${Math.round(this.#throwChargeProgress() * 100)}% · Release F to launch upstairs`;
-    else if (carriedRecord && this.#discardBusy)
-      prompt = `Discarding ${carriedRecord.publicationTitle}…`;
-    else if (carriedRecord && this.#trashTargeted && this.#discardError)
-      prompt = `Discard failed · E retry · Hold F charge throw · G keep ${carriedRecord.publicationTitle}`;
-    else if (carriedRecord && this.#trashTargeted)
-      prompt = `E discard ${carriedRecord.publicationTitle} · Hold F charge throw · G keep`;
-    else if (carriedRecord && this.#shelfTargeted)
-      prompt = `E shelve ${this.#shelfTargetSelection?.presentation ?? this.#shelfPresentation}-out · Q switch shelf presentation · Hold F charge throw · G drop · R inspect${this.#carriedPublicationIds.length > 1 ? " · Wheel cycle books" : ""}`;
-    else if (carriedRecord)
-      prompt = `Q ${this.#shelfPresentation}-out · Aim at a shelf · Hold F charge throw · G drop · R inspect${this.#carriedPublicationIds.length > 1 ? " · Wheel cycle books" : ""}`;
-    else if (
-      this.#targetedArcadeCabinet &&
-      this.#targetedArcadeCabinet.sessionStatus === "playing"
-    ) {
-      const cabinetProp = this.#arcadeProps.get(this.#targetedArcadeCabinet);
-      const romLabel =
-        this.#targetedArcadeCabinet.sessionRomName?.replace(/\.[^.]+$/u, "") ??
-        "the game";
-      prompt = `E resume ${romLabel} · T move cabinet${cabinetProp?.locked ? " · L unlock" : " · L lock"}`;
-    } else if (
-      this.#targetedArcadeCabinet &&
-      this.#targetedArcadeCabinet.sessionStatus === undefined
-    ) {
-      const cabinetProp = this.#arcadeProps.get(this.#targetedArcadeCabinet);
-      prompt = `E play the arcade · T move cabinet${cabinetProp?.locked ? " · L unlock" : " · L lock"}`;
-    } else if (this.#televisionTargeted) {
-      const televisionPrompt = this.#targetedTelevision?.prompt;
-      const televisionProp = this.#targetedTelevision
-        ? this.#televisionProps.get(this.#targetedTelevision)
-        : undefined;
-      const pastePrompt = this.#targetedTelevision
-        ? "Paste video URL · N new channel"
-        : undefined;
-      const removePrompt = televisionProp?.spawned ? "Del remove" : undefined;
-      const lockPrompt = televisionProp
-        ? televisionProp.locked
-          ? "L unlock"
-          : "L lock"
-        : undefined;
-      prompt = [televisionPrompt, pastePrompt, lockPrompt, removePrompt]
-        .filter(Boolean)
-        .join(" · ");
-    } else if (this.#targetedProp) {
-      const animationLabel = this.#modelAnimationLabel(this.#targetedProp);
-      prompt = `T project ${this.#targetedProp.label} for placement${animationLabel ? ` · Q/E animation (${animationLabel})` : ""}${this.#targetedProp.locked ? " · L unlock" : " · L lock"}${this.#targetedProp.spawned ? " · Del remove" : ""}`;
-    } else if (this.#signs.targetedKey !== undefined)
-      prompt = `E customize ${this.#signs.slots.get(this.#signs.targetedKey)?.label ?? "shop sign"}`;
-    else if (this.#artFrames.targetedId) {
-      const frame = this.#artFrames.records.get(
-        this.#artFrames.targetedId,
-      )?.frame;
-      const interval = frame?.intervalSeconds() ?? 0;
-      const pendingChannel = this.#artFrames.targetImportChannel;
-      const pasteChannel =
-        pendingChannel?.frameId === this.#artFrames.targetedId
-          ? pendingChannel.channelId
-          : (frame?.channelLabel() ?? "unavailable");
-      prompt = `Paste → ${pasteChannel} · N new channel · T move · Del remove · Q/E channel · F shuffle · R ${frame?.fit() ?? "contain"} · I ${interval === 0 ? "timer off" : `${interval}s timer`}`;
-    } else if (this.#posters.targetedId) {
-      const poster = this.#posters.records.get(this.#posters.targetedId);
-      prompt = `T move ${poster?.asset.label ?? "poster"} · Del remove`;
-    } else if (hoveredRecord)
-      prompt =
-        hoveredRecord.state.status === "shelved"
-          ? `Hold F + wheel browse · E pick up ${hoveredRecord.publicationTitle} · R read in place`
-          : `E pick up ${hoveredRecord.publicationTitle} · then R inspect`;
-
-    if (this.#inspectionMode === "spread") {
-      const shelfInspection =
-        inspectionPublication?.id !== this.#carriedPublicationId;
-      interactions = [
-        {
-          key: "A / D",
-          label: "Turn page",
-          actions: ["inspectionTurnLeft", "inspectionTurnRight"] as const,
-        },
-        {key: "Wheel", label: "Zoom"},
-        ...(shelfInspection
-          ? [
-              {
-                key: "R",
-                label: "Return to shelf",
-                actions: ["inspectionReturn"] as const,
-              },
-            ]
-          : [
-              {
-                key: "F",
-                label: "Throw book",
-                actions: ["inspectionThrow"] as const,
-              },
-              {
-                key: "G",
-                label: "Drop book",
-                actions: ["inspectionDrop"] as const,
-              },
-              {
-                key: "R",
-                label: "Return to hand",
-                actions: ["inspectionReturn"] as const,
-              },
-            ]),
-      ];
-    } else if (this.#shelveAnimation) interactions = [];
-    else if (this.#artFrames.placement) {
-      interactionContext = this.#artFrames.placement.channelId;
-      interactions = [
-        {key: "Click", label: "Place frame", actions: ["interact"]},
-        {
-          key: "Q / E",
-          label: "Previous / next channel",
-          actions: ["placementCycleChannelLeft", "placementCycleChannelRight"],
-        },
-        {
-          key: "F / G",
-          label: "Previous / next image",
-          actions: ["placementCycleImageLeft", "placementCycleImageRight"],
-        },
-        {
-          key: "R",
-          label: `Fit: ${this.#artFrames.placement.fit}`,
-          actions: ["placementToggleFit"],
-        },
-        {
-          key: "I",
-          label: `Timing: ${this.#artFrames.placement.intervalSeconds === 0 ? "Off" : `${this.#artFrames.placement.intervalSeconds}s`}`,
-          actions: ["placementToggleInterval"],
-        },
-        {key: "N", label: "New channel", actions: ["channelEditorOpen"]},
-        {key: "T", label: "Cancel placement", actions: ["pickUpCancel"]},
-        {
-          key: "V",
-          label: "Cancel placement",
-          actions: ["toggleArtFramePlacement"],
-        },
-        {
-          key: "X",
-          label: `Grid snap: ${this.#artFrames.placement.gridSnap ? "On" : "Off"}`,
-          actions: ["placementToggleGridSnap"],
-        },
-        {key: "Wheel", label: "Resize"},
-        {key: "Shift + Wheel", label: "Rotate"},
-      ];
-    } else if (this.#posters.placement)
-      interactions = [
-        {key: "Click", label: "Place poster", actions: ["interact"]},
-        {
-          key: "Q / E",
-          label: "Change image",
-          actions: ["placementCycleLeft", "placementCycleRight"],
-        },
-        {key: "T", label: "Cancel placement", actions: ["pickUpCancel"]},
-        {
-          key: "X",
-          label: `Grid snap: ${this.#posters.placement.gridSnap ? "On" : "Off"}`,
-          actions: ["placementToggleGridSnap"],
-        },
-        {key: "Wheel", label: "Resize"},
-        {key: "Shift + Wheel", label: "Rotate"},
-      ];
-    else if (this.#modelPlacement && !this.#carriedProp) {
-      interactionContext =
-        this.#spawnablePropAssets[this.#modelPlacement.assetIndex]?.label;
-      interactions = [
-        {
-          key: "Q / E",
-          label: "Previous / next prop",
-          actions: ["placementCycleLeft", "placementCycleRight"],
-        },
-        {key: "T", label: "Cancel placement", actions: ["pickUpCancel"]},
-      ];
-    } else if (this.#carriedProp) {
-      interactionContext = this.#carriedProp.spawned
-        ? this.#carriedProp.label
-        : undefined;
-      interactions = [
-        {
-          key: "Click / E",
-          label: "Place prop",
-          actions: ["interact", "interact"] as const,
-        },
-        {key: "G", label: "Drop prop", actions: ["drop"] as const},
-        {
-          key: "T",
-          label: "Cancel placement",
-          actions: ["pickUpCancel"] as const,
-        },
-        {key: "F", label: "Throw prop", actions: ["throw"] as const},
-        ...(this.#modelPlacement
-          ? [
-              {
-                key: "Q / E",
-                label: "Previous / next prop",
-                actions: [
-                  "propCycleAnimationLeft",
-                  "propCycleAnimationRight",
-                ] as const,
-              },
-            ]
-          : [
-              {
-                key: "Q",
-                label: `Grid snap: ${this.#propPlacementSnapping ? "On" : "Off"}`,
-                actions: ["propToggleSnap"] as const,
-              },
-            ]),
-        {key: "Wheel", label: "Adjust distance"},
-        {key: "Ctrl + Wheel", label: "Rotate prop"},
-        ...(this.#carriedProp.modelBaseSize
-          ? [{key: "Shift + Wheel", label: "Scale prop"}]
-          : []),
-      ];
-    } else if (carriedRecord) {
-      interactions = [
-        ...(hoveredRecord
-          ? [{key: "E", label: "Pick up book", actions: ["interact"] as const}]
-          : []),
-        {key: "F", label: "Throw book", actions: ["throw"] as const},
-        {key: "G", label: "Drop book", actions: ["drop"] as const},
-        {
-          key: "R",
-          label: "Inspect book",
-          actions: ["inspectionReturn"] as const,
-        },
-        {
-          key: "Q",
-          label: "Switch shelf presentation",
-          actions: ["toggleShelfPresentation"],
-        },
-      ];
-      if (this.#carriedPublicationIds.length > 1)
-        interactions.push({key: "Wheel", label: "Cycle carried books"});
-      if (this.#shelfTargeted)
-        interactions.push({key: "Hold F + Wheel", label: "Browse shelf"});
-      if (this.#shelfTargeted)
-        interactions.unshift({
-          key: "E",
-          label: "Shelve book",
-          actions: ["interact"],
-        });
-      if (this.#trashTargeted)
-        interactions.unshift({
-          key: "E",
-          label: "Discard book",
-          actions: ["interact"],
-        });
-    } else if (this.#arcadeStatusForUi() === "playing") {
-      // The emulator owns the keyboard; surface its control layout in the
-      // standard interactions panel. Checked before targeting rows so an
-      // attached session always swaps to these hints immediately — even
-      // while the reticle still rests on its own cabinet — making a
-      // reattach visibly take hold.
-      const system = findArcadeSystem(
-        this.#activeArcadeCabinet?.sessionSystemId ?? "",
-      );
-      interactionContext = this.#activeArcadeCabinet?.sessionRomName;
-      interactions = [
-        ...(system?.controlHints.map((hint) => ({
-          key: hint.keys,
-          label: hint.action,
-        })) ?? []),
-        {
-          key: "Ctrl + Wheel",
-          label: `Volume: ${this.#activeArcadeCabinet?.arcadeVolumePercent ?? 100}%`,
-        },
-        {key: "P", label: "Pick game"},
-        {key: "R", label: "Step away"},
-      ];
-    } else if (this.#targetedArcadeCabinet) {
-      const cabinet = this.#targetedArcadeCabinet;
-      const cabinetProp = this.#arcadeProps.get(cabinet);
-      const propRows: ShopInteraction[] = [
-        {key: "T", label: "Move cabinet", actions: ["pickUpCancel"]},
-        {
-          key: "L",
-          label: cabinetProp?.locked ? "Unlock cabinet" : "Lock cabinet",
-          actions: ["propPinToggle"],
-        },
-        ...(cabinetProp?.spawned
-          ? [
-              {
-                key: "Del",
-                label: "Remove",
-                actions: ["removeTargeted"] as const,
-              },
-            ]
-          : []),
-      ];
-      if (cabinet.sessionStatus === "playing") {
-        // A stepped-away game keeps emulating; targeting its cabinet offers
-        // to take the controls back. Volume stays adjustable here too - the
-        // positional audio keeps playing while stepped away.
-        interactionContext = `Arcade · ${cabinet.sessionRomName ?? "cabinet"}`;
-        interactions = [
-          {
-            key: "E",
-            label: "Resume the game",
-            actions: ["interact"] as const,
-          },
-          {
-            key: "Ctrl + Wheel",
-            label: `Volume: ${cabinet.arcadeVolumePercent}%`,
-          },
-          ...propRows,
-        ];
-      } else {
-        interactionContext = cabinet.sessionStatus
-          ? `Arcade · ${cabinet.sessionRomName ?? "cabinet"}`
-          : "Arcade cabinet";
-        interactions = cabinet.sessionStatus
-          ? [{key: "Esc", label: "Back out"}]
-          : [
-              {
-                key: "E",
-                label: "Play the arcade",
-                actions: ["interact"] as const,
-              },
-              ...propRows,
-            ];
-      }
-    } else if (this.#televisionTargeted) {
-      const televisionProp = this.#targetedTelevision
-        ? this.#televisionProps.get(this.#targetedTelevision)
-        : undefined;
-      interactionContext =
-        this.#targetedTelevision?.selectedChannelLabel() ??
-        this.#targetedTelevision?.selectedChannelId() ??
-        (this.#targetedTelevision ? "Afterleaf TV" : undefined);
-      interactions = [
-        {
-          key: "E",
-          label: this.#targetedTelevision?.powered()
-            ? "Next channel"
-            : "Turn on",
-          actions: ["interact"],
-        },
-        {key: "T", label: "Move TV", actions: ["pickUpCancel"]},
-        {
-          key: "L",
-          label: televisionProp?.locked ? "Unlock TV" : "Lock TV",
-          actions: ["propPinToggle"],
-        },
-        {key: "Q", label: "Previous channel", actions: ["tvPreviousChannel"]},
-        {key: "F", label: "Skip", actions: ["throw"]},
-        {key: "N", label: "New channel", actions: ["channelEditorOpen"]},
-        {
-          key: "M",
-          label: `Mute (${this.#targetedTelevision?.volumePercent() ?? 0}%)`,
-          actions: ["tvMute"],
-        },
-        {key: "Wheel", label: "Scrub video"},
-        {
-          key: "Ctrl + Wheel",
-          label: `Volume: ${this.#targetedTelevision?.volumePercent() ?? 0}%`,
-        },
-        ...(televisionProp?.spawned
-          ? [
-              {
-                key: "Del",
-                label: "Remove prop",
-                actions: ["removeTargeted"] as const,
-              },
-            ]
-          : []),
-      ];
-    } else if (this.#targetedProp) {
-      const animationLabel = this.#modelAnimationLabel(this.#targetedProp);
-      interactionContext = animationLabel
-        ? `${this.#targetedProp.label} · ${animationLabel}`
-        : this.#targetedProp.label;
-      interactions = [
-        {key: "T", label: "Move prop", actions: ["pickUpCancel"]},
-        {
-          key: "L",
-          label: this.#targetedProp.locked ? "Unlock prop" : "Lock prop",
-          actions: ["propPinToggle"],
-        },
-        ...(animationLabel
-          ? [
-              {
-                key: "Q / E",
-                label: "Previous / next animation",
-                actions: [
-                  "propCycleAnimationLeft",
-                  "propCycleAnimationRight",
-                ] as const,
-              },
-            ]
-          : []),
-        ...(this.#targetedProp.spawned
-          ? [
-              {
-                key: "Del",
-                label: "Remove prop",
-                actions: ["removeTargeted"] as const,
-              },
-            ]
-          : []),
-      ];
-    } else if (this.#posters.targetedId)
-      interactions = [
-        {key: "T", label: "Move poster", actions: ["pickUpCancel"]},
-        {key: "Del", label: "Remove poster", actions: ["removeTargeted"]},
-      ];
-    else if (this.#artFrames.targetedId) {
-      const frame = this.#artFrames.records.get(
-        this.#artFrames.targetedId,
-      )?.frame;
-      const interval = frame?.intervalSeconds() ?? 0;
-      interactionContext = frame?.channelLabel();
-      interactions = [
-        {key: "T", label: "Move frame", actions: ["pickUpCancel"]},
-        {key: "Del", label: "Remove frame", actions: ["removeTargeted"]},
-        {
-          key: "Q / E",
-          label: "Previous / next channel",
-          actions: ["artFramePreviousChannel", "artFrameNextChannel"],
-        },
-        {key: "F", label: "Next image", actions: ["throw"]},
-        {
-          key: "I",
-          label: `Timing: ${interval === 0 ? "Off" : `${interval}s`}`,
-          actions: ["artFrameInterval"],
-        },
-        {
-          key: "R",
-          label: `Fit: ${frame?.fit() ?? "contain"}`,
-          actions: ["artFrameFit"],
-        },
-        {key: "N", label: "New channel", actions: ["channelEditorOpen"]},
-      ];
-    } else if (this.#signs.targetedKey !== undefined)
-      interactions = [
-        {key: "E", label: "Customize sign", actions: ["interact"]},
-      ];
-    else if (hoveredRecord)
-      interactions =
-        hoveredRecord.state.status === "shelved"
-          ? [
-              {
-                key: "E",
-                label: "Pick up book",
-                actions: ["interact"] as const,
-              },
-              {
-                key: "R",
-                label: "Read book",
-                actions: ["inspectionReturn"] as const,
-              },
-              {key: "Hold F + Wheel", label: "Browse shelf"},
-            ]
-          : [{key: "E", label: "Pick up book", actions: ["interact"] as const}];
-
-    if (
-      interactions.length === 0 &&
-      this.#pointerLocked &&
-      this.#inspectionMode === "none" &&
-      !this.#shelveAnimation
-    )
-      interactions = [
-        {key: "M", label: "Movable props", actions: ["toggleModelPlacement"]},
-        {key: "P", label: "Posters", actions: ["togglePosterPlacement"]},
-        {
-          key: "V",
-          label: "Digital art frames",
-          actions: ["toggleArtFramePlacement"],
-        },
-        {key: "Space", label: "Jump", actions: ["jump"]},
-      ];
-
-    // Interaction affordances exist only while an owning surface holds
-    // input; every other mode drops rows and context before they reach any
-    // consumer, keeping snapshots consistent with the viewport's gate.
-    const activeMode = this.#mode?.();
-    if (activeMode !== undefined && !INTERACTION_ROW_MODES.has(activeMode)) {
-      interactionContext = undefined;
-      interactions = [];
-    }
-
-    const padStyle = this.#input.gamepad.connected
-      ? this.#input.gamepad.style
-      : undefined;
-    const shortcutsConfig = this.#getShortcuts();
-    // Keyboard labels come from the live bindings (layout-aware) so hints
-    // track rebinds; rows without action refs keep their literal strings.
-    const resolveKeyboardLabel = (code: string): string => {
-      const layoutLabel = this.#keyboardLayout.get(code);
-      return layoutLabel ? layoutLabel.toUpperCase() : formatKeyboardCode(code);
-    };
-    const displayedInteractions = interactions.map((interaction) => {
-      // Dev guard: a plain-key hint without action refs means the row was
-      // never wired to the bindings table and will never show pad glyphs.
-      // Only single capital letters ("R", "Q / E") count - words like
-      // "Wheel" or "Esc" are intentionally literal.
-      if (
-        DEV &&
-        !interaction.actions &&
-        /^[A-Z](?: \/ [A-Z])*$/u.test(interaction.key)
-      )
-        console.warn(
-          `[afterleaf] Interaction row ${JSON.stringify(interaction.key)} (${interaction.label}) has no action refs; controller prompts will not render.`,
-        );
-      const row = {
-        ...interaction,
-        key:
-          formatInteractionRowKey(
-            interaction.actions,
-            shortcutsConfig,
-            resolveKeyboardLabel,
-          ) ?? formatInteractionKey(interaction.key, this.#keyboardLayout),
-      };
-      // Pad-active rows carry prompt tokens so the viewport can draw real
-      // controller button icons; keyboard rows keep plain keycap strings.
-      if (!padStyle) return row;
-      const prompts = buildInteractionPrompts(
-        row.key,
-        interaction.actions,
-        shortcutsConfig,
-        padStyle,
-      );
-      return prompts ? {...row, prompts} : row;
-    });
-    // Read once so the conditional spread below gets a narrowed value.
-    const arcadeStatus = this.#arcadeStatusForUi();
-    const arcadeSystemId = this.#arcadeSystemIdForUi();
-    const snapshot: ShopGameSnapshot = {
-      ...(interactionContext ? {interactionContext} : {}),
-      ...(displayedInteractions.length > 0
-        ? {interactions: displayedInteractions}
-        : {}),
-      ...(this.#carriedPublicationId
-        ? {
-            carriedBookCount: this.#carriedPublicationIds.length,
-            carriedPublicationId: this.#carriedPublicationId,
-          }
-        : {}),
-      discardBusy: this.#discardBusy,
-      ...(this.#discardError ? {discardError: this.#discardError} : {}),
-      ...(this.#inspectionMode === "spread" && inspectionPublication
-        ? {
-            inspectionBookOpen: this.#inspectionOpenAngleTarget === 0,
-            inspectionCanTurnBackward:
-              getAdjacentSpreadStart(
-                this.#inspectionPageIndex,
-                inspectionPublication.pages.length,
-                "spread",
-                "backward",
-                inspectionWidePages,
-              ) !== this.#inspectionPageIndex,
-            inspectionCanTurnForward:
-              getAdjacentSpreadStart(
-                this.#inspectionPageIndex,
-                inspectionPublication.pages.length,
-                "spread",
-                "forward",
-                inspectionWidePages,
-              ) !== this.#inspectionPageIndex,
-            inspectionPageCount: inspectionPublication.pages.length,
-            inspectionPageIndex: this.#inspectionPageIndex,
-            inspectionPagesLoading: this.#inspectionPageLoadCount > 0,
-          }
-        : {}),
-      inspectionMode: this.#inspectionMode,
-      looseCount,
-      modelCount: this.#spawnablePropAssets.length,
-      ...(this.#modelImportError
-        ? {modelImportError: this.#modelImportError}
-        : {}),
-      ...(this.#modelPlacement ? {modelPlacementActive: true} : {}),
-      physicsReady: this.#physicsWorld.isReady,
-      pointerLocked: this.#pointerLocked,
-      digitalArtFrameCount: this.#artFrames.records.size,
-      ...(this.#artFrames.importError
-        ? {digitalArtFrameImportError: this.#artFrames.importError}
-        : {}),
-      ...(this.#artFrames.importCount > 0
-        ? {digitalArtFrameImporting: true}
-        : {}),
-      ...(this.#artFrames.placement
-        ? {digitalArtFramePlacementActive: true}
-        : {}),
-      posterCount: this.#posters.assets.length,
-      ...(this.#posters.importError
-        ? {posterImportError: this.#posters.importError}
-        : {}),
-      ...(this.#posters.importCount > 0 ? {posterImporting: true} : {}),
-      ...(this.#posters.placement ? {posterPlacementActive: true} : {}),
-      ...(this.#tvVideos.error
-        ? {tvVideoImportError: this.#tvVideos.error}
-        : {}),
-      ...(this.#tvVideos.count > 0 ? {tvVideoImporting: true} : {}),
-      ...(this.#tvVideos.message
-        ? {tvVideoImportMessage: this.#tvVideos.message}
-        : {}),
-      ...(arcadeStatus
-        ? {
-            arcadeStatus,
-            ...(this.#activeArcadeCabinet
-              ? {arcadeCabinetId: this.#activeArcadeCabinet.id}
-              : {}),
-            ...(arcadeSystemId ? {arcadeSystemId} : {}),
-            ...(this.#activeArcadeCabinet?.sessionDetail
-              ? {
-                  arcadeDetail: this.#activeArcadeCabinet.sessionDetail,
-                }
-              : {}),
-            ...(this.#activeArcadeCabinet?.sessionRomName
-              ? {arcadeRomName: this.#activeArcadeCabinet.sessionRomName}
-              : {}),
-          }
-        : {}),
-      ...(prompt ? {prompt} : {}),
-      shelvedCount,
-      ...(this.#throwChargeActive
-        ? {throwCharge: this.#throwChargeProgress()}
-        : {}),
-    };
-    const signature = JSON.stringify(snapshot);
-    if (signature === this.#lastGameStateSignature) return;
-    this.#lastGameStateSignature = signature;
-    this.#onGameStateChange(snapshot);
   }
 
   #syncMovablePropPhysics() {
