@@ -110,6 +110,11 @@ import {
 } from "~/game/mathHelpers";
 import {normalizePosterRotation} from "~/game/wallDecorTuning";
 import {
+  DiscardBin,
+  TRASH_CAN_HEIGHT,
+  TRASH_CAN_PROP_ID,
+} from "~/game/discardBin";
+import {
   createSignVisual,
   shopSignKey,
   ShopSignSystem,
@@ -304,9 +309,6 @@ import {
 import {
   ShopPhysicsWorld,
   SHOP_PHYSICS_PLAYER_EYE_HEIGHT,
-  SHOP_PHYSICS_TRASH_HALF_EXTENT,
-  SHOP_PHYSICS_TRASH_POSITION_X,
-  SHOP_PHYSICS_TRASH_POSITION_Z,
   type BookPhysicsPose,
   type MutableBookPhysicsTransform,
   type MutablePlayerMovement,
@@ -408,9 +410,6 @@ const THROW_MAX_LIFT = 15;
 const SHELF_INTERACTION_DISTANCE = 2.75;
 const INTERACTION_DISTANCE = SHELF_INTERACTION_DISTANCE;
 const TRASH_INTERACTION_DISTANCE = 2.65;
-const TRASH_CAN_HEIGHT = 0.9;
-const TRASH_CAN_PROP_ID = "discard-trashcan";
-const TRASH_CAN_SIZE = SHOP_PHYSICS_TRASH_HALF_EXTENT * 2;
 const SIGN_INTERACTION_DISTANCE = 3.4;
 const TELEVISION_INTERACTION_DISTANCE = 3.6;
 const ARCADE_INTERACTION_DISTANCE = 3.4;
@@ -987,6 +986,7 @@ export class ShopScene {
     signal: AbortSignal,
   ) => Promise<ShopMediaCatalog>;
   readonly #signs: ShopSignSystem;
+  readonly #discardBin: DiscardBin;
   readonly #input: InputManager;
   readonly #getShortcuts: () => ShortcutsConfig;
   readonly #getPadMappingOverrides: () => ArcadePadMappingOverrides;
@@ -1112,15 +1112,6 @@ export class ShopScene {
   readonly #televisions: ShopTelevision[] = [];
   readonly #televisionTargetPosition = new Vector3();
   readonly #televisionTargetScale = new Vector3();
-  readonly #trashcanGroup = new Group();
-  readonly #trashcanPosition = new Vector3(
-    SHOP_PHYSICS_TRASH_POSITION_X,
-    TRASH_CAN_HEIGHT / 2,
-    SHOP_PHYSICS_TRASH_POSITION_Z,
-  );
-  /** Invisible discard volumes, keyed by the trash can prop that owns them. */
-  readonly #discardVolumes = new Map<string, Mesh>();
-  #discardVolumeMeshes: Mesh[] = [];
   readonly #trashTossTarget = new Vector3();
   readonly #trashTossRotation = new Quaternion().setFromEuler(
     new Euler(-Math.PI / 2, 0.45, Math.PI * 0.5),
@@ -1432,6 +1423,26 @@ export class ShopScene {
       maxTextureAnisotropy: this.#renderer.capabilities.getMaxAnisotropy(),
       onEditRequest: options.onSignEditRequest,
       releasePointerLock: () => this.#releasePointerLock(),
+    });
+
+    this.#discardBin = new DiscardBin({
+      ghostObject: (object) => this.#ghostObject(object),
+      getMovableProp: (id) => this.#movableProps.get(id),
+      isCarried: (record) =>
+        this.#carriedProp === (record as unknown as MovablePropRecord),
+      isDisposed: () => this.#disposed,
+      markWorldStateDirty: () => {
+        this.#worldStateDirty = true;
+      },
+      modelMixers: this.#modelMixers,
+      needsSeedPass: (version) => this.#needsSeedPass(version),
+      registerMovableProp: (registration) =>
+        this.#registerMovableProp(registration as MovablePropRegistration),
+      updatePropPose: (id, pose) =>
+        this.#physicsWorld.updatePropPose(id, {
+          position: pose.position,
+          rotation: pose.rotation,
+        }),
     });
 
     if (DEV)
@@ -2113,7 +2124,7 @@ export class ShopScene {
       woodMaterial,
       shelfBackingMaterial,
     );
-    void this.#createTrashcan(architecture);
+    void this.#discardBin.create(architecture);
 
     this.#createSpineShelfFixture(
       architecture,
@@ -2724,138 +2735,12 @@ export class ShopScene {
     this.#shelfTargetMeshes.push(target);
   }
 
-  async #createTrashcan(parent: Group) {
-    // The discard bin is a seeded default like any other prop: injected
-    // once as a spawned, deletable prop and persisted through modelProps.
-    // Worlds that already seeded skip straight to their saved props; every
-    // trash can gets its invisible discard volume via #attachTrashTarget.
-    if (!this.#needsSeedPass(INITIAL_WORLD_SEEDING_VERSION)) return;
-    const trashcan = this.#trashcanGroup;
-    trashcan.name = TRASH_CAN_PROP_ID;
-    trashcan.position.copy(this.#trashcanPosition);
-    parent.add(trashcan);
-
-    const sign = createSignVisual(
-      "DISCARDS  /  廃棄",
-      "REMOVE FROM LIBRARY",
-      1.35,
-      0.42,
-      "#f3ecdc",
-      "#7b302a",
-      SIGN_TEXTURE_MAX_ANISOTROPY,
-    );
-    sign.position.set(0, 1.26 - TRASH_CAN_HEIGHT / 2, 0.025);
-    trashcan.add(sign);
-    this.#registerMovableProp({
-      depth: TRASH_CAN_SIZE,
-      height: TRASH_CAN_HEIGHT,
-      heldLocalPosition: new Vector3(0, -0.65, -1.8),
-      id: TRASH_CAN_PROP_ID,
-      label: "trash can",
-      modelBaseSize: new Vector3(
-        TRASH_CAN_SIZE,
-        TRASH_CAN_HEIGHT,
-        TRASH_CAN_SIZE,
-      ),
-      modelScale: DEFAULT_MODEL_SCALE,
-      object: trashcan,
-      // Matches the spawn-menu trash can: a dynamic body that can be
-      // bumped, tipped, locked, or deleted like any other prop.
-      spawnAssetId: BUILTIN_TRASH_CAN_ASSET_ID,
-      spawned: true,
-      width: TRASH_CAN_SIZE,
-    });
-
-    try {
-      const gltf = await ShopScene.#modelLoader.loadAsync(trashCanModelUrl);
-      if (this.#disposed) {
-        disposeObject(gltf.scene);
-        return;
-      }
-
-      gltf.scene.updateMatrixWorld(true);
-      const bounds = new Box3().setFromObject(gltf.scene);
-      const height = bounds.max.y - bounds.min.y;
-      if (!(height > 0)) {
-        disposeObject(gltf.scene);
-        throw new Error("The trash can model has no measurable height.");
-      }
-
-      const scale = TRASH_CAN_HEIGHT / height;
-      const center = bounds.getCenter(new Vector3());
-      gltf.scene.scale.setScalar(scale);
-      gltf.scene.position.set(
-        -center.x * scale,
-        -bounds.min.y * scale - TRASH_CAN_HEIGHT / 2,
-        -center.z * scale,
-      );
-      gltf.scene.name = "trash-can-model";
-      gltf.scene.traverse((object) => {
-        if (!(object instanceof Mesh)) return;
-        object.castShadow = true;
-        object.receiveShadow = true;
-      });
-      trashcan.add(gltf.scene);
-      playModelAnimations(this.#modelMixers, gltf.scene, gltf.animations);
-      const trashcanProp = this.#movableProps.get(TRASH_CAN_PROP_ID);
-      if (trashcanProp && this.#carriedProp === trashcanProp)
-        trashcanProp.ghostMaterialSwaps.push(...this.#ghostObject(gltf.scene));
-    } catch (error) {
-      if (DEV && !this.#disposed)
-        console.warn("Afterleaf could not load the trash can model.", error);
-    }
-  }
-
-  #setTrashcanPosition(x: number, z: number, markDirty = true) {
-    this.#trashcanPosition.set(x, TRASH_CAN_HEIGHT / 2, z);
-    this.#trashcanGroup.position.copy(this.#trashcanPosition);
-    this.#movableProps
-      .get(TRASH_CAN_PROP_ID)
-      ?.currentPosition.copy(this.#trashcanPosition);
-    this.#physicsWorld.updatePropPose(TRASH_CAN_PROP_ID, {
-      position: this.#trashcanPosition,
-      rotation: this.#trashcanGroup.quaternion,
-    });
-    if (markDirty) this.#worldStateDirty = true;
-  }
-
   /**
    * Rides an invisible discard volume inside every trash can prop so any
    * spawned, saved, or seeded bin accepts discards.
    */
-  #attachTrashTarget(record: MovablePropRecord) {
-    if (this.#discardVolumes.has(record.id)) return;
-    const width = record.halfWidth * 2;
-    const mesh = new Mesh(
-      new BoxGeometry(width * 1.31, record.halfHeight * 3.22, width * 1.31),
-      new MeshBasicMaterial({
-        depthWrite: false,
-        opacity: 0,
-        transparent: true,
-      }),
-    );
-    mesh.name = "discard-trashcan-target";
-    mesh.userData.propId = record.id;
-    mesh.position.set(0, record.halfHeight * 0.55, 0);
-    record.object.add(mesh);
-    this.#discardVolumes.set(record.id, mesh);
-    this.#refreshDiscardVolumeMeshes();
-  }
 
   /** Drops the discard volume that lived inside a deleted trash can. */
-  #detachTrashTarget(record: MovablePropRecord) {
-    const mesh = this.#discardVolumes.get(record.id);
-    if (!mesh) return;
-    this.#discardVolumes.delete(record.id);
-    this.#refreshDiscardVolumeMeshes();
-    mesh.removeFromParent();
-    mesh.geometry.dispose();
-    (mesh.material as MeshBasicMaterial).dispose();
-  }
-
-  #refreshDiscardVolumeMeshes() {
-    this.#discardVolumeMeshes = [...this.#discardVolumes.values()];
-  }
 
   #registerMovableProp(registration: MovablePropRegistration) {
     registration.object.updateWorldMatrix(true, false);
@@ -2935,7 +2820,7 @@ export class ShopScene {
     if (registration.templateForSpawning)
       this.#cacheBuiltinPropTemplate(registration);
     if (registration.spawnAssetId === BUILTIN_TRASH_CAN_ASSET_ID)
-      this.#attachTrashTarget(record);
+      this.#discardBin.attach(record);
     return record;
   }
 
@@ -5424,7 +5309,7 @@ export class ShopScene {
       break;
     }
     // The discard volume lives inside the bin; losing a bin loses its volume.
-    this.#detachTrashTarget(record);
+    this.#discardBin.detach(record);
     this.#physicsWorld.removeProp(record.id);
     if (this.#movableProps.get(record.id) === record)
       this.#movableProps.delete(record.id);
@@ -7898,7 +7783,7 @@ export class ShopScene {
       worldSaveSeedingVersion(save) < INITIAL_WORLD_SEEDING_VERSION &&
       save.trashcan
     )
-      this.#setTrashcanPosition(save.trashcan.x, save.trashcan.z, false);
+      this.#discardBin.setPosition(save.trashcan.x, save.trashcan.z, false);
     // Legacy `television` pose fields are intentionally ignored: worlds
     // saved before default-prop seeding respawn the movable CRT television
     // at its designed spot through #seedDefaultProps instead.
@@ -11221,7 +11106,7 @@ export class ShopScene {
       this.#setPropTargeted(undefined);
       this.#setTelevisionTargeted(false);
       const trashIntersection = this.#raycaster.intersectObjects(
-        this.#discardVolumeMeshes,
+        this.#discardBin.volumeMeshes,
         false,
       )[0];
       const trashTargeted =
@@ -12078,7 +11963,7 @@ export class ShopScene {
         ? this.#movableProps.get(this.#targetedTrashBinId)?.object
         : undefined) ??
       this.#movableProps.get(TRASH_CAN_PROP_ID)?.object ??
-      this.#trashcanGroup;
+      this.#discardBin.group;
     discardBin.updateWorldMatrix(true, false);
     this.#trashTossTarget.set(0, TRASH_CAN_HEIGHT * 0.35, 0);
     discardBin.localToWorld(this.#trashTossTarget);
@@ -12328,9 +12213,9 @@ export class ShopScene {
       televisionModelVersion: 2,
       televisionVolumes,
       trashcan: {
-        x: this.#trashcanPosition.x,
+        x: this.#discardBin.position.x,
         y: 0,
-        z: this.#trashcanPosition.z,
+        z: this.#discardBin.position.z,
       },
     };
   }
@@ -13194,7 +13079,7 @@ export class ShopScene {
       record.currentPosition.copy(this.#physicsTransform.position);
       record.currentRotation.copy(this.#physicsTransform.rotation);
       if (record.id === TRASH_CAN_PROP_ID)
-        this.#trashcanPosition.copy(record.currentPosition);
+        this.#discardBin.position.copy(record.currentPosition);
       if (positionChanged || rotationChanged) this.#worldStateDirty = true;
     }
   }
