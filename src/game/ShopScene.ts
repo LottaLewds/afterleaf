@@ -28,9 +28,8 @@ import {
 import {dotWithPhysicsQuaternion} from "~/game/mathHelpers";
 import {BOOK_HEIGHT} from "~/game/bookTuning";
 import {
-  ARCADE_CABINET_HEIGHT,
-  ShopArcadeCabinet,
   type ArcadeSessionStatus,
+  type ShopArcadeCabinet,
 } from "~/game/ShopArcadeCabinet";
 import {KTX2Loader} from "three/examples/jsm/loaders/KTX2Loader.js";
 import {RectAreaLightUniformsLib} from "three/examples/jsm/lights/RectAreaLightUniformsLib.js";
@@ -93,6 +92,7 @@ import {ShopInteractionCoordinator} from "~/game/shopInteractionCoordinator";
 import {ShopViewportController} from "~/game/shopViewportController";
 import {ShopShaderWarmup} from "~/game/shopShaderWarmup";
 import {ShopTargetingController} from "~/game/shopTargetingController";
+import {ShopArcadeSessionController} from "~/game/shopArcadeSessionController";
 
 import type {CatalogAtlases, CatalogIdentity, CatalogItem} from "~/catalog";
 import type {ArtFrameImage} from "~/artFrames/protocol";
@@ -100,10 +100,7 @@ import {artFrameChannelId} from "~/artFrames/protocol";
 import type {ShopSignEditRequest} from "~/game/signs/ShopSignSystem";
 import {type UiMode} from "~/game/uiMode";
 
-import {
-  DEFAULT_PITCH_LIMIT,
-  type ShopCollisionWorld,
-} from "~/game/shopGameplay";
+import {type ShopCollisionWorld} from "~/game/shopGameplay";
 import {
   loadShortcuts,
   type ShortcutAction,
@@ -402,10 +399,8 @@ export class ShopScene {
   readonly #onResumeRequest: (() => void) | undefined;
   // Every placed cabinet runs its own session; the "active" one is the
   // cabinet whose UI (picker or game) the player is currently driving.
-  readonly #arcadeCabinets: ShopArcadeCabinet[] = [];
   #targetedArcadeCabinet: ShopArcadeCabinet | undefined;
-  #activeArcadeCabinet: ShopArcadeCabinet | undefined;
-  readonly #arcadeAimTarget = new Vector3();
+  readonly #arcadeSessionController: ShopArcadeSessionController;
   readonly #mouseSensitivity: () => number;
   readonly #gamepadLookSensitivity: () => number;
   readonly #newPublicationIds: () => readonly string[];
@@ -542,8 +537,9 @@ export class ShopScene {
     );
     this.#input.setRawGamepadForward((name, down) => {
       const cabinet =
-        this.#activeArcadeCabinet?.sessionStatus === "playing"
-          ? this.#activeArcadeCabinet
+        this.#arcadeSessionController.activeArcadeCabinet?.sessionStatus ===
+        "playing"
+          ? this.#arcadeSessionController.activeArcadeCabinet
           : undefined;
       if (!cabinet) return;
       // Resolve against the playing session's system so each console gets
@@ -663,6 +659,15 @@ export class ShopScene {
       renderer: () => this.#renderer,
       spreadDistance: () => this.#spreadDistance(),
       heldTargetPose: () => this.#heldTargetPose,
+    });
+    this.#arcadeSessionController = new ShopArcadeSessionController({
+      camera: () => this.#camera,
+      disposed: () => this.#disposed,
+      emitGameState: () => this.#emitGameState(),
+      lookTarget: () => this.#inputController.state.lookTarget,
+      paused: () => this.#paused(),
+      releasePointerLock: () => this.#inputController.releasePointerLock(),
+      requestPointerLock: () => this.#inputController.requestPointerLock(),
     });
     this.#props = new MovablePropLifecycle(
       this.#createMovablePropLifecycleHost(),
@@ -790,8 +795,10 @@ export class ShopScene {
     });
     this.#inputController = new ShopInputController({
       abortSignal: this.#abortController.signal,
-      activeArcadeCabinet: () => this.#activeArcadeCabinet,
-      arcadeStatusForUi: () => this.#arcadeStatusForUi(),
+      activeArcadeCabinet: () =>
+        this.#arcadeSessionController.activeArcadeCabinet,
+      arcadeStatusForUi: () =>
+        this.#arcadeSessionController.arcadeStatusForUi(),
       artFrames: () => this.#artFrames,
       bookActions: () => this.#bookActions,
       booksById: () => this.#booksById,
@@ -856,10 +863,13 @@ export class ShopScene {
       quitActiveArcadeGame: () => this.quitActiveArcadeGame(),
     });
     this.#snapshotInput = {
-      activeArcadeCabinet: () => this.#activeArcadeCabinet,
+      activeArcadeCabinet: () =>
+        this.#arcadeSessionController.activeArcadeCabinet,
       arcadeProps: () => this.#props.arcadeProps,
-      arcadeStatusForUi: () => this.#arcadeStatusForUi(),
-      arcadeSystemIdForUi: () => this.#arcadeSystemIdForUi(),
+      arcadeStatusForUi: () =>
+        this.#arcadeSessionController.arcadeStatusForUi(),
+      arcadeSystemIdForUi: () =>
+        this.#arcadeSessionController.arcadeSystemIdForUi(),
       artFrames: () => this.#artFrames,
       booksById: () => this.#booksById,
       carriedProp: () => this.#props.carriedProp,
@@ -1159,7 +1169,8 @@ export class ShopScene {
   requestPointerLock() {
     // Modes stay exclusive: an arcade session owns the cursor until its
     // ladder exits, so external re-lock requests are ignored meanwhile.
-    if (this.#disposed || this.#arcadeStatusForUi()) return;
+    if (this.#disposed || this.#arcadeSessionController.arcadeStatusForUi())
+      return;
     this.#inputSuspended = false;
     if (this.#inspection.inspectionMode === "spread") return;
     this.#inputController.requestPointerLock();
@@ -1186,24 +1197,12 @@ export class ShopScene {
 
   /** Boots a ROM on the named cabinet; called by the ROM picker UI. */
   playArcadeRom(cabinetId: string, request: ShopArcadePlayRequest) {
-    if (this.#disposed) return;
-    const cabinet = this.#arcadeCabinets.find(
-      (entry) => entry.id === cabinetId,
-    );
-    if (!cabinet) return;
-    this.#activeArcadeCabinet = cabinet;
-    cabinet.play(request);
-    this.#emitGameState();
-    // Re-capture the cursor on the picker's own click gesture: launching and
-    // playing keep it hidden, matching free roam.
-    if (!this.#paused()) this.#inputController.requestPointerLock();
+    this.#arcadeSessionController.playArcadeRom(cabinetId, request);
   }
 
   /** Playing → back to the ROM picker of the active session. */
   quitActiveArcadeGame() {
-    if (this.#disposed) return;
-    this.#activeArcadeCabinet?.quitGame();
-    this.#emitGameState();
+    this.#arcadeSessionController.quitActiveArcadeGame();
   }
 
   /**
@@ -1213,16 +1212,7 @@ export class ShopScene {
    * routing while a session is active.
    */
   backOutOfArcade() {
-    if (this.#disposed) return;
-    this.#exitOneArcadeLevel();
-  }
-
-  /** Escape ladder body: playing steps away; picker/boot overlays exit. */
-  #exitOneArcadeLevel() {
-    const cabinet = this.#activeArcadeCabinet;
-    if (!cabinet) return;
-    if (cabinet.sessionStatus === "playing") this.stepAwayFromArcade();
-    else this.exitArcadeUi();
+    this.#arcadeSessionController.backOutOfArcade();
   }
 
   /**
@@ -1230,23 +1220,7 @@ export class ShopScene {
    * the player returns to walking around the shop.
    */
   exitArcadeUi() {
-    if (this.#disposed) return;
-    const activeCabinet = this.#activeArcadeCabinet;
-    this.#activeArcadeCabinet = undefined;
-    activeCabinet?.exitToIdle();
-    // Any other cabinet left in a UI state closes too; independent cabinets
-    // that are actively playing keep running.
-    for (const cabinet of this.#arcadeCabinets)
-      if (
-        cabinet !== activeCabinet &&
-        cabinet.sessionStatus &&
-        cabinet.sessionStatus !== "playing"
-      )
-        cabinet.exitToIdle();
-    this.#emitGameState();
-    // Hand control back immediately (called from an activating gesture such
-    // as Escape or the Leave button), mirroring inspection close.
-    if (!this.#paused()) this.#inputController.requestPointerLock();
+    this.#arcadeSessionController.exitArcadeUi();
   }
 
   /**
@@ -1257,59 +1231,7 @@ export class ShopScene {
    * force-released it (Escape), standard click-to-lock recovers.
    */
   stepAwayFromArcade() {
-    if (this.#disposed || !this.#activeArcadeCabinet) return;
-    this.#activeArcadeCabinet = undefined;
-    this.#emitGameState();
-  }
-
-  /**
-   * Activates a targeted cabinet's UI: a live session reattaches where it
-   * left off, a free one opens its ROM picker, and boots in progress stay
-   * owned by the surface that started them.
-   */
-  #enterArcadeBrowsing(cabinet: ShopArcadeCabinet) {
-    const status = cabinet.sessionStatus;
-    console.warn("[arcade] interact:", cabinet.id, status);
-    if (status === "downloading" || status === "launching") return;
-    this.#activeArcadeCabinet = cabinet;
-    this.#aimCameraAtObject(cabinet.object);
-    if (!status) {
-      // Only the ROM picker needs a visible cursor; resuming a live session
-      // keeps the pointer exactly where walking left it.
-      this.#inputController.releasePointerLock();
-      cabinet.beginBrowsing();
-    }
-    this.#emitGameState();
-  }
-
-  /** Snapshot fields describing the UI-active cabinet's session, if any. */
-  #arcadeStatusForUi(): ArcadeSessionStatus | undefined {
-    const activeCabinet = this.#activeArcadeCabinet;
-    if (!activeCabinet?.sessionStatus) return undefined;
-    return activeCabinet.sessionStatus;
-  }
-
-  /** System of the ROM most recently played on the UI-active cabinet. */
-  #arcadeSystemIdForUi(): string | undefined {
-    return this.#activeArcadeCabinet?.sessionSystemId;
-  }
-
-  /** Gently turns the player's view toward a cabinet's screen on entry. */
-  #aimCameraAtObject(object: Object3D) {
-    object.getWorldPosition(this.#arcadeAimTarget);
-    // Center-origin model; the screen sits a little above the middle.
-    this.#arcadeAimTarget.y += ARCADE_CABINET_HEIGHT * 0.14;
-    const deltaX = this.#arcadeAimTarget.x - this.#camera.position.x;
-    const deltaY = this.#arcadeAimTarget.y - this.#camera.position.y;
-    const deltaZ = this.#arcadeAimTarget.z - this.#camera.position.z;
-    const horizontal = Math.hypot(deltaX, deltaZ);
-    if (horizontal < Number.EPSILON) return;
-    this.#inputController.state.lookTarget.yaw = Math.atan2(-deltaX, -deltaZ);
-    this.#inputController.state.lookTarget.pitch = MathUtils.clamp(
-      Math.atan2(deltaY, horizontal),
-      -DEFAULT_PITCH_LIMIT,
-      DEFAULT_PITCH_LIMIT,
-    );
+    this.#arcadeSessionController.stepAwayFromArcade();
   }
 
   async #initializePhysics() {
@@ -1348,11 +1270,9 @@ export class ShopScene {
     for (const television of this.#televisions) television.dispose();
     this.#televisions.length = 0;
     this.#props.televisionsBySaveId.clear();
-    for (const cabinet of this.#arcadeCabinets) cabinet.dispose();
-    this.#arcadeCabinets.length = 0;
+    this.#arcadeSessionController.dispose();
     this.#props.arcadeProps.clear();
     this.#targetedArcadeCabinet = undefined;
-    this.#activeArcadeCabinet = undefined;
     this.#props.carriedProp = undefined;
     this.#targetedTelevision = undefined;
     this.#props.televisionProps.clear();
@@ -1418,7 +1338,8 @@ export class ShopScene {
     // sessions keep receiving forwarded pad buttons.
     const inputMode: InputMode = paused
       ? "paused"
-      : this.#activeArcadeCabinet?.sessionStatus === "playing"
+      : this.#arcadeSessionController.activeArcadeCabinet?.sessionStatus ===
+          "playing"
         ? "arcade"
         : "shop";
     this.#input.update(inputMode);
@@ -1426,8 +1347,11 @@ export class ShopScene {
       television.setSuspended(paused);
       television.update(deltaSeconds);
     }
-    for (const cabinet of this.#arcadeCabinets) cabinet.update(deltaSeconds);
-    this.#fpsHud.update(deltaSeconds, this.#activeArcadeCabinet?.perfSample);
+    this.#arcadeSessionController.update(deltaSeconds);
+    this.#fpsHud.update(
+      deltaSeconds,
+      this.#arcadeSessionController.activeArcadeCabinet?.perfSample,
+    );
     if (paused) {
       if (!this.#inputSuspended) {
         this.#inputSuspended = true;
@@ -1439,7 +1363,8 @@ export class ShopScene {
     // While an arcade session is active the world holds still around the
     // player (no movement, targeting, or physics) but keeps rendering so
     // every cabinet's attract mode and live screens stay animated.
-    const arcadeActive = this.#arcadeStatusForUi() !== undefined;
+    const arcadeActive =
+      this.#arcadeSessionController.arcadeStatusForUi() !== undefined;
     if (arcadeActive) {
       this.#inputController.updateCameraLook(deltaSeconds);
       this.#renderer.render(this.#scene, this.#camera);
@@ -1776,15 +1701,17 @@ export class ShopScene {
 
   #createMovablePropLifecycleHost(): MovablePropLifecycleHost {
     return {
-      activeArcadeCabinet: () => this.#activeArcadeCabinet,
-      arcadeCabinets: () => this.#arcadeCabinets,
+      activeArcadeCabinet: () =>
+        this.#arcadeSessionController.activeArcadeCabinet,
+      arcadeCabinets: () => this.#arcadeSessionController.cabinets,
       audioManager: () => this.#audioManager,
       camera: () => this.#camera,
       carriedPublicationId: () => this.#carriedPublicationId,
       discardBin: () => this.#discardBin,
       disposed: () => this.#disposed,
       emitGameState: () => this.#emitGameState(),
-      enterArcadeBrowsing: (cabinet) => this.#enterArcadeBrowsing(cabinet),
+      enterArcadeBrowsing: (cabinet) =>
+        this.#arcadeSessionController.enterArcadeBrowsing(cabinet),
       heldTargetPosition: () => this.#heldTargetPosition,
       markTelevisionSettingChanged: () => this.#worldPersistence.markDirty(),
       markWorldStateDirty: () => this.#worldPersistence.markDirty(),
@@ -1799,7 +1726,7 @@ export class ShopScene {
         this.#worldPersistence.savedTelevisionVolumes(),
       scene: () => this.#scene,
       setActiveArcadeCabinet: (cabinet) => {
-        this.#activeArcadeCabinet = cabinet;
+        this.#arcadeSessionController.activeArcadeCabinet = cabinet;
       },
       setArcadeTargeted: (cabinet) =>
         this.#targetingController.setArcadeTargeted(cabinet),
@@ -1825,9 +1752,10 @@ export class ShopScene {
 
   #createScannerHost(): InteractionScannerHost {
     return {
-      arcadeCabinets: () => this.#arcadeCabinets,
+      arcadeCabinets: () => this.#arcadeSessionController.cabinets,
       arcadeProps: () => this.#props.arcadeProps,
-      arcadeStatusForUi: () => this.#arcadeStatusForUi(),
+      arcadeStatusForUi: () =>
+        this.#arcadeSessionController.arcadeStatusForUi(),
       artFrames: () => this.#artFrames,
       booksById: () => this.#booksById,
       camera: () => this.#camera,
