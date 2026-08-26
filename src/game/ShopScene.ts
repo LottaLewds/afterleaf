@@ -99,7 +99,7 @@ import {
   BUILTIN_SPAWNABLE_PROP_ASSETS,
   TEMPLATE_SPAWNED_BUILTIN_ASSET_IDS,
   placeClonedTemplateObject,
-  type BuiltinPropTemplate,
+  PropTemplateCache,
   type BuiltinSpawnablePropAsset,
   type SpawnablePropAsset,
 } from "~/game/propTemplates";
@@ -1077,7 +1077,7 @@ export class ShopScene {
   readonly #hallwayDoors: AutomaticDoor[] = [];
   readonly #modelMixers = new Set<AnimationMixer>();
   readonly #modelTemplatePromises = new Map<string, Promise<ModelTemplate>>();
-  readonly #builtinPropTemplates = new Map<string, BuiltinPropTemplate>();
+  readonly #builtinPropTemplates = new PropTemplateCache();
   readonly #propSupportBounds = new Box3();
   readonly #propPlacementSupports: PropPlacementSupport[] = [];
   readonly #raycaster = new Raycaster();
@@ -2831,34 +2831,9 @@ export class ShopScene {
    * runs even on worlds whose live defaults come from their saves.
    */
   #cacheBuiltinPropTemplate(registration: MovablePropRegistration) {
-    if (
-      !registration.spawnAssetId ||
-      !registration.templateForSpawning ||
-      this.#builtinPropTemplates.has(registration.spawnAssetId)
-    )
-      return;
-    const object = cloneWithSkeleton(registration.object);
-    object.position.set(0, 0, 0);
-    object.quaternion.identity();
-    this.#builtinPropTemplates.set(registration.spawnAssetId, {
-      ...(registration.colliderParts
-        ? {colliderParts: registration.colliderParts}
-        : {}),
-      ...(registration.density === undefined
-        ? {}
-        : {density: registration.density}),
-      depth: registration.depth,
-      height: registration.height,
-      heldLocalPosition: registration.heldLocalPosition.clone(),
-      object,
-      ...(registration.rotationSnapStep === undefined
-        ? {}
-        : {rotationSnapStep: registration.rotationSnapStep}),
-      ...(registration.staticWhenPlaced === undefined
-        ? {}
-        : {staticWhenPlaced: registration.staticWhenPlaced}),
-      width: registration.width,
-    });
+    const cached =
+      this.#builtinPropTemplates.cacheFromRegistration(registration);
+    if (!cached) return;
     // Async builtin templates (the desk lamp GLB, for example) can land
     // after a restore pass already gave up on their saved props. Retry
     // those restores once the template exists.

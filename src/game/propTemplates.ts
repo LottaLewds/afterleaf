@@ -118,3 +118,62 @@ export const placeClonedTemplateObject = ({
   }
   return object;
 };
+
+/**
+ * Cache of builtin prop templates used for clone-spawning. Templates are
+ * registered from movable-prop registrations that opt in via
+ * `templateForSpawning`; the same registration object is snapshotted so
+ * later clones stay independent of the live prop.
+ */
+export class PropTemplateCache {
+  readonly #templates = new Map<string, BuiltinPropTemplate>();
+
+  has(id: string): boolean {
+    return this.#templates.has(id);
+  }
+
+  get(id: string): BuiltinPropTemplate | undefined {
+    return this.#templates.get(id);
+  }
+
+  /**
+   * Snapshots a registration into a template. Returns true when a template
+   * was newly cached; repeat registrations for the same id are ignored.
+   */
+  cacheFromRegistration(
+    registration: {
+      spawnAssetId?: string;
+      templateForSpawning?: boolean;
+    } & Omit<BuiltinPropTemplate, "object"> & {object: Object3D},
+  ): boolean {
+    if (
+      !registration.spawnAssetId ||
+      !registration.templateForSpawning ||
+      this.#templates.has(registration.spawnAssetId)
+    )
+      return false;
+    const object = cloneWithSkeleton(registration.object);
+    object.position.set(0, 0, 0);
+    object.quaternion.identity();
+    this.#templates.set(registration.spawnAssetId, {
+      ...(registration.colliderParts
+        ? {colliderParts: registration.colliderParts}
+        : {}),
+      ...(registration.density === undefined
+        ? {}
+        : {density: registration.density}),
+      depth: registration.depth,
+      height: registration.height,
+      heldLocalPosition: registration.heldLocalPosition.clone(),
+      object,
+      ...(registration.rotationSnapStep === undefined
+        ? {}
+        : {rotationSnapStep: registration.rotationSnapStep}),
+      ...(registration.staticWhenPlaced === undefined
+        ? {}
+        : {staticWhenPlaced: registration.staticWhenPlaced}),
+      width: registration.width,
+    });
+    return true;
+  }
+}
