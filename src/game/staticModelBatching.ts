@@ -113,6 +113,11 @@ const INTERIOR_BATCH_HARD =
   /television|screen|arcade|art-?frame|face-?out|display|snap|helper/iu;
 const INTERIOR_BATCH_SOFT = /shelf|gondola|fixture|cave/iu;
 
+/**
+ * Parameter fingerprint so identical inline materials (builders create
+ * `new MeshBasicMaterial({color})` per call) share one batch even though
+ * they are separate instances.
+ */
 const interiorMaterialSignature = (material: Material): string => {
   if (
     !(material instanceof MeshStandardMaterial) &&

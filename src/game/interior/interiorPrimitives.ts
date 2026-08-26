@@ -153,7 +153,10 @@ export const createTiledFloorSurface = (
   return floor;
 };
 
-/** Scratch-free wall placement resolution shared by posters and art frames. */
+/**
+ * Resolves both poster and digital-frame placement against the same wall snap.
+ * Scratch-free wall placement resolution shared by posters and art frames.
+ */
 export const resolveWallPlacement = (
   surface: PosterSurface,
   worldPoint: Vector3,

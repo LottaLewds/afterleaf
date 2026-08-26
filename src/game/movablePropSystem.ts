@@ -60,6 +60,7 @@ import {
   type SpawnablePropAsset,
 } from "~/game/propTemplates";
 import {buildMergedStaticParts} from "~/game/staticModelBatching";
+import {createMovablePropRecord} from "~/game/movablePropRegistry";
 import {ShopArcadeCabinet} from "~/game/ShopArcadeCabinet";
 import {ShopAudioManager} from "~/game/ShopAudioManager";
 import type {BookPhysicsPose, ShopPhysicsWorld} from "~/game/ShopPhysicsWorld";
@@ -86,7 +87,6 @@ import type {DiscardBin} from "~/game/discardBin";
 import type {TvChannel} from "~/tv/protocol";
 
 const CARRIED_PROP_OPACITY = 0.32;
-const PROP_ROTATION_SNAP_STEP = MathUtils.degToRad(15);
 const PROP_SUPPORT_SNAP_DISTANCE = 0.65;
 const MIN_MODEL_COLLIDER_DIMENSION = 0.02;
 const MAX_USER_MODEL_PROP_COUNT = 512;
@@ -231,49 +231,6 @@ export class MovablePropLifecycle {
     this.#host = host;
   }
 
-  /** Drops the discard volume that lived inside a deleted trash can. */
-
-  #createMovablePropRecord(
-    registration: MovablePropRegistration,
-    currentPosition: Vector3,
-    currentRotation: Quaternion,
-  ): MovablePropRecord {
-    return {
-      currentPosition,
-      currentRotation,
-      ghostMaterialSwaps: [],
-      halfDepth: registration.depth / 2,
-      halfHeight: registration.height / 2,
-      halfWidth: registration.width / 2,
-      heldLocalPosition: registration.heldLocalPosition,
-      id: registration.id,
-      label: registration.label,
-      locked: registration.locked ?? false,
-      ...(registration.modelAnimationIndex === undefined
-        ? {}
-        : {modelAnimationIndex: registration.modelAnimationIndex}),
-      ...(registration.modelAnimations
-        ? {modelAnimations: registration.modelAnimations}
-        : {}),
-      ...(registration.modelAsset ? {modelAsset: registration.modelAsset} : {}),
-      ...(registration.modelBaseSize
-        ? {modelBaseSize: registration.modelBaseSize}
-        : {}),
-      ...(registration.modelMixer ? {modelMixer: registration.modelMixer} : {}),
-      ...(registration.modelScale === undefined
-        ? {}
-        : {modelScale: registration.modelScale}),
-      object: registration.object,
-      placementSupport: registration.placementSupport ?? registration.object,
-      rotationSnapStep:
-        registration.rotationSnapStep ?? PROP_ROTATION_SNAP_STEP,
-      ...(registration.spawnAssetId
-        ? {spawnAssetId: registration.spawnAssetId}
-        : {}),
-      spawned: registration.spawned ?? false,
-    };
-  }
-
   registerMovableProp(registration: MovablePropRegistration) {
     const host = this.#host;
     registration.object.updateWorldMatrix(true, false);
@@ -281,7 +238,7 @@ export class MovablePropLifecycle {
     const currentRotation = registration.object.getWorldQuaternion(
       new Quaternion(),
     );
-    const record = this.#createMovablePropRecord(
+    const record = createMovablePropRecord(
       registration,
       currentPosition,
       currentRotation,
@@ -1585,6 +1542,7 @@ export class MovablePropLifecycle {
     host.emitGameState();
   }
 
+  /** Drops the discard volume that lived inside a deleted trash can. */
   removeSpawnedProp(record: MovablePropRecord) {
     const host = this.#host;
     if (!record.spawned) return;

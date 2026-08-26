@@ -21,13 +21,6 @@
         "varsIgnorePattern": "^_"
       }
     ],
-    "eslint/complexity": [
-      "warn",
-      {
-        "max": 30,
-        "variant": "modified"
-      }
-    ],
     "typescript/no-explicit-any": "error",
     "typescript/no-floating-promises": "error",
     "typescript/no-non-null-assertion": "warn",
@@ -54,6 +47,18 @@
     "solid/no-innerhtml": "warn"
   },
   "overrides": [
+    {
+      "files": ["src/game/**/*.ts", "src/game/**/*.tsx"],
+      "rules": {
+        "eslint/complexity": [
+          "error",
+          {
+            "max": 20,
+            "variant": "modified"
+          }
+        ]
+      }
+    },
     {
       "files": ["**/*.test.ts", "**/*.test.tsx"],
       "rules": {
