@@ -179,7 +179,7 @@ export type MovablePropLifecycleHost = {
   televisions: () => ShopTelevision[];
   throwVelocity: () => Vector3;
   tvChannels: () => readonly TvChannel[];
-  tvScreenLighting: () => () => boolean;
+  tvScreenLighting: () => boolean;
   updateHeldPhysicsTarget: () => void;
   upAxis: () => Vector3;
   viewDirection: () => Vector3;
@@ -641,7 +641,7 @@ export class MovablePropLifecycle {
       onChannelChange: host.markTelevisionSettingChanged,
       onStateChange: () => host.emitGameState(),
       onVolumeChange: host.markTelevisionSettingChanged,
-      tvScreenLighting: host.tvScreenLighting(),
+      tvScreenLighting: host.tvScreenLighting,
       ...(initialChannelId === undefined ? {} : {initialChannelId}),
       ...(initialVolume === undefined ? {} : {initialVolume}),
     };

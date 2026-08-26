@@ -417,10 +417,7 @@ export class MangaDexClient {
         signal: AbortSignal.timeout(this.#requestTimeoutMilliseconds),
       });
       if (response.ok) return response;
-      if (
-        attempt >= this.#retryCount ||
-        (response.status < 429 && response.status < 500)
-      ) {
+      if (attempt >= this.#retryCount || response.status < 429) {
         throw new Error(
           `MangaDex request failed with HTTP ${response.status}: ${url}`,
         );

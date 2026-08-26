@@ -130,6 +130,22 @@ export class BookCarryActions {
     this.#host = host;
   }
 
+  #refreshAfterBookMutation(
+    clearShelfTarget = true,
+    flushWorldSave = false,
+  ): void {
+    const host = this.#host;
+    if (clearShelfTarget) host.clearShelfTargetSelection();
+    host.setTrashTargeted(false);
+    host.syncCarriedBookPresentation();
+    host.updateHeldPhysicsTarget();
+    host.syncInteractiveMeshes();
+    host.updateShelfTargetVisuals();
+    host.markWorldStateDirty();
+    host.emitGameState();
+    if (flushWorldSave) host.flushWorldSave();
+  }
+
   pickUpBook(publicationId: string): void {
     const host = this.#host;
     if (
@@ -227,14 +243,7 @@ export class BookCarryActions {
     };
     host.removeCarriedPublication(publicationId);
     this.discardError = undefined;
-    host.clearShelfTargetSelection();
-    host.setTrashTargeted(false);
-    host.syncCarriedBookPresentation();
-    host.updateHeldPhysicsTarget();
-    host.syncInteractiveMeshes();
-    host.updateShelfTargetVisuals();
-    host.markWorldStateDirty();
-    host.emitGameState();
+    this.#refreshAfterBookMutation();
   }
 
   applySpineShelfPlacements(
@@ -410,14 +419,7 @@ export class BookCarryActions {
     record.baseRotation.set(-Math.PI / 2, host.lookYaw(), -0.04);
     host.removeCarriedPublication(publicationId);
     this.discardError = undefined;
-    host.clearShelfTargetSelection();
-    host.setTrashTargeted(false);
-    host.syncCarriedBookPresentation();
-    host.updateHeldPhysicsTarget();
-    host.syncInteractiveMeshes();
-    host.updateShelfTargetVisuals();
-    host.markWorldStateDirty();
-    host.emitGameState();
+    this.#refreshAfterBookMutation();
   }
 
   async discardCarriedBook(): Promise<void> {
@@ -465,14 +467,7 @@ export class BookCarryActions {
         host.booksById().delete(publicationId);
       }
       host.removeCarriedPublication(publicationId);
-      host.setTrashTargeted(false);
-      host.syncCarriedBookPresentation();
-      host.updateHeldPhysicsTarget();
-      host.syncInteractiveMeshes();
-      host.updateShelfTargetVisuals();
-      host.markWorldStateDirty();
-      host.emitGameState();
-      host.flushWorldSave();
+      this.#refreshAfterBookMutation(false, true);
       return;
     }
     host.scene().attach(record.mesh);
@@ -485,15 +480,7 @@ export class BookCarryActions {
       startRotation: record.mesh.quaternion.clone(),
     };
     host.removeCarriedPublication(publicationId);
-    host.clearShelfTargetSelection();
-    host.setTrashTargeted(false);
-    host.syncCarriedBookPresentation();
-    host.updateHeldPhysicsTarget();
-    host.syncInteractiveMeshes();
-    host.updateShelfTargetVisuals();
-    host.markWorldStateDirty();
-    host.emitGameState();
-    host.flushWorldSave();
+    this.#refreshAfterBookMutation(true, true);
   }
 
   finishShelveAnimation(): void {

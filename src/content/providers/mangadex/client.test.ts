@@ -222,3 +222,45 @@ test("MangaDex client times out stalled requests", async () => {
 
   await expect(client.getAtHomeServer("chapter-id")).rejects.toThrow();
 });
+
+test("MangaDex client retries rate limits but not ordinary client errors", async () => {
+  let requests = 0;
+  const client = new MangaDexClient({
+    apiOrigin: "https://mangadex.test",
+    fetcher: stubFetch(async () => {
+      requests += 1;
+      if (requests === 1) return new Response("busy", {status: 429});
+      return response({
+        data: [],
+        limit: 100,
+        offset: 0,
+        total: 0,
+      });
+    }),
+    retryCount: 1,
+    sleep: async () => {},
+  });
+
+  await expect(
+    client.getChapterFeedPage("manga-id", ["english"], 1),
+  ).resolves.toMatchObject({
+    chapters: [],
+    total: 0,
+  });
+  expect(requests).toBe(2);
+
+  requests = 0;
+  const ordinaryClientError = new MangaDexClient({
+    apiOrigin: "https://mangadex.test",
+    fetcher: stubFetch(async () => {
+      requests += 1;
+      return new Response("missing", {status: 404});
+    }),
+    retryCount: 1,
+    sleep: async () => {},
+  });
+  await expect(
+    ordinaryClientError.getChapterFeedPage("manga-id", ["english"], 1),
+  ).rejects.toThrow("HTTP 404");
+  expect(requests).toBe(1);
+});

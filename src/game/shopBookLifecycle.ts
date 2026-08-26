@@ -119,54 +119,54 @@ export class ShopBookLifecycle {
     } else record.state = {status: savedBook.state};
   }
 
-  #syncBookItem(
+  #createOrReplaceBookRecord(
     item: CatalogItem,
     index: number,
-    savedBooks: Map<string, WorldBookSave> | undefined,
-    arrivalIds: ReadonlySet<string>,
-    retainedIds: Set<string>,
+    signature: string,
   ) {
-    if (retainedIds.has(item.id)) return;
-    retainedIds.add(item.id);
-    const signature = this.#host.bookSignature(item);
-    let record = this.#host.booksById().get(item.id);
-    let recordCreated = false;
-    if (record?.signature !== signature) {
-      const retainedGameplay: RetainedBookGameplay | undefined = record
-        ? {
-            basePosition: record.basePosition.clone(),
-            baseRotation: record.baseRotation.clone(),
-            shelfOffset: record.shelfOffset,
-            shelfPresentation: record.shelfPresentation,
-            slotIndex: record.slotIndex,
-            state: record.state,
-            taskBook: record.taskBook,
-          }
-        : undefined;
-      const initialSlotIndex = retainedGameplay?.slotIndex ?? index;
-      if (record) {
-        this.#host.physicsWorld().removeBook(item.id);
-        this.disposeBookRecord(record);
-      }
-      record = createBook(
-        item,
-        signature,
-        initialSlotIndex,
-        true,
-        retainedGameplay,
-        this.#placeBookOnFloor.bind(this) as (
-          record: BookRecord,
-          floorIndex: number,
-          seedValue: string,
-        ) => void,
-      );
-      this.#host.booksById().set(item.id, record);
-      recordCreated = true;
+    const current = this.#host.booksById().get(item.id);
+    if (current?.signature === signature)
+      return {record: current, recordCreated: false};
+    const retainedGameplay: RetainedBookGameplay | undefined = current
+      ? {
+          basePosition: current.basePosition.clone(),
+          baseRotation: current.baseRotation.clone(),
+          shelfOffset: current.shelfOffset,
+          shelfPresentation: current.shelfPresentation,
+          slotIndex: current.slotIndex,
+          state: current.state,
+          taskBook: current.taskBook,
+        }
+      : undefined;
+    const initialSlotIndex = retainedGameplay?.slotIndex ?? index;
+    if (current) {
+      this.#host.physicsWorld().removeBook(item.id);
+      this.disposeBookRecord(current);
     }
+    const record = createBook(
+      item,
+      signature,
+      initialSlotIndex,
+      true,
+      retainedGameplay,
+      this.#placeBookOnFloor.bind(this) as (
+        record: BookRecord,
+        floorIndex: number,
+        seedValue: string,
+      ) => void,
+    );
+    this.#host.booksById().set(item.id, record);
+    return {record, recordCreated: true};
+  }
 
-    const restoredFromSave = arrivalIds.has(item.id)
-      ? undefined
-      : savedBooks?.get(item.id);
+  #syncBookPresentation(
+    item: CatalogItem,
+    index: number,
+    record: BookRecord,
+    recordCreated: boolean,
+    restoredFromSave: WorldBookSave | undefined,
+    arrivalIds: ReadonlySet<string>,
+  ) {
     if (restoredFromSave) this.applySavedBook(record, restoredFromSave);
     else if (recordCreated && arrivalIds.has(item.id))
       this.#placeNewArrivalAboveFloor(record, item.id);
@@ -195,6 +195,34 @@ export class ShopBookLifecycle {
       );
       this.#host.scene().add(record.mesh);
     }
+  }
+
+  #syncBookItem(
+    item: CatalogItem,
+    index: number,
+    savedBooks: Map<string, WorldBookSave> | undefined,
+    arrivalIds: ReadonlySet<string>,
+    retainedIds: Set<string>,
+  ) {
+    if (retainedIds.has(item.id)) return;
+    retainedIds.add(item.id);
+    const signature = this.#host.bookSignature(item);
+    const {record, recordCreated} = this.#createOrReplaceBookRecord(
+      item,
+      index,
+      signature,
+    );
+    const restoredFromSave = arrivalIds.has(item.id)
+      ? undefined
+      : savedBooks?.get(item.id);
+    this.#syncBookPresentation(
+      item,
+      index,
+      record,
+      recordCreated,
+      restoredFromSave,
+      arrivalIds,
+    );
     this.#syncBookPhysics(item.id, record);
   }
 

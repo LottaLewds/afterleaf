@@ -79,10 +79,16 @@ import {
   bookSignature as catalogBookSignature,
   ShopCatalogSync,
 } from "~/game/shopCatalogSync";
-import {ShopInteractionCoordinator} from "~/game/shopInteractionCoordinator";
+import {
+  createShopInteractionCommands,
+  type ShopInteractionCommands,
+} from "~/game/shopInteractionCommands";
 import {ShopViewportController} from "~/game/shopViewportController";
 import {ShopShaderWarmup} from "~/game/shopShaderWarmup";
-import {ShopTargetingController} from "~/game/shopTargetingController";
+import {
+  createShopTargetState,
+  type ShopTargetState,
+} from "~/game/shopTargetState";
 import {ShopArcadeSessionController} from "~/game/shopArcadeSessionController";
 
 import type {CatalogAtlases, CatalogIdentity, CatalogItem} from "~/catalog";
@@ -246,8 +252,8 @@ export class ShopScene {
   readonly #interiorAssets: ShopInteriorAssets;
   readonly #mediaController: ShopMediaController;
   readonly #catalogSync: ShopCatalogSync;
-  readonly #interactionCoordinator: ShopInteractionCoordinator;
-  readonly #targetingController: ShopTargetingController;
+  readonly #interactionCommands: ShopInteractionCommands;
+  readonly #targetState: ShopTargetState;
   readonly #bookTextures: BookTextureRuntime;
   readonly #gameStateEmitter = new GameStateEmitter();
   readonly #inspection: InspectionController;
@@ -500,7 +506,7 @@ export class ShopScene {
       disposed: () => this.#disposed,
       physicsTransform: () => this.#physicsTransform,
       setHoveredPublicationId: (publicationId) =>
-        this.#targetingController.setHoveredPublicationId(publicationId),
+        this.#targetState.setHoveredPublicationId(publicationId),
       onSelectPublication: this.#onSelectPublication,
       initialPageIndex: (publicationId) =>
         this.#initialPageIndex(publicationId),
@@ -536,48 +542,32 @@ export class ShopScene {
     this.#bookActions = new BookCarryActions(this.#createBookCarryHost());
     this.#scanner = new InteractionScanner(this.#createScannerHost());
     this.#worldPersistence = new ShopWorldPersistence({
+      ...this.#createWorldCapabilities(),
       applyPlayerPose: (position, quaternion) =>
         this.#applyPlayerPose(position, quaternion),
       artFrames: () => this.#artFrames,
       booksById: () => this.#booksById,
-      camera: () => this.#camera,
       catalogAvailable: () => this.#catalogAvailable(),
       catalogIdentity: () => this.#catalogIdentity(),
       discardedPublicationIds: () => this.#bookActions.discardedPublicationIds,
       discardBin: () => this.#discardBin,
-      disposed: () => this.#disposed,
       movableProps: () => this.#props,
       onWorldSave: options.onWorldSave,
       pendingSave: options.initialWorldSave,
-      physicsWorld: () => this.#physicsWorld,
       posters: () => this.#posters,
       signs: () => this.#signs,
       worldSaveWritable: () => options.worldSaveWritable(),
     });
     this.#bookLifecycle = new ShopBookLifecycle({
+      ...this.#createBookCapabilities(),
       bookActions: () => this.#bookActions,
       bookSignature: catalogBookSignature,
-      bookTextures: () => this.#bookTextures,
-      booksById: () => this.#booksById,
-      camera: () => this.#camera,
-      carriedPublicationId: () => this.#carriedPublicationId,
-      carriedPublicationIds: () => this.#carriedPublicationIds,
-      emitGameState: () => this.#emitGameState(),
-      heldLocalPosition: () => this.#heldLocalPosition,
-      heldLocalRotation: () => this.#heldLocalRotation,
       hoveredPublicationId: () => this.#hoveredPublicationId,
       inspection: () => this.#inspection,
       lastSelectedPublicationId: () => this.#lastSelectedPublicationId,
-      markWorldStateDirty: () => this.#worldPersistence.markDirty(),
       newPublicationIds: () => this.#newPublicationIds(),
       observedArrivalIds: this.#observedArrivalIds,
-      physicsPose: () => this.#physicsPose,
-      physicsPoseEuler: () => this.#physicsPoseEuler,
-      physicsPosePosition: () => this.#physicsPosePosition,
-      physicsPoseRotation: () => this.#physicsPoseRotation,
-      physicsWorld: () => this.#physicsWorld,
       scanner: () => this.#scanner,
-      scene: () => this.#scene,
       setCarriedPublicationId: (publicationId) => {
         this.#carriedPublicationId = publicationId;
       },
@@ -591,12 +581,11 @@ export class ShopScene {
       takeCompatibleWorldSave: () =>
         this.#worldPersistence.takeCompatibleWorldSave(),
       ungroupedShelfHoverMeshes: this.#ungroupedShelfHoverMeshes,
-      updateHeldPhysicsTarget: () => this.#updateHeldPhysicsTarget(),
     });
     this.#bookPresentation = new ShopBookPresentation(
       this.#createBookPresentationHost(),
     );
-    this.#interactionCoordinator = new ShopInteractionCoordinator({
+    this.#interactionCommands = createShopInteractionCommands({
       artFrames: () => this.#artFrames,
       bookActions: () => this.#bookActions,
       bookTextures: () => this.#bookTextures,
@@ -622,7 +611,7 @@ export class ShopScene {
       televisionTargeted: () => this.#televisionTargeted,
       updateHeldPhysicsTarget: () => this.#updateHeldPhysicsTarget(),
     });
-    this.#targetingController = new ShopTargetingController({
+    this.#targetState = createShopTargetState({
       bookLifecycle: () => this.#bookLifecycle,
       bookTextures: () => this.#bookTextures,
       booksById: () => this.#booksById,
@@ -655,7 +644,7 @@ export class ShopScene {
       },
     });
     this.#inputController = new ShopInputController({
-      abortSignal: this.#abortController.signal,
+      ...this.#createInputCapabilities(),
       activeArcadeCabinet: () =>
         this.#arcadeSessionController.activeArcadeCabinet,
       arcadeStatusForUi: () =>
@@ -663,34 +652,26 @@ export class ShopScene {
       artFrames: () => this.#artFrames,
       bookActions: () => this.#bookActions,
       booksById: () => this.#booksById,
-      camera: () => this.#camera,
-      canvas: () => this.#canvas,
       carriedPublicationId: () => this.#carriedPublicationId,
       carriedPublicationIds: () => this.#carriedPublicationIds,
       cycleCarriedBook: (direction) =>
-        this.#interactionCoordinator.cycleCarriedBook(direction),
-      disposed: () => this.#disposed,
-      emitGameState: () => this.#emitGameState(),
+        this.#interactionCommands.cycleCarriedBook(direction),
       gamepadLookSensitivity: () => this.#gamepadLookSensitivity(),
       handleImagePaste: (event) =>
         this.#mediaController.handleImagePaste(event),
       hoveredPublicationId: () => this.#hoveredPublicationId,
-      input: () => this.#input,
       interact: (allowNonBookPropPickup) =>
-        this.#interactionCoordinator.interact(allowNonBookPropPickup),
+        this.#interactionCommands.interact(allowNonBookPropPickup),
       inspection: () => this.#inspection,
-      markWorldStateDirty: () => this.#worldPersistence.markDirty(),
       mouseSensitivity: () => this.#mouseSensitivity(),
       onMediaChannelCreateRequest: this.#onMediaChannelCreateRequest,
-      paused: () => this.#paused(),
-      physicsWorld: () => this.#physicsWorld,
       posters: () => this.#posters,
       props: () => this.#props,
       refreshMediaCatalogIfActive: () =>
         this.#mediaController.refreshIfActive(),
       scanner: () => this.#scanner,
       setArcadeTargeted: (cabinet) =>
-        this.#targetingController.setArcadeTargeted(cabinet),
+        this.#targetState.setArcadeTargeted(cabinet),
       setChannelEditorDigitalArtFrameId: (id) => {
         this.#channelEditorDigitalArtFrameId = id;
       },
@@ -698,20 +679,19 @@ export class ShopScene {
         this.#channelEditorTelevision = television;
       },
       setHoveredPublicationId: (publicationId) =>
-        this.#targetingController.setHoveredPublicationId(publicationId),
-      setPropTargeted: (record) =>
-        this.#targetingController.setPropTargeted(record),
+        this.#targetState.setHoveredPublicationId(publicationId),
+      setPropTargeted: (record) => this.#targetState.setPropTargeted(record),
       setShelfPresentation: (presentation) => {
         this.#shelfPresentation = presentation;
       },
       setTelevisionTargeted: (targeted, interaction, television) =>
-        this.#targetingController.setTelevisionTargeted(
+        this.#targetState.setTelevisionTargeted(
           targeted,
           interaction,
           television,
         ),
       setTrashTargeted: (targeted) =>
-        this.#targetingController.setTrashTargeted(targeted),
+        this.#targetState.setTrashTargeted(targeted),
       signs: () => this.#signs,
       shelfPresentation: () => this.#shelfPresentation,
       targetedArcadeCabinet: () => this.#targetedArcadeCabinet,
@@ -778,18 +758,9 @@ export class ShopScene {
       tvVideos: () => this.#tvVideos,
     };
     this.#posters = new PosterSystem({
-      abortSignal: this.#abortController.signal,
-      camera: this.#camera,
-      emitGameState: () => this.#emitGameState(),
+      ...this.#createMediaCapabilities(),
       importPoster: options.importPoster,
-      isDisposed: () => this.#disposed,
-      isPointerLocked: () => this.#inputController.state.pointerLocked,
-      markWorldStateDirty: () => this.#worldPersistence.markDirty(),
       maxTextureAnisotropy: this.#renderer.capabilities.getMaxAnisotropy(),
-      posterRaycastMeshes: this.#posterRaycastMeshes,
-      raycaster: this.#raycaster,
-      scene: this.#scene,
-      textureLoader: this.#textureLoader,
     });
     this.#tvVideos = new TvVideoImporter({
       abortSignal: this.#abortController.signal,
@@ -799,20 +770,12 @@ export class ShopScene {
     });
     this.#artFrames = new ArtFrameSystem(
       {
-        abortSignal: this.#abortController.signal,
-        camera: this.#camera,
-        emitGameState: () => this.#emitGameState(),
+        ...this.#createMediaCapabilities(),
         getPosterSurface: (surfaceId) => this.#posters.surfaces.get(surfaceId),
         hasPosterPlacement: () => this.#posters.placement !== undefined,
         importArtFrameImage: options.importArtFrameImage,
         importPoster: options.importPoster,
-        isDisposed: () => this.#disposed,
-        isPointerLocked: () => this.#inputController.state.pointerLocked,
-        markWorldStateDirty: () => this.#worldPersistence.markDirty(),
-        posterRaycastMeshes: this.#posterRaycastMeshes,
-        raycaster: this.#raycaster,
         refreshMediaCatalog: () => this.#mediaController.refresh(),
-        scene: this.#scene,
       },
       this.#artFrameTextures,
     );
@@ -845,10 +808,8 @@ export class ShopScene {
       textureLoader: () => this.#textureLoader,
     });
     this.#mediaController = new ShopMediaController({
-      abortSignal: this.#abortController.signal,
+      ...this.#createMediaCapabilities(),
       artFrames: () => this.#artFrames,
-      disposed: () => this.#disposed,
-      emitGameState: () => this.#emitGameState(),
       importArtFrameImage: options.importArtFrameImage,
       importPoster: options.importPoster,
       loadMediaCatalog:
@@ -870,13 +831,11 @@ export class ShopScene {
       tvVideos: () => this.#tvVideos,
     });
     this.#playerMovementController = new ShopPlayerMovement({
-      camera: () => this.#camera,
+      ...this.#createWorldCapabilities(),
       collisionWorld: SHOP_COLLISION_WORLD,
       input: () => this.#input,
       inputState: () => this.#inputController.state,
       inspectionSpread: () => this.#inspection.inspectionMode === "spread",
-      markWorldStateDirty: () => this.#worldPersistence.markDirty(),
-      physicsWorld: () => this.#physicsWorld,
       playerVelocity: () => this.#playerVelocity,
     });
     this.#catalogSync = new ShopCatalogSync({
@@ -1531,16 +1490,66 @@ export class ShopScene {
     this.#bookPresentation.updateHeldPhysicsTarget();
   }
 
-  #createBookPresentationHost(): ShopBookPresentationHost {
+  #createWorldCapabilities() {
     return {
-      bookActions: () => this.#bookActions,
-      bookLifecycle: () => this.#bookLifecycle,
-      booksById: () => this.#booksById,
       camera: () => this.#camera,
-      carriedPublicationIds: () => this.#carriedPublicationIds,
+      disposed: () => this.#disposed,
       emitGameState: () => this.#emitGameState(),
+      markWorldStateDirty: () => this.#worldPersistence.markDirty(),
+      physicsWorld: () => this.#physicsWorld,
+      scene: () => this.#scene,
+    };
+  }
+
+  #createMediaCapabilities() {
+    return {
+      abortSignal: this.#abortController.signal,
+      camera: this.#camera,
+      disposed: () => this.#disposed,
+      emitGameState: () => this.#emitGameState(),
+      isDisposed: () => this.#disposed,
+      isPointerLocked: () => this.#inputController.state.pointerLocked,
+      markWorldStateDirty: () => this.#worldPersistence.markDirty(),
+      posterRaycastMeshes: this.#posterRaycastMeshes,
+      raycaster: this.#raycaster,
+      scene: this.#scene,
+      textureLoader: this.#textureLoader,
+    };
+  }
+
+  #createInputCapabilities() {
+    return {
+      ...this.#createWorldCapabilities(),
+      abortSignal: this.#abortController.signal,
+      canvas: () => this.#canvas,
+      input: () => this.#input,
+      paused: () => this.#paused(),
+    };
+  }
+
+  #createBookCapabilities() {
+    return {
+      ...this.#createWorldCapabilities(),
+      bookTextures: () => this.#bookTextures,
+      booksById: () => this.#booksById,
+      carriedPublicationId: () => this.#carriedPublicationId,
+      carriedPublicationIds: () => this.#carriedPublicationIds,
       heldLocalPosition: () => this.#heldLocalPosition,
       heldLocalRotation: () => this.#heldLocalRotation,
+      physicsPose: () => this.#physicsPose,
+      physicsPoseEuler: () => this.#physicsPoseEuler,
+      physicsPosePosition: () => this.#physicsPosePosition,
+      physicsPoseRotation: () => this.#physicsPoseRotation,
+      physicsTransform: () => this.#physicsTransform,
+      updateHeldPhysicsTarget: () => this.#updateHeldPhysicsTarget(),
+    };
+  }
+
+  #createBookPresentationHost(): ShopBookPresentationHost {
+    return {
+      ...this.#createBookCapabilities(),
+      bookActions: () => this.#bookActions,
+      bookLifecycle: () => this.#bookLifecycle,
       heldTargetPose: () => this.#heldTargetPose,
       heldTargetPosition: () => this.#heldTargetPosition,
       heldTargetRotation: () => this.#heldTargetRotation,
@@ -1548,11 +1557,6 @@ export class ShopScene {
       input: () => this.#input,
       inspection: () => this.#inspection,
       markScannerDirty: () => this.#scanner.markDirty(),
-      markWorldStateDirty: () => this.#worldPersistence.markDirty(),
-      physicsPoseEuler: () => this.#physicsPoseEuler,
-      physicsTransform: () => this.#physicsTransform,
-      physicsWorld: () => this.#physicsWorld,
-      scene: () => this.#scene,
       setInteractiveMeshes: () => this.#bookLifecycle.syncInteractiveMeshes(),
       setPhysicsPose: (position, rotation) =>
         this.#bookLifecycle.setPhysicsPose(position, rotation),
@@ -1562,41 +1566,35 @@ export class ShopScene {
 
   #createMovablePropLifecycleHost(): MovablePropLifecycleHost {
     return {
+      ...this.#createWorldCapabilities(),
       activeArcadeCabinet: () =>
         this.#arcadeSessionController.activeArcadeCabinet,
       arcadeCabinets: () => this.#arcadeSessionController.cabinets,
       audioManager: () => this.#audioManager,
-      camera: () => this.#camera,
       carriedPublicationId: () => this.#carriedPublicationId,
       discardBin: () => this.#discardBin,
-      disposed: () => this.#disposed,
-      emitGameState: () => this.#emitGameState(),
       enterArcadeBrowsing: (cabinet) =>
         this.#arcadeSessionController.enterArcadeBrowsing(cabinet),
       heldTargetPosition: () => this.#heldTargetPosition,
       markTelevisionSettingChanged: () => this.#worldPersistence.markDirty(),
-      markWorldStateDirty: () => this.#worldPersistence.markDirty(),
       pendingWorldSave: () => this.#worldPersistence.pendingWorldSave(),
       physicsPose: () => this.#physicsPose,
       physicsPosePosition: () => this.#physicsPosePosition,
-      physicsWorld: () => this.#physicsWorld,
       playerVelocity: () => this.#playerVelocity,
       savedTelevisionChannels: () =>
         this.#worldPersistence.savedTelevisionChannels(),
       savedTelevisionVolumes: () =>
         this.#worldPersistence.savedTelevisionVolumes(),
-      scene: () => this.#scene,
       setActiveArcadeCabinet: (cabinet) => {
         this.#arcadeSessionController.activeArcadeCabinet = cabinet;
       },
       setArcadeTargeted: (cabinet) =>
-        this.#targetingController.setArcadeTargeted(cabinet),
+        this.#targetState.setArcadeTargeted(cabinet),
       setHoveredPublicationId: (publicationId) =>
-        this.#targetingController.setHoveredPublicationId(publicationId),
-      setPropTargeted: (record) =>
-        this.#targetingController.setPropTargeted(record),
+        this.#targetState.setHoveredPublicationId(publicationId),
+      setPropTargeted: (record) => this.#targetState.setPropTargeted(record),
       setTelevisionTargeted: (targeted) =>
-        this.#targetingController.setTelevisionTargeted(targeted),
+        this.#targetState.setTelevisionTargeted(targeted),
       targetedArcadeCabinet: () => this.#targetedArcadeCabinet,
       targetedProp: () => this.#targetedProp,
       targetedTelevision: () => this.#targetedTelevision,
@@ -1604,7 +1602,7 @@ export class ShopScene {
       televisions: () => this.#televisions,
       throwVelocity: () => this.#throwVelocity,
       tvChannels: () => this.#mediaController.tvChannels(),
-      tvScreenLighting: () => this.#tvScreenLighting,
+      tvScreenLighting: this.#tvScreenLighting,
       updateHeldPhysicsTarget: () => this.#updateHeldPhysicsTarget(),
       upAxis: () => this.#upAxis,
       viewDirection: () => this.#viewDirection,
@@ -1635,19 +1633,18 @@ export class ShopScene {
       posters: () => this.#posters,
       raycaster: () => this.#raycaster,
       setArcadeTargeted: (cabinet) =>
-        this.#targetingController.setArcadeTargeted(cabinet),
+        this.#targetState.setArcadeTargeted(cabinet),
       setHoveredPublicationId: (publicationId) =>
-        this.#targetingController.setHoveredPublicationId(publicationId),
-      setPropTargeted: (record) =>
-        this.#targetingController.setPropTargeted(record),
+        this.#targetState.setHoveredPublicationId(publicationId),
+      setPropTargeted: (record) => this.#targetState.setPropTargeted(record),
       setTelevisionTargeted: (targeted, interaction, television) =>
-        this.#targetingController.setTelevisionTargeted(
+        this.#targetState.setTelevisionTargeted(
           targeted,
           interaction,
           television,
         ),
       setTrashTargeted: (targeted) =>
-        this.#targetingController.setTrashTargeted(targeted),
+        this.#targetState.setTrashTargeted(targeted),
       shelfHoverMeshesByShelf: () => this.#shelfHoverMeshesByShelf,
       shelfPresentation: () => this.#shelfPresentation,
       shelfTargetMeshes: () => this.#shelfTargetMeshes,
@@ -1663,13 +1660,9 @@ export class ShopScene {
 
   #createBookCarryHost(): BookCarryHost {
     return {
+      ...this.#createBookCapabilities(),
       applyBookStates: () => this.#bookLifecycle.applyBookStates(),
-      bookTextures: () => this.#bookTextures,
-      booksById: () => this.#booksById,
-      camera: () => this.#camera,
       carriedProp: () => this.#props.carriedProp,
-      carriedPublicationId: () => this.#carriedPublicationId,
-      carriedPublicationIds: () => this.#carriedPublicationIds,
       clearShelfTargetSelection: () => {
         this.#scanner.shelfTargeted = false;
         this.#scanner.shelfTargetSelection = undefined;
@@ -1677,29 +1670,21 @@ export class ShopScene {
       discardBinGroup: () => this.#discardBin.group,
       disposeBookRecord: (record) =>
         this.#bookLifecycle.disposeBookRecord(record),
-      disposed: () => this.#disposed,
-      emitGameState: () => this.#emitGameState(),
       flushWorldSave: () => this.#worldPersistence.flush(),
       heldTargetPose: () => this.#heldTargetPose,
       hoveredPublicationId: () => this.#hoveredPublicationId,
       inspectionMode: () => this.#inspection.inspectionMode,
       lookYaw: () => this.#inputController.state.lookAngles.yaw,
-      markWorldStateDirty: () => this.#worldPersistence.markDirty(),
       movableProps: () => this.#props.records,
       onDiscardPublication: () => this.#onDiscardPublication,
-      physicsPose: () => this.#physicsPose,
-      physicsPosePosition: () => this.#physicsPosePosition,
-      physicsPoseRotation: () => this.#physicsPoseRotation,
-      physicsWorld: () => this.#physicsWorld,
       playerVelocity: () => this.#playerVelocity,
       removeCarriedPublication: (publicationId) =>
         this.#bookLifecycle.removeCarriedPublication(publicationId),
-      scene: () => this.#scene,
       setCarriedPublicationId: (publicationId) => {
         this.#carriedPublicationId = publicationId;
       },
       setHoveredPublicationId: (publicationId) =>
-        this.#targetingController.setHoveredPublicationId(publicationId),
+        this.#targetState.setHoveredPublicationId(publicationId),
       setPhysicsPose: (position, rotation) =>
         this.#bookLifecycle.setPhysicsPose(position, rotation),
       setShelfPosition: (record) =>
@@ -1710,7 +1695,7 @@ export class ShopScene {
         this.#shelfPresentation = presentation;
       },
       setTrashTargeted: (targeted) =>
-        this.#targetingController.setTrashTargeted(targeted),
+        this.#targetState.setTrashTargeted(targeted),
       shelfTargetSelection: () => this.#scanner.shelfTargetSelection,
       spineShelfDefinitions: () => this.#spineShelfDefinitions,
       syncCarriedBookPresentation: () =>
@@ -1719,7 +1704,6 @@ export class ShopScene {
       targetedTrashBinId: () => this.#scanner.targetedTrashBinId,
       throwVelocity: () => this.#throwVelocity,
       trashTargeted: () => this.#scanner.trashTargeted,
-      updateHeldPhysicsTarget: () => this.#updateHeldPhysicsTarget(),
       updateShelfTargetVisuals: () => this.#scanner.updateShelfTargetVisuals(),
       viewDirection: () => this.#viewDirection,
       writeHeldBookTargetPose: (index, publicationId) =>

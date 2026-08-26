@@ -14,7 +14,7 @@ import type {
 } from "~/game/ShopTelevision";
 import type {MovablePropRecord} from "~/game/shopTypes";
 
-export type ShopInteractionCoordinatorHost = {
+export type ShopInteractionCommandsHost = {
   artFrames: () => ArtFrameSystem;
   bookActions: () => BookCarryActions;
   bookTextures: () => BookTextureRuntime;
@@ -38,16 +38,17 @@ export type ShopInteractionCoordinatorHost = {
   updateHeldPhysicsTarget: () => void;
 };
 
+export type ShopInteractionCommands = {
+  cycleCarriedBook: (direction: number) => boolean;
+  interact: (allowNonBookPropPickup?: boolean) => void;
+};
+
 /** Routes player interaction to the already-owned book, prop, and media systems. */
-export class ShopInteractionCoordinator {
-  readonly #host: ShopInteractionCoordinatorHost;
-
-  constructor(host: ShopInteractionCoordinatorHost) {
-    this.#host = host;
-  }
-
-  cycleCarriedBook(direction: number) {
-    const host = this.#host;
+export const createShopInteractionCommands = (
+  commandHost: ShopInteractionCommandsHost,
+): ShopInteractionCommands => {
+  const cycleCarriedBook = (direction: number) => {
+    const host = commandHost;
     if (
       direction === 0 ||
       host.bookActions().discardBusy ||
@@ -75,10 +76,10 @@ export class ShopInteractionCoordinator {
     host.scanner().update();
     host.emitGameState();
     return true;
-  }
+  };
 
-  #interactPlacement(): boolean {
-    const host = this.#host;
+  const interactPlacement = (): boolean => {
+    const host = commandHost;
     if (host.artFrames().placement) {
       host.artFrames().placeDigitalArtFrame();
       return true;
@@ -92,10 +93,10 @@ export class ShopInteractionCoordinator {
       return true;
     }
     return false;
-  }
+  };
 
-  #interactCarriedBook(): boolean {
-    const host = this.#host;
+  const interactCarriedBook = (): boolean => {
+    const host = commandHost;
     if (!host.carriedPublicationId()) return false;
     const hoveredPublicationId = host.hoveredPublicationId();
     if (hoveredPublicationId)
@@ -105,10 +106,10 @@ export class ShopInteractionCoordinator {
     else if (host.scanner().shelfTargeted)
       host.bookActions().shelveCarriedBook();
     return true;
-  }
+  };
 
-  #interactTelevision(allowNonBookPropPickup: boolean): boolean {
-    const host = this.#host;
+  const interactTelevision = (allowNonBookPropPickup: boolean): boolean => {
+    const host = commandHost;
     if (!host.televisionTargeted()) return false;
     const targetedTelevision = host.targetedTelevision();
     const televisionProp = targetedTelevision
@@ -120,18 +121,18 @@ export class ShopInteractionCoordinator {
     }
     targetedTelevision?.interactTargeted();
     return true;
-  }
+  };
 
-  #interactTargetedProp(allowNonBookPropPickup: boolean): boolean {
-    const host = this.#host;
+  const interactTargetedProp = (allowNonBookPropPickup: boolean): boolean => {
+    const host = commandHost;
     const targetedProp = host.targetedProp();
     if (!targetedProp) return false;
     if (allowNonBookPropPickup) host.props().pickUpProp(targetedProp);
     return true;
-  }
+  };
 
-  #interactDigitalArtFrame(): boolean {
-    const host = this.#host;
+  const interactDigitalArtFrame = (): boolean => {
+    const host = commandHost;
     const targetedArtFrameId = host.artFrames().targetedId;
     if (!targetedArtFrameId) return false;
     const record = host.artFrames().records.get(targetedArtFrameId);
@@ -157,10 +158,10 @@ export class ShopInteractionCoordinator {
           record.frame.intervalSeconds(),
         );
     return true;
-  }
+  };
 
-  #interactPoster(): boolean {
-    const host = this.#host;
+  const interactPoster = (): boolean => {
+    const host = commandHost;
     const targetedPosterId = host.posters().targetedId;
     if (!targetedPosterId) return false;
     const record = host.posters().records.get(targetedPosterId);
@@ -177,28 +178,30 @@ export class ShopInteractionCoordinator {
           record.rotation,
         );
     return true;
-  }
+  };
 
-  interact(allowNonBookPropPickup = true) {
-    const host = this.#host;
+  const interact = (allowNonBookPropPickup = true) => {
+    const host = commandHost;
     if (host.bookActions().discardBusy || host.bookActions().shelveAnimation)
       return;
-    if (this.#interactPlacement() || this.#interactCarriedBook()) return;
+    if (interactPlacement() || interactCarriedBook()) return;
     const targetedArcadeCabinet = host.targetedArcadeCabinet();
     if (targetedArcadeCabinet) {
       targetedArcadeCabinet.interact();
       return;
     }
-    if (this.#interactTelevision(allowNonBookPropPickup)) return;
-    if (this.#interactTargetedProp(allowNonBookPropPickup)) return;
+    if (interactTelevision(allowNonBookPropPickup)) return;
+    if (interactTargetedProp(allowNonBookPropPickup)) return;
     if (host.signs().targetedKey !== undefined) {
       host.signs().requestEdit();
       return;
     }
-    if (this.#interactDigitalArtFrame()) return;
-    if (this.#interactPoster()) return;
+    if (interactDigitalArtFrame()) return;
+    if (interactPoster()) return;
     const hoveredPublicationId = host.hoveredPublicationId();
     if (hoveredPublicationId)
       host.bookActions().pickUpBook(hoveredPublicationId);
-  }
-}
+  };
+
+  return {cycleCarriedBook, interact};
+};
