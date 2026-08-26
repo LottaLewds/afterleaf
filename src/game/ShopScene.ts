@@ -448,7 +448,7 @@ export class ShopScene {
   readonly #textureLoader = new TextureLoader();
   /**
    * Lazily initialized because support detection needs the renderer. Serves
-   * the basis transcoder from the committed public/basis/ directory.
+   * the basis transcoder from the Afterleaf-managed runtime route.
    */
   #ktx2Loader: KTX2Loader | undefined;
   readonly #televisions: ShopTelevision[] = [];

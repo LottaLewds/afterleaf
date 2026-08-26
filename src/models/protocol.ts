@@ -1,4 +1,4 @@
-export const MODEL_MEDIA_ENDPOINT_PREFIX = "/models/media/";
+export const MODEL_MEDIA_ENDPOINT_PREFIX = "/api/media/models/";
 const MODEL_MEDIA_COMPATIBILITY_VERSION = 1;
 
 export type ModelAsset = {

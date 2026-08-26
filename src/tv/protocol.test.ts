@@ -27,10 +27,10 @@ describe("TV protocol", () => {
 
   test("rejects traversal and malformed media paths", () => {
     expect(
-      parseTvMediaRequest("/__afterleaf/tv/channels/afterleaf/..%2Fsecret.mp4"),
+      parseTvMediaRequest("/api/media/tv/channels/afterleaf/..%2Fsecret.mp4"),
     ).toEqual({kind: "invalid"});
     expect(
-      parseTvMediaRequest("/__afterleaf/tv/channels/afterleaf/nested/file.mp4"),
+      parseTvMediaRequest("/api/media/tv/channels/afterleaf/nested/file.mp4"),
     ).toEqual({kind: "invalid"});
     expect(parseTvMediaRequest("/unrelated")).toEqual({kind: "unscoped"});
   });
@@ -45,7 +45,7 @@ describe("TV protocol", () => {
             videos: [
               {
                 id: "sample.mp4",
-                url: "/__afterleaf/tv/channels/afterleaf/sample.mp4",
+                url: "/api/media/tv/channels/afterleaf/sample.mp4",
               },
             ],
           },
@@ -95,7 +95,7 @@ describe("TV protocol", () => {
             {
               activePicture: {height: 1, width: 0.75, x: 0.125, y: 0},
               id: "sample.mp4",
-              url: "/__afterleaf/tv/channels/afterleaf/sample.mp4",
+              url: "/api/media/tv/channels/afterleaf/sample.mp4",
             },
           ],
         },
@@ -115,7 +115,7 @@ describe("TV protocol", () => {
               {
                 activePicture: {height: 1, width: 1.1, x: 0, y: 0},
                 id: "sample.mp4",
-                url: "/__afterleaf/tv/channels/afterleaf/sample.mp4",
+                url: "/api/media/tv/channels/afterleaf/sample.mp4",
               },
             ],
           },

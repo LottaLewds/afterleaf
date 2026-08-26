@@ -3,7 +3,7 @@ import {describe, expect, test} from "bun:test";
 import {createReaderPagePreloadPlan} from "~/reader/pagePreloadPlan";
 
 const sparsePageUrl = (pageIndex: number) =>
-  `/api/library/publications/nhentai-42/pages/${pageIndex + 1}`;
+  `/api/media/library/pages/nhentai-42/${pageIndex + 1}`;
 
 describe("reader page preload planning", () => {
   test("HTTP preloads six pages in each direction without GPU prefetching them", () => {
@@ -53,7 +53,7 @@ describe("reader page preload planning", () => {
 
   test("keeps the wider local-page GPU preload window", () => {
     const localPageUrl = (pageIndex: number) =>
-      `/__afterleaf/active-library/pages/${pageIndex + 1}.webp`;
+      `/api/media/library/publications/local-cbz/pages/${pageIndex + 1}.webp`;
     const plan = createReaderPagePreloadPlan({
       pageCount: 12,
       pageIndex: 5,

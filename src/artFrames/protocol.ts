@@ -1,6 +1,7 @@
-export const ART_FRAME_CATALOG_ENDPOINT = "/art-frames/catalog.json";
+export const ART_FRAME_ROUTE_PREFIX = "/api/media/art-frames";
+export const ART_FRAME_CATALOG_ENDPOINT = `${ART_FRAME_ROUTE_PREFIX}/catalog.json`;
 export const ART_FRAME_IMPORT_ENDPOINT = "/api/art-frames";
-export const ART_FRAME_MEDIA_ENDPOINT_PREFIX = "/art-frames/render-v3/";
+export const ART_FRAME_MEDIA_ENDPOINT_PREFIX = `${ART_FRAME_ROUTE_PREFIX}/render-v3/`;
 export const MAX_ART_FRAME_IMPORT_BODY_BYTES = 64 * 1_024 * 1_024;
 
 export type ArtFrameImage = {

@@ -42,7 +42,7 @@ describe("TV video URL import", () => {
 
     expect(video).toEqual({
       id: "Night_Show_[42].mp4",
-      url: "/__afterleaf/tv/channels/late-night/Night_Show_%5B42%5D.mp4",
+      url: "/api/media/tv/channels/late-night/Night_Show_%5B42%5D.mp4",
     });
     expect(await readFile(resolve(root, "late-night", video.id), "utf8")).toBe(
       "video-content",

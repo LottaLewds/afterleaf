@@ -94,7 +94,7 @@ export class BookTextureRuntime {
     if (!pathname.endsWith(".ktx2"))
       return this.#host.textureLoader.loadAsync(url);
     this.#ktx2 ??= new KTX2Loader()
-      .setTranscoderPath("/basis/")
+      .setTranscoderPath("/api/runtime/basis/")
       .detectSupport(this.#host.renderer);
     const texture = await this.#ktx2.loadAsync(url);
     texture.colorSpace = SRGBColorSpace;

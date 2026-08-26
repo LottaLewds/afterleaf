@@ -38,7 +38,7 @@ describe("poster protocol", () => {
   });
 
   test("rejects traversal and catalog URL mismatches", () => {
-    expect(parsePosterMediaRequest("/posters/media/not-hex.webp")).toEqual({
+    expect(parsePosterMediaRequest("/api/media/posters/not-hex.webp")).toEqual({
       kind: "invalid",
     });
     expect(() =>

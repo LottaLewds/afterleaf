@@ -24,7 +24,7 @@ import path from "node:path";
 import {ARCADE_SYSTEMS} from "./systems";
 
 /** Same-origin mount point for the vendored EmulatorJS runtime. */
-export const EMULATOR_DATA_URL_PATH = "/emulatorjs/data/";
+export const EMULATOR_DATA_URL_PATH = "/api/runtime/emulatorjs/data/";
 
 /**
  * EmulatorJS resolves an `EJS_core` id onto a default libretro core
