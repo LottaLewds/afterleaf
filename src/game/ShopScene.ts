@@ -44,7 +44,6 @@ import {
   BOOK_UNDER_SHELF_RECOVERY_Y,
   BOOK_VOID_RECOVERY_Y,
 } from "~/game/bookTuning";
-import {createWorldSave} from "~/game/worldSaveSnapshot";
 import {physicalBookWidth} from "~/game/bookDimensions";
 import {
   INSPECTION_ACTION_CLOSE_SPEED,
@@ -109,6 +108,7 @@ import {
 } from "~/game/movablePropSystem";
 import {ShopInputController} from "~/game/shopInputController";
 import {ShopBookLifecycle} from "~/game/shopBookLifecycle";
+import {ShopWorldPersistence} from "~/game/shopWorldPersistence";
 
 import type {CatalogAtlases, CatalogIdentity, CatalogItem} from "~/catalog";
 import type {ArtFrameImage} from "~/artFrames/protocol";
@@ -139,7 +139,7 @@ import {
 } from "~/arcade/controllerMappings";
 import {findArcadeSystem} from "~/arcade/systems";
 import {type InteractionPromptToken} from "~/game/input/hints";
-import {SHOP_TV_CAVE, SHOP_UPPER_FLOOR_Y} from "~/game/shopExpansionLayout";
+import {SHOP_UPPER_FLOOR_Y} from "~/game/shopExpansionLayout";
 
 import {
   ShelfPresentation,
@@ -163,16 +163,7 @@ import {
 } from "~/game/ShopTelevision";
 import type {ShopMediaCatalog} from "~/game/shopMediaCatalog";
 import type {ModelAsset} from "~/models/protocol";
-import {
-  INITIAL_WORLD_SEEDING_VERSION,
-  worldSaveCanReconcileCatalog,
-  worldSaveMatchesCatalog,
-  worldSaveSeedingVersion,
-  type WorldModelPropSave,
-  type WorldSaveV1,
-  type WorldTelevisionChannels,
-  type WorldTelevisionVolumes,
-} from "~/game/worldSave";
+import type {WorldSaveV1} from "~/game/worldSave";
 import {
   getWideReaderPageIndices,
   readerPageSourceUrl,
@@ -204,8 +195,6 @@ const PLAYER_JUMP_BUFFER_MS = 160;
 const PLAYER_JUMP_COYOTE_MS = 160;
 const PLAYER_TERMINAL_VELOCITY = -24;
 const SHOP_MEDIA_CATALOG_REFRESH_INTERVAL_MS = 10_000;
-const WORLD_SAVE_INTERVAL_MS = 10_000;
-const WORLD_SAVE_IDLE_TIMEOUT_MS = 250;
 // Late async prop models (CRT GLBs, cabinets, lamps) usually finish well
 // within this window; the second compile pass sweeps up their programs.
 const SHADER_PRECOMPILE_LATE_DELAY_MS = 4_000;
@@ -217,12 +206,6 @@ const SHADER_PRECOMPILE_LATE_DELAY_MS = 4_000;
 /** Extra reach margin so culling never drops a bank the ray could graze. */
 const PROP_PLACEMENT_GRID_SIZE = 0.25;
 const PROP_PLACEMENT_HEIGHT_STEP = 0.125;
-const LEGACY_TV_CAVE_BOUNDS = Object.freeze({
-  maxX: 23.5,
-  maxZ: 11.5,
-  minX: 16.5,
-  minZ: 2.5,
-});
 const SHOP_COLLISION_WORLD: ShopCollisionWorld = {
   bounds: SHOP_BOUNDS,
   obstacles: SHOP_INTERIOR_FOOTPRINTS,
@@ -508,9 +491,6 @@ export class ShopScene {
     | ((publicationId: string, pageIndex: number) => void)
     | undefined;
   readonly #onSelectPublication: (publicationId: string) => void;
-  readonly #onWorldSave:
-    | ((save: WorldSaveV1) => boolean | void | Promise<boolean | void>)
-    | undefined;
   readonly #observedArrivalIds = new Set<string>();
   readonly #paused: () => boolean;
   readonly #mode: (() => UiMode) | undefined;
@@ -561,6 +541,7 @@ export class ShopScene {
   #carriedPublicationId: string | undefined;
   readonly #bookActions: BookCarryActions;
   readonly #bookLifecycle: ShopBookLifecycle;
+  readonly #worldPersistence: ShopWorldPersistence;
   readonly #scanner: InteractionScanner;
   readonly #props: MovablePropLifecycle;
   #disposed = false;
@@ -583,7 +564,6 @@ export class ShopScene {
   #mediaCatalogRefreshHandle: number | undefined;
   #lateShaderPrecompileHandle: number | undefined;
   #mediaCatalogRequestPending = false;
-  #pendingWorldSave: WorldSaveV1 | undefined;
   #ready = false;
   #resizeDirty = true;
   #resizeObserver: ResizeObserver | undefined;
@@ -598,15 +578,8 @@ export class ShopScene {
   #targetedTelevision: ShopTelevision | undefined;
   #tvChannels: readonly TvChannel[] = [];
   #televisionTableMaterial: MeshStandardMaterial | undefined;
-  #savedTelevisionChannels: WorldTelevisionChannels = {};
-  #savedTelevisionVolumes: WorldTelevisionVolumes = {};
   #viewportHeight = 1;
   #viewportWidth = 1;
-  #worldSaveIdleHandle: number | undefined;
-  #worldSaveIntervalHandle: number | undefined;
-  #worldSavePending: Promise<void> | undefined;
-  #worldStateDirty = false;
-  readonly #worldSaveWritable: () => boolean;
 
   constructor(options: ShopSceneOptions) {
     this.#canvas = options.canvas;
@@ -638,13 +611,6 @@ export class ShopScene {
     this.#onMediaChannelCreateRequest = options.onMediaChannelCreateRequest;
     this.#onGameStateChange = options.onGameStateChange;
     this.#onPageIndexChange = options.onPageIndexChange;
-    this.#onWorldSave = options.onWorldSave;
-    this.#worldSaveWritable = options.worldSaveWritable;
-    this.#pendingWorldSave = options.initialWorldSave;
-    this.#savedTelevisionChannels =
-      options.initialWorldSave?.televisionChannels ?? {};
-    this.#savedTelevisionVolumes =
-      options.initialWorldSave?.televisionVolumes ?? {};
     this.#onReady = options.onReady;
     this.#paused = options.paused ?? (() => false);
     this.#onResumeRequest = options.onResumeRequest;
@@ -789,6 +755,25 @@ export class ShopScene {
     );
     this.#bookActions = new BookCarryActions(this.#createBookCarryHost());
     this.#scanner = new InteractionScanner(this.#createScannerHost());
+    this.#worldPersistence = new ShopWorldPersistence({
+      applyPlayerPose: (position, quaternion) =>
+        this.#applyPlayerPose(position, quaternion),
+      artFrames: () => this.#artFrames,
+      booksById: () => this.#booksById,
+      camera: () => this.#camera,
+      catalogAvailable: () => this.#catalogAvailable(),
+      catalogIdentity: () => this.#catalogIdentity(),
+      discardedPublicationIds: () => this.#bookActions.discardedPublicationIds,
+      discardBin: () => this.#discardBin,
+      disposed: () => this.#disposed,
+      movableProps: () => this.#props,
+      onWorldSave: options.onWorldSave,
+      pendingSave: options.initialWorldSave,
+      physicsWorld: () => this.#physicsWorld,
+      posters: () => this.#posters,
+      signs: () => this.#signs,
+      worldSaveWritable: () => options.worldSaveWritable(),
+    });
     this.#bookLifecycle = new ShopBookLifecycle({
       bookActions: () => this.#bookActions,
       bookSignature: (item) => this.#bookSignature(item),
@@ -803,9 +788,7 @@ export class ShopScene {
       hoveredPublicationId: () => this.#hoveredPublicationId,
       inspection: () => this.#inspection,
       lastSelectedPublicationId: () => this.#lastSelectedPublicationId,
-      markWorldStateDirty: () => {
-        this.#worldStateDirty = true;
-      },
+      markWorldStateDirty: () => this.#worldPersistence.markDirty(),
       newPublicationIds: () => this.#newPublicationIds(),
       observedArrivalIds: this.#observedArrivalIds,
       physicsPose: () => this.#physicsPose,
@@ -824,7 +807,8 @@ export class ShopScene {
       shelfHoverMeshesByShelf: this.#shelfHoverMeshesByShelf,
       spineShelfDefinitions: () => this.#spineShelfDefinitions,
       syncCarriedBookPresentation: () => this.#syncCarriedBookPresentation(),
-      takeCompatibleWorldSave: () => this.#takeCompatibleWorldSave(),
+      takeCompatibleWorldSave: () =>
+        this.#worldPersistence.takeCompatibleWorldSave(),
       ungroupedShelfHoverMeshes: this.#ungroupedShelfHoverMeshes,
       updateHeldPhysicsTarget: () => this.#updateHeldPhysicsTarget(),
     });
@@ -849,9 +833,7 @@ export class ShopScene {
       interact: (allowNonBookPropPickup) =>
         this.#interact(allowNonBookPropPickup),
       inspection: () => this.#inspection,
-      markWorldStateDirty: () => {
-        this.#worldStateDirty = true;
-      },
+      markWorldStateDirty: () => this.#worldPersistence.markDirty(),
       mouseSensitivity: () => this.#mouseSensitivity(),
       onMediaChannelCreateRequest: () => this.#onMediaChannelCreateRequest,
       paused: () => this.#paused(),
@@ -945,9 +927,7 @@ export class ShopScene {
       importPoster: options.importPoster,
       isDisposed: () => this.#disposed,
       isPointerLocked: () => this.#inputController.state.pointerLocked,
-      markWorldStateDirty: () => {
-        this.#worldStateDirty = true;
-      },
+      markWorldStateDirty: () => this.#worldPersistence.markDirty(),
       maxTextureAnisotropy: this.#renderer.capabilities.getMaxAnisotropy(),
       posterRaycastMeshes: this.#posterRaycastMeshes,
       raycaster: this.#raycaster,
@@ -971,9 +951,7 @@ export class ShopScene {
         importPoster: options.importPoster,
         isDisposed: () => this.#disposed,
         isPointerLocked: () => this.#inputController.state.pointerLocked,
-        markWorldStateDirty: () => {
-          this.#worldStateDirty = true;
-        },
+        markWorldStateDirty: () => this.#worldPersistence.markDirty(),
         posterRaycastMeshes: this.#posterRaycastMeshes,
         raycaster: this.#raycaster,
         refreshMediaCatalog: () => this.#refreshMediaCatalog(),
@@ -988,9 +966,7 @@ export class ShopScene {
       isCarried: (record) =>
         this.#props.carriedProp === (record as unknown as MovablePropRecord),
       isDisposed: () => this.#disposed,
-      markWorldStateDirty: () => {
-        this.#worldStateDirty = true;
-      },
+      markWorldStateDirty: () => this.#worldPersistence.markDirty(),
       modelMixers: this.#props.modelMixers,
       needsSeedPass: (version) => this.#props.needsSeedPass(version),
       registerMovableProp: (registration) =>
@@ -1075,7 +1051,7 @@ export class ShopScene {
       doors: this.#doors,
       modelMixers: this.#props.modelMixers,
       needsSeedPass: (version) => this.#props.needsSeedPass(version),
-      pendingWorldSave: this.#pendingWorldSave,
+      pendingWorldSave: this.#worldPersistence.pendingWorldSave(),
       registerMovableProp: (registration) =>
         this.#props.registerMovableProp(registration),
       registerPropPlacementSupport: (object) =>
@@ -1106,10 +1082,7 @@ export class ShopScene {
     this.#applyResize();
     stage("first-render-start");
     this.#renderer.render(this.#scene, this.#camera);
-    this.#worldSaveIntervalHandle = window.setInterval(
-      this.#scheduleWorldSave,
-      WORLD_SAVE_INTERVAL_MS,
-    );
+    this.#worldPersistence.startScheduler();
     this.#mediaCatalogRefreshHandle = window.setInterval(
       this.#refreshMediaCatalogIfActive,
       SHOP_MEDIA_CATALOG_REFRESH_INTERVAL_MS,
@@ -1225,7 +1198,7 @@ export class ShopScene {
     this.#lastPlayerGroundedAt = Number.NEGATIVE_INFINITY;
     this.#playerVerticalVelocity = 0;
     this.#inputController.state.jumpQueued = false;
-    this.#worldStateDirty = true;
+    this.#worldPersistence.markDirty();
   }
 
   /** Boots a ROM on the named cabinet; called by the ROM picker UI. */
@@ -1376,8 +1349,8 @@ export class ShopScene {
 
   dispose() {
     if (this.#disposed) return;
-    this.#stopWorldSaveScheduler();
-    this.#flushWorldSave();
+    this.#worldPersistence.stopScheduler();
+    this.#worldPersistence.flush();
     this.#disposed = true;
     if (this.#props.carriedProp)
       this.#props.restoreGhostedObject(
@@ -1701,7 +1674,7 @@ export class ShopScene {
     if (!this.#signs.has(key)) return false;
     this.#signs.setSign(key, title, subtitle);
     this.#signs.updateTargetVisuals();
-    this.#worldStateDirty = true;
+    this.#worldPersistence.markDirty();
     this.#emitGameState();
     return true;
   }
@@ -2020,6 +1993,33 @@ export class ShopScene {
     this.#camera.updateProjectionMatrix();
   }
 
+  #applyPlayerPose(
+    position: WorldSaveV1["player"]["position"],
+    quaternion: WorldSaveV1["player"]["quaternion"],
+  ) {
+    this.#camera.position.set(position.x, position.y, position.z);
+    this.#camera.quaternion.set(
+      quaternion.x,
+      quaternion.y,
+      quaternion.z,
+      quaternion.w,
+    );
+    this.#physicsPoseEuler.setFromQuaternion(this.#camera.quaternion, "YXZ");
+    this.#inputController.state.lookAngles.pitch = this.#physicsPoseEuler.x;
+    this.#inputController.state.lookAngles.yaw = this.#physicsPoseEuler.y;
+    this.#inputController.state.lookTarget.pitch =
+      this.#inputController.state.lookAngles.pitch;
+    this.#inputController.state.lookTarget.yaw =
+      this.#inputController.state.lookAngles.yaw;
+    this.#camera.rotation.set(
+      this.#inputController.state.lookAngles.pitch,
+      this.#inputController.state.lookAngles.yaw,
+      0,
+      "YXZ",
+    );
+    this.#physicsWorld.setPlayerPosition(this.#camera.position);
+  }
+
   #syncInputs() {
     // Preserve the mounted world while the catalog is unavailable. Once a valid
     // catalog returns, its changed accessor value will resume synchronization.
@@ -2088,127 +2088,6 @@ export class ShopScene {
 
   #bookSignature(item: CatalogItem) {
     return `${item.cover}|${item.detailCover ?? "no-detail-cover"}|${item.back ?? "solid-back"}|${item.spine ?? "generated-spine"}|${item.accent}|${item.thicknessMm}|${item.aspectRatio ?? "default-aspect"}|${item.direction}|${item.title}`;
-  }
-
-  #takeCompatibleWorldSave() {
-    const save = this.#pendingWorldSave;
-    if (!save) return;
-    const catalog = this.#catalogIdentity();
-    const exactMatch = worldSaveMatchesCatalog(save, catalog);
-    if (!exactMatch && !worldSaveCanReconcileCatalog(save, catalog)) return;
-    this.#pendingWorldSave = undefined;
-    if (!exactMatch) this.#worldStateDirty = true;
-    if (save.shelfSigns) {
-      for (const slot of this.#signs.slots.values()) {
-        if (slot.kind === "shelf" && slot.column !== undefined)
-          this.#signs.setShelfSign(slot.column, "");
-      }
-      for (const sign of save.shelfSigns)
-        this.#signs.setShelfSign(sign.column, sign.text, sign.subtitle);
-    }
-    if (save.aisleSigns) {
-      for (const [key, slot] of this.#signs.slots) {
-        if (slot.kind === "aisle") this.#signs.setSign(key, "", "");
-      }
-      for (const sign of save.aisleSigns)
-        this.#signs.setSign(
-          shopSignKey("aisle", sign.id),
-          sign.title,
-          sign.subtitle ?? "",
-        );
-    }
-    // Legacy trashcan positions apply only while migrating worlds that
-    // never ran a seeding pass; afterwards the bin's pose lives in
-    // modelProps like any prop.
-    if (
-      worldSaveSeedingVersion(save) < INITIAL_WORLD_SEEDING_VERSION &&
-      save.trashcan
-    )
-      this.#discardBin.setPosition(save.trashcan.x, save.trashcan.z, false);
-    // Legacy `television` pose fields are intentionally ignored: worlds
-    // saved before default-prop seeding respawn the movable CRT television
-    // at its designed spot through #seedDefaultProps instead.
-    const savedProps = save.props ?? [];
-    // Cave CRTs live in modelProps now: drop every legacy pose-only
-    // tv-cave entry so they cannot double with the restored props, and
-    // mark the world dirty so the next save drops them from disk.
-    const hasLegacyTvCaveProps = savedProps.some((savedProp) =>
-      savedProp.id.startsWith("tv-cave-"),
-    );
-    if (hasLegacyTvCaveProps) this.#worldStateDirty = true;
-    this.#props.pendingPropSaves = new Map(
-      savedProps
-        .filter((savedProp) => !savedProp.id.startsWith("tv-cave-"))
-        .map((savedProp) => [savedProp.id, savedProp]),
-    );
-    for (const [id, record] of this.#props.records) {
-      const savedProp = this.#props.pendingPropSaves.get(id);
-      if (!savedProp) continue;
-      this.#props.applySavedPropPose(record, savedProp);
-      this.#props.pendingPropSaves.delete(id);
-    }
-    this.#posters.pendingSaves = save.posters ?? [];
-    this.#artFrames.pendingSaves = save.digitalArtFrames ?? [];
-    // Saved model props whose ids already exist (registered during boot)
-    // adopt their saved pose, scale, and lock here; only genuinely missing
-    // ids remain for #restoreSavedModelProps to spawn.
-    const adoptedModelPropSaves: WorldModelPropSave[] = [];
-    for (const savedProp of save.modelProps ?? []) {
-      const record = this.#props.records.get(savedProp.id);
-      if (!record) {
-        adoptedModelPropSaves.push(savedProp);
-        continue;
-      }
-      this.#props.applySavedPropPose(record, savedProp);
-      // Boot-registered defaults spawn at seed scale; without this, a
-      // player-scaled default would silently revert and the next save
-      // would overwrite the stored scale with the reverted value.
-      if (savedProp.scale !== record.modelScale)
-        this.#props.setModelPropScale(record, savedProp.scale);
-      if (savedProp.locked && !record.locked) {
-        record.locked = true;
-        this.#physicsWorld.setPropLocked(record.id, true);
-      }
-    }
-    this.#props.pendingModelPropSaves = adoptedModelPropSaves;
-    void this.#props.restoreSavedModelProps();
-    const playerWasInLegacyTvCave =
-      save.player.position.y > SHOP_UPPER_FLOOR_Y &&
-      save.player.position.x >= LEGACY_TV_CAVE_BOUNDS.minX &&
-      save.player.position.x <= LEGACY_TV_CAVE_BOUNDS.maxX &&
-      save.player.position.z >= LEGACY_TV_CAVE_BOUNDS.minZ &&
-      save.player.position.z <= LEGACY_TV_CAVE_BOUNDS.maxZ;
-    if (playerWasInLegacyTvCave) {
-      this.#camera.position.set(
-        SHOP_TV_CAVE.centerX,
-        SHOP_UPPER_FLOOR_Y + SHOP_PHYSICS_PLAYER_EYE_HEIGHT,
-        SHOP_TV_CAVE.centerZ,
-      );
-      this.#worldStateDirty = true;
-    } else this.#camera.position.copy(save.player.position);
-    this.#camera.quaternion.copy(save.player.quaternion);
-    this.#physicsPoseEuler.setFromQuaternion(this.#camera.quaternion, "YXZ");
-    this.#inputController.state.lookAngles.pitch = this.#physicsPoseEuler.x;
-    this.#inputController.state.lookAngles.yaw = this.#physicsPoseEuler.y;
-    this.#inputController.state.lookTarget.pitch =
-      this.#inputController.state.lookAngles.pitch;
-    this.#inputController.state.lookTarget.yaw =
-      this.#inputController.state.lookAngles.yaw;
-    this.#camera.rotation.set(
-      this.#inputController.state.lookAngles.pitch,
-      this.#inputController.state.lookAngles.yaw,
-      0,
-      "YXZ",
-    );
-    this.#physicsWorld.setPlayerPosition(this.#camera.position);
-    return new Map(
-      save.books
-        .filter(
-          (book) =>
-            !this.#bookActions.discardedPublicationIds.has(book.publicationId),
-        )
-        .map((book) => [book.publicationId, book]),
-    );
   }
 
   #movePlayer(deltaSeconds: number) {
@@ -2321,7 +2200,7 @@ export class ShopScene {
       this.#camera.position.y !== previousY ||
       this.#camera.position.z !== previousZ
     )
-      this.#worldStateDirty = true;
+      this.#worldPersistence.markDirty();
   }
 
   #handleDetectedWidePage(url: string) {
@@ -2744,19 +2623,17 @@ export class ShopScene {
       emitGameState: () => this.#emitGameState(),
       enterArcadeBrowsing: (cabinet) => this.#enterArcadeBrowsing(cabinet),
       heldTargetPosition: () => this.#heldTargetPosition,
-      markTelevisionSettingChanged: () => {
-        this.#worldStateDirty = true;
-      },
-      markWorldStateDirty: () => {
-        this.#worldStateDirty = true;
-      },
-      pendingWorldSave: () => this.#pendingWorldSave,
+      markTelevisionSettingChanged: () => this.#worldPersistence.markDirty(),
+      markWorldStateDirty: () => this.#worldPersistence.markDirty(),
+      pendingWorldSave: () => this.#worldPersistence.pendingWorldSave(),
       physicsPose: () => this.#physicsPose,
       physicsPosePosition: () => this.#physicsPosePosition,
       physicsWorld: () => this.#physicsWorld,
       playerVelocity: () => this.#playerVelocity,
-      savedTelevisionChannels: () => this.#savedTelevisionChannels,
-      savedTelevisionVolumes: () => this.#savedTelevisionVolumes,
+      savedTelevisionChannels: () =>
+        this.#worldPersistence.savedTelevisionChannels(),
+      savedTelevisionVolumes: () =>
+        this.#worldPersistence.savedTelevisionVolumes(),
       scene: () => this.#scene,
       setActiveArcadeCabinet: (cabinet) => {
         this.#activeArcadeCabinet = cabinet;
@@ -2841,14 +2718,12 @@ export class ShopScene {
         this.#bookLifecycle.disposeBookRecord(record),
       disposed: () => this.#disposed,
       emitGameState: () => this.#emitGameState(),
-      flushWorldSave: () => this.#flushWorldSave(),
+      flushWorldSave: () => this.#worldPersistence.flush(),
       heldTargetPose: () => this.#heldTargetPose,
       hoveredPublicationId: () => this.#hoveredPublicationId,
       inspectionMode: () => this.#inspection.inspectionMode,
       lookYaw: () => this.#inputController.state.lookAngles.yaw,
-      markWorldStateDirty: () => {
-        this.#worldStateDirty = true;
-      },
+      markWorldStateDirty: () => this.#worldPersistence.markDirty(),
       movableProps: () => this.#props.records,
       onDiscardPublication: () => this.#onDiscardPublication,
       physicsPose: () => this.#physicsPose,
@@ -2893,98 +2768,6 @@ export class ShopScene {
     };
   }
 
-  readonly #scheduleWorldSave = () => {
-    if (
-      this.#disposed ||
-      !this.#catalogAvailable() ||
-      !this.#worldSaveWritable() ||
-      document.visibilityState !== "visible" ||
-      !document.hasFocus() ||
-      !this.#worldStateDirty ||
-      !this.#onWorldSave ||
-      this.#worldSaveIdleHandle !== undefined
-    )
-      return;
-
-    if (typeof window.requestIdleCallback !== "function") {
-      this.#flushWorldSave();
-      return;
-    }
-
-    this.#worldSaveIdleHandle = window.requestIdleCallback(
-      () => {
-        this.#worldSaveIdleHandle = undefined;
-        if (
-          !this.#disposed &&
-          document.visibilityState === "visible" &&
-          document.hasFocus()
-        )
-          this.#flushWorldSave();
-      },
-      {timeout: WORLD_SAVE_IDLE_TIMEOUT_MS},
-    );
-  };
-
-  #stopWorldSaveScheduler() {
-    if (this.#worldSaveIntervalHandle !== undefined) {
-      window.clearInterval(this.#worldSaveIntervalHandle);
-      this.#worldSaveIntervalHandle = undefined;
-    }
-    if (this.#worldSaveIdleHandle === undefined) return;
-    window.cancelIdleCallback(this.#worldSaveIdleHandle);
-    this.#worldSaveIdleHandle = undefined;
-  }
-
-  #flushWorldSave() {
-    if (
-      !this.#catalogAvailable() ||
-      !this.#worldSaveWritable() ||
-      !this.#worldStateDirty ||
-      !this.#onWorldSave ||
-      this.#worldSavePending
-    )
-      return;
-    this.#worldStateDirty = false;
-    try {
-      const persisted = this.#onWorldSave(
-        createWorldSave({
-          artFrames: this.#artFrames,
-          books: this.#booksById,
-          camera: this.#camera,
-          catalogIdentity: () => this.#catalogIdentity(),
-          discardedPublicationIds: this.#bookActions.discardedPublicationIds,
-          discardBin: this.#discardBin,
-          movableProps: this.#props.records,
-          pendingModelPropSaves: this.#props.pendingModelPropSaves,
-          pendingPropSaves: this.#props.pendingPropSaves,
-          posters: this.#posters,
-          signs: this.#signs,
-          televisionsBySaveId: this.#props.televisionsBySaveId,
-        }),
-      );
-      if (!(persisted instanceof Promise)) {
-        if (persisted === false) this.#worldStateDirty = true;
-        return;
-      }
-      this.#worldSavePending = persisted
-        .then((didPersist) => {
-          if (didPersist === false) this.#worldStateDirty = true;
-        })
-        .catch((error: unknown) => {
-          this.#worldStateDirty = true;
-          if (DEV)
-            console.warn("Afterleaf could not persist the shop state.", error);
-        })
-        .finally(() => {
-          this.#worldSavePending = undefined;
-        });
-    } catch (error) {
-      this.#worldStateDirty = true;
-      if (DEV)
-        console.warn("Afterleaf could not persist the shop state.", error);
-    }
-  }
-
   #syncMovablePropPhysics() {
     for (const record of this.#props.records.values()) {
       if (
@@ -3015,7 +2798,8 @@ export class ShopScene {
       record.currentRotation.copy(this.#physicsTransform.rotation);
       if (record.id === TRASH_CAN_PROP_ID)
         this.#discardBin.position.copy(record.currentPosition);
-      if (positionChanged || rotationChanged) this.#worldStateDirty = true;
+      if (positionChanged || rotationChanged)
+        this.#worldPersistence.markDirty();
     }
   }
 
@@ -3111,7 +2895,7 @@ export class ShopScene {
             deltaSeconds,
           );
         if (positionChanged || rotationChanged) {
-          this.#worldStateDirty = true;
+          this.#worldPersistence.markDirty();
           // A moving prop can enter or leave the reticle; re-sweep.
           this.#scanner.markDirty();
         }
@@ -3173,7 +2957,7 @@ export class ShopScene {
     }
     if (!interactionStateChanged) return;
     this.#bookLifecycle.syncInteractiveMeshes();
-    this.#worldStateDirty = true;
+    this.#worldPersistence.markDirty();
     this.#emitGameState();
   }
 
@@ -3271,7 +3055,7 @@ export class ShopScene {
         record.baseRotation,
       ),
     );
-    this.#worldStateDirty = true;
+    this.#worldPersistence.markDirty();
   }
 
   #markReady() {
