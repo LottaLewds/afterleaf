@@ -2,8 +2,6 @@ import {
   ACESFilmicToneMapping,
   AmbientLight,
   AnimationMixer,
-  BoxGeometry,
-  Color,
   Euler,
   MathUtils,
   Mesh,
@@ -40,7 +38,6 @@ import {DEV} from "solid-js";
 import {ShopAudioManager} from "~/game/ShopAudioManager";
 import {FpsHud} from "~/game/FpsHud";
 import type {BookRecord} from "~/game/bookFactory";
-import {createBookExteriorMaterial} from "~/game/bookExteriorMaterial";
 import {INSPECTION_TRANSITION_SPEED} from "~/game/bookInspectionTuning";
 import type {ShopArcadePlayRequest} from "~/game/ShopArcadeCabinet";
 import {disposeObject} from "~/game/threeDisposal";
@@ -83,8 +80,19 @@ import {
 } from "~/game/shopBookPresentation";
 import {ShopPlayerMovement} from "~/game/shopPlayerMovement";
 import {ShopWorldPersistence} from "~/game/shopWorldPersistence";
-import {ShopInteriorAssets} from "~/game/shopInteriorAssets";
+import {
+  cloneFloorMaterial,
+  ShopInteriorAssets,
+} from "~/game/shopInteriorAssets";
 import {ShopMediaController} from "~/game/shopMediaController";
+import {
+  bookSignature as catalogBookSignature,
+  ShopCatalogSync,
+} from "~/game/shopCatalogSync";
+import {ShopInteractionCoordinator} from "~/game/shopInteractionCoordinator";
+import {ShopViewportController} from "~/game/shopViewportController";
+import {ShopShaderWarmup} from "~/game/shopShaderWarmup";
+import {ShopTargetingController} from "~/game/shopTargetingController";
 
 import type {CatalogAtlases, CatalogIdentity, CatalogItem} from "~/catalog";
 import type {ArtFrameImage} from "~/artFrames/protocol";
@@ -139,11 +147,7 @@ import type {PosterAsset} from "~/posters/protocol";
 
 const SHOP_PLAYER_START_X = 0;
 const SHOP_PLAYER_START_Z = 25;
-const MAX_PIXEL_RATIO = 2;
 const SHOP_MEDIA_CATALOG_REFRESH_INTERVAL_MS = 10_000;
-// Late async prop models (CRT GLBs, cabinets, lamps) usually finish well
-// within this window; the second compile pass sweeps up their programs.
-const SHADER_PRECOMPILE_LATE_DELAY_MS = 4_000;
 // While the camera holds still, the aim sweep reuses its previous result
 // and refreshes at this interval so dynamic content cannot stale-highlight.
 // The full-shop reticle sweep runs on a fixed-rate budget (60 Hz) instead
@@ -383,6 +387,9 @@ export class ShopScene {
   readonly #artFrameTextures: ArtFrameTextureCache;
   readonly #interiorAssets: ShopInteriorAssets;
   readonly #mediaController: ShopMediaController;
+  readonly #catalogSync: ShopCatalogSync;
+  readonly #interactionCoordinator: ShopInteractionCoordinator;
+  readonly #targetingController: ShopTargetingController;
   readonly #bookTextures: BookTextureRuntime;
   readonly #gameStateEmitter = new GameStateEmitter();
   readonly #inspection: InspectionController;
@@ -437,6 +444,8 @@ export class ShopScene {
   /** Frame timestamp from the animation loop; one time source per frame. */
   #frameNowMs = 0;
   readonly #renderer: WebGLRenderer;
+  readonly #shaderWarmup: ShopShaderWarmup;
+  readonly #viewportController: ShopViewportController;
   readonly #scene = new Scene();
   readonly #spineShelfDefinitions = new Map<string, SpineShelfDefinition>();
   readonly #selectedPublicationId: () => string | null | undefined;
@@ -468,18 +477,12 @@ export class ShopScene {
 
   #interactiveMeshes: Mesh[] = [];
   #lastFrameTime = 0;
-  #lastItems: readonly CatalogItem[] | undefined;
-  #lastNewPublicationIds: readonly string[] | undefined;
-  #lastPixelRatio = 0;
   #lastSelectedPublicationId: string | null | undefined;
   #moonEnvironment: Texture | undefined;
   #onReady: (() => void) | undefined;
   #inputSuspended = false;
   #mediaCatalogRefreshHandle: number | undefined;
-  #lateShaderPrecompileHandle: number | undefined;
   #ready = false;
-  #resizeDirty = true;
-  #resizeObserver: ResizeObserver | undefined;
   #shelfPresentation: ShelfPresentation = "spine";
   readonly #shelfHoverMeshesByShelf = new Map<string, Mesh[]>();
   readonly #ungroupedShelfHoverMeshes: Mesh[] = [];
@@ -490,8 +493,6 @@ export class ShopScene {
   #televisionTargeted = false;
   #targetedTelevision: ShopTelevision | undefined;
   #televisionTableMaterial: MeshStandardMaterial | undefined;
-  #viewportHeight = 1;
-  #viewportWidth = 1;
 
   constructor(options: ShopSceneOptions) {
     this.#canvas = options.canvas;
@@ -573,6 +574,19 @@ export class ShopScene {
     this.#renderer.shadowMap.type = PCFSoftShadowMap;
     this.#renderer.toneMapping = ACESFilmicToneMapping;
     this.#renderer.toneMappingExposure = 1.08;
+    this.#viewportController = new ShopViewportController({
+      camera: this.#camera,
+      canvas: this.#canvas,
+      renderer: this.#renderer,
+    });
+    this.#shaderWarmup = new ShopShaderWarmup({
+      camera: this.#camera,
+      disposed: () => this.#disposed,
+      renderer: this.#renderer,
+      scene: this.#scene,
+      televisions: () => this.#televisions,
+      tvScreenLighting: () => this.#tvScreenLighting(),
+    });
 
     this.#signs = new ShopSignSystem({
       maxTextureAnisotropy: this.#renderer.capabilities.getMaxAnisotropy(),
@@ -629,7 +643,7 @@ export class ShopScene {
       disposed: () => this.#disposed,
       physicsTransform: () => this.#physicsTransform,
       setHoveredPublicationId: (publicationId) =>
-        this.#setHoveredPublicationId(publicationId),
+        this.#targetingController.setHoveredPublicationId(publicationId),
       onSelectPublication: this.#onSelectPublication,
       initialPageIndex: (publicationId) =>
         this.#initialPageIndex(publicationId),
@@ -644,7 +658,7 @@ export class ShopScene {
           override,
         ),
       raycaster: () => this.#raycaster,
-      viewportWidth: () => this.#viewportWidth,
+      viewportWidth: () => this.#viewportController.width(),
       textureLoader: () => this.#textureLoader,
       renderer: () => this.#renderer,
       spreadDistance: () => this.#spreadDistance(),
@@ -676,7 +690,7 @@ export class ShopScene {
     });
     this.#bookLifecycle = new ShopBookLifecycle({
       bookActions: () => this.#bookActions,
-      bookSignature: (item) => this.#bookSignature(item),
+      bookSignature: catalogBookSignature,
       bookTextures: () => this.#bookTextures,
       booksById: () => this.#booksById,
       camera: () => this.#camera,
@@ -716,6 +730,64 @@ export class ShopScene {
     this.#bookPresentation = new ShopBookPresentation(
       this.#createBookPresentationHost(),
     );
+    this.#interactionCoordinator = new ShopInteractionCoordinator({
+      artFrames: () => this.#artFrames,
+      bookActions: () => this.#bookActions,
+      bookTextures: () => this.#bookTextures,
+      booksById: () => this.#booksById,
+      carriedPublicationId: () => this.#carriedPublicationId,
+      carriedPublicationIds: () => this.#carriedPublicationIds,
+      emitGameState: () => this.#emitGameState(),
+      hoveredPublicationId: () => this.#hoveredPublicationId,
+      inspection: () => this.#inspection,
+      posters: () => this.#posters,
+      props: () => this.#props,
+      scanner: () => this.#scanner,
+      setCarriedPublicationId: (publicationId) => {
+        this.#carriedPublicationId = publicationId;
+      },
+      signs: () => this.#signs,
+      syncCarriedBookPresentation: () =>
+        this.#bookPresentation.syncCarriedBookPresentation(),
+      targetedArcadeCabinet: () => this.#targetedArcadeCabinet,
+      targetedProp: () => this.#targetedProp,
+      targetedTelevision: () => this.#targetedTelevision,
+      televisionInteraction: () => this.#televisionInteraction,
+      televisionTargeted: () => this.#televisionTargeted,
+      updateHeldPhysicsTarget: () => this.#updateHeldPhysicsTarget(),
+    });
+    this.#targetingController = new ShopTargetingController({
+      bookLifecycle: () => this.#bookLifecycle,
+      bookTextures: () => this.#bookTextures,
+      booksById: () => this.#booksById,
+      currentArcadeCabinet: () => this.#targetedArcadeCabinet,
+      currentProp: () => this.#targetedProp,
+      currentTelevision: () => this.#targetedTelevision,
+      currentTelevisionInteraction: () => this.#televisionInteraction,
+      emitGameState: () => this.#emitGameState(),
+      hoveredPublicationId: () => this.#hoveredPublicationId,
+      resetTelevisionWheel: () => {
+        this.#inputController.state.tvWheelScrubDirection = undefined;
+        this.#inputController.state.tvWheelScrubLastAt =
+          Number.NEGATIVE_INFINITY;
+        this.#inputController.state.tvWheelScrubStepIndex = 0;
+      },
+      scanner: () => this.#scanner,
+      setArcadeCabinet: (cabinet) => {
+        this.#targetedArcadeCabinet = cabinet;
+      },
+      setHoveredPublicationId: (publicationId) => {
+        this.#hoveredPublicationId = publicationId;
+      },
+      setProp: (record) => {
+        this.#targetedProp = record;
+      },
+      setTelevisionState: (targeted, interaction, television) => {
+        this.#targetedTelevision = television;
+        this.#televisionInteraction = interaction;
+        this.#televisionTargeted = targeted;
+      },
+    });
     this.#inputController = new ShopInputController({
       abortSignal: this.#abortController.signal,
       activeArcadeCabinet: () => this.#activeArcadeCabinet,
@@ -727,7 +799,8 @@ export class ShopScene {
       canvas: () => this.#canvas,
       carriedPublicationId: () => this.#carriedPublicationId,
       carriedPublicationIds: () => this.#carriedPublicationIds,
-      cycleCarriedBook: (direction) => this.#cycleCarriedBook(direction),
+      cycleCarriedBook: (direction) =>
+        this.#interactionCoordinator.cycleCarriedBook(direction),
       disposed: () => this.#disposed,
       emitGameState: () => this.#emitGameState(),
       gamepadLookSensitivity: () => this.#gamepadLookSensitivity(),
@@ -736,7 +809,7 @@ export class ShopScene {
       hoveredPublicationId: () => this.#hoveredPublicationId,
       input: () => this.#input,
       interact: (allowNonBookPropPickup) =>
-        this.#interact(allowNonBookPropPickup),
+        this.#interactionCoordinator.interact(allowNonBookPropPickup),
       inspection: () => this.#inspection,
       markWorldStateDirty: () => this.#worldPersistence.markDirty(),
       mouseSensitivity: () => this.#mouseSensitivity(),
@@ -748,7 +821,8 @@ export class ShopScene {
       refreshMediaCatalogIfActive: () =>
         this.#mediaController.refreshIfActive(),
       scanner: () => this.#scanner,
-      setArcadeTargeted: (cabinet) => this.#setArcadeTargeted(cabinet),
+      setArcadeTargeted: (cabinet) =>
+        this.#targetingController.setArcadeTargeted(cabinet),
       setChannelEditorDigitalArtFrameId: (id) => {
         this.#channelEditorDigitalArtFrameId = id;
       },
@@ -756,14 +830,20 @@ export class ShopScene {
         this.#channelEditorTelevision = television;
       },
       setHoveredPublicationId: (publicationId) =>
-        this.#setHoveredPublicationId(publicationId),
-      setPropTargeted: (record) => this.#setPropTargeted(record),
+        this.#targetingController.setHoveredPublicationId(publicationId),
+      setPropTargeted: (record) =>
+        this.#targetingController.setPropTargeted(record),
       setShelfPresentation: (presentation) => {
         this.#shelfPresentation = presentation;
       },
       setTelevisionTargeted: (targeted, interaction, television) =>
-        this.#setTelevisionTargeted(targeted, interaction, television),
-      setTrashTargeted: (targeted) => this.#setTrashTargeted(targeted),
+        this.#targetingController.setTelevisionTargeted(
+          targeted,
+          interaction,
+          television,
+        ),
+      setTrashTargeted: (targeted) =>
+        this.#targetingController.setTrashTargeted(targeted),
       signs: () => this.#signs,
       shelfPresentation: () => this.#shelfPresentation,
       targetedArcadeCabinet: () => this.#targetedArcadeCabinet,
@@ -928,6 +1008,21 @@ export class ShopScene {
       physicsWorld: () => this.#physicsWorld,
       playerVelocity: () => this.#playerVelocity,
     });
+    this.#catalogSync = new ShopCatalogSync({
+      bookActions: () => this.#bookActions,
+      bookLifecycle: () => this.#bookLifecycle,
+      booksById: () => this.#booksById,
+      bookTextures: () => this.#bookTextures,
+      catalogAvailable: () => this.#catalogAvailable(),
+      catalogItems: () => this.#catalogItems(),
+      lastSelectedPublicationId: () => this.#lastSelectedPublicationId,
+      newPublicationIds: () => this.#newPublicationIds(),
+      observedArrivalIds: this.#observedArrivalIds,
+      selectedPublicationId: () => this.#selectedPublicationId(),
+      setLastSelectedPublicationId: (publicationId) => {
+        this.#lastSelectedPublicationId = publicationId;
+      },
+    });
 
     if (DEV)
       (window as ShopPerformanceDebugWindow).__AFTERLEAF_PERFORMANCE_DEBUG__ = {
@@ -938,7 +1033,7 @@ export class ShopScene {
 
     this.#inputController.bind();
     void this.#inputController.loadKeyboardLayout();
-    this.#observeSize();
+    this.#viewportController.observe();
     const unsubscribeFromWidePages = subscribeToWideReaderPages((url) =>
       this.#handleDetectedWidePage(url),
     );
@@ -984,8 +1079,7 @@ export class ShopScene {
       artFrames: this.#artFrames,
       cacheBuiltinPropTemplate: (registration) =>
         this.#props.cacheBuiltinPropTemplate(registration),
-      cloneFloorMaterial: (material, repeatX, repeatY) =>
-        this.#cloneFloorMaterial(material, repeatX, repeatY),
+      cloneFloorMaterial,
       createFloorMaterial: () => this.#interiorAssets.createFloorMaterial(),
       createPosterSurface: (p, id, w, h, pos, rot) =>
         this.#interiorAssets.createPosterSurface(p, id, w, h, pos, rot),
@@ -1028,11 +1122,11 @@ export class ShopScene {
     stage("sync-inputs-start");
     await ShopScene.nextFrame();
     if (this.#disposed) return;
-    this.#syncInputs();
+    this.#catalogSync.sync();
     void this.#mediaController.refresh();
     void this.#initializePhysics();
     this.#lastFrameTime = performance.now();
-    this.#applyResize();
+    this.#viewportController.applyResize();
     stage("first-render-start");
     this.#renderer.render(this.#scene, this.#camera);
     this.#worldPersistence.startScheduler();
@@ -1042,7 +1136,7 @@ export class ShopScene {
     );
     this.#frameHandle = requestAnimationFrame(this.#animate);
     stage("warm-shaders-start");
-    await this.#warmShaderPrograms();
+    await this.#shaderWarmup.warm();
     if (this.#disposed) return;
     stage("ready");
     if (DEV)
@@ -1058,68 +1152,8 @@ export class ShopScene {
           `afterleaf-boot:${label}-start`,
           `afterleaf-boot:ready`,
         );
-    this.#precompileShaders();
+    this.#shaderWarmup.precompile();
     this.#markReady();
-  }
-
-  /**
-   * Compiles the current shader variants behind the loading overlay: the
-   * no-screen-light variants first, then the rect-area-light variant set
-   * from exactly one television's four wash lights (forcing every television
-   * would multiply light counts into every program and stall compilation).
-   * Book textures stream in afterwards by design; the batch program variant
-   * is warmed here so attaching batches only uploads textures.
-   */
-  async #warmShaderPrograms() {
-    if (this.#disposed) return;
-    // The atlas-batch book material uses its own program cache key and no
-    // batch mesh exists until textures stream in after ready, so warm its
-    // variant here with a stand-in mesh covering all batch groups.
-    const batchMaterialStandIn = new Mesh(
-      new BoxGeometry(0.01, 0.01, 0.01),
-      createBookExteriorMaterial(new Color("#ffffff"), -1, true, true).material,
-    );
-    this.#scene.add(batchMaterialStandIn);
-    try {
-      await this.#renderer.compileAsync(this.#scene, this.#camera);
-      // Warm the rect-area-light variant set with exactly ONE television's
-      // four wash lights: forcing every television would multiply the light
-      // count into every program and stall the machine during compilation.
-      // Multi-TV combinations stay lazy (rare, incremental).
-      const sampleTelevision = this.#tvScreenLighting()
-        ? this.#televisions[0]
-        : undefined;
-      if (sampleTelevision) {
-        sampleTelevision.setScreenLightsForcedVisible(true);
-        await this.#renderer.compileAsync(this.#scene, this.#camera);
-        sampleTelevision.setScreenLightsForcedVisible(false);
-      }
-    } catch (error: unknown) {
-      // Lazy compilation still works; precompilation is best-effort.
-      if (DEV)
-        console.warn("Afterleaf could not precompile shader programs.", error);
-    } finally {
-      this.#scene.remove(batchMaterialStandIn);
-      batchMaterialStandIn.geometry.dispose();
-      batchMaterialStandIn.material.dispose();
-    }
-  }
-
-  /**
-   * Compiles shader programs ahead of camera movement. Async prop models
-   * (CRT televisions, cabinets, lamps) attach after boot, so a second pass
-   * runs later to catch their material variants before the player rotates
-   * into them and stutters on first sight.
-   */
-  #precompileShaders() {
-    if (this.#disposed) return;
-    void this.#renderer.compileAsync(this.#scene, this.#camera).catch(() => {});
-    if (this.#lateShaderPrecompileHandle !== undefined) return;
-    this.#lateShaderPrecompileHandle = window.setTimeout(() => {
-      this.#lateShaderPrecompileHandle = undefined;
-      if (this.#disposed) return;
-      void this.#warmShaderPrograms();
-    }, SHADER_PRECOMPILE_LATE_DELAY_MS);
   }
 
   requestPointerLock() {
@@ -1331,8 +1365,7 @@ export class ShopScene {
     this.#inspection.inspectionPageTextureCache.dispose();
     this.#inspection.inspectionTurningBackTexture?.dispose();
     this.#inspection.inspectionTurningBackTexture = undefined;
-    this.#resizeObserver?.disconnect();
-    this.#resizeObserver = undefined;
+    this.#viewportController.dispose();
     this.#ktx2Loader?.dispose();
     this.#ktx2Loader = undefined;
     if (this.#frameHandle !== undefined)
@@ -1341,9 +1374,7 @@ export class ShopScene {
     if (this.#mediaCatalogRefreshHandle !== undefined)
       window.clearInterval(this.#mediaCatalogRefreshHandle);
     this.#mediaCatalogRefreshHandle = undefined;
-    if (this.#lateShaderPrecompileHandle !== undefined)
-      window.clearTimeout(this.#lateShaderPrecompileHandle);
-    this.#lateShaderPrecompileHandle = undefined;
+    this.#shaderWarmup.dispose();
 
     this.#bookTextures.bumpRevision();
     this.#bookTextures.disposeBookAtlasBatches();
@@ -1377,9 +1408,10 @@ export class ShopScene {
     this.#lastFrameTime = time;
     this.#frameNowMs = time;
 
-    this.#syncInputs();
-    this.#syncPixelRatio();
-    if (this.#resizeDirty) this.#applyResize();
+    this.#catalogSync.sync();
+    this.#viewportController.syncPixelRatio();
+    if (this.#viewportController.resizeDirty())
+      this.#viewportController.applyResize();
 
     const paused = this.#paused();
     // Polling runs in every mode so Start keeps toggling the menu and arcade
@@ -1587,122 +1619,6 @@ export class ShopScene {
     this.#gameStateEmitter.emit(this.#snapshotInput);
   }
 
-  #cloneFloorMaterial(
-    source: MeshStandardMaterial,
-    repeatX: number,
-    repeatY: number,
-  ) {
-    const material = source.clone();
-    const clones = new Map<Texture, Texture>();
-    const cloneTexture = (texture: Texture | null) => {
-      if (!texture) return null;
-      const existing = clones.get(texture);
-      if (existing) return existing;
-      const clone = texture.clone();
-      clone.repeat.set(repeatX, repeatY);
-      clone.needsUpdate = true;
-      clones.set(texture, clone);
-      return clone;
-    };
-    material.aoMap = cloneTexture(source.aoMap);
-    material.map = cloneTexture(source.map);
-    material.normalMap = cloneTexture(source.normalMap);
-    material.roughnessMap = cloneTexture(source.roughnessMap);
-    return material;
-  }
-
-  #setTelevisionTargeted(
-    targeted: boolean,
-    interaction?: ShopTelevisionInteraction,
-    television?: ShopTelevision,
-  ) {
-    const nextTelevision = targeted ? television : undefined;
-    const nextInteraction = targeted ? (interaction ?? "screen") : undefined;
-    if (
-      nextInteraction === this.#televisionInteraction &&
-      nextTelevision === this.#targetedTelevision
-    )
-      return;
-    if (nextTelevision !== this.#targetedTelevision) {
-      this.#inputController.state.tvWheelScrubDirection = undefined;
-      this.#inputController.state.tvWheelScrubLastAt = Number.NEGATIVE_INFINITY;
-      this.#inputController.state.tvWheelScrubStepIndex = 0;
-    }
-    this.#targetedTelevision?.setTargeted(undefined);
-    this.#targetedTelevision = nextTelevision;
-    this.#televisionInteraction = nextInteraction;
-    this.#televisionTargeted = nextInteraction !== undefined;
-    nextTelevision?.setTargeted(nextInteraction);
-    this.#emitGameState();
-  }
-
-  #setArcadeTargeted(cabinet: ShopArcadeCabinet | undefined) {
-    if (cabinet === this.#targetedArcadeCabinet) return;
-    this.#targetedArcadeCabinet?.setTargeted(false);
-    this.#targetedArcadeCabinet = cabinet;
-    cabinet?.setTargeted(true);
-    this.#emitGameState();
-  }
-
-  #setTrashTargeted(targeted: boolean) {
-    if (targeted === this.#scanner.trashTargeted) return;
-    this.#scanner.trashTargeted = targeted;
-    this.#bookLifecycle.applyBookStates();
-    this.#emitGameState();
-  }
-
-  #setPropTargeted(record: MovablePropRecord | undefined) {
-    if (record === this.#targetedProp) return;
-    this.#targetedProp = record;
-    this.#emitGameState();
-  }
-
-  #setHoveredPublicationId(publicationId: string | undefined) {
-    if (publicationId === undefined)
-      this.#scanner.shelfBrowsePublicationId = undefined;
-    if (publicationId === this.#hoveredPublicationId) return;
-    this.#hoveredPublicationId = publicationId;
-    const record = publicationId
-      ? this.#booksById.get(publicationId)
-      : undefined;
-    if (record && publicationId !== undefined)
-      this.#bookTextures.ensureStandaloneBookTextures(publicationId, record);
-    this.#bookLifecycle.applyBookStates();
-    this.#emitGameState();
-  }
-
-  #observeSize() {
-    const bounds = this.#canvas.getBoundingClientRect();
-    this.#viewportWidth = bounds.width;
-    this.#viewportHeight = bounds.height;
-    this.#resizeObserver = new ResizeObserver((entries) => {
-      const entry = entries[0];
-      if (!entry) return;
-      this.#viewportWidth = entry.contentRect.width;
-      this.#viewportHeight = entry.contentRect.height;
-      this.#resizeDirty = true;
-    });
-    this.#resizeObserver.observe(this.#canvas);
-  }
-
-  #syncPixelRatio() {
-    const pixelRatio = Math.min(window.devicePixelRatio || 1, MAX_PIXEL_RATIO);
-    if (pixelRatio === this.#lastPixelRatio) return;
-    this.#resizeDirty = true;
-  }
-
-  #applyResize() {
-    this.#resizeDirty = false;
-    const width = Math.max(1, Math.floor(this.#viewportWidth));
-    const height = Math.max(1, Math.floor(this.#viewportHeight));
-    const pixelRatio = Math.min(window.devicePixelRatio || 1, MAX_PIXEL_RATIO);
-    this.#lastPixelRatio = pixelRatio;
-    this.#renderer.setPixelRatio(pixelRatio);
-    this.#renderer.setSize(width, height, false);
-    this.#camera.aspect = width / height;
-    this.#camera.updateProjectionMatrix();
-  }
-
   #applyPlayerPose(
     position: WorldSaveV1["player"]["position"],
     quaternion: WorldSaveV1["player"]["quaternion"],
@@ -1728,76 +1644,6 @@ export class ShopScene {
       "YXZ",
     );
     this.#physicsWorld.setPlayerPosition(this.#camera.position);
-  }
-
-  #syncInputs() {
-    // Preserve the mounted world while the catalog is unavailable. Once a valid
-    // catalog returns, its changed accessor value will resume synchronization.
-    if (!this.#catalogAvailable()) return;
-    const items = this.#catalogItems();
-    const newPublicationIds = this.#newPublicationIds();
-    const itemsChanged = items !== this.#lastItems;
-    const arrivalsChanged = newPublicationIds !== this.#lastNewPublicationIds;
-    if (itemsChanged || arrivalsChanged) {
-      const hasUnobservedArrivals =
-        arrivalsChanged &&
-        newPublicationIds.some(
-          (publicationId) => !this.#observedArrivalIds.has(publicationId),
-        );
-      const discardOnlyUpdate =
-        itemsChanged &&
-        !hasUnobservedArrivals &&
-        this.#isDiscardOnlyCatalogUpdate(items);
-      this.#lastItems = items;
-      this.#lastNewPublicationIds = newPublicationIds;
-      if ((itemsChanged || hasUnobservedArrivals) && !discardOnlyUpdate)
-        this.#bookLifecycle.syncBooks(items, newPublicationIds);
-    }
-
-    const selectedPublicationId = this.#selectedPublicationId();
-    if (selectedPublicationId === this.#lastSelectedPublicationId) return;
-    this.#lastSelectedPublicationId = selectedPublicationId;
-    const record = selectedPublicationId
-      ? this.#booksById.get(selectedPublicationId)
-      : undefined;
-    if (record && selectedPublicationId)
-      this.#bookTextures.ensureStandaloneBookTextures(
-        selectedPublicationId,
-        record,
-      );
-    this.#bookLifecycle.applyBookStates();
-  }
-
-  #isDiscardOnlyCatalogUpdate(items: readonly CatalogItem[]) {
-    const previousItems = this.#lastItems;
-    if (!previousItems || items.length >= previousItems.length) return false;
-
-    let itemIndex = 0;
-    let removedCount = 0;
-    for (const previousItem of previousItems) {
-      const item = items[itemIndex];
-      if (item?.id === previousItem.id) {
-        if (this.#bookSignature(item) !== this.#bookSignature(previousItem))
-          return false;
-        itemIndex += 1;
-        continue;
-      }
-
-      const discardPending =
-        previousItem.id === this.#bookActions.pendingDiscardPublicationId;
-      if (
-        !discardPending &&
-        !this.#bookActions.discardedPublicationIds.has(previousItem.id)
-      )
-        return false;
-      removedCount += 1;
-    }
-
-    return removedCount > 0 && itemIndex === items.length;
-  }
-
-  #bookSignature(item: CatalogItem) {
-    return `${item.cover}|${item.detailCover ?? "no-detail-cover"}|${item.back ?? "solid-back"}|${item.spine ?? "generated-spine"}|${item.accent}|${item.thicknessMm}|${item.aspectRatio ?? "default-aspect"}|${item.direction}|${item.title}`;
   }
 
   #handleDetectedWidePage(url: string) {
@@ -1899,128 +1745,6 @@ export class ShopScene {
     this.#bookPresentation.updateHeldPhysicsTarget();
   }
 
-  #cycleCarriedBook(direction: number) {
-    if (
-      direction === 0 ||
-      this.#bookActions.discardBusy ||
-      this.#bookActions.throwChargeActive ||
-      this.#inspection.inspectionMode !== "none" ||
-      this.#carriedPublicationIds.length < 2
-    )
-      return false;
-    if (direction > 0) {
-      const front = this.#carriedPublicationIds.shift();
-      if (front) this.#carriedPublicationIds.push(front);
-    } else {
-      const back = this.#carriedPublicationIds.pop();
-      if (back) this.#carriedPublicationIds.unshift(back);
-    }
-    this.#carriedPublicationId = this.#carriedPublicationIds[0];
-    const record = this.#carriedPublicationId
-      ? this.#booksById.get(this.#carriedPublicationId)
-      : undefined;
-    if (record && this.#carriedPublicationId)
-      this.#bookTextures.promoteBookCoverTexture(
-        this.#carriedPublicationId,
-        record,
-      );
-    this.#bookPresentation.syncCarriedBookPresentation();
-    this.#updateHeldPhysicsTarget();
-    this.#scanner.update();
-    this.#emitGameState();
-    return true;
-  }
-
-  #interact(allowNonBookPropPickup = true) {
-    if (this.#bookActions.discardBusy || this.#bookActions.shelveAnimation)
-      return;
-    if (this.#artFrames.placement) {
-      this.#artFrames.placeDigitalArtFrame();
-      return;
-    }
-    if (this.#posters.placement) {
-      this.#posters.placePoster();
-      return;
-    }
-    if (this.#props.carriedProp) {
-      this.#props.dropCarriedProp();
-      return;
-    }
-    if (this.#carriedPublicationId) {
-      if (this.#hoveredPublicationId) {
-        this.#bookActions.pickUpBook(this.#hoveredPublicationId);
-      } else if (this.#scanner.trashTargeted)
-        void this.#bookActions.discardCarriedBook();
-      else if (this.#scanner.shelfTargeted)
-        this.#bookActions.shelveCarriedBook();
-      return;
-    }
-    if (this.#targetedArcadeCabinet) {
-      this.#targetedArcadeCabinet.interact();
-      return;
-    }
-    if (this.#televisionTargeted) {
-      const targetedTelevision = this.#targetedTelevision;
-      const televisionProp = targetedTelevision
-        ? this.#props.televisionProps.get(targetedTelevision)
-        : undefined;
-      if (this.#televisionInteraction === "body" && televisionProp) {
-        if (allowNonBookPropPickup) this.#props.pickUpProp(televisionProp);
-        return;
-      }
-      targetedTelevision?.interactTargeted();
-      return;
-    }
-    if (this.#targetedProp) {
-      if (allowNonBookPropPickup) this.#props.pickUpProp(this.#targetedProp);
-      return;
-    }
-    if (this.#signs.targetedKey !== undefined) {
-      this.#signs.requestEdit();
-      return;
-    }
-    if (this.#artFrames.targetedId) {
-      const record = this.#artFrames.records.get(this.#artFrames.targetedId);
-      const imageId =
-        record?.frame.currentImageId() ??
-        this.#artFrames.channels.find(
-          (channel) => channel.id === record?.frame.channelId(),
-        )?.images[0]?.id;
-      const assetIndex = imageId
-        ? this.#artFrames.assets.findIndex((asset) => asset.id === imageId)
-        : -1;
-      if (record && assetIndex >= 0)
-        this.#artFrames.startDigitalArtFramePlacement(
-          assetIndex,
-          record.id,
-          record.height,
-          record.rotation,
-          record.frame.aspectRatio(),
-          record.frame.fit(),
-          record.frame.intervalSeconds(),
-        );
-      return;
-    }
-    if (this.#posters.targetedId) {
-      const record = this.#posters.records.get(this.#posters.targetedId);
-      const assetIndex = record
-        ? this.#posters.assets.findIndex(
-            (asset) => asset.id === record.asset.id,
-          )
-        : -1;
-      if (record && assetIndex >= 0)
-        void this.#posters.startPosterPlacement(
-          assetIndex,
-          record.id,
-          record.height,
-          record.rotation,
-        );
-      return;
-    }
-    if (!this.#hoveredPublicationId) return;
-    this.#bookActions.pickUpBook(this.#hoveredPublicationId);
-  }
-
   #createBookPresentationHost(): ShopBookPresentationHost {
     return {
       bookActions: () => this.#bookActions,
@@ -2077,12 +1801,14 @@ export class ShopScene {
       setActiveArcadeCabinet: (cabinet) => {
         this.#activeArcadeCabinet = cabinet;
       },
-      setArcadeTargeted: (cabinet) => this.#setArcadeTargeted(cabinet),
+      setArcadeTargeted: (cabinet) =>
+        this.#targetingController.setArcadeTargeted(cabinet),
       setHoveredPublicationId: (publicationId) =>
-        this.#setHoveredPublicationId(publicationId),
-      setPropTargeted: (record) => this.#setPropTargeted(record),
+        this.#targetingController.setHoveredPublicationId(publicationId),
+      setPropTargeted: (record) =>
+        this.#targetingController.setPropTargeted(record),
       setTelevisionTargeted: (targeted) =>
-        this.#setTelevisionTargeted(targeted),
+        this.#targetingController.setTelevisionTargeted(targeted),
       targetedArcadeCabinet: () => this.#targetedArcadeCabinet,
       targetedProp: () => this.#targetedProp,
       targetedTelevision: () => this.#targetedTelevision,
@@ -2119,13 +1845,20 @@ export class ShopScene {
       pointerLocked: () => this.#inputController.state.pointerLocked,
       posters: () => this.#posters,
       raycaster: () => this.#raycaster,
-      setArcadeTargeted: (cabinet) => this.#setArcadeTargeted(cabinet),
+      setArcadeTargeted: (cabinet) =>
+        this.#targetingController.setArcadeTargeted(cabinet),
       setHoveredPublicationId: (publicationId) =>
-        this.#setHoveredPublicationId(publicationId),
-      setPropTargeted: (record) => this.#setPropTargeted(record),
+        this.#targetingController.setHoveredPublicationId(publicationId),
+      setPropTargeted: (record) =>
+        this.#targetingController.setPropTargeted(record),
       setTelevisionTargeted: (targeted, interaction, television) =>
-        this.#setTelevisionTargeted(targeted, interaction, television),
-      setTrashTargeted: (targeted) => this.#setTrashTargeted(targeted),
+        this.#targetingController.setTelevisionTargeted(
+          targeted,
+          interaction,
+          television,
+        ),
+      setTrashTargeted: (targeted) =>
+        this.#targetingController.setTrashTargeted(targeted),
       shelfHoverMeshesByShelf: () => this.#shelfHoverMeshesByShelf,
       shelfPresentation: () => this.#shelfPresentation,
       shelfTargetMeshes: () => this.#shelfTargetMeshes,
@@ -2177,7 +1910,7 @@ export class ShopScene {
         this.#carriedPublicationId = publicationId;
       },
       setHoveredPublicationId: (publicationId) =>
-        this.#setHoveredPublicationId(publicationId),
+        this.#targetingController.setHoveredPublicationId(publicationId),
       setPhysicsPose: (position, rotation) =>
         this.#bookLifecycle.setPhysicsPose(position, rotation),
       setShelfPosition: (record) =>
@@ -2187,7 +1920,8 @@ export class ShopScene {
       setShelfPresentation: (presentation) => {
         this.#shelfPresentation = presentation;
       },
-      setTrashTargeted: (targeted) => this.#setTrashTargeted(targeted),
+      setTrashTargeted: (targeted) =>
+        this.#targetingController.setTrashTargeted(targeted),
       shelfTargetSelection: () => this.#scanner.shelfTargetSelection,
       spineShelfDefinitions: () => this.#spineShelfDefinitions,
       syncCarriedBookPresentation: () =>

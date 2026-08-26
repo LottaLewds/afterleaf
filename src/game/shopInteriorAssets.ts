@@ -10,6 +10,7 @@ import {
   Vector2,
   WebGLRenderer,
   type ColorSpace,
+  type Texture,
 } from "three";
 
 import floorAlbedoUrl from "~/assets/materials/laminate-floor-albedo.webp";
@@ -35,6 +36,30 @@ export type ShopInteriorAssetsHost = {
   props: () => MovablePropLifecycle;
   renderer: () => WebGLRenderer;
   textureLoader: () => TextureLoader;
+};
+
+export const cloneFloorMaterial = (
+  source: MeshStandardMaterial,
+  repeatX: number,
+  repeatY: number,
+) => {
+  const material = source.clone();
+  const clones = new Map<Texture, Texture>();
+  const cloneTexture = (texture: Texture | null) => {
+    if (!texture) return null;
+    const existing = clones.get(texture);
+    if (existing) return existing;
+    const clone = texture.clone();
+    clone.repeat.set(repeatX, repeatY);
+    clone.needsUpdate = true;
+    clones.set(texture, clone);
+    return clone;
+  };
+  material.aoMap = cloneTexture(source.aoMap);
+  material.map = cloneTexture(source.map);
+  material.normalMap = cloneTexture(source.normalMap);
+  material.roughnessMap = cloneTexture(source.roughnessMap);
+  return material;
 };
 
 /** Creates the reusable materials and small fixture primitives used by the shop builder. */
