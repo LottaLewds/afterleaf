@@ -1,11 +1,14 @@
 import {
   BoxGeometry,
+  MathUtils,
   Mesh,
   MeshBasicMaterial,
   Path,
   PlaneGeometry,
+  Quaternion,
   Shape,
   ShapeGeometry,
+  Vector3,
   type MeshStandardMaterial,
 } from "three";
 import type {Group} from "three";
@@ -13,6 +16,12 @@ import {createWallpaperBoxGeometry} from "~/game/wallpaperMaterials";
 import {createCeilingBoxGeometry} from "~/game/ceilingMaterials";
 import {createUpholsteryBoxGeometry} from "~/game/upholsteryMaterials";
 import {createWoodBoxGeometry} from "~/game/woodMaterials";
+import {
+  MAX_POSTER_HEIGHT,
+  MIN_POSTER_HEIGHT,
+  POSTER_SURFACE_MARGIN,
+  POSTER_SURFACE_OFFSET,
+} from "~/game/wallDecorTuning";
 import {SHOP_UPPER_FLOOR_Y} from "~/game/shopExpansionLayout";
 
 /** Shared signature for the interior box builder used across shop builders. */
@@ -142,4 +151,68 @@ export const createTiledFloorSurface = (
   const material = floorMaterial.clone();
   const floor = createHorizontalShape(parent, bounds, holes, y, material);
   return floor;
+};
+
+/** Scratch-free wall placement resolution shared by posters and art frames. */
+export const resolveWallPlacement = (
+  surface: PosterSurface,
+  worldPoint: Vector3,
+  aspectRatio: number,
+  desiredHeight: number,
+  rotation: number,
+  outPosition: Vector3,
+  outRotation: Quaternion,
+  localPoint: Vector3,
+  border = 0,
+  gridSnap = true,
+): number | undefined => {
+  const framedAspectRatio = aspectRatio + border;
+  const framedHeight = 1 + border;
+  const cosine = Math.abs(Math.cos(rotation));
+  const sine = Math.abs(Math.sin(rotation));
+  const boundingWidthPerHeight =
+    cosine * framedAspectRatio + sine * framedHeight;
+  const boundingHeightPerHeight =
+    sine * framedAspectRatio + cosine * framedHeight;
+  const maximumHeight = Math.min(
+    MAX_POSTER_HEIGHT,
+    (surface.height - POSTER_SURFACE_MARGIN) / boundingHeightPerHeight,
+    (surface.width - POSTER_SURFACE_MARGIN) / boundingWidthPerHeight,
+  );
+  if (maximumHeight < MIN_POSTER_HEIGHT) return undefined;
+  const height = MathUtils.clamp(
+    desiredHeight,
+    MIN_POSTER_HEIGHT,
+    maximumHeight,
+  );
+  const halfWidth = (boundingWidthPerHeight * height) / 2;
+  const halfHeight = (boundingHeightPerHeight * height) / 2;
+  const point = localPoint.copy(worldPoint);
+  surface.target.worldToLocal(point);
+  point.x = MathUtils.clamp(
+    point.x,
+    -surface.width / 2 + halfWidth + POSTER_SURFACE_MARGIN / 2,
+    surface.width / 2 - halfWidth - POSTER_SURFACE_MARGIN / 2,
+  );
+  if (gridSnap)
+    point.x = MathUtils.clamp(
+      Math.round(point.x / 0.25) * 0.25,
+      -surface.width / 2 + halfWidth + POSTER_SURFACE_MARGIN / 2,
+      surface.width / 2 - halfWidth - POSTER_SURFACE_MARGIN / 2,
+    );
+  point.y = MathUtils.clamp(
+    point.y,
+    -surface.height / 2 + halfHeight + POSTER_SURFACE_MARGIN / 2,
+    surface.height / 2 - halfHeight - POSTER_SURFACE_MARGIN / 2,
+  );
+  if (gridSnap)
+    point.y = MathUtils.clamp(
+      Math.round(point.y / 0.25) * 0.25,
+      -surface.height / 2 + halfHeight + POSTER_SURFACE_MARGIN / 2,
+      surface.height / 2 - halfHeight - POSTER_SURFACE_MARGIN / 2,
+    );
+  point.z = POSTER_SURFACE_OFFSET + (border > 0 ? 0.025 : 0);
+  surface.target.localToWorld(outPosition.copy(point));
+  surface.target.getWorldQuaternion(outRotation);
+  return height;
 };

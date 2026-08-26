@@ -57,7 +57,6 @@ import {
   createHorizontalShape,
   createPosterSurface as createPosterSurfaceTarget,
   createTiledFloorSurface,
-  type PosterSurface,
 } from "~/game/interior/interiorPrimitives";
 import {
   createAtriumRailings,
@@ -123,6 +122,8 @@ import {
   TRASH_CAN_HEIGHT,
   TRASH_CAN_PROP_ID,
 } from "~/game/discardBin";
+import {PosterSystem} from "~/game/posters/PosterSystem";
+import {resolveWallPlacement} from "~/game/interior/interiorPrimitives";
 import {
   createHallwayDoor,
   createRareRoom,
@@ -178,12 +179,8 @@ import {
   MAX_UNUSED_ART_FRAME_TEXTURES,
   MAX_POSTER_HEIGHT,
   MIN_POSTER_HEIGHT,
-  POSTER_ALPHA_TEST,
-  POSTER_DEPTH_LAYER_SPACING,
   POSTER_INTERACTION_DISTANCE,
   POSTER_PLACEMENT_DISTANCE,
-  POSTER_POLYGON_OFFSET_FACTOR,
-  POSTER_SURFACE_MARGIN,
   POSTER_SURFACE_OFFSET,
   POSTER_WHEEL_ROTATION_STEP,
 } from "~/game/wallDecorTuning";
@@ -542,28 +539,6 @@ type ShelfTargetSelection = {
   slotIndex: number;
 };
 
-type PosterRecord = {
-  asset: PosterAsset;
-  depthLayer: number;
-  height: number;
-  id: string;
-  mesh: Mesh<PlaneGeometry, MeshStandardMaterial>;
-  rotation: number;
-};
-
-type PosterPlacementSession = {
-  assetIndex: number;
-  depthLayer: number;
-  desiredHeight: number;
-  gridSnap: boolean;
-  movingPosterId?: string;
-  rotation: number;
-};
-
-type PosterPlacementSelection = {
-  height: number;
-};
-
 type DigitalArtFrameRecord = {
   frame: DigitalArtFrame;
   height: number;
@@ -902,6 +877,10 @@ export class ShopScene {
   readonly #signs: ShopSignSystem;
   readonly #discardBin: DiscardBin;
   readonly #doors: DoorSystem;
+  readonly #posters: PosterSystem;
+  readonly #artFramePlacementPosition = new Vector3();
+  readonly #artFramePlacementRotation = new Quaternion();
+  readonly #artFrameLocalPoint = new Vector3();
   readonly #input: InputManager;
   readonly #getShortcuts: () => ShortcutsConfig;
   readonly #getPadMappingOverrides: () => ArcadePadMappingOverrides;
@@ -973,14 +952,7 @@ export class ShopScene {
   };
   readonly #physicsWorld = new ShopPhysicsWorld();
   readonly #playerVelocity = new Vector3();
-  readonly #posterLocalPoint = new Vector3();
-  readonly #posterPlacementPosition = new Vector3();
-  readonly #posterPlacementRotation = new Quaternion();
   readonly #posterRaycastMeshes: Mesh[] = [];
-  readonly #posterRecords = new Map<string, PosterRecord>();
-  readonly #posterSurfaces = new Map<string, PosterSurface>();
-  readonly #posterTargetMeshes: Mesh[] = [];
-  readonly #posterTexturePromises = new Map<string, Promise<Texture>>();
   readonly #digitalArtFrameRecords = new Map<string, DigitalArtFrameRecord>();
   readonly #digitalArtFrameTargetMeshes: Mesh[] = [];
   readonly #artFrameImageBitmapLoader = new ImageBitmapLoader().setOptions({
@@ -1133,19 +1105,9 @@ export class ShopScene {
   #lastPlayerGroundedAt = Number.NEGATIVE_INFINITY;
   #playerGrounded = false;
   #playerVerticalVelocity = 0;
-  #posterAssets: readonly PosterAsset[] = [];
-  #posterAssetIndex = 0;
-  #nextPosterDepthLayer = 1;
   #mediaCatalogRefreshHandle: number | undefined;
   #lateShaderPrecompileHandle: number | undefined;
   #mediaCatalogRequestPending = false;
-  #posterImportCount = 0;
-  #posterImportError: string | undefined;
-  #posterSaveRestoreCompleted = false;
-  #posterPlacement: PosterPlacementSession | undefined;
-  #posterPlacementRevision = 0;
-  #posterPlacementSelection: PosterPlacementSelection | undefined;
-  #posterPreview: Mesh<PlaneGeometry, MeshStandardMaterial> | undefined;
   #artFrameAssets: readonly ArtFrameImage[] = [];
   #artFrameAssetIndex = 0;
   #artFrameChannels: readonly ArtFrameChannel[] = [];
@@ -1168,7 +1130,6 @@ export class ShopScene {
   #artFrameTexturePreparationHandle: number | undefined;
   #artFrameTexturePreparationUsesIdleCallback = false;
   #artFrameSaveRestoreCompleted = false;
-  #pendingPosterSaves: readonly WorldPosterSave[] = [];
   #pendingDigitalArtFrameSaves: readonly WorldDigitalArtFrameSave[] = [];
   #pendingModelPropSaves: readonly WorldModelPropSave[] = [];
   #pendingPropSaves = new Map<string, WorldPropSave>();
@@ -1198,7 +1159,6 @@ export class ShopScene {
   #interactionTargetsDirty = true;
   #shelfBrowsePublicationId: string | undefined;
   #shelfBrowseReadyAt = 0;
-  #targetedPosterId: string | undefined;
   #targetedDigitalArtFrameId: string | undefined;
   #channelEditorDigitalArtFrameId: string | undefined;
   #channelEditorTelevision: ShopTelevision | undefined;
@@ -1337,6 +1297,22 @@ export class ShopScene {
       releasePointerLock: () => this.#releasePointerLock(),
     });
 
+    this.#posters = new PosterSystem({
+      abortSignal: this.#abortController.signal,
+      camera: this.#camera,
+      emitGameState: () => this.#emitGameState(),
+      importPoster: options.importPoster,
+      isDisposed: () => this.#disposed,
+      isPointerLocked: () => this.#pointerLocked,
+      markWorldStateDirty: () => {
+        this.#worldStateDirty = true;
+      },
+      maxTextureAnisotropy: this.#renderer.capabilities.getMaxAnisotropy(),
+      posterRaycastMeshes: this.#posterRaycastMeshes,
+      raycaster: this.#raycaster,
+      scene: this.#scene,
+      textureLoader: this.#textureLoader,
+    });
     this.#doors = new DoorSystem();
     this.#discardBin = new DiscardBin({
       ghostObject: (object) => this.#ghostObject(object),
@@ -1805,9 +1781,7 @@ export class ShopScene {
     this.#scene.clear();
     this.#moonEnvironment?.dispose();
     this.#moonEnvironment = undefined;
-    for (const pendingTexture of this.#posterTexturePromises.values())
-      void pendingTexture.then((texture) => texture.dispose()).catch(() => {});
-    this.#posterTexturePromises.clear();
+    this.#posters.disposePendingTextures();
     this.#cancelArtFrameTexturePreparation();
     for (const entry of this.#artFrameTextureCache.values())
       void entry.promise
@@ -3738,7 +3712,7 @@ export class ShopScene {
       position,
       rotationY,
       this.#posterRaycastMeshes,
-      this.#posterSurfaces,
+      this.#posters.surfaces,
     );
   }
 
@@ -4758,98 +4732,6 @@ export class ShopScene {
     this.#emitGameState();
   }
 
-  #posterCatalogMatches(assets: readonly PosterAsset[]) {
-    return (
-      assets.length === this.#posterAssets.length &&
-      assets.every((asset, index) => {
-        const current = this.#posterAssets[index];
-        if (!current) return false;
-        return (
-          asset.aspectRatio === current.aspectRatio &&
-          asset.hasAlpha === current.hasAlpha &&
-          asset.id === current.id &&
-          asset.label === current.label &&
-          asset.url === current.url
-        );
-      })
-    );
-  }
-
-  #applyPosterCatalog(assets: readonly PosterAsset[]) {
-    if (this.#posterCatalogMatches(assets)) return;
-    const activeAssetId = this.#posterPlacement
-      ? this.#posterAssets[this.#posterPlacement.assetIndex]?.id
-      : undefined;
-    const selectedAssetId = this.#posterAssets[this.#posterAssetIndex]?.id;
-    this.#posterAssets = assets;
-    const selectedIndex = selectedAssetId
-      ? assets.findIndex((asset) => asset.id === selectedAssetId)
-      : -1;
-    this.#posterAssetIndex = Math.max(0, selectedIndex);
-    if (this.#posterPlacement && activeAssetId) {
-      const activeIndex = assets.findIndex(
-        (asset) => asset.id === activeAssetId,
-      );
-      if (activeIndex < 0) this.#cancelPosterPlacement();
-      else {
-        this.#posterPlacement.assetIndex = activeIndex;
-        this.#posterAssetIndex = activeIndex;
-      }
-    }
-    this.#emitGameState();
-  }
-
-  async #restoreSavedPosters(assets: readonly PosterAsset[]) {
-    const assetsById = new Map(assets.map((asset) => [asset.id, asset]));
-    const restoredIds = new Set<string>();
-    this.#nextPosterDepthLayer = Math.max(
-      this.#nextPosterDepthLayer,
-      this.#pendingPosterSaves.length + 1,
-    );
-    await Promise.all(
-      this.#pendingPosterSaves.map(async (savedPoster, index) => {
-        const asset = assetsById.get(savedPoster.assetId);
-        if (!asset) return;
-        try {
-          const depthLayer = index + 1;
-          const mesh = await this.#createPosterMesh(
-            asset,
-            savedPoster.height,
-            depthLayer,
-          );
-          if (this.#disposed) {
-            this.#disposePosterMesh(mesh);
-            return;
-          }
-          mesh.position.copy(savedPoster.pose.position);
-          mesh.quaternion.copy(savedPoster.pose.quaternion);
-          this.#scene.add(mesh);
-          this.#posterRecords.set(savedPoster.id, {
-            asset,
-            depthLayer,
-            height: savedPoster.height,
-            id: savedPoster.id,
-            mesh,
-            rotation: savedPoster.rotation ?? 0,
-          });
-          mesh.userData.posterId = savedPoster.id;
-          this.#posterTargetMeshes.push(mesh);
-          restoredIds.add(savedPoster.id);
-        } catch (error) {
-          if (DEV)
-            console.warn(
-              `Afterleaf could not restore poster ${savedPoster.assetId}.`,
-              error,
-            );
-        }
-      }),
-    );
-    if (restoredIds.size !== this.#pendingPosterSaves.length)
-      this.#worldStateDirty = true;
-    this.#pendingPosterSaves = [];
-    this.#posterSaveRestoreCompleted = true;
-  }
-
   #artFrameTexture(
     image: ArtFrameImage,
     priority: ArtFrameTextureLoadState["priority"],
@@ -5119,9 +5001,9 @@ export class ShopScene {
       if (this.#disposed) return;
       this.#applyModelCatalog(catalog.models.models);
       await this.#restoreSavedModelProps();
-      this.#applyPosterCatalog(catalog.posters.posters);
-      if (!this.#posterSaveRestoreCompleted)
-        await this.#restoreSavedPosters(catalog.posters.posters);
+      this.#posters.applyPosterCatalog(catalog.posters.posters);
+      if (!this.#posters.saveRestoreCompleted)
+        await this.#posters.restoreSavedPosters(catalog.posters.posters);
       this.#applyArtFrameCatalog(catalog.artFrames.channels);
       if (!this.#artFrameSaveRestoreCompleted)
         await this.#restoreSavedDigitalArtFrames(catalog.artFrames.channels);
@@ -5380,7 +5262,7 @@ export class ShopScene {
     const surfaceId = intersection?.object.userData.posterSurfaceId;
     const surface =
       typeof surfaceId === "string"
-        ? this.#posterSurfaces.get(surfaceId)
+        ? this.#posters.surfaces.get(surfaceId)
         : undefined;
     if (
       !intersection ||
@@ -5391,12 +5273,15 @@ export class ShopScene {
       this.#setDigitalArtFramePlacementSelection();
       return;
     }
-    const height = this.#resolveWallPlacement(
+    const height = resolveWallPlacement(
       surface,
       intersection.point,
       placement.aspectRatio,
       placement.desiredHeight,
       placement.rotation,
+      this.#artFramePlacementPosition,
+      this.#artFramePlacementRotation,
+      this.#artFrameLocalPoint,
       DIGITAL_ART_FRAME_BORDER,
       placement.gridSnap,
     );
@@ -5406,8 +5291,8 @@ export class ShopScene {
       return;
     }
     this.#scene.attach(preview.object);
-    preview.object.position.copy(this.#posterPlacementPosition);
-    preview.object.quaternion.copy(this.#posterPlacementRotation);
+    preview.object.position.copy(this.#artFramePlacementPosition);
+    preview.object.quaternion.copy(this.#artFramePlacementRotation);
     preview.object.rotateZ(placement.rotation);
     preview.object.scale.setScalar(height);
     preview.object.visible = true;
@@ -5513,9 +5398,9 @@ export class ShopScene {
       void this.#importPastedArtFrameImage(image, artFrameTarget);
       return;
     }
-    if (image && this.#posterPlacement && this.#importPoster) {
+    if (image && this.#posters.placement && this.#importPoster) {
       event.preventDefault();
-      void this.#importPastedPoster(image);
+      void this.#posters.importPastedPoster(image);
       return;
     }
     const clipboardText =
@@ -5605,7 +5490,7 @@ export class ShopScene {
   #digitalArtFramePasteTarget(): DigitalArtFramePasteTarget | undefined {
     const placement = this.#artFramePlacement;
     if (placement) return {channelId: placement.channelId, kind: "placement"};
-    if (this.#posterPlacement) return;
+    if (this.#posters.placement) return;
     const frameId = this.#targetedDigitalArtFrameId;
     const frame = frameId
       ? this.#digitalArtFrameRecords.get(frameId)?.frame
@@ -5718,416 +5603,7 @@ export class ShopScene {
     }
   }
 
-  async #importPastedPoster(image: Blob) {
-    const importPoster = this.#importPoster;
-    if (!importPoster) return;
-    this.#posterImportCount += 1;
-    this.#posterImportError = undefined;
-    this.#emitGameState();
-    try {
-      const asset = await importPoster(image, this.#abortController.signal);
-      if (this.#disposed) return;
-      this.#applyPosterCatalog(
-        [
-          ...this.#posterAssets.filter(
-            (candidate) => candidate.id !== asset.id,
-          ),
-          asset,
-        ].sort((left, right) => left.id.localeCompare(right.id)),
-      );
-      const assetIndex = this.#posterAssets.findIndex(
-        (candidate) => candidate.id === asset.id,
-      );
-      if (assetIndex >= 0) this.#posterAssetIndex = assetIndex;
-      const placement = this.#posterPlacement;
-      if (!placement) return;
-      const desiredHeight = placement.desiredHeight;
-      const rotation = placement.rotation;
-      this.#cancelPosterPlacement();
-      if (assetIndex >= 0)
-        void this.#startPosterPlacement(
-          assetIndex,
-          undefined,
-          desiredHeight,
-          rotation,
-        );
-    } catch (error) {
-      if (this.#abortController.signal.aborted) return;
-      this.#posterImportError =
-        error instanceof Error && error.message
-          ? error.message
-          : "Pasted poster could not be imported";
-    } finally {
-      this.#posterImportCount = Math.max(0, this.#posterImportCount - 1);
-      if (!this.#disposed) this.#emitGameState();
-    }
-  }
-
-  #posterTexture(asset: PosterAsset) {
-    const cached = this.#posterTexturePromises.get(asset.id);
-    if (cached) return cached;
-    const pending = this.#textureLoader.loadAsync(asset.url).then((texture) => {
-      texture.colorSpace = SRGBColorSpace;
-      texture.anisotropy = Math.min(
-        8,
-        this.#renderer.capabilities.getMaxAnisotropy(),
-      );
-      return texture;
-    });
-    this.#posterTexturePromises.set(asset.id, pending);
-    void pending.catch(() => this.#posterTexturePromises.delete(asset.id));
-    return pending;
-  }
-
-  #setPosterDepthLayer(
-    mesh: Mesh<PlaneGeometry, MeshStandardMaterial>,
-    depthLayer: number,
-  ) {
-    const previousOffset = mesh.userData.posterDepthOffset;
-    const localOffset =
-      (depthLayer * POSTER_DEPTH_LAYER_SPACING) / mesh.scale.z;
-    mesh.geometry.translate(
-      0,
-      0,
-      localOffset - (typeof previousOffset === "number" ? previousOffset : 0),
-    );
-    mesh.userData.posterDepthOffset = localOffset;
-    mesh.userData.posterDepthLayer = depthLayer;
-    mesh.material.polygonOffset = true;
-    mesh.material.polygonOffsetFactor = POSTER_POLYGON_OFFSET_FACTOR;
-    mesh.material.polygonOffsetUnits = -depthLayer;
-    mesh.renderOrder = depthLayer;
-  }
-
-  #compactPosterDepthLayers() {
-    const records = [...this.#posterRecords.values()].sort(
-      (left, right) => left.depthLayer - right.depthLayer,
-    );
-    for (const [index, record] of records.entries()) {
-      record.depthLayer = index + 1;
-      this.#setPosterDepthLayer(record.mesh, record.depthLayer);
-    }
-    this.#nextPosterDepthLayer = records.length + 1;
-  }
-
-  async #createPosterMesh(
-    asset: PosterAsset,
-    height: number,
-    depthLayer: number,
-  ) {
-    const texture = await this.#posterTexture(asset);
-    const mesh = new Mesh(
-      new PlaneGeometry(asset.aspectRatio, 1),
-      new MeshStandardMaterial({
-        alphaTest: asset.hasAlpha ? POSTER_ALPHA_TEST : 0,
-        map: texture,
-        metalness: 0,
-        roughness: 0.84,
-        transparent: asset.hasAlpha,
-      }),
-    );
-    mesh.name = `poster-${asset.id}`;
-    mesh.scale.setScalar(height);
-    mesh.userData.posterAssetId = asset.id;
-    this.#setPosterDepthLayer(mesh, depthLayer);
-    return mesh;
-  }
-
-  #disposePosterMesh(mesh: Mesh<PlaneGeometry, MeshStandardMaterial>) {
-    mesh.removeFromParent();
-    mesh.geometry.dispose();
-    mesh.material.dispose();
-  }
-
-  async #startPosterPlacement(
-    assetIndex: number,
-    movingPosterId?: string,
-    desiredHeight = DEFAULT_POSTER_HEIGHT,
-    rotation = 0,
-  ) {
-    if (this.#posterAssets.length === 0) return;
-    const normalizedIndex =
-      (assetIndex + this.#posterAssets.length) % this.#posterAssets.length;
-    const asset = this.#posterAssets[normalizedIndex];
-    if (!asset) return;
-    const revision = (this.#posterPlacementRevision += 1);
-    this.#disposePosterPreview();
-    const movingPoster = this.#posterRecords.get(movingPosterId ?? "");
-    const depthLayer = this.#nextPosterDepthLayer;
-    this.#posterPlacement = {
-      assetIndex: normalizedIndex,
-      depthLayer,
-      desiredHeight,
-      gridSnap: true,
-      ...(movingPosterId ? {movingPosterId} : {}),
-      rotation,
-    };
-    this.#posterAssetIndex = normalizedIndex;
-    if (movingPoster) movingPoster.mesh.visible = false;
-    this.#posterPlacementSelection = undefined;
-    this.#targetedPosterId = undefined;
-    this.#emitGameState();
-    try {
-      const preview = await this.#createPosterMesh(
-        asset,
-        desiredHeight,
-        depthLayer,
-      );
-      if (
-        this.#disposed ||
-        revision !== this.#posterPlacementRevision ||
-        this.#posterPlacement?.assetIndex !== normalizedIndex
-      ) {
-        this.#disposePosterMesh(preview);
-        return;
-      }
-      preview.name = `poster-placement-preview-${asset.id}`;
-      preview.material.depthWrite = false;
-      preview.material.opacity = 0.72;
-      preview.material.transparent = true;
-      preview.visible = false;
-      this.#posterPreview = preview;
-      this.#scene.add(preview);
-      this.#updatePosterPlacementTarget();
-    } catch (error) {
-      if (DEV)
-        console.warn(`Afterleaf could not load poster ${asset.id}.`, error);
-      if (revision === this.#posterPlacementRevision)
-        this.#cancelPosterPlacement();
-    }
-  }
-
-  #startEmptyPosterPlacement() {
-    this.#posterPlacementRevision += 1;
-    this.#disposePosterPreview();
-    this.#posterPlacement = {
-      assetIndex: -1,
-      depthLayer: this.#nextPosterDepthLayer,
-      desiredHeight: DEFAULT_POSTER_HEIGHT,
-      gridSnap: true,
-      rotation: 0,
-    };
-    this.#posterPlacementSelection = undefined;
-    this.#targetedPosterId = undefined;
-    this.#emitGameState();
-  }
-
-  #cyclePoster(direction: number) {
-    const placement = this.#posterPlacement;
-    if (!placement || direction === 0) return;
-    void this.#startPosterPlacement(
-      placement.assetIndex + direction,
-      placement.movingPosterId,
-      placement.desiredHeight,
-      placement.rotation,
-    );
-  }
-
-  #disposePosterPreview() {
-    const preview = this.#posterPreview;
-    if (!preview) return;
-    this.#posterPreview = undefined;
-    this.#disposePosterMesh(preview);
-  }
-
-  #cancelPosterPlacement() {
-    const movingPosterId = this.#posterPlacement?.movingPosterId;
-    this.#posterPlacementRevision += 1;
-    this.#disposePosterPreview();
-    const movingPoster = this.#posterRecords.get(movingPosterId ?? "");
-    if (movingPoster) movingPoster.mesh.visible = true;
-    this.#posterPlacement = undefined;
-    this.#posterPlacementSelection = undefined;
-    this.#emitGameState();
-  }
-
-  #setPosterPlacementSelection(height?: number) {
-    if (height === this.#posterPlacementSelection?.height) return;
-    this.#posterPlacementSelection =
-      height === undefined ? undefined : {height};
-    this.#emitGameState();
-  }
-
   /** Resolves both poster and digital-frame placement against the same wall snap. */
-  #resolveWallPlacement(
-    surface: PosterSurface,
-    worldPoint: Vector3,
-    aspectRatio: number,
-    desiredHeight: number,
-    rotation: number,
-    border = 0,
-    gridSnap = true,
-  ) {
-    const framedAspectRatio = aspectRatio + border;
-    const framedHeight = 1 + border;
-    const cosine = Math.abs(Math.cos(rotation));
-    const sine = Math.abs(Math.sin(rotation));
-    const boundingWidthPerHeight =
-      cosine * framedAspectRatio + sine * framedHeight;
-    const boundingHeightPerHeight =
-      sine * framedAspectRatio + cosine * framedHeight;
-    const maximumHeight = Math.min(
-      MAX_POSTER_HEIGHT,
-      (surface.height - POSTER_SURFACE_MARGIN) / boundingHeightPerHeight,
-      (surface.width - POSTER_SURFACE_MARGIN) / boundingWidthPerHeight,
-    );
-    if (maximumHeight < MIN_POSTER_HEIGHT) return;
-    const height = MathUtils.clamp(
-      desiredHeight,
-      MIN_POSTER_HEIGHT,
-      maximumHeight,
-    );
-    const halfWidth = (boundingWidthPerHeight * height) / 2;
-    const halfHeight = (boundingHeightPerHeight * height) / 2;
-    const point = this.#posterLocalPoint.copy(worldPoint);
-    surface.target.worldToLocal(point);
-    point.x = MathUtils.clamp(
-      point.x,
-      -surface.width / 2 + halfWidth + POSTER_SURFACE_MARGIN / 2,
-      surface.width / 2 - halfWidth - POSTER_SURFACE_MARGIN / 2,
-    );
-    if (gridSnap)
-      point.x = MathUtils.clamp(
-        Math.round(point.x / 0.25) * 0.25,
-        -surface.width / 2 + halfWidth + POSTER_SURFACE_MARGIN / 2,
-        surface.width / 2 - halfWidth - POSTER_SURFACE_MARGIN / 2,
-      );
-    point.y = MathUtils.clamp(
-      point.y,
-      -surface.height / 2 + halfHeight + POSTER_SURFACE_MARGIN / 2,
-      surface.height / 2 - halfHeight - POSTER_SURFACE_MARGIN / 2,
-    );
-    if (gridSnap)
-      point.y = MathUtils.clamp(
-        Math.round(point.y / 0.25) * 0.25,
-        -surface.height / 2 + halfHeight + POSTER_SURFACE_MARGIN / 2,
-        surface.height / 2 - halfHeight - POSTER_SURFACE_MARGIN / 2,
-      );
-    point.z = POSTER_SURFACE_OFFSET + (border > 0 ? 0.025 : 0);
-    surface.target.localToWorld(this.#posterPlacementPosition.copy(point));
-    surface.target.getWorldQuaternion(this.#posterPlacementRotation);
-    return height;
-  }
-
-  #updatePosterPlacementTarget() {
-    const placement = this.#posterPlacement;
-    const preview = this.#posterPreview;
-    if (!placement || !preview || !this.#pointerLocked) {
-      if (preview) preview.visible = false;
-      this.#setPosterPlacementSelection();
-      return;
-    }
-    const asset = this.#posterAssets[placement.assetIndex];
-    if (!asset) return;
-    const intersection = this.#raycaster.intersectObjects(
-      this.#posterRaycastMeshes,
-      false,
-    )[0];
-    const surfaceId = intersection?.object.userData.posterSurfaceId;
-    const surface =
-      typeof surfaceId === "string"
-        ? this.#posterSurfaces.get(surfaceId)
-        : undefined;
-    if (
-      !intersection ||
-      intersection.distance > POSTER_PLACEMENT_DISTANCE ||
-      !surface
-    ) {
-      preview.visible = false;
-      this.#setPosterPlacementSelection();
-      return;
-    }
-    const height = this.#resolveWallPlacement(
-      surface,
-      intersection.point,
-      asset.aspectRatio,
-      placement.desiredHeight,
-      placement.rotation,
-      0,
-      placement.gridSnap,
-    );
-    if (height === undefined) {
-      preview.visible = false;
-      this.#setPosterPlacementSelection();
-      return;
-    }
-    preview.position.copy(this.#posterPlacementPosition);
-    preview.quaternion.copy(this.#posterPlacementRotation);
-    preview.rotateZ(placement.rotation);
-    preview.scale.setScalar(height);
-    this.#setPosterDepthLayer(preview, placement.depthLayer);
-    preview.visible = true;
-    this.#setPosterPlacementSelection(height);
-  }
-
-  #placePoster() {
-    const placement = this.#posterPlacement;
-    const selection = this.#posterPlacementSelection;
-    const preview = this.#posterPreview;
-    const asset = placement
-      ? this.#posterAssets[placement.assetIndex]
-      : undefined;
-    if (!placement || !selection || !preview || !asset || !preview.visible)
-      return;
-    preview.material.opacity = 1;
-    preview.material.transparent = asset.hasAlpha;
-    preview.material.depthWrite = true;
-    const existing = placement.movingPosterId
-      ? this.#posterRecords.get(placement.movingPosterId)
-      : undefined;
-    if (existing) {
-      const targetIndex = this.#posterTargetMeshes.indexOf(existing.mesh);
-      this.#disposePosterMesh(existing.mesh);
-      existing.asset = asset;
-      existing.depthLayer = placement.depthLayer;
-      existing.height = selection.height;
-      existing.mesh = preview;
-      existing.rotation = placement.rotation;
-      existing.mesh.material.depthWrite = true;
-      existing.mesh.material.opacity = 1;
-      existing.mesh.material.transparent = asset.hasAlpha;
-      existing.mesh.userData.posterId = existing.id;
-      if (targetIndex >= 0) this.#posterTargetMeshes[targetIndex] = preview;
-      else this.#posterTargetMeshes.push(preview);
-      this.#posterPreview = undefined;
-    } else {
-      const id = globalThis.crypto.randomUUID();
-      preview.material.depthWrite = true;
-      preview.material.opacity = 1;
-      preview.material.transparent = asset.hasAlpha;
-      preview.userData.posterId = id;
-      this.#posterRecords.set(id, {
-        asset,
-        depthLayer: placement.depthLayer,
-        height: selection.height,
-        id,
-        mesh: preview,
-        rotation: placement.rotation,
-      });
-      this.#posterTargetMeshes.push(preview);
-      this.#posterPreview = undefined;
-    }
-    this.#compactPosterDepthLayers();
-    this.#posterPlacement = undefined;
-    this.#posterPlacementSelection = undefined;
-    this.#worldStateDirty = true;
-    this.#emitGameState();
-  }
-
-  #removeTargetedPoster() {
-    const posterId = this.#targetedPosterId;
-    if (!posterId) return;
-    const record = this.#posterRecords.get(posterId);
-    if (!record) return;
-    this.#disposePosterMesh(record.mesh);
-    this.#posterRecords.delete(posterId);
-    this.#compactPosterDepthLayers();
-    const targetIndex = this.#posterTargetMeshes.indexOf(record.mesh);
-    if (targetIndex >= 0) this.#posterTargetMeshes.splice(targetIndex, 1);
-    this.#targetedPosterId = undefined;
-    this.#worldStateDirty = true;
-    this.#emitGameState();
-  }
 
   #bindInput() {
     const passiveOptions = {
@@ -6337,7 +5813,7 @@ export class ShopScene {
       this.#emitGameState();
       return;
     }
-    const posterPlacement = this.#posterPlacement;
+    const posterPlacement = this.#posters.placement;
     if (this.#pointerLocked && posterPlacement && event.deltaY !== 0) {
       event.preventDefault();
       if (event.shiftKey)
@@ -6351,7 +5827,7 @@ export class ShopScene {
           MIN_POSTER_HEIGHT,
           MAX_POSTER_HEIGHT,
         );
-      this.#updatePosterPlacementTarget();
+      this.#posters.updatePosterPlacementTarget();
       this.#emitGameState();
       return;
     }
@@ -6601,7 +6077,7 @@ export class ShopScene {
         }
         if (
           !this.#artFramePlacement &&
-          !this.#posterPlacement &&
+          !this.#posters.placement &&
           !this.#carriedPublicationId &&
           !this.#carriedProp
         )
@@ -6613,7 +6089,7 @@ export class ShopScene {
           return true;
         }
         if (
-          !this.#posterPlacement &&
+          !this.#posters.placement &&
           !this.#modelPlacement &&
           !this.#carriedPublicationId &&
           !this.#carriedProp
@@ -6644,8 +6120,8 @@ export class ShopScene {
         }
         return true;
       case "togglePosterPlacement":
-        if (this.#posterPlacement) {
-          this.#cancelPosterPlacement();
+        if (this.#posters.placement) {
+          this.#posters.cancelPosterPlacement();
           return true;
         }
         if (
@@ -6654,9 +6130,9 @@ export class ShopScene {
           !this.#carriedPublicationId &&
           !this.#carriedProp
         ) {
-          if (this.#posterAssets.length > 0)
-            void this.#startPosterPlacement(this.#posterAssetIndex);
-          else this.#startEmptyPosterPlacement();
+          if (this.#posters.assets.length > 0)
+            void this.#posters.startPosterPlacement(this.#posters.assetIndex);
+          else this.#posters.startEmptyPosterPlacement();
         }
         return true;
       case "placementCycleLeft":
@@ -6664,8 +6140,8 @@ export class ShopScene {
           this.#cycleModelPlacement(-1);
           return true;
         }
-        if (this.#posterPlacement) {
-          this.#cyclePoster(-1);
+        if (this.#posters.placement) {
+          this.#posters.cyclePoster(-1);
           return true;
         }
         return false;
@@ -6674,8 +6150,8 @@ export class ShopScene {
           this.#cycleModelPlacement(1);
           return true;
         }
-        if (this.#posterPlacement) {
-          this.#cyclePoster(1);
+        if (this.#posters.placement) {
+          this.#posters.cyclePoster(1);
           return true;
         }
         return false;
@@ -6754,19 +6230,19 @@ export class ShopScene {
           this.#removeTargetedDigitalArtFrame();
           return true;
         }
-        if (this.#targetedPosterId) {
-          this.#removeTargetedPoster();
+        if (this.#posters.targetedId) {
+          this.#posters.removeTargetedPoster();
           return true;
         }
         // Nothing targeted: let later candidates use the same binding.
         return false;
       }
       case "placementToggleGridSnap": {
-        if (!this.#artFramePlacement && !this.#posterPlacement) return false;
-        const placement = this.#artFramePlacement ?? this.#posterPlacement;
+        if (!this.#artFramePlacement && !this.#posters.placement) return false;
+        const placement = this.#artFramePlacement ?? this.#posters.placement;
         if (placement) placement.gridSnap = !placement.gridSnap;
         this.#updateDigitalArtFramePlacementTarget();
-        this.#updatePosterPlacementTarget();
+        this.#posters.updatePosterPlacementTarget();
         this.#emitGameState();
         return true;
       }
@@ -6779,8 +6255,8 @@ export class ShopScene {
           this.#cancelDigitalArtFramePlacement();
           return true;
         }
-        if (this.#posterPlacement) {
-          this.#cancelPosterPlacement();
+        if (this.#posters.placement) {
+          this.#posters.cancelPosterPlacement();
           return true;
         }
         if (this.#carriedProp) {
@@ -6805,7 +6281,7 @@ export class ShopScene {
           this.#pickUpProp(this.#targetedProp);
           return true;
         }
-        if (this.#targetedDigitalArtFrameId || this.#targetedPosterId) {
+        if (this.#targetedDigitalArtFrameId || this.#posters.targetedId) {
           this.#interact();
           return true;
         }
@@ -6882,10 +6358,10 @@ export class ShopScene {
         // Held throw state drives shelf browsing; isActionDown covers it.
         return true;
       case "drop":
-        if (this.#artFramePlacement || this.#posterPlacement) return true;
+        if (this.#artFramePlacement || this.#posters.placement) return true;
         if (this.#targetedDigitalArtFrameId)
           this.#removeTargetedDigitalArtFrame();
-        else if (this.#targetedPosterId) this.#removeTargetedPoster();
+        else if (this.#posters.targetedId) this.#posters.removeTargetedPoster();
         else if (this.#carriedProp) this.#dropCarriedProp();
         else this.#dropCarriedBook();
         return true;
@@ -6943,7 +6419,7 @@ export class ShopScene {
       this.#dropCarriedProp();
       return;
     }
-    if (this.#targetedProp || this.#targetedPosterId) return;
+    if (this.#targetedProp || this.#posters.targetedId) return;
     this.#interact();
   }
 
@@ -7246,7 +6722,7 @@ export class ShopScene {
       this.#applySavedPropPose(record, savedProp);
       this.#pendingPropSaves.delete(id);
     }
-    this.#pendingPosterSaves = save.posters ?? [];
+    this.#posters.pendingSaves = save.posters ?? [];
     this.#pendingDigitalArtFrameSaves = save.digitalArtFrames ?? [];
     // Saved model props whose ids already exist (registered during boot)
     // adopt their saved pose, scale, and lock here; only genuinely missing
@@ -10133,7 +9609,7 @@ export class ShopScene {
       this.#shelfTargetSelection = undefined;
       this.#signs.clearShelfSignPreview();
       this.#signs.targetedKey = undefined;
-      this.#targetedPosterId = undefined;
+      this.#posters.targetedId = undefined;
       this.#setDigitalArtFrameTargeted();
       this.#setPropTargeted(undefined);
       this.#setTrashTargeted(false);
@@ -10147,7 +9623,7 @@ export class ShopScene {
       this.#shelfTargetSelection = undefined;
       this.#signs.clearShelfSignPreview();
       this.#signs.targetedKey = undefined;
-      this.#targetedPosterId = undefined;
+      this.#posters.targetedId = undefined;
       this.#setDigitalArtFrameTargeted();
       this.#setPropTargeted(undefined);
       this.#setTrashTargeted(false);
@@ -10158,7 +9634,7 @@ export class ShopScene {
     }
     if (!this.#pointerLocked) {
       this.#signs.clearShelfSignPreview();
-      this.#updatePosterPlacementTarget();
+      this.#posters.updatePosterPlacementTarget();
       this.#updateDigitalArtFramePlacementTarget();
       this.#setHoveredPublicationId(undefined);
       if (
@@ -10167,13 +9643,13 @@ export class ShopScene {
         this.#televisionTargeted ||
         this.#targetedProp !== undefined ||
         this.#targetedDigitalArtFrameId !== undefined ||
-        this.#targetedPosterId !== undefined ||
+        this.#posters.targetedId !== undefined ||
         this.#signs.targetedKey !== undefined
       ) {
         this.#shelfTargeted = false;
         this.#shelfTargetSelection = undefined;
         this.#signs.targetedKey = undefined;
-        this.#targetedPosterId = undefined;
+        this.#posters.targetedId = undefined;
         this.#setDigitalArtFrameTargeted();
         this.#setPropTargeted(undefined);
         this.#setTrashTargeted(false);
@@ -10212,7 +9688,7 @@ export class ShopScene {
       this.#shelfTargetSelection = undefined;
       this.#signs.clearShelfSignPreview();
       this.#signs.targetedKey = undefined;
-      this.#targetedPosterId = undefined;
+      this.#posters.targetedId = undefined;
       this.#setDigitalArtFrameTargeted();
       this.#setPropTargeted(undefined);
       this.#setTrashTargeted(false);
@@ -10222,13 +9698,13 @@ export class ShopScene {
       this.#updateDigitalArtFramePlacementTarget();
       return;
     }
-    if (this.#posterPlacement) {
+    if (this.#posters.placement) {
       this.#setHoveredPublicationId(undefined);
       this.#shelfTargeted = false;
       this.#shelfTargetSelection = undefined;
       this.#signs.clearShelfSignPreview();
       this.#signs.targetedKey = undefined;
-      this.#targetedPosterId = undefined;
+      this.#posters.targetedId = undefined;
       this.#setDigitalArtFrameTargeted();
       this.#setPropTargeted(undefined);
       this.#setTrashTargeted(false);
@@ -10236,7 +9712,7 @@ export class ShopScene {
       this.#setArcadeTargeted(undefined);
       this.#updateShelfTargetVisuals();
       this.#signs.updateTargetVisuals();
-      this.#updatePosterPlacementTarget();
+      this.#posters.updatePosterPlacementTarget();
       return;
     }
     if (this.#carriedProp) {
@@ -10245,7 +9721,7 @@ export class ShopScene {
       this.#shelfTargetSelection = undefined;
       this.#signs.clearShelfSignPreview();
       this.#signs.targetedKey = undefined;
-      this.#targetedPosterId = undefined;
+      this.#posters.targetedId = undefined;
       this.#setDigitalArtFrameTargeted();
       this.#setPropTargeted(undefined);
       this.#setTrashTargeted(false);
@@ -10257,7 +9733,7 @@ export class ShopScene {
     }
     if (this.#carriedPublicationId) {
       this.#signs.targetedKey = undefined;
-      this.#targetedPosterId = undefined;
+      this.#posters.targetedId = undefined;
       this.#setDigitalArtFrameTargeted();
       this.#setPropTargeted(undefined);
       this.#setTelevisionTargeted(false);
@@ -10393,7 +9869,7 @@ export class ShopScene {
       this.#setPropTargeted(undefined);
       this.#setTrashTargeted(false);
       this.#signs.targetedKey = undefined;
-      this.#targetedPosterId = undefined;
+      this.#posters.targetedId = undefined;
       this.#setDigitalArtFrameTargeted();
       this.#signs.updateTargetVisuals();
       this.#setHoveredPublicationId(undefined);
@@ -10452,7 +9928,7 @@ export class ShopScene {
       this.#setPropTargeted(undefined);
       this.#setTrashTargeted(false);
       this.#signs.targetedKey = undefined;
-      this.#targetedPosterId = undefined;
+      this.#posters.targetedId = undefined;
       this.#setDigitalArtFrameTargeted();
       this.#signs.updateTargetVisuals();
       this.#setHoveredPublicationId(undefined);
@@ -10481,7 +9957,7 @@ export class ShopScene {
       this.#signs.clearShelfSignPreview();
       this.#setTrashTargeted(false);
       this.#signs.targetedKey = undefined;
-      this.#targetedPosterId = undefined;
+      this.#posters.targetedId = undefined;
       this.#setDigitalArtFrameTargeted();
       this.#signs.updateTargetVisuals();
       this.#setHoveredPublicationId(undefined);
@@ -10524,7 +10000,7 @@ export class ShopScene {
       if (targetedSignChanged) this.#emitGameState();
     }
     if (targetedSignKey !== undefined) {
-      this.#targetedPosterId = undefined;
+      this.#posters.targetedId = undefined;
       this.#setDigitalArtFrameTargeted();
       this.#setHoveredPublicationId(undefined);
       return;
@@ -10537,18 +10013,18 @@ export class ShopScene {
       typeof artFrameId === "string" ? artFrameId : undefined;
     this.#setDigitalArtFrameTargeted(targetedArtFrameId);
     if (targetedArtFrameId) {
-      this.#targetedPosterId = undefined;
+      this.#posters.targetedId = undefined;
       this.#setHoveredPublicationId(undefined);
       return;
     }
     const posterIntersection = this.#raycaster
-      .intersectObjects(this.#posterTargetMeshes, false)
+      .intersectObjects(this.#posters.targetMeshes, false)
       .find((candidate) => candidate.distance <= POSTER_INTERACTION_DISTANCE);
     const posterId = posterIntersection?.object.userData.posterId;
     const targetedPosterId =
       typeof posterId === "string" ? posterId : undefined;
-    if (targetedPosterId !== this.#targetedPosterId) {
-      this.#targetedPosterId = targetedPosterId;
+    if (targetedPosterId !== this.#posters.targetedId) {
+      this.#posters.targetedId = targetedPosterId;
       this.#emitGameState();
     }
     if (targetedPosterId) {
@@ -10595,8 +10071,8 @@ export class ShopScene {
       this.#placeDigitalArtFrame();
       return;
     }
-    if (this.#posterPlacement) {
-      this.#placePoster();
+    if (this.#posters.placement) {
+      this.#posters.placePoster();
       return;
     }
     if (this.#carriedProp) {
@@ -10658,13 +10134,15 @@ export class ShopScene {
         );
       return;
     }
-    if (this.#targetedPosterId) {
-      const record = this.#posterRecords.get(this.#targetedPosterId);
+    if (this.#posters.targetedId) {
+      const record = this.#posters.records.get(this.#posters.targetedId);
       const assetIndex = record
-        ? this.#posterAssets.findIndex((asset) => asset.id === record.asset.id)
+        ? this.#posters.assets.findIndex(
+            (asset) => asset.id === record.asset.id,
+          )
         : -1;
       if (record && assetIndex >= 0)
-        void this.#startPosterPlacement(
+        void this.#posters.startPosterPlacement(
           assetIndex,
           record.id,
           record.height,
@@ -11222,10 +10700,10 @@ export class ShopScene {
         : [],
     );
     const posters: WorldPosterSave[] = [
-      ...this.#pendingPosterSaves.filter(
-        (savedPoster) => !this.#posterRecords.has(savedPoster.id),
+      ...this.#posters.pendingSaves.filter(
+        (savedPoster) => !this.#posters.records.has(savedPoster.id),
       ),
-      ...[...this.#posterRecords.values()]
+      ...[...this.#posters.records.values()]
         .sort((left, right) => left.depthLayer - right.depthLayer)
         .map((record) => {
           record.mesh.updateWorldMatrix(true, false);
@@ -11557,15 +11035,15 @@ export class ShopScene {
         prompt = this.#artFramePlacementSelection
           ? `Click to place ${asset.label} · Q/E channel · F/G image · Wheel resize${size ? ` (${size.toFixed(2)} m)` : ""} · Shift+wheel rotate (${rotation}°) · R ${this.#artFramePlacement.fit} · I ${interval === 0 ? "timer off" : `${interval}s timer`} · N channel (${this.#artFramePlacement.channelId}) · Paste image · T exit`
           : `Aim ${asset.label} at a wall or shelf end · Q/E channel · F/G image · Wheel resize · R ${this.#artFramePlacement.fit} · I ${interval === 0 ? "timer off" : `${interval}s timer`} · N channel (${this.#artFramePlacement.channelId}) · Paste image · T exit`;
-    } else if (this.#posterPlacement) {
-      const asset = this.#posterAssets[this.#posterPlacement.assetIndex];
-      const size = this.#posterPlacementSelection?.height;
+    } else if (this.#posters.placement) {
+      const asset = this.#posters.assets[this.#posters.placement.assetIndex];
+      const size = this.#posters.placementSelection?.height;
       const rotation = Math.round(
-        MathUtils.radToDeg(this.#posterPlacement.rotation),
+        MathUtils.radToDeg(this.#posters.placement.rotation),
       );
       if (!asset) prompt = "Paste an image to add the first poster · T exit";
       else
-        prompt = this.#posterPlacementSelection
+        prompt = this.#posters.placementSelection
           ? `Click to place ${asset.label} · Q/E previous/next · Wheel resize${size ? ` (${size.toFixed(2)} m)` : ""} · Shift+wheel rotate (${rotation}°) · Paste image · T exit`
           : `Aim ${asset.label} at a wall or shelf end · Q/E previous/next · Wheel resize · Shift+wheel rotate · Paste image · T exit`;
     } else if (this.#modelPlacement && !this.#carriedProp) {
@@ -11641,8 +11119,8 @@ export class ShopScene {
           ? pendingChannel.channelId
           : (frame?.channelLabel() ?? "unavailable");
       prompt = `Paste → ${pasteChannel} · N new channel · T move · Del remove · Q/E channel · F shuffle · R ${frame?.fit() ?? "contain"} · I ${interval === 0 ? "timer off" : `${interval}s timer`}`;
-    } else if (this.#targetedPosterId) {
-      const poster = this.#posterRecords.get(this.#targetedPosterId);
+    } else if (this.#posters.targetedId) {
+      const poster = this.#posters.records.get(this.#posters.targetedId);
       prompt = `T move ${poster?.asset.label ?? "poster"} · Del remove`;
     } else if (hoveredRecord)
       prompt =
@@ -11726,7 +11204,7 @@ export class ShopScene {
         {key: "Wheel", label: "Resize"},
         {key: "Shift + Wheel", label: "Rotate"},
       ];
-    } else if (this.#posterPlacement)
+    } else if (this.#posters.placement)
       interactions = [
         {key: "Click", label: "Place poster", actions: ["interact"]},
         {
@@ -11737,7 +11215,7 @@ export class ShopScene {
         {key: "T", label: "Cancel placement", actions: ["pickUpCancel"]},
         {
           key: "X",
-          label: `Grid snap: ${this.#posterPlacement.gridSnap ? "On" : "Off"}`,
+          label: `Grid snap: ${this.#posters.placement.gridSnap ? "On" : "Off"}`,
           actions: ["placementToggleGridSnap"],
         },
         {key: "Wheel", label: "Resize"},
@@ -11982,7 +11460,7 @@ export class ShopScene {
             ]
           : []),
       ];
-    } else if (this.#targetedPosterId)
+    } else if (this.#posters.targetedId)
       interactions = [
         {key: "T", label: "Move poster", actions: ["pickUpCancel"]},
         {key: "Del", label: "Remove poster", actions: ["removeTargeted"]},
@@ -12164,12 +11642,12 @@ export class ShopScene {
       ...(this.#artFramePlacement
         ? {digitalArtFramePlacementActive: true}
         : {}),
-      posterCount: this.#posterAssets.length,
-      ...(this.#posterImportError
-        ? {posterImportError: this.#posterImportError}
+      posterCount: this.#posters.assets.length,
+      ...(this.#posters.importError
+        ? {posterImportError: this.#posters.importError}
         : {}),
-      ...(this.#posterImportCount > 0 ? {posterImporting: true} : {}),
-      ...(this.#posterPlacement ? {posterPlacementActive: true} : {}),
+      ...(this.#posters.importCount > 0 ? {posterImporting: true} : {}),
+      ...(this.#posters.placement ? {posterPlacementActive: true} : {}),
       ...(this.#tvVideoImportError
         ? {tvVideoImportError: this.#tvVideoImportError}
         : {}),
