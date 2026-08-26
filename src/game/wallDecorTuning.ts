@@ -31,3 +31,6 @@ export const MAX_UNUSED_ART_FRAME_TEXTURES = 8;
 export const DIGITAL_ART_FRAME_INTERVALS = [0, 10, 30, 60, 300] as const;
 
 export const DIGITAL_ART_FRAME_BORDER = 0.09;
+
+export const normalizePosterRotation = (rotation: number) =>
+  MathUtils.euclideanModulo(rotation + Math.PI, Math.PI * 2) - Math.PI;

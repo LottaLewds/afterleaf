@@ -104,6 +104,12 @@ import {
   type SpawnablePropAsset,
 } from "~/game/propTemplates";
 import {
+  clampUnit,
+  dotWithPhysicsQuaternion,
+  hashString,
+} from "~/game/mathHelpers";
+import {normalizePosterRotation} from "~/game/wallDecorTuning";
+import {
   type MovablePropRegistration,
   type ReadingFurnitureMaterials,
 } from "~/game/propRegistration";
@@ -423,9 +429,6 @@ const SHELVE_BOOK_DURATION_SECONDS = 0.34;
 const LOOK_SENSITIVITY = 0.0021;
 /** Gamepad look speed in equivalent mouse pixels per second at full deflection. */
 const GAMEPAD_LOOK_SPEED = 700;
-
-const clampUnit = (value: number): number =>
-  value > 1 ? 1 : value < -1 ? -1 : value;
 
 const LOOK_SMOOTHING = 32;
 const MAX_LOOK_DELTA_PER_FRAME = (Math.PI / 180) * 10;
@@ -903,30 +906,10 @@ type ShopPerformanceDebugWindow = Window & {
   __AFTERLEAF_PERFORMANCE_DEBUG__?: ShopPerformanceDebugHandle;
 };
 
-const hashString = (value: string) => {
-  let hash = 2166136261;
-  for (const character of value) {
-    hash ^= character.charCodeAt(0);
-    hash = Math.imul(hash, 16777619);
-  }
-  return hash >>> 0;
-};
-
-const normalizePosterRotation = (rotation: number) =>
-  MathUtils.euclideanModulo(rotation + Math.PI, Math.PI * 2) - Math.PI;
-
 /**
  * Dot product against the physics world's plain quaternion record, avoiding a
  * Quaternion allocation that `Quaternion.dot` would otherwise require.
  */
-const dotWithPhysicsQuaternion = (
-  quaternion: Quaternion,
-  physicsRotation: {w: number; x: number; y: number; z: number},
-) =>
-  quaternion.x * physicsRotation.x +
-  quaternion.y * physicsRotation.y +
-  quaternion.z * physicsRotation.z +
-  quaternion.w * physicsRotation.w;
 
 const STANDALONE_BOOK_TEXTURE_CACHE_SIZE = 24;
 
