@@ -1,5 +1,10 @@
 import tailwindcss from "@tailwindcss/vite";
-import {defineConfig, type Plugin} from "vite";
+import {
+  defineConfig,
+  type Plugin,
+  type PreviewServer,
+  type ViteDevServer,
+} from "vite";
 import solid from "vite-plugin-solid";
 import {spawn} from "node:child_process";
 import {randomUUID} from "node:crypto";
@@ -393,8 +398,6 @@ const activeLibraryLocation = () => {
   }
 };
 
-const activeSnapshotDirectory = () => activeLibraryLocation()?.catalogDirectory;
-
 const requestLibraryLocation = () =>
   explicitPublicDirectory
     ? {
@@ -412,10 +415,6 @@ const explicitPublicDirectory =
   existsSync(path.resolve(contentPackDirectory, "catalog.json"))
     ? contentPackDirectory
     : undefined;
-const publicDirectoryForCommand = (command: "build" | "serve") =>
-  explicitPublicDirectory ??
-  (command === "serve" ? (activeSnapshotDirectory() ?? false) : false);
-
 const contentTypes: Record<string, string> = {
   ".avif": "image/avif",
   ".json": "application/json; charset=utf-8",
@@ -1014,9 +1013,8 @@ const summarizeCommandResult = (
   return summarizeLibraryBlacklistListResult(value);
 };
 
-const localLibraryOperationsPlugin = (): Plugin => ({
-  name: "afterleaf-local-library-update",
-  configureServer(server) {
+const localLibraryOperationsPlugin = (): Plugin => {
+  const configure = (server: ViteDevServer | PreviewServer) => {
     let operationRunning = false;
     const operationJobs = new Map<string, LibraryOperationStatusHttpSuccess>();
     server.middlewares.use(async (request, response, next) => {
@@ -1947,8 +1945,13 @@ const localLibraryOperationsPlugin = (): Plugin => ({
         operationRunning = false;
       }
     });
-  },
-});
+  };
+  return {
+    configurePreviewServer: configure,
+    configureServer: configure,
+    name: "afterleaf-local-library-update",
+  };
+};
 
 const sparsePageContentType = (extension: string) =>
   contentTypes[`.${extension}`] ?? "application/octet-stream";
@@ -2092,9 +2095,8 @@ const materializeSparsePage = async (
   return targetPath;
 };
 
-const sparseLibraryPagesPlugin = (): Plugin => ({
-  name: "afterleaf-sparse-library-pages",
-  configureServer(server) {
+const sparseLibraryPagesPlugin = (): Plugin => {
+  const configure = (server: ViteDevServer | PreviewServer) => {
     server.middlewares.use(async (request, response, next) => {
       const pageRequest = parseSparseLibraryPageRequest(request.url ?? "/");
       if (pageRequest.kind === "unscoped") return next();
@@ -2150,8 +2152,13 @@ const sparseLibraryPagesPlugin = (): Plugin => ({
           sparsePageRequests.delete(key);
       }
     });
-  },
-});
+  };
+  return {
+    configurePreviewServer: configure,
+    configureServer: configure,
+    name: "afterleaf-sparse-library-pages",
+  };
+};
 
 const tvChannelCatalogDocument = async () =>
   discoverTvChannels(
@@ -2919,9 +2926,10 @@ const serveActiveLibraryAsset = (
 };
 
 /**
- * Serves the basis universal transcoder for KTX2Loader at /basis/ in every
- * mode: publicDir is disabled (the active library snapshot is the public
- * root), so the transcoder cannot ship through static public assets.
+ * Serves the basis universal transcoder for KTX2Loader at the Afterleaf-owned
+ * runtime route in every mode: generated library assets are served through
+ * their own dedicated route, so the transcoder cannot ship through static
+ * public assets.
  */
 const basisTranscoderPlugin = (): Plugin => {
   const transcoderDirectory = path.join(
@@ -2949,8 +2957,9 @@ const basisTranscoderPlugin = (): Plugin => {
     } catch {
       return next();
     }
-    if (!pathname.startsWith("/basis/")) return next();
-    const file = pathname.slice("/basis/".length);
+    const routePrefix = "/api/runtime/basis/";
+    if (!pathname.startsWith(routePrefix)) return next();
+    const file = pathname.slice(routePrefix.length);
     if (!basisFiles.includes(file)) return next();
     response.statusCode = 200;
     response.setHeader("Content-Type", contentTypeFor(file));
@@ -2979,7 +2988,7 @@ const basisTranscoderPlugin = (): Plugin => {
     },
     async closeBundle() {
       if (!buildOutDir) return;
-      const targetDirectory = path.join(buildOutDir, "basis");
+      const targetDirectory = path.join(buildOutDir, "api", "runtime", "basis");
       await mkdir(targetDirectory, {recursive: true});
       for (const file of basisFiles)
         await copyFile(
@@ -3158,7 +3167,7 @@ const staticAssetCachePlugin = (): Plugin => {
   };
 };
 
-export default defineConfig(({command}) => ({
+export default defineConfig(() => ({
   plugins: [
     dataRootBootstrapperPlugin(),
     staticAssetCachePlugin(),
@@ -3177,7 +3186,6 @@ export default defineConfig(({command}) => ({
     solid(),
     tailwindcss(),
   ],
-  publicDir: publicDirectoryForCommand(command),
   resolve: {
     alias: {
       "~": path.resolve(import.meta.dirname, "src"),

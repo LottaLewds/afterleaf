@@ -1,6 +1,7 @@
-export const POSTER_CATALOG_ENDPOINT = "/posters/catalog.json";
+export const POSTER_ROUTE_PREFIX = "/api/media/posters";
+export const POSTER_CATALOG_ENDPOINT = `${POSTER_ROUTE_PREFIX}/catalog.json`;
 export const POSTER_IMPORT_ENDPOINT = "/api/posters";
-export const POSTER_MEDIA_ENDPOINT_PREFIX = "/posters/media/";
+export const POSTER_MEDIA_ENDPOINT_PREFIX = `${POSTER_ROUTE_PREFIX}/`;
 export const MAX_POSTER_IMPORT_BODY_BYTES = 64 * 1_024 * 1_024;
 
 export type PosterAsset = {

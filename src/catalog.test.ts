@@ -75,20 +75,20 @@ describe("loadRuntimeCatalog", () => {
             id: "nhentai-41",
             originalTags: ["magazine"],
             page0:
-              "/__afterleaf/active-library/publications/nhentai-42/alternates/nhentai-41/page-000.webp?afterleaf=runtime-pack%3Acatalog-hash-42",
+              "/api/media/library/publications/nhentai-42/alternates/nhentai-41/page-000.webp?afterleaf=runtime-pack%3Acatalog-hash-42",
             title: "Comic Night #7",
           },
         ],
         cover:
-          "/__afterleaf/active-library/publications/nhentai-42/front.webp?afterleaf=runtime-pack%3Acatalog-hash-42",
+          "/api/media/library/publications/nhentai-42/front.webp?afterleaf=runtime-pack%3Acatalog-hash-42",
         detailCover:
-          "/__afterleaf/active-library/publications/nhentai-42/front-detail.webp?afterleaf=runtime-pack%3Acatalog-hash-42",
-        back: "/__afterleaf/active-library/publications/nhentai-42/back.webp?afterleaf=runtime-pack%3Acatalog-hash-42",
+          "/api/media/library/publications/nhentai-42/front-detail.webp?afterleaf=runtime-pack%3Acatalog-hash-42",
+        back: "/api/media/library/publications/nhentai-42/back.webp?afterleaf=runtime-pack%3Acatalog-hash-42",
         spine:
-          "/__afterleaf/active-library/publications/nhentai-42/spine.webp?afterleaf=runtime-pack%3Acatalog-hash-42",
+          "/api/media/library/publications/nhentai-42/spine.webp?afterleaf=runtime-pack%3Acatalog-hash-42",
         pages: [
-          "/__afterleaf/active-library/publications/nhentai-42/pages/001.webp?afterleaf=runtime-pack%3Acatalog-hash-42",
-          "/__afterleaf/active-library/publications/nhentai-42/pages/002.webp?afterleaf=runtime-pack%3Acatalog-hash-42",
+          "/api/media/library/publications/nhentai-42/pages/001.webp?afterleaf=runtime-pack%3Acatalog-hash-42",
+          "/api/media/library/publications/nhentai-42/pages/002.webp?afterleaf=runtime-pack%3Acatalog-hash-42",
         ],
         trim: "A5",
         thicknessMm: 12.4,
@@ -187,10 +187,10 @@ describe("loadRuntimeCatalog", () => {
     expect(publications[0]?.pages).toHaveLength(5);
     expect(publications[0]?.pages[2]).toContain("/pages/003.webp");
     expect(publications[0]?.pages[3]).toBe(
-      "/api/library/publications/nhentai-99/pages/4?afterleaf=runtime-pack%3Acatalog-hash-42",
+      "/api/media/library/pages/nhentai-99/4?afterleaf=runtime-pack%3Acatalog-hash-42",
     );
     expect(publications[0]?.pages[4]).toContain(
-      "/api/library/publications/nhentai-99/pages/5",
+      "/api/media/library/pages/nhentai-99/5",
     );
   });
 
@@ -213,8 +213,8 @@ describe("loadRuntimeCatalog", () => {
     );
 
     expect(publications[0]?.pages).toEqual([
-      "/api/library/publications/local-cbz/pages/1?afterleaf=runtime-pack%3Acatalog-hash-42",
-      "/api/library/publications/local-cbz/pages/2?afterleaf=runtime-pack%3Acatalog-hash-42",
+      "/api/media/library/pages/local-cbz/1?afterleaf=runtime-pack%3Acatalog-hash-42",
+      "/api/media/library/pages/local-cbz/2?afterleaf=runtime-pack%3Acatalog-hash-42",
     ]);
     expect(publications[0]).toMatchObject({
       direction: "LTR",
@@ -248,10 +248,10 @@ describe("loadRuntimeCatalog", () => {
     });
     expect(runtime.publications[0]?.id).toBe("nhentai-84");
     expect(runtime.publications[0]?.cover).toBe(
-      "/__afterleaf/active-library/publications/nhentai-84/front.webp?afterleaf=snapshot-2026-07-29",
+      "/api/media/library/publications/nhentai-84/front.webp?afterleaf=snapshot-2026-07-29",
     );
     expect(runtime.publications[0]?.pages).toEqual([
-      "/__afterleaf/active-library/publications/nhentai-84/pages/001.webp?afterleaf=snapshot-2026-07-29",
+      "/api/media/library/publications/nhentai-84/pages/001.webp?afterleaf=snapshot-2026-07-29",
     ]);
 
     const missingIdentity = await loadRuntimeLibraryWithFetcher(async () =>
@@ -341,7 +341,7 @@ describe("loadRuntimeCatalog", () => {
       height: 384,
       publicationCount: 2,
       rows: 1,
-      url: "/__afterleaf/active-library/atlases/front-001.webp?afterleaf=atlas-pack%3Aatlas-catalog-hash",
+      url: "/api/media/library/atlases/front-001.webp?afterleaf=atlas-pack%3Aatlas-catalog-hash",
       width: 2048,
     });
     expect(

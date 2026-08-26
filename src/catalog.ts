@@ -1,6 +1,7 @@
 import {
   ACTIVE_LIBRARY_CATALOG_ENDPOINT,
   activeLibraryAssetUrl,
+  SPARSE_LIBRARY_PAGE_ROUTE_PREFIX,
 } from "~/content/libraryUpdate/activeLibraryRoutes";
 
 export type CatalogLanguage = "english" | "japanese";
@@ -219,7 +220,7 @@ const sparsePageUrl = (
 ) => {
   const assetRevision =
     identity.snapshotId ?? `${identity.packId}:${identity.catalogContentHash}`;
-  return `/api/library/publications/${encodeURIComponent(publicationId)}/pages/${pageIndex + 1}?afterleaf=${encodeURIComponent(assetRevision)}`;
+  return `${SPARSE_LIBRARY_PAGE_ROUTE_PREFIX}/${encodeURIComponent(publicationId)}/${pageIndex + 1}?afterleaf=${encodeURIComponent(assetRevision)}`;
 };
 
 const isRuntimePublication = (value: unknown): value is RuntimePublication => {

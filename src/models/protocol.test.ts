@@ -16,7 +16,7 @@ describe("model protocol", () => {
   });
 
   test("rejects unsafe model IDs and mismatched URLs", () => {
-    expect(parseModelMediaRequest("/models/media/not-hex.glb")).toEqual({
+    expect(parseModelMediaRequest("/api/media/models/not-hex.glb")).toEqual({
       kind: "invalid",
     });
     expect(() =>

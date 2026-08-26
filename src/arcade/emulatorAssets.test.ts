@@ -1,6 +1,7 @@
 import {describe, expect, test} from "bun:test";
 import {existsSync} from "node:fs";
-import {rm} from "node:fs/promises";
+import {mkdtemp, rm} from "node:fs/promises";
+import {tmpdir} from "node:os";
 import path from "node:path";
 
 import {
@@ -158,10 +159,10 @@ describe("loadEmulatorDataAsset", () => {
 
 describe("copyEmulatorDataInto", () => {
   test("produces the served layout with merged cores", async () => {
-    const target = path.resolve(
-      import.meta.dir,
-      "../../../.tmp-emulator-copy-test/data",
+    const temporaryRoot = await mkdtemp(
+      path.join(tmpdir(), "afterleaf-emulator-copy-"),
     );
+    const target = path.join(temporaryRoot, "data");
     try {
       await copyEmulatorDataInto(nodeModulesDirectory, target);
       for (const relativePath of [
@@ -177,7 +178,7 @@ describe("copyEmulatorDataInto", () => {
         false,
       );
     } finally {
-      await rm(path.dirname(target), {recursive: true, force: true});
+      await rm(temporaryRoot, {recursive: true, force: true});
     }
   }, 60_000);
 });

@@ -62,10 +62,10 @@ const isActiveLibraryPath = (pathname: string) =>
   pathname.startsWith("/atlases/") ||
   pathname.startsWith("/publications/");
 
-const unprefixActiveLibraryPath = (pathname: string) =>
-  pathname.startsWith(`${ACTIVE_LIBRARY_ROUTE_PREFIX}/`)
-    ? pathname.slice(ACTIVE_LIBRARY_ROUTE_PREFIX.length)
-    : pathname;
+const unprefixActiveLibraryPath = (pathname: string) => {
+  if (!pathname.startsWith(`${ACTIVE_LIBRARY_ROUTE_PREFIX}/`)) return undefined;
+  return pathname.slice(ACTIVE_LIBRARY_ROUTE_PREFIX.length);
+};
 
 export const parseActiveLibraryAssetRequest = (
   requestUrl: string,
@@ -77,6 +77,7 @@ export const parseActiveLibraryAssetRequest = (
     return {kind: "unscoped"};
   }
   const encodedAssetPathname = unprefixActiveLibraryPath(encodedPathname);
+  if (!encodedAssetPathname) return {kind: "unscoped"};
   if (!isActiveLibraryPath(encodedAssetPathname)) return {kind: "unscoped"};
 
   let pathname: string;

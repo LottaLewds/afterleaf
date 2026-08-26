@@ -47,16 +47,13 @@ describe("active library asset routing", () => {
 
   test("resolves scoped catalog and publication requests inside the snapshot", () => {
     expect(parseActiveLibraryAssetRequest("/catalog.json?v=2")).toEqual({
-      kind: "scoped",
-      pathname: "/catalog.json",
+      kind: "unscoped",
     });
     expect(
-      parseActiveLibraryAssetRequest(
-        "/__afterleaf/active-library/catalog.json?v=3",
-      ),
+      parseActiveLibraryAssetRequest("/api/media/library/catalog.json?v=3"),
     ).toEqual({kind: "scoped", pathname: "/catalog.json"});
     const publicationRequest = parseActiveLibraryAssetRequest(
-      "/__afterleaf/active-library/publications/book/pages/001.webp?afterleaf=snapshot-next",
+      "/api/media/library/publications/book/pages/001.webp?afterleaf=snapshot-next",
     );
     expect(publicationRequest).toEqual({
       kind: "scoped",
@@ -80,7 +77,7 @@ describe("active library asset routing", () => {
   test("resolves persistent pooled assets independently of catalog revisions", () => {
     const libraryDirectory = path.resolve("/library");
     const request = parseActiveLibraryAssetRequest(
-      "/__afterleaf/active-library/assets/revision-2/publications/book/front.webp",
+      "/api/media/library/assets/revision-2/publications/book/front.webp",
     );
     expect(request).toEqual({
       kind: "scoped",
@@ -98,6 +95,15 @@ describe("active library asset routing", () => {
     });
   });
 
+  test("leaves Vite application assets outside the active library route", () => {
+    expect(parseActiveLibraryAssetRequest("/assets/index-abc123.js")).toEqual({
+      kind: "unscoped",
+    });
+    expect(
+      parseActiveLibraryAssetRequest("/publications/book/front.webp"),
+    ).toEqual({kind: "unscoped"});
+  });
+
   test("leaves unrelated static requests outside the active snapshot scope", () => {
     expect(parseActiveLibraryAssetRequest("/favicon.ico")).toEqual({
       kind: "unscoped",
@@ -106,10 +112,14 @@ describe("active library asset routing", () => {
 
   test("rejects malformed or traversal-oriented scoped paths", () => {
     expect(
-      parseActiveLibraryAssetRequest("/publications/%E0%A4%A.webp"),
+      parseActiveLibraryAssetRequest(
+        "/api/media/library/publications/%E0%A4%A.webp",
+      ),
     ).toEqual({kind: "invalid"});
     expect(
-      parseActiveLibraryAssetRequest("/publications/%2E%2E%2Foutside.webp"),
+      parseActiveLibraryAssetRequest(
+        "/api/media/library/publications/%2E%2E%2Foutside.webp",
+      ),
     ).toEqual({kind: "invalid"});
   });
 });
@@ -118,27 +128,25 @@ describe("sparse library page routing", () => {
   test("identifies sparse page URLs without treating local assets as remote", () => {
     expect(
       isSparseLibraryPageUrl(
-        "/api/library/publications/nhentai-42/pages/4?afterleaf=next",
-      ),
-    ).toBe(true);
-    expect(
-      isSparseLibraryPageUrl(
-        "/__afterleaf/active-library/publications/nhentai-42/pages/003.webp",
+        "/api/media/library/publications/nhentai-42/pages/4?afterleaf=next",
       ),
     ).toBe(false);
+    expect(
+      isSparseLibraryPageUrl("/api/media/library/pages/nhentai-42/4"),
+    ).toBe(true);
   });
 
   test("accepts only bounded publication page requests", () => {
     expect(
       parseSparseLibraryPageRequest(
-        "/api/library/publications/nhentai-42/pages/4?afterleaf=next",
+        "/api/media/library/pages/nhentai-42/4?afterleaf=next",
       ),
     ).toEqual({kind: "page", pageNumber: 4, publicationId: "nhentai-42"});
     expect(parseSparseLibraryPageRequest("/api/library/scan")).toEqual({
       kind: "unscoped",
     });
     expect(
-      parseSparseLibraryPageRequest("/api/library/publications/%2E%2E/pages/4"),
+      parseSparseLibraryPageRequest("/api/media/library/pages/%2E%2E/4"),
     ).toEqual({kind: "invalid"});
   });
 });

@@ -19,7 +19,7 @@
  */
 // Served by the emulator-data plugin (dev/preview middleware + build copy);
 // see ~/arcade/emulatorAssets for how the files are vendored.
-export const EMULATORJS_DATA_URL = "/emulatorjs/data/";
+export const EMULATORJS_DATA_URL = "/api/runtime/emulatorjs/data/";
 
 export type ForwardedKeyEvent = {
   key: string;

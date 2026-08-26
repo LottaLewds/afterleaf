@@ -35,11 +35,11 @@ describe("TV channel catalog", () => {
           videos: [
             {
               id: "a.mp4",
-              url: "/__afterleaf/tv/channels/shop_ads/a.mp4",
+              url: "/api/media/tv/channels/shop_ads/a.mp4",
             },
             {
               id: "b.WEBM",
-              url: "/__afterleaf/tv/channels/shop_ads/b.WEBM",
+              url: "/api/media/tv/channels/shop_ads/b.WEBM",
             },
           ],
         },

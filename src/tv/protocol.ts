@@ -3,7 +3,7 @@ import type {ActivePictureRect} from "./activePicture";
 export const DEFAULT_TV_CHANNEL_ID = "afterleaf_tv";
 export const TV_CHANNELS_ENDPOINT = "/api/tv/channels";
 export const TV_IMPORT_ENDPOINT = "/api/tv/import";
-export const TV_MEDIA_ENDPOINT_PREFIX = "/__afterleaf/tv/channels/";
+export const TV_MEDIA_ENDPOINT_PREFIX = "/api/media/tv/channels/";
 
 export type TvVideo = {
   activePicture?: ActivePictureRect;
