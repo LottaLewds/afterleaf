@@ -24,18 +24,18 @@ These files are unused within the repository and account for approximately 1,980
 
 - [ ] Add focused tests for interaction-mode and target-precedence behavior before refactoring:
   - [x] `GameStateEmitter`: prompts and interaction rows agree in every mode.
-  - [ ] `InteractionScanner`: arcade, television, prop, sign, frame, poster, and book precedence remains stable.
+  - [x] `InteractionScanner`: arcade, television, prop, sign, frame, poster, and book precedence remains stable.
   - [ ] `ShopInputController`: action and wheel routing remains stable.
   - [ ] Carrying, inspection, placement, pointer-lock, and arcade-session transitions clear stale targets.
 - [x] Introduce one explicit interaction view/resolver containing the active mode, target, prompt, and available actions.
 - [x] Make `GameStateEmitter` consume that resolver instead of maintaining separate prompt and interaction-mode chains.
-- [ ] Extract `InteractionScanner` target-clearing and target-candidate helpers; keep the raycast precedence in one readable pipeline.
+- [x] Extract `InteractionScanner` target-clearing and target-candidate helpers; keep the raycast precedence in one readable pipeline.
 - [ ] Split `ShopInputController.handleActionDown` by mode or command group.
 - [ ] Split `ShopInputController.handleWheel` into inspection, placement, carried-prop, carried-book, media, and shelf handlers.
 - [ ] Fold `ShopInteractionCoordinator` into the shared interaction command layer when its behavior is covered by tests.
 - [ ] Fold the thin `ShopTargetingController` into the target-state layer when its side effects are covered by tests.
 
-Current complexity hotspots include `GameStateEmitter.emit`, `ShopInputController.handleActionDown`, and `InteractionScanner.update`.
+Current interaction complexity hotspot is `ShopInputController.handleActionDown`; scanner and emitter orchestration are now below the configured threshold.
 
 ## 3. Reduce extraction-generated host ceremony
 
@@ -83,6 +83,6 @@ The current configured baseline reports 11 game functions over 30. The largest r
 ## Small cleanup while touching nearby code
 
 - [ ] Remove stale orphan comments left behind in `ShopScene.ts` and `movablePropSystem.ts`.
-- [ ] Extract the duplicated shelf-book candidate collection in `InteractionScanner`.
-- [ ] Replace the `INTERACTION_DISTANCE` alias with the correctly named constant or document why the two distances must remain coupled.
+- [x] Extract the duplicated shelf-book candidate collection in `InteractionScanner`.
+- [x] Replace the `INTERACTION_DISTANCE` alias with the correctly named constant or document why the two distances must remain coupled.
 - [ ] Review the redundant MangaDex status comparison and existing non-null warnings separately from the game refactor.

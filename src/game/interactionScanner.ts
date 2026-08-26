@@ -45,7 +45,6 @@ import type {ShopSignSystem} from "~/game/signs/ShopSignSystem";
 
 const SPINE_SHELF_GAP = 0.018;
 const SHELF_INTERACTION_DISTANCE = 2.75;
-const INTERACTION_DISTANCE = SHELF_INTERACTION_DISTANCE;
 const TRASH_INTERACTION_DISTANCE = 2.65;
 const SIGN_INTERACTION_DISTANCE = 3.4;
 const TELEVISION_INTERACTION_DISTANCE = 3.6;
@@ -53,6 +52,25 @@ const ARCADE_INTERACTION_DISTANCE = 3.4;
 const MOVABLE_PROP_INTERACTION_DISTANCE = 4;
 const AIM_SWEEP_MIN_INTERVAL_MS = 1000 / 60;
 const SHELF_HOVER_CULL_MARGIN = 1.5;
+
+const shelfBookCandidates = (
+  booksById: ReadonlyMap<string, BookRecord>,
+  shelfId: string,
+) =>
+  [...booksById.entries()].flatMap(([id, record]) =>
+    record.state.status === "shelved" && record.state.shelfId === shelfId
+      ? [
+          {
+            center: record.shelfOffset,
+            id,
+            width:
+              record.shelfPresentation === "face"
+                ? record.width
+                : record.thickness,
+          },
+        ]
+      : [],
+  );
 
 /**
  * Everything the interaction-targeting scanner reads from or writes to its
@@ -158,20 +176,7 @@ export class InteractionScanner {
       .sub(shelf.frontCenter)
       .dot(shelf.axis);
     const presentation = host.shelfPresentation();
-    const shelfBooks = [...host.booksById().entries()].flatMap(([id, record]) =>
-      record.state.status === "shelved" && record.state.shelfId === shelfId
-        ? [
-            {
-              center: record.shelfOffset,
-              id,
-              width:
-                record.shelfPresentation === "face"
-                  ? record.width
-                  : record.thickness,
-            },
-          ]
-        : [],
-    );
+    const shelfBooks = shelfBookCandidates(host.booksById(), shelfId);
     const insertionWidth =
       presentation === "face" ? carriedRecord.width : carriedRecord.thickness;
     const placements = insertSpineShelfBook(
@@ -221,22 +226,7 @@ export class InteractionScanner {
       : undefined;
     if (!publicationId || record?.state.status !== "shelved") return false;
     const shelfId = record.state.shelfId;
-    const shelfBooks = [...host.booksById().entries()].flatMap(
-      ([id, shelfRecord]) =>
-        shelfRecord.state.status === "shelved" &&
-        shelfRecord.state.shelfId === shelfId
-          ? [
-              {
-                center: shelfRecord.shelfOffset,
-                id,
-                width:
-                  shelfRecord.shelfPresentation === "face"
-                    ? shelfRecord.width
-                    : shelfRecord.thickness,
-              },
-            ]
-          : [],
-    );
+    const shelfBooks = shelfBookCandidates(host.booksById(), shelfId);
     const adjacentBook = findAdjacentShelfBook(
       shelfBooks,
       publicationId,
@@ -259,7 +249,7 @@ export class InteractionScanner {
       const shelf = host.spineShelfDefinitions().get(shelfId);
       if (!shelf) continue;
       const cullDistance =
-        INTERACTION_DISTANCE + shelf.halfWidth + SHELF_HOVER_CULL_MARGIN;
+        SHELF_INTERACTION_DISTANCE + shelf.halfWidth + SHELF_HOVER_CULL_MARGIN;
       if (
         host.camera().position.distanceToSquared(shelf.frontCenter) >
         cullDistance * cullDistance
@@ -271,237 +261,199 @@ export class InteractionScanner {
     if (scratch.length === 0) return undefined;
     const intersections = host.raycaster().intersectObjects(scratch, false);
     for (const intersection of intersections) {
-      if (intersection.distance > INTERACTION_DISTANCE) break;
+      if (intersection.distance > SHELF_INTERACTION_DISTANCE) break;
       const candidateId = intersection.object.userData.publicationId;
       if (typeof candidateId === "string") return candidateId;
     }
     return undefined;
   }
 
-  update() {
+  #clearDecorationTargets() {
     const host = this.#host;
-    // An arcade session owns the screen; retargeting would fight its UI.
-    if (host.arcadeStatusForUi()) {
-      host.signs().clearShelfSignPreview();
-      return;
-    }
-    if (host.inspectionMode() !== "none") {
-      host.setHoveredPublicationId(undefined);
-      this.shelfTargeted = false;
-      this.shelfTargetSelection = undefined;
-      host.signs().clearShelfSignPreview();
-      host.signs().targetedKey = undefined;
-      host.posters().targetedId = undefined;
-      host.artFrames().setDigitalArtFrameTargeted();
-      host.setPropTargeted(undefined);
-      host.setTrashTargeted(false);
-      host.setTelevisionTargeted(false);
-      this.updateShelfTargetVisuals();
-      return;
-    }
-    if (host.shelveAnimation()) {
-      host.setHoveredPublicationId(undefined);
-      this.shelfTargeted = false;
-      this.shelfTargetSelection = undefined;
-      host.signs().clearShelfSignPreview();
-      host.signs().targetedKey = undefined;
-      host.posters().targetedId = undefined;
-      host.artFrames().setDigitalArtFrameTargeted();
-      host.setPropTargeted(undefined);
-      host.setTrashTargeted(false);
-      host.setTelevisionTargeted(false);
-      this.updateShelfTargetVisuals();
-      host.signs().updateTargetVisuals();
-      return;
-    }
-    if (!host.pointerLocked()) {
-      host.signs().clearShelfSignPreview();
-      host.posters().updatePosterPlacementTarget();
-      host.artFrames().updateDigitalArtFramePlacementTarget();
-      host.setHoveredPublicationId(undefined);
-      if (
-        this.shelfTargeted ||
-        this.trashTargeted ||
-        host.televisionTargeted() ||
-        host.targetedProp() !== undefined ||
-        host.artFrames().targetedId !== undefined ||
-        host.posters().targetedId !== undefined ||
-        host.signs().targetedKey !== undefined
-      ) {
-        this.shelfTargeted = false;
-        this.shelfTargetSelection = undefined;
-        host.signs().targetedKey = undefined;
-        host.posters().targetedId = undefined;
-        host.artFrames().setDigitalArtFrameTargeted();
-        host.setPropTargeted(undefined);
-        host.setTrashTargeted(false);
-        host.setTelevisionTargeted(false);
-        host.setArcadeTargeted(undefined);
-        this.updateShelfTargetVisuals();
-        host.signs().updateTargetVisuals();
-        host.emitGameState();
-      }
-      return;
-    }
+    host.signs().targetedKey = undefined;
+    host.posters().targetedId = undefined;
+    host.artFrames().setDigitalArtFrameTargeted();
+  }
 
-    // Aiming results feed highlight prompts and clicks, which tolerate a
-    // frame or two of latency - so the full-shop reticle sweep runs on a
-    // fixed-rate budget instead of every tick, capping its cost while the
-    // player whips the view around.
+  #clearTargetedDecorations() {
+    const host = this.#host;
+    this.#clearDecorationTargets();
+    host.setPropTargeted(undefined);
+    host.setTrashTargeted(false);
+    host.setTelevisionTargeted(false);
+  }
+
+  #clearCarriedBookTargets() {
+    const host = this.#host;
+    this.#clearDecorationTargets();
+    host.setPropTargeted(undefined);
+    host.setTelevisionTargeted(false);
+  }
+
+  #clearInspectionTargets() {
+    const host = this.#host;
+    host.setHoveredPublicationId(undefined);
+    this.shelfTargeted = false;
+    this.shelfTargetSelection = undefined;
+    host.signs().clearShelfSignPreview();
+    this.#clearTargetedDecorations();
+    this.updateShelfTargetVisuals();
+  }
+
+  #clearShelvingTargets() {
+    this.#clearInspectionTargets();
+    this.#host.signs().updateTargetVisuals();
+  }
+
+  #clearPlacementTargets(clearArcadeTarget: boolean) {
+    const host = this.#host;
+    host.setHoveredPublicationId(undefined);
+    this.shelfTargeted = false;
+    this.shelfTargetSelection = undefined;
+    host.signs().clearShelfSignPreview();
+    this.#clearTargetedDecorations();
+    if (clearArcadeTarget) host.setArcadeTargeted(undefined);
+    this.updateShelfTargetVisuals();
+    host.signs().updateTargetVisuals();
+  }
+
+  #hasUnlockedTargets() {
+    const host = this.#host;
+    return (
+      this.shelfTargeted ||
+      this.trashTargeted ||
+      host.televisionTargeted() ||
+      host.targetedProp() !== undefined ||
+      host.artFrames().targetedId !== undefined ||
+      host.posters().targetedId !== undefined ||
+      host.signs().targetedKey !== undefined
+    );
+  }
+
+  #updateUnlockedTargets() {
+    const host = this.#host;
+    host.signs().clearShelfSignPreview();
+    host.posters().updatePosterPlacementTarget();
+    host.artFrames().updateDigitalArtFramePlacementTarget();
+    host.setHoveredPublicationId(undefined);
+    if (!this.#hasUnlockedTargets()) return;
+    this.shelfTargeted = false;
+    this.shelfTargetSelection = undefined;
+    this.#clearTargetedDecorations();
+    host.setArcadeTargeted(undefined);
+    this.updateShelfTargetVisuals();
+    host.signs().updateTargetVisuals();
+    host.emitGameState();
+  }
+
+  #prepareReticleSweep() {
+    const host = this.#host;
     if (
       host.frameNowMs() - this.#lastAimSweepTimeMs <
       AIM_SWEEP_MIN_INTERVAL_MS
     )
-      return;
-    // The reticle is screen-center, so the sweep result only changes when
-    // the camera moves or targetable content changed; skip otherwise.
+      return false;
     if (
       !this.#interactionTargetsDirty &&
       host.camera().position.equals(this.#lastSweepPosition) &&
       host.camera().quaternion.equals(this.#lastSweepQuaternion)
     )
-      return;
+      return false;
     this.#interactionTargetsDirty = false;
     this.#lastSweepPosition.copy(host.camera().position);
     this.#lastSweepQuaternion.copy(host.camera().quaternion);
     this.#lastAimSweepTimeMs = host.frameNowMs();
     host.camera().updateMatrixWorld();
     host.raycaster().setFromCamera(this.#reticle, host.camera());
-    if (host.artFrames().placement) {
-      host.setHoveredPublicationId(undefined);
-      this.shelfTargeted = false;
-      this.shelfTargetSelection = undefined;
-      host.signs().clearShelfSignPreview();
-      host.signs().targetedKey = undefined;
-      host.posters().targetedId = undefined;
-      host.artFrames().setDigitalArtFrameTargeted();
-      host.setPropTargeted(undefined);
-      host.setTrashTargeted(false);
-      host.setTelevisionTargeted(false);
-      this.updateShelfTargetVisuals();
-      host.signs().updateTargetVisuals();
-      host.artFrames().updateDigitalArtFramePlacementTarget();
-      return;
-    }
-    if (host.posters().placement) {
-      host.setHoveredPublicationId(undefined);
-      this.shelfTargeted = false;
-      this.shelfTargetSelection = undefined;
-      host.signs().clearShelfSignPreview();
-      host.signs().targetedKey = undefined;
-      host.posters().targetedId = undefined;
-      host.artFrames().setDigitalArtFrameTargeted();
-      host.setPropTargeted(undefined);
-      host.setTrashTargeted(false);
-      host.setTelevisionTargeted(false);
-      host.setArcadeTargeted(undefined);
-      this.updateShelfTargetVisuals();
-      host.signs().updateTargetVisuals();
-      host.posters().updatePosterPlacementTarget();
-      return;
-    }
-    if (host.carriedProp()) {
-      host.setHoveredPublicationId(undefined);
-      this.shelfTargeted = false;
-      this.shelfTargetSelection = undefined;
-      host.signs().clearShelfSignPreview();
-      host.signs().targetedKey = undefined;
-      host.posters().targetedId = undefined;
-      host.artFrames().setDigitalArtFrameTargeted();
-      host.setPropTargeted(undefined);
-      host.setTrashTargeted(false);
-      host.setTelevisionTargeted(false);
-      host.setArcadeTargeted(undefined);
-      this.updateShelfTargetVisuals();
-      host.signs().updateTargetVisuals();
-      return;
-    }
-    if (host.carriedPublicationId()) {
-      host.signs().targetedKey = undefined;
-      host.posters().targetedId = undefined;
-      host.artFrames().setDigitalArtFrameTargeted();
-      host.setPropTargeted(undefined);
-      host.setTelevisionTargeted(false);
-      const trashIntersection = host
-        .raycaster()
-        .intersectObjects(host.discardBinVolumeMeshes(), false)[0];
-      const trashTargeted =
-        trashIntersection !== undefined &&
-        trashIntersection.distance <= TRASH_INTERACTION_DISTANCE;
-      this.targetedTrashBinId = trashTargeted
-        ? (trashIntersection?.object.userData.propId as string | undefined)
-        : undefined;
-      let pickupPublicationId: string | undefined;
-      if (
-        !trashTargeted &&
-        host.carriedPublicationIds().length < MAX_CARRIED_BOOKS
-      ) {
-        const directBookIntersection = host
-          .raycaster()
-          .intersectObjects(host.interactiveMeshes(), false)[0];
-        const directPublicationId =
-          directBookIntersection &&
-          directBookIntersection.distance <= INTERACTION_DISTANCE
-            ? directBookIntersection.object.userData.publicationId
-            : undefined;
-        const directRecord =
-          typeof directPublicationId === "string"
-            ? host.booksById().get(directPublicationId)
-            : undefined;
-        if (directRecord?.state.status === "floor")
-          pickupPublicationId = directPublicationId;
-        else {
-          const shelfPublicationId = this.#findShelfHoverTargetPublicationId();
-          const shelfRecord = shelfPublicationId
-            ? host.booksById().get(shelfPublicationId)
-            : undefined;
-          if (shelfRecord?.state.status === "shelved")
-            pickupPublicationId = shelfPublicationId;
-        }
-      }
-      if (pickupPublicationId) {
-        host.setHoveredPublicationId(pickupPublicationId);
-        this.shelfTargeted = false;
-        this.shelfTargetSelection = undefined;
-        host.signs().clearShelfSignPreview();
-        host.setTrashTargeted(false);
-        this.updateShelfTargetVisuals();
-        host.signs().updateTargetVisuals();
-        return;
-      }
-      host.setHoveredPublicationId(undefined);
-      let selection: ShelfTargetSelection | undefined;
-      if (!trashTargeted) {
-        const intersections = host
-          .raycaster()
-          .intersectObjects(host.shelfTargetMeshes(), false);
-        for (const intersection of intersections) {
-          if (intersection.distance > SHELF_INTERACTION_DISTANCE) break;
-          selection = this.#createShelfTargetSelection(
-            intersection.object,
-            intersection.point,
-            host.carriedPublicationId(),
-          );
-          if (selection) break;
-        }
-      }
-      this.shelfTargeted = selection !== undefined;
-      this.shelfTargetSelection = selection;
-      host.signs().previewKey = selection
-        ? this.#shelfSignKeyForTarget(selection.shelfId, selection.offset)
-        : undefined;
-      host.setTrashTargeted(trashTargeted);
-      this.updateShelfTargetVisuals();
-      host.signs().updateTargetVisuals();
-      host.emitGameState();
-      return;
-    }
+    return true;
+  }
 
-    if (this.shelfTargeted) {
+  #findCarriedBookPickupId(trashTargeted: boolean) {
+    const host = this.#host;
+    if (
+      trashTargeted ||
+      host.carriedPublicationIds().length >= MAX_CARRIED_BOOKS
+    )
+      return undefined;
+    const directIntersection = host
+      .raycaster()
+      .intersectObjects(host.interactiveMeshes(), false)[0];
+    const directPublicationId =
+      directIntersection &&
+      directIntersection.distance <= SHELF_INTERACTION_DISTANCE
+        ? directIntersection.object.userData.publicationId
+        : undefined;
+    const directRecord =
+      typeof directPublicationId === "string"
+        ? host.booksById().get(directPublicationId)
+        : undefined;
+    if (directRecord?.state.status === "floor") return directPublicationId;
+    const shelfPublicationId = this.#findShelfHoverTargetPublicationId();
+    const shelfRecord = shelfPublicationId
+      ? host.booksById().get(shelfPublicationId)
+      : undefined;
+    return shelfRecord?.state.status === "shelved"
+      ? shelfPublicationId
+      : undefined;
+  }
+
+  #findCarriedBookShelfSelection() {
+    const host = this.#host;
+    const intersections = host
+      .raycaster()
+      .intersectObjects(host.shelfTargetMeshes(), false);
+    for (const intersection of intersections) {
+      if (intersection.distance > SHELF_INTERACTION_DISTANCE) break;
+      const selection = this.#createShelfTargetSelection(
+        intersection.object,
+        intersection.point,
+        host.carriedPublicationId(),
+      );
+      if (selection) return selection;
+    }
+    return undefined;
+  }
+
+  #updateCarriedBookTargeting() {
+    const host = this.#host;
+    this.#clearCarriedBookTargets();
+    const trashIntersection = host
+      .raycaster()
+      .intersectObjects(host.discardBinVolumeMeshes(), false)[0];
+    const trashTargeted =
+      trashIntersection !== undefined &&
+      trashIntersection.distance <= TRASH_INTERACTION_DISTANCE;
+    this.targetedTrashBinId = trashTargeted
+      ? (trashIntersection?.object.userData.propId as string | undefined)
+      : undefined;
+    const pickupPublicationId = this.#findCarriedBookPickupId(trashTargeted);
+    if (pickupPublicationId) {
+      host.setHoveredPublicationId(pickupPublicationId);
       this.shelfTargeted = false;
       this.shelfTargetSelection = undefined;
+      host.signs().clearShelfSignPreview();
+      host.setTrashTargeted(false);
       this.updateShelfTargetVisuals();
+      host.signs().updateTargetVisuals();
+      return;
     }
+    host.setHoveredPublicationId(undefined);
+    const selection = trashTargeted
+      ? undefined
+      : this.#findCarriedBookShelfSelection();
+    this.shelfTargeted = selection !== undefined;
+    this.shelfTargetSelection = selection;
+    host.signs().previewKey = selection
+      ? this.#shelfSignKeyForTarget(selection.shelfId, selection.offset)
+      : undefined;
+    host.setTrashTargeted(trashTargeted);
+    this.updateShelfTargetVisuals();
+    host.signs().updateTargetVisuals();
+    host.emitGameState();
+  }
+
+  #findArcadeTarget() {
+    const host = this.#host;
     let arcadeCabinet: ShopArcadeCabinet | undefined;
     let arcadeIntersection:
       | ReturnType<Raycaster["intersectObjects"]>[number]
@@ -539,23 +491,30 @@ export class InteractionScanner {
       arcadeCabinet = candidate;
       arcadeIntersection = candidateIntersection;
     }
-    const arcadeTargeted =
-      arcadeCabinet !== undefined &&
-      arcadeIntersection !== undefined &&
-      arcadeIntersection.distance <= ARCADE_INTERACTION_DISTANCE;
-    host.setArcadeTargeted(arcadeTargeted ? arcadeCabinet : undefined);
-    if (arcadeTargeted) {
-      host.signs().clearShelfSignPreview();
-      host.setTelevisionTargeted(false);
-      host.setPropTargeted(undefined);
-      host.setTrashTargeted(false);
-      host.signs().targetedKey = undefined;
-      host.posters().targetedId = undefined;
-      host.artFrames().setDigitalArtFrameTargeted();
-      host.signs().updateTargetVisuals();
-      host.setHoveredPublicationId(undefined);
-      return;
-    }
+    return arcadeCabinet &&
+      arcadeIntersection &&
+      arcadeIntersection.distance <= ARCADE_INTERACTION_DISTANCE
+      ? arcadeCabinet
+      : undefined;
+  }
+
+  #updateArcadeTargeting() {
+    const host = this.#host;
+    const arcadeCabinet = this.#findArcadeTarget();
+    host.setArcadeTargeted(arcadeCabinet);
+    if (!arcadeCabinet) return false;
+    host.signs().clearShelfSignPreview();
+    host.setTelevisionTargeted(false);
+    host.setPropTargeted(undefined);
+    host.setTrashTargeted(false);
+    this.#clearDecorationTargets();
+    host.signs().updateTargetVisuals();
+    host.setHoveredPublicationId(undefined);
+    return true;
+  }
+
+  #findTelevisionTarget() {
+    const host = this.#host;
     let television: ShopTelevision | undefined;
     let televisionIntersection:
       | ReturnType<Raycaster["intersectObjects"]>[number]
@@ -592,6 +551,12 @@ export class InteractionScanner {
       television = candidate;
       televisionIntersection = candidateIntersection;
     }
+    return {television, televisionIntersection};
+  }
+
+  #updateTelevisionTargeting() {
+    const host = this.#host;
+    const {television, televisionIntersection} = this.#findTelevisionTarget();
     const televisionInteraction = televisionIntersection
       ? television?.resolveInteractionTarget(televisionIntersection.object)
       : undefined;
@@ -604,20 +569,22 @@ export class InteractionScanner {
       televisionInteraction,
       television,
     );
-    if (televisionTargeted) {
-      host.signs().clearShelfSignPreview();
-      host.setPropTargeted(undefined);
-      host.setTrashTargeted(false);
-      host.signs().targetedKey = undefined;
-      host.posters().targetedId = undefined;
-      host.artFrames().setDigitalArtFrameTargeted();
-      host.signs().updateTargetVisuals();
-      host.setHoveredPublicationId(undefined);
-      return;
-    }
-    const directBookIntersection = host
-      .raycaster()
-      .intersectObjects(host.interactiveMeshes(), false)[0];
+    if (!televisionTargeted) return false;
+    host.signs().clearShelfSignPreview();
+    host.setPropTargeted(undefined);
+    host.setTrashTargeted(false);
+    this.#clearDecorationTargets();
+    host.signs().updateTargetVisuals();
+    host.setHoveredPublicationId(undefined);
+    return true;
+  }
+
+  #updatePropTargeting(
+    directBookIntersection:
+      | ReturnType<Raycaster["intersectObjects"]>[number]
+      | undefined,
+  ) {
+    const host = this.#host;
     const propIntersection = host
       .raycaster()
       .intersectObjects(host.movablePropTargetMeshes(), false)[0];
@@ -626,22 +593,23 @@ export class InteractionScanner {
       propIntersection &&
       propIntersection.distance <= MOVABLE_PROP_INTERACTION_DISTANCE &&
       (!directBookIntersection ||
-        directBookIntersection.distance > INTERACTION_DISTANCE ||
+        directBookIntersection.distance > SHELF_INTERACTION_DISTANCE ||
         propIntersection.distance < directBookIntersection.distance) &&
       typeof propId === "string"
         ? host.movableProps().get(propId)
         : undefined;
     host.setPropTargeted(targetedProp);
-    if (targetedProp) {
-      host.signs().clearShelfSignPreview();
-      host.setTrashTargeted(false);
-      host.signs().targetedKey = undefined;
-      host.posters().targetedId = undefined;
-      host.artFrames().setDigitalArtFrameTargeted();
-      host.signs().updateTargetVisuals();
-      host.setHoveredPublicationId(undefined);
-      return;
-    }
+    if (!targetedProp) return false;
+    host.signs().clearShelfSignPreview();
+    host.setTrashTargeted(false);
+    this.#clearDecorationTargets();
+    host.signs().updateTargetVisuals();
+    host.setHoveredPublicationId(undefined);
+    return true;
+  }
+
+  #updateSignTargeting() {
+    const host = this.#host;
     host.setTrashTargeted(false);
     const shelfIntersection = host
       .raycaster()
@@ -680,12 +648,15 @@ export class InteractionScanner {
       host.signs().updateTargetVisuals();
       if (targetedSignChanged) host.emitGameState();
     }
-    if (targetedSignKey !== undefined) {
-      host.posters().targetedId = undefined;
-      host.artFrames().setDigitalArtFrameTargeted();
-      host.setHoveredPublicationId(undefined);
-      return;
-    }
+    if (targetedSignKey === undefined) return false;
+    host.posters().targetedId = undefined;
+    host.artFrames().setDigitalArtFrameTargeted();
+    host.setHoveredPublicationId(undefined);
+    return true;
+  }
+
+  #updateArtFrameTargeting() {
+    const host = this.#host;
     const artFrameIntersection = host
       .raycaster()
       .intersectObjects(host.artFrames().targetMeshes, false)
@@ -694,11 +665,14 @@ export class InteractionScanner {
     const targetedArtFrameId =
       typeof artFrameId === "string" ? artFrameId : undefined;
     host.artFrames().setDigitalArtFrameTargeted(targetedArtFrameId);
-    if (targetedArtFrameId) {
-      host.posters().targetedId = undefined;
-      host.setHoveredPublicationId(undefined);
-      return;
-    }
+    if (!targetedArtFrameId) return false;
+    host.posters().targetedId = undefined;
+    host.setHoveredPublicationId(undefined);
+    return true;
+  }
+
+  #updatePosterTargeting() {
+    const host = this.#host;
     const posterIntersection = host
       .raycaster()
       .intersectObjects(host.posters().targetMeshes, false)
@@ -710,14 +684,21 @@ export class InteractionScanner {
       host.posters().targetedId = targetedPosterId;
       host.emitGameState();
     }
-    if (targetedPosterId) {
-      host.artFrames().setDigitalArtFrameTargeted();
-      host.setHoveredPublicationId(undefined);
-      return;
-    }
+    if (!targetedPosterId) return false;
+    host.artFrames().setDigitalArtFrameTargeted();
+    host.setHoveredPublicationId(undefined);
+    return true;
+  }
+
+  #updateBookTargeting(
+    directBookIntersection:
+      | ReturnType<Raycaster["intersectObjects"]>[number]
+      | undefined,
+  ) {
+    const host = this.#host;
     const directPublicationId =
       directBookIntersection &&
-      directBookIntersection.distance <= INTERACTION_DISTANCE
+      directBookIntersection.distance <= SHELF_INTERACTION_DISTANCE
         ? directBookIntersection.object.userData.publicationId
         : undefined;
     const directRecord =
@@ -746,6 +727,71 @@ export class InteractionScanner {
     host.setHoveredPublicationId(
       typeof publicationId === "string" ? publicationId : undefined,
     );
+  }
+
+  #updateWorldTargeting() {
+    const host = this.#host;
+    if (this.#updateArcadeTargeting()) return;
+    if (this.#updateTelevisionTargeting()) return;
+    const directBookIntersection = host
+      .raycaster()
+      .intersectObjects(host.interactiveMeshes(), false)[0];
+    if (this.#updatePropTargeting(directBookIntersection)) return;
+    if (this.#updateSignTargeting()) return;
+    if (this.#updateArtFrameTargeting()) return;
+    if (this.#updatePosterTargeting()) return;
+    this.#updateBookTargeting(directBookIntersection);
+  }
+
+  update() {
+    const host = this.#host;
+    // An arcade session owns the screen; retargeting would fight its UI.
+    if (host.arcadeStatusForUi()) {
+      host.signs().clearShelfSignPreview();
+      return;
+    }
+    if (host.inspectionMode() !== "none") {
+      this.#clearInspectionTargets();
+      return;
+    }
+    if (host.shelveAnimation()) {
+      this.#clearShelvingTargets();
+      return;
+    }
+    if (!host.pointerLocked()) {
+      this.#updateUnlockedTargets();
+      return;
+    }
+
+    // Aiming results feed highlight prompts and clicks, which tolerate a
+    // frame or two of latency - so the full-shop reticle sweep runs on a
+    // fixed-rate budget instead of every tick, capping its cost while the
+    // player whips the view around.
+    if (!this.#prepareReticleSweep()) return;
+    if (host.artFrames().placement) {
+      this.#clearPlacementTargets(false);
+      host.artFrames().updateDigitalArtFramePlacementTarget();
+      return;
+    }
+    if (host.posters().placement) {
+      this.#clearPlacementTargets(true);
+      host.posters().updatePosterPlacementTarget();
+      return;
+    }
+    if (host.carriedProp()) {
+      this.#clearPlacementTargets(true);
+      return;
+    }
+    if (host.carriedPublicationId()) {
+      this.#updateCarriedBookTargeting();
+      return;
+    }
+    if (this.shelfTargeted) {
+      this.shelfTargeted = false;
+      this.shelfTargetSelection = undefined;
+      this.updateShelfTargetVisuals();
+    }
+    this.#updateWorldTargeting();
   }
 
   updateShelfTargetVisuals() {
