@@ -2,10 +2,8 @@ import {
   ACESFilmicToneMapping,
   AmbientLight,
   AnimationMixer,
-  BatchedMesh,
   Box3,
   BoxGeometry,
-  CanvasTexture,
   Color,
   DoubleSide,
   EquirectangularReflectionMapping,
@@ -31,7 +29,6 @@ import {
   Vector2,
   Vector3,
   WebGLRenderer,
-  BufferAttribute,
   type AnimationClip,
   type ColorSpace,
   type Material,
@@ -45,11 +42,7 @@ import {
   batchStaticInteriorMeshes,
   buildMergedStaticParts,
 } from "~/game/staticModelBatching";
-import {
-  createBookExteriorMaterial,
-  type BookAtlasBatch,
-  type BookAtlasTextures,
-} from "~/game/bookExteriorMaterial";
+import {createBookExteriorMaterial} from "~/game/bookExteriorMaterial";
 import {disposeObject} from "~/game/threeDisposal";
 import {
   addInteriorBox,
@@ -126,6 +119,7 @@ import {
 import {ArtFrameTextureCache} from "~/game/artFrameTextureCache";
 import type {DigitalArtFramePasteTarget} from "~/game/artFrameSystem";
 import {ArtFrameSystem} from "~/game/artFrameSystem";
+import {BookTextureRuntime} from "~/game/bookTextureRuntime";
 import {TvVideoImporter} from "~/game/tvVideoImporter";
 import {PosterSystem} from "~/game/posters/PosterSystem";
 import {
@@ -194,15 +188,9 @@ import floorSurfaceUrl from "~/assets/materials/laminate-floor-surface.webp";
 import moonriseSkyUrl from "~/assets/materials/qwantani-moonrise-sky.webp";
 import crtTvModelUrl from "~/assets/models/crt-tv.glb?url";
 import trashCanModelUrl from "~/assets/models/trash_can.glb?url";
-import type {
-  CatalogAtlases,
-  CatalogIdentity,
-  CatalogItem,
-  CatalogShelfAtlas,
-} from "~/catalog";
+import type {CatalogAtlases, CatalogIdentity, CatalogItem} from "~/catalog";
 import {bookDropPosition} from "~/game/bookDropPlacement";
 import {physicalBookWidth} from "~/game/bookDimensions";
-import {remapBookGeometryToAtlas} from "~/game/bookAtlasGeometry";
 import {INTERACTION_ROW_MODES, type UiMode} from "~/game/uiMode";
 import {
   ARCADE_CABINET_HEIGHT,
@@ -716,8 +704,6 @@ type ShopPerformanceDebugWindow = Window & {
  * Quaternion allocation that `Quaternion.dot` would otherwise require.
  */
 
-const STANDALONE_BOOK_TEXTURE_CACHE_SIZE = 24;
-
 /**
  * A deliberately bounded visual scene: one persistent renderer and at most
  * twenty interactive covers. The accessors keep catalog ownership in Solid
@@ -730,10 +716,7 @@ export class ShopScene {
   readonly #catalogAtlases: () => CatalogAtlases;
   readonly #audioManager = new ShopAudioManager();
   readonly #fpsHud = new FpsHud();
-  readonly #bookAtlasBatches: BookAtlasBatch[] = [];
-  readonly #bookAtlasTextures: BookAtlasTextures[] = [];
   readonly #booksById = new Map<string, BookRecord>();
-  readonly #standaloneBookTexturePublicationIds = new Set<string>();
   readonly #camera = new PerspectiveCamera(48, 1, 0.1, 45);
   readonly #canvas: HTMLCanvasElement;
   readonly #catalogAvailable: () => boolean;
@@ -803,6 +786,7 @@ export class ShopScene {
   readonly #artFrames: ArtFrameSystem;
   readonly #tvVideos: TvVideoImporter;
   readonly #artFrameTextures: ArtFrameTextureCache;
+  readonly #bookTextures: BookTextureRuntime;
   readonly #input: InputManager;
   readonly #getShortcuts: () => ShortcutsConfig;
   readonly #getPadMappingOverrides: () => ArcadePadMappingOverrides;
@@ -929,7 +913,6 @@ export class ShopScene {
   #discardError: string | undefined;
   readonly #discardedPublicationIds = new Set<string>();
   #disposed = false;
-  #bookAtlasRevision = 0;
   #stagedBootStarted = false;
   #frameHandle: number | undefined;
   #hoveredPublicationId: string | undefined;
@@ -1185,6 +1168,30 @@ export class ShopScene {
     this.#artFrameTextures = new ArtFrameTextureCache({
       isDisposed: () => this.#disposed,
       renderer: this.#renderer,
+      textureLoader: this.#textureLoader,
+    });
+    this.#bookTextures = new BookTextureRuntime({
+      catalogAtlases: () => this.#catalogAtlases(),
+      getBooks: () => this.#booksById,
+      isDisposed: () => this.#disposed,
+      isActiveDetailTarget: (publicationId) =>
+        publicationId === this.#hoveredPublicationId ||
+        publicationId === this.#lastSelectedPublicationId,
+      isBookInFlight: (publicationId) =>
+        this.#carriedPublicationIds.includes(publicationId) ||
+        publicationId === this.#inspectionPublicationId ||
+        publicationId === this.#discardAnimation?.publicationId ||
+        publicationId === this.#shelveAnimation?.publicationId,
+      isPinnedOrInFlight: (publicationId) =>
+        publicationId === this.#hoveredPublicationId ||
+        publicationId === this.#lastSelectedPublicationId ||
+        this.#carriedPublicationIds.includes(publicationId) ||
+        publicationId === this.#inspectionPublicationId ||
+        publicationId === this.#discardAnimation?.publicationId,
+      maxAnisotropy: () => this.#renderer.capabilities.getMaxAnisotropy(),
+      nextFrame: () => ShopScene.nextFrame(),
+      renderer: this.#renderer,
+      scene: this.#scene,
       textureLoader: this.#textureLoader,
     });
     this.#posters = new PosterSystem({
@@ -1685,12 +1692,12 @@ export class ShopScene {
       window.clearTimeout(this.#lateShaderPrecompileHandle);
     this.#lateShaderPrecompileHandle = undefined;
 
-    this.#bookAtlasRevision += 1;
-    this.#disposeBookAtlasBatches();
+    this.#bookTextures.bumpRevision();
+    this.#bookTextures.disposeBookAtlasBatches();
     for (const record of this.#booksById.values())
       this.#disposeBookRecord(record);
     this.#booksById.clear();
-    this.#standaloneBookTexturePublicationIds.clear();
+    this.#bookTextures.clearStandaloneIds();
     this.#interactiveMeshes = [];
     disposeObject(this.#scene);
     this.#scene.clear();
@@ -1796,7 +1803,7 @@ export class ShopScene {
       record.frame.update(deltaSeconds);
     this.#animateBooks(deltaSeconds);
     this.#animateShelve(deltaSeconds);
-    this.#syncBookAtlasBatches();
+    this.#bookTextures.syncBookAtlasBatches();
     this.#animateDiscard(deltaSeconds);
     for (const mixer of this.#modelMixers) mixer.update(deltaSeconds);
     this.#renderer.render(this.#scene, this.#camera);
@@ -3194,68 +3201,6 @@ export class ShopScene {
     );
     if (imported) this.#channelEditorTelevision = undefined;
     return imported;
-  }
-
-  #createBookSpineTexture(
-    title: string,
-    language: CatalogItem["language"],
-    accent: string,
-  ) {
-    const canvas = document.createElement("canvas");
-    canvas.width = 128;
-    canvas.height = 768;
-    const context = canvas.getContext("2d");
-    if (!context) return undefined;
-    const background = new Color(accent).multiplyScalar(0.42).getStyle();
-    const border = new Color(accent).multiplyScalar(0.88).getStyle();
-    const characters = Array.from(title.trim().replace(/\s+/g, " "));
-    const label =
-      characters.length > 54
-        ? `${characters.slice(0, 53).join("")}…`
-        : characters.join("");
-
-    context.fillStyle = background;
-    context.fillRect(0, 0, canvas.width, canvas.height);
-    const gradient = context.createLinearGradient(0, 0, canvas.width, 0);
-    gradient.addColorStop(0, "rgba(5, 8, 7, 0.48)");
-    gradient.addColorStop(0.15, "rgba(255, 255, 255, 0.03)");
-    gradient.addColorStop(0.86, "rgba(255, 255, 255, 0.03)");
-    gradient.addColorStop(1, "rgba(255, 245, 220, 0.14)");
-    context.fillStyle = gradient;
-    context.fillRect(0, 0, canvas.width, canvas.height);
-    context.strokeStyle = border;
-    context.globalAlpha = 0.8;
-    context.lineWidth = 3;
-    context.strokeRect(10, 10, canvas.width - 20, canvas.height - 20);
-    context.globalAlpha = 1;
-    context.fillStyle = "#efe6d5";
-    context.font = '700 20px Inter, "Yu Gothic", sans-serif';
-    context.textAlign = "center";
-    context.textBaseline = "middle";
-    context.fillText(language === "japanese" ? "JP" : "EN", 64, 52);
-    context.strokeStyle = border;
-    context.beginPath();
-    context.moveTo(20, 88);
-    context.lineTo(108, 88);
-    context.moveTo(20, 680);
-    context.lineTo(108, 680);
-    context.stroke();
-    context.save();
-    context.translate(66, 650);
-    context.rotate(-Math.PI / 2);
-    context.font = '600 38px Inter, "Yu Gothic", sans-serif';
-    context.textAlign = "left";
-    context.fillText(label || "Untitled edition", 0, 0, 530);
-    context.restore();
-
-    const texture = new CanvasTexture(canvas);
-    texture.colorSpace = SRGBColorSpace;
-    texture.minFilter = LinearFilter;
-    texture.anisotropy = Math.min(
-      4,
-      this.#renderer.capabilities.getMaxAnisotropy(),
-    );
-    return texture;
   }
 
   #addBox(
@@ -5410,7 +5355,7 @@ export class ShopScene {
       ? this.#booksById.get(publicationId)
       : undefined;
     if (record && publicationId !== undefined)
-      this.#ensureStandaloneBookTextures(publicationId, record);
+      this.#bookTextures.ensureStandaloneBookTextures(publicationId, record);
     this.#applyBookStates();
     this.#emitGameState();
   }
@@ -5478,7 +5423,10 @@ export class ShopScene {
       ? this.#booksById.get(selectedPublicationId)
       : undefined;
     if (record && selectedPublicationId)
-      this.#ensureStandaloneBookTextures(selectedPublicationId, record);
+      this.#bookTextures.ensureStandaloneBookTextures(
+        selectedPublicationId,
+        record,
+      );
     this.#applyBookStates();
   }
 
@@ -5681,8 +5629,8 @@ export class ShopScene {
     items: readonly CatalogItem[],
     newPublicationIds: readonly string[] = this.#newPublicationIds(),
   ) {
-    const atlasRevision = ++this.#bookAtlasRevision;
-    this.#disposeBookAtlasBatches();
+    const atlasRevision = this.#bookTextures.bumpRevision();
+    this.#bookTextures.disposeBookAtlasBatches();
     const savedBooks = this.#takeCompatibleWorldSave();
     const itemsById = new Map(items.map((item) => [item.id, item]));
     const unobservedArrivalIds = newPublicationIds.filter((publicationId) => {
@@ -5754,7 +5702,7 @@ export class ShopScene {
         this.#setShelfRotation(record, item.id);
       }
       if (record.state.status === "carried") {
-        this.#promoteBookCoverTexture(item.id, record);
+        this.#bookTextures.promoteBookCoverTexture(item.id, record);
         if (this.#physicsWorld.isReady) this.#scene.add(record.mesh);
         else {
           this.#camera.add(record.mesh);
@@ -5793,7 +5741,7 @@ export class ShopScene {
     this.#emitGameState();
     // Book textures stream into the scene as batches finish; readiness does
     // not wait on them.
-    void this.#initializeBookAtlasBatches(items, atlasRevision);
+    void this.#bookTextures.initializeBookAtlasBatches(items, atlasRevision);
   }
 
   /**
@@ -5801,322 +5749,6 @@ export class ShopScene {
    * for catalogs that ship it. Compressed textures cannot be flipped at
    * upload time; the pipeline bakes the vertical flip in instead.
    */
-  async #loadShelfAtlasTexture(url: string): Promise<Texture> {
-    // Catalog asset URLs carry a cache-busting query; test the pathname.
-    const pathname = url.split(/[?#]/u, 1)[0] ?? url;
-    if (!pathname.endsWith(".ktx2")) return this.#textureLoader.loadAsync(url);
-    this.#ktx2Loader ??= new KTX2Loader()
-      .setTranscoderPath("/basis/")
-      .detectSupport(this.#renderer);
-    const texture = await this.#ktx2Loader.loadAsync(url);
-    texture.colorSpace = SRGBColorSpace;
-    texture.flipY = false;
-    texture.generateMipmaps = false;
-    texture.minFilter = LinearFilter;
-    return texture;
-  }
-
-  async #initializeBookAtlasBatches(
-    items: readonly CatalogItem[],
-    revision: number,
-  ) {
-    const atlases = this.#catalogAtlases();
-    const atlasIndexes = [
-      ...new Set(
-        items.flatMap((item) =>
-          item.shelfAtlas === undefined ? [] : [item.shelfAtlas.index],
-        ),
-      ),
-    ];
-    const atlasResources = new Map<
-      number,
-      {
-        coverAtlas: CatalogShelfAtlas;
-        spineAtlas: CatalogShelfAtlas;
-        textures: BookAtlasTextures;
-      }
-    >();
-    try {
-      const loadedResources = await Promise.all(
-        atlasIndexes.map(async (atlasIndex) => {
-          const front = atlases.front[atlasIndex];
-          const back = atlases.back[atlasIndex];
-          const spine = atlases.spine[atlasIndex];
-          if (
-            !front ||
-            !back ||
-            !spine ||
-            front.columns !== back.columns ||
-            front.rows !== back.rows ||
-            front.firstPublicationIndex !== back.firstPublicationIndex ||
-            front.firstPublicationIndex !== spine.firstPublicationIndex ||
-            front.publicationCount !== back.publicationCount ||
-            front.publicationCount !== spine.publicationCount
-          )
-            return;
-          const [frontTexture, backTexture, spineTexture] = await Promise.all([
-            this.#loadShelfAtlasTexture(front.url),
-            this.#loadShelfAtlasTexture(back.url),
-            this.#loadShelfAtlasTexture(spine.url),
-          ]);
-          const textures = {
-            back: backTexture,
-            front: frontTexture,
-            spine: spineTexture,
-          };
-          for (const texture of Object.values(textures)) {
-            texture.colorSpace = SRGBColorSpace;
-            texture.generateMipmaps = false;
-            texture.minFilter = LinearFilter;
-          }
-          return [
-            atlasIndex,
-            {coverAtlas: front, spineAtlas: spine, textures},
-          ] as const;
-        }),
-      );
-      for (const resource of loadedResources) {
-        if (!resource) continue;
-        atlasResources.set(...resource);
-      }
-    } catch (error) {
-      for (const resource of atlasResources.values())
-        for (const texture of Object.values(resource.textures))
-          texture.dispose();
-      if (DEV && !this.#disposed)
-        console.warn(
-          "Afterleaf could not load the book texture atlases.",
-          error,
-        );
-      return;
-    }
-    if (this.#disposed || revision !== this.#bookAtlasRevision) {
-      for (const resource of atlasResources.values())
-        for (const texture of Object.values(resource.textures))
-          texture.dispose();
-      return;
-    }
-
-    const groups = new Map<
-      string,
-      {
-        coverAtlas: CatalogShelfAtlas;
-        entries: {item: CatalogItem; record: BookRecord}[];
-        spineAtlas: CatalogShelfAtlas;
-        textures: BookAtlasTextures;
-      }
-    >();
-    for (const item of items) {
-      const shelfAtlas = item.shelfAtlas;
-      const record = this.#booksById.get(item.id);
-      if (!shelfAtlas || !record) continue;
-      const resource = atlasResources.get(shelfAtlas.index);
-      if (
-        !resource ||
-        shelfAtlas.cellIndex < 0 ||
-        shelfAtlas.cellIndex >= resource.coverAtlas.publicationCount
-      )
-        continue;
-      // Accent and reading direction ride on per-instance geometry
-      // attributes now, so one atlas index forms one draw call.
-      const key = `${shelfAtlas.index}`;
-      const group = groups.get(key);
-      if (group) group.entries.push({item, record});
-      else
-        groups.set(key, {
-          coverAtlas: resource.coverAtlas,
-          entries: [{item, record}],
-          spineAtlas: resource.spineAtlas,
-          textures: resource.textures,
-        });
-    }
-
-    const builtIndexes = new Set<number>();
-    for (const [key, group] of groups) {
-      // Building a batch attaches fresh atlas textures; uploading the whole
-      // set inside one frame stalls the main thread behind the driver for
-      // seconds. Yield so each atlas trio lands in its own frame instead.
-      if (this.#disposed || revision !== this.#bookAtlasRevision) break;
-      await ShopScene.nextFrame();
-      const {material, uniforms} = createBookExteriorMaterial(
-        new Color("#ffffff"),
-        -1,
-        true,
-        true,
-      );
-      uniforms.coverMap.value = group.textures.front;
-      uniforms.backMap.value = group.textures.back;
-      uniforms.backMapEnabled.value = true;
-      uniforms.spineMap.value = group.textures.spine;
-      uniforms.spineMapEnabled.value = true;
-      const vertexCount = group.entries.reduce(
-        (total, entry) =>
-          total +
-          (entry.record.mesh.geometry.getAttribute("position")?.count ?? 0),
-        0,
-      );
-      const indexCount = group.entries.reduce(
-        (total, entry) =>
-          total + (entry.record.mesh.geometry.getIndex()?.count ?? 0),
-        0,
-      );
-      const mesh = new BatchedMesh(
-        group.entries.length,
-        vertexCount,
-        indexCount,
-        material,
-      );
-      mesh.name = "book-atlas-batch";
-      mesh.userData.publicationIds = group.entries.map(({item}) => item.id);
-      mesh.castShadow = true;
-      mesh.receiveShadow = true;
-      mesh.frustumCulled = false;
-      // Three's per-object BatchedMesh culling incorrectly drops thin,
-      // spine-facing books at some camera angles. The whole library is only a
-      // few thousand triangles, so drawing every batched book is cheaper than
-      // falling back to hundreds of standalone meshes.
-      mesh.perObjectFrustumCulled = false;
-      mesh.sortObjects = false;
-      const batch = {material, mesh};
-      for (const {item, record} of group.entries) {
-        const shelfAtlas = item.shelfAtlas;
-        if (!shelfAtlas) continue;
-        const geometry = remapBookGeometryToAtlas(
-          record.mesh.geometry,
-          group.coverAtlas,
-          group.spineAtlas,
-          shelfAtlas.cellIndex,
-          item.aspectRatio,
-          item.thicknessMm,
-        );
-        // Per-instance accent and spine direction, consumed by the merged
-        // book shader in place of uniforms.
-        const positionCount = geometry.getAttribute("position")?.count ?? 0;
-        const accent = new Color(item.accent);
-        const accentArray = new Float32Array(positionCount * 3);
-        for (let index = 0; index < positionCount; index += 1) {
-          accentArray[index * 3] = accent.r;
-          accentArray[index * 3 + 1] = accent.g;
-          accentArray[index * 3 + 2] = accent.b;
-        }
-        geometry.setAttribute(
-          "bookAccent",
-          new BufferAttribute(accentArray, 3),
-        );
-        const sign = item.direction === "LTR" ? -1 : 1;
-        const signArray = new Float32Array(positionCount).fill(sign);
-        geometry.setAttribute(
-          "bookSpineSign",
-          new BufferAttribute(signArray, 1),
-        );
-        const geometryId = mesh.addGeometry(geometry);
-        geometry.dispose();
-        const instanceId = mesh.addInstance(geometryId);
-        record.mesh.updateMatrix();
-        mesh.setMatrixAt(instanceId, record.mesh.matrix);
-        record.atlasPlacement = {
-          batch,
-          instanceId,
-          lastMatrix: record.mesh.matrix.clone(),
-          visible: true,
-          detached: false,
-        };
-      }
-      this.#scene.add(mesh);
-      this.#bookAtlasBatches.push(batch);
-      builtIndexes.add(Number(key));
-    }
-    if (builtIndexes.size < atlasResources.size) {
-      // Either boot was aborted mid-build or a resource matched no entries;
-      // dispose textures for every atlas that never built a batch.
-      for (const [index, resource] of atlasResources) {
-        if (builtIndexes.has(index)) continue;
-        for (const texture of Object.values(resource.textures))
-          texture.dispose();
-      }
-    }
-    this.#bookAtlasTextures.push(
-      ...[...atlasResources.entries()]
-        .filter(([index]) => builtIndexes.has(index))
-        .map(([, resource]) => resource.textures),
-    );
-    this.#syncBookAtlasBatches();
-  }
-
-  #syncBookAtlasBatches() {
-    for (const [publicationId, record] of this.#booksById) {
-      const placement = record.atlasPlacement;
-      if (!placement) {
-        record.mesh.visible = true;
-        continue;
-      }
-      const forcedStandalone =
-        record.state.status === "carried" ||
-        publicationId === this.#inspectionPublicationId ||
-        publicationId === this.#discardAnimation?.publicationId ||
-        publicationId === this.#shelveAnimation?.publicationId;
-      // A mesh some other system reparented (carry handoff, restore) cannot
-      // render as a batch instance; fall back to standalone.
-      const externallyOwned =
-        record.mesh.parent !== this.#scene &&
-        !(record.mesh.parent === null && placement.detached);
-      const readyStandalone =
-        record.standaloneTexturesReady &&
-        (publicationId === this.#hoveredPublicationId ||
-          publicationId === this.#lastSelectedPublicationId);
-      const standalone = forcedStandalone || readyStandalone || externallyOwned;
-      const batchVisible = record.exteriorMaterial.visible && !standalone;
-      if (batchVisible !== placement.visible) {
-        placement.batch.mesh.setVisibleAt(placement.instanceId, batchVisible);
-        placement.visible = batchVisible;
-      }
-      // Dormant batched books leave the scene graph entirely: their subtree
-      // (inspection assembly included) then skips per-frame traversal.
-      // Detached meshes keep world-space local transforms, so re-adding
-      // restores the exact pose.
-      if (batchVisible) {
-        if (!placement.detached && record.mesh.parent === this.#scene) {
-          record.mesh.removeFromParent();
-          placement.detached = true;
-        } else if (record.mesh.parent !== null) placement.detached = false;
-      } else if (placement.detached && record.mesh.parent === null) {
-        this.#scene.add(record.mesh);
-        placement.detached = false;
-      }
-      record.mesh.visible = standalone;
-      if (!batchVisible) continue;
-      record.mesh.updateMatrix();
-      if (placement.lastMatrix.equals(record.mesh.matrix)) continue;
-      placement.lastMatrix.copy(record.mesh.matrix);
-      placement.batch.mesh.setMatrixAt(
-        placement.instanceId,
-        record.mesh.matrix,
-      );
-    }
-  }
-
-  #disposeBookAtlasBatches() {
-    for (const record of this.#booksById.values()) {
-      const placement = record.atlasPlacement;
-      if (placement) {
-        placement.batch.mesh.setVisibleAt(placement.instanceId, false);
-        // Return detached meshes to the graph; they render standalone now.
-        if (placement.detached && record.mesh.parent === null)
-          this.#scene.add(record.mesh);
-      }
-      record.atlasPlacement = undefined;
-      record.mesh.visible = true;
-    }
-    for (const batch of this.#bookAtlasBatches) {
-      batch.mesh.removeFromParent();
-      batch.mesh.dispose();
-      batch.material.dispose();
-    }
-    this.#bookAtlasBatches.length = 0;
-    for (const textures of this.#bookAtlasTextures)
-      for (const texture of Object.values(textures)) texture.dispose();
-    this.#bookAtlasTextures.length = 0;
-  }
 
   #placeBookOnFloor(record: BookRecord, floorIndex: number, seedValue: string) {
     const seed = hashString(`${seedValue}:${floorIndex}`);
@@ -6300,7 +5932,7 @@ export class ShopScene {
   #disposeBookRecord(record: BookRecord) {
     const publicationId = record.mesh.userData.publicationId;
     if (typeof publicationId === "string")
-      this.#standaloneBookTexturePublicationIds.delete(publicationId);
+      this.#bookTextures.forgetStandaloneId(publicationId);
     if (record.atlasPlacement)
       record.atlasPlacement.batch.mesh.setVisibleAt(
         record.atlasPlacement.instanceId,
@@ -6336,272 +5968,6 @@ export class ShopScene {
     record.spineTexture?.dispose();
     record.mesh.geometry.dispose();
     record.exteriorMaterial.dispose();
-  }
-
-  #setBookCoverTexture(record: BookRecord, texture: Texture) {
-    record.exteriorUniforms.coverMap.value = texture;
-    record.inspectionFrontCoverMaterial.map = texture;
-    record.inspectionFrontCoverMaterial.emissiveMap = texture;
-    record.inspectionFrontCoverMaterial.needsUpdate = true;
-  }
-
-  #syncStandaloneBookTextureReadiness(record: BookRecord) {
-    const ready =
-      record.coverTextureReady &&
-      record.backTextureReady &&
-      record.spineTextureReady;
-    if (ready === record.standaloneTexturesReady) return;
-    record.standaloneTexturesReady = ready;
-    this.#syncBookAtlasBatches();
-  }
-
-  #ensureStandaloneBookTextures(publicationId: string, record: BookRecord) {
-    this.#standaloneBookTexturePublicationIds.delete(publicationId);
-    this.#standaloneBookTexturePublicationIds.add(publicationId);
-    const anisotropy = Math.min(
-      4,
-      this.#renderer.capabilities.getMaxAnisotropy(),
-    );
-    if (!record.texture) {
-      let requestedTexture: Texture | undefined;
-      requestedTexture = this.#textureLoader.load(
-        record.coverTextureUrl,
-        (loadedTexture) => {
-          if (
-            this.#disposed ||
-            this.#booksById.get(publicationId) !== record ||
-            record.texture !== loadedTexture
-          ) {
-            loadedTexture.dispose();
-            return;
-          }
-          loadedTexture.colorSpace = SRGBColorSpace;
-          loadedTexture.anisotropy = anisotropy;
-          record.coverTextureReady = true;
-          if (!record.detailTextureReady)
-            this.#setBookCoverTexture(record, loadedTexture);
-          this.#syncStandaloneBookTextureReadiness(record);
-        },
-        undefined,
-        () => {
-          if (record.texture !== requestedTexture) return;
-          requestedTexture?.dispose();
-          record.texture = undefined;
-          record.coverTextureReady = false;
-          record.exteriorUniforms.coverMap.value = null;
-          this.#syncStandaloneBookTextureReadiness(record);
-        },
-      );
-      requestedTexture.colorSpace = SRGBColorSpace;
-      requestedTexture.anisotropy = anisotropy;
-      record.texture = requestedTexture;
-      if (!record.detailTextureReady)
-        this.#setBookCoverTexture(record, requestedTexture);
-    }
-    if (record.backTextureUrl && !record.backTexture) {
-      let requestedTexture: Texture | undefined;
-      requestedTexture = this.#textureLoader.load(
-        record.backTextureUrl,
-        (loadedTexture) => {
-          if (
-            this.#disposed ||
-            this.#booksById.get(publicationId) !== record ||
-            record.backTexture !== loadedTexture
-          ) {
-            loadedTexture.dispose();
-            return;
-          }
-          loadedTexture.colorSpace = SRGBColorSpace;
-          loadedTexture.anisotropy = anisotropy;
-          record.backTextureReady = true;
-          record.exteriorUniforms.backMap.value = loadedTexture;
-          record.exteriorUniforms.backMapEnabled.value = true;
-          record.inspectionBackCoverMaterial.color.set("#ffffff");
-          record.inspectionBackCoverMaterial.map = loadedTexture;
-          record.inspectionBackCoverMaterial.emissiveMap = loadedTexture;
-          record.inspectionBackCoverMaterial.needsUpdate = true;
-          this.#syncStandaloneBookTextureReadiness(record);
-        },
-        undefined,
-        () => {
-          if (record.backTexture !== requestedTexture) return;
-          requestedTexture?.dispose();
-          record.backTexture = undefined;
-          record.backTextureReady = true;
-          record.exteriorUniforms.backMap.value = null;
-          record.exteriorUniforms.backMapEnabled.value = false;
-          this.#syncStandaloneBookTextureReadiness(record);
-        },
-      );
-      requestedTexture.colorSpace = SRGBColorSpace;
-      requestedTexture.anisotropy = anisotropy;
-      record.backTexture = requestedTexture;
-    }
-    if (!record.spineTexture) {
-      const spineTextureUrl = record.spineTextureUrl;
-      if (spineTextureUrl) {
-        let requestedTexture: Texture | undefined;
-        requestedTexture = this.#textureLoader.load(
-          spineTextureUrl,
-          (loadedTexture) => {
-            if (
-              this.#disposed ||
-              this.#booksById.get(publicationId) !== record ||
-              record.spineTexture !== loadedTexture
-            ) {
-              loadedTexture.dispose();
-              return;
-            }
-            loadedTexture.colorSpace = SRGBColorSpace;
-            loadedTexture.anisotropy = anisotropy;
-            record.spineTextureReady = true;
-            record.exteriorUniforms.spineMap.value = loadedTexture;
-            record.exteriorUniforms.spineMapEnabled.value = true;
-            this.#syncStandaloneBookTextureReadiness(record);
-          },
-          undefined,
-          () => {
-            if (record.spineTexture !== requestedTexture) return;
-            requestedTexture?.dispose();
-            const fallbackTexture = this.#createBookSpineTexture(
-              record.publicationTitle,
-              record.publicationLanguage,
-              record.publicationAccent,
-            );
-            record.spineTexture = fallbackTexture;
-            record.spineTextureReady = true;
-            record.exteriorUniforms.spineMap.value = fallbackTexture ?? null;
-            record.exteriorUniforms.spineMapEnabled.value =
-              fallbackTexture !== undefined;
-            this.#syncStandaloneBookTextureReadiness(record);
-          },
-        );
-        requestedTexture.colorSpace = SRGBColorSpace;
-        requestedTexture.anisotropy = anisotropy;
-        record.spineTexture = requestedTexture;
-      } else {
-        const fallbackTexture = this.#createBookSpineTexture(
-          record.publicationTitle,
-          record.publicationLanguage,
-          record.publicationAccent,
-        );
-        record.spineTexture = fallbackTexture;
-        record.spineTextureReady = true;
-        record.exteriorUniforms.spineMap.value = fallbackTexture ?? null;
-        record.exteriorUniforms.spineMapEnabled.value =
-          fallbackTexture !== undefined;
-        this.#syncStandaloneBookTextureReadiness(record);
-      }
-    }
-    this.#trimStandaloneBookTextures();
-  }
-
-  #releaseStandaloneBookTextures(publicationId: string, record: BookRecord) {
-    this.#standaloneBookTexturePublicationIds.delete(publicationId);
-    record.texture?.dispose();
-    record.texture = undefined;
-    record.coverTextureReady = false;
-    record.backTexture?.dispose();
-    record.backTexture = undefined;
-    record.backTextureReady = record.backTextureUrl === undefined;
-    record.spineTexture?.dispose();
-    record.spineTexture = undefined;
-    record.spineTextureReady = false;
-    record.standaloneTexturesReady = false;
-    record.exteriorUniforms.coverMap.value = null;
-    record.exteriorUniforms.backMap.value = null;
-    record.exteriorUniforms.backMapEnabled.value = false;
-    record.exteriorUniforms.spineMap.value = null;
-    record.exteriorUniforms.spineMapEnabled.value = false;
-    record.inspectionFrontCoverMaterial.map = null;
-    record.inspectionFrontCoverMaterial.emissiveMap = null;
-    record.inspectionFrontCoverMaterial.needsUpdate = true;
-    record.inspectionBackCoverMaterial.map = null;
-    record.inspectionBackCoverMaterial.emissiveMap = null;
-    record.inspectionBackCoverMaterial.color
-      .set(record.publicationAccent)
-      .multiplyScalar(0.76);
-    record.inspectionBackCoverMaterial.needsUpdate = true;
-  }
-
-  #trimStandaloneBookTextures() {
-    if (
-      this.#standaloneBookTexturePublicationIds.size <=
-      STANDALONE_BOOK_TEXTURE_CACHE_SIZE
-    )
-      return;
-    for (const publicationId of this.#standaloneBookTexturePublicationIds) {
-      if (
-        publicationId === this.#hoveredPublicationId ||
-        publicationId === this.#lastSelectedPublicationId ||
-        this.#carriedPublicationIds.includes(publicationId) ||
-        publicationId === this.#inspectionPublicationId ||
-        publicationId === this.#discardAnimation?.publicationId
-      )
-        continue;
-      const record = this.#booksById.get(publicationId);
-      if (record) this.#releaseStandaloneBookTextures(publicationId, record);
-      else this.#standaloneBookTexturePublicationIds.delete(publicationId);
-      if (
-        this.#standaloneBookTexturePublicationIds.size <=
-        STANDALONE_BOOK_TEXTURE_CACHE_SIZE
-      )
-        return;
-    }
-  }
-
-  #promoteBookCoverTexture(publicationId: string, record: BookRecord) {
-    this.#ensureStandaloneBookTextures(publicationId, record);
-    if (record.detailTextureReady && record.detailTexture) {
-      this.#setBookCoverTexture(record, record.detailTexture);
-      return;
-    }
-    const detailCoverUrl = record.detailCoverUrl;
-    if (!detailCoverUrl || record.detailTextureLoading) return;
-    record.detailTextureLoading = true;
-    const detailTexture = this.#textureLoader.load(
-      detailCoverUrl,
-      (loadedTexture) => {
-        if (this.#disposed || this.#booksById.get(publicationId) !== record) {
-          loadedTexture.dispose();
-          return;
-        }
-        loadedTexture.colorSpace = SRGBColorSpace;
-        loadedTexture.anisotropy = Math.min(
-          8,
-          this.#renderer.capabilities.getMaxAnisotropy(),
-        );
-        record.detailTexture = loadedTexture;
-        record.detailTextureLoading = false;
-        if (
-          record.state.status !== "carried" &&
-          this.#inspectionPublicationId !== publicationId
-        ) {
-          loadedTexture.dispose();
-          record.detailTexture = undefined;
-          record.detailTextureReady = false;
-          return;
-        }
-        record.detailTextureReady = true;
-        this.#setBookCoverTexture(record, loadedTexture);
-      },
-      undefined,
-      () => {
-        if (this.#booksById.get(publicationId) !== record) return;
-        record.detailTexture?.dispose();
-        record.detailTexture = undefined;
-        record.detailTextureLoading = false;
-      },
-    );
-    record.detailTexture = detailTexture;
-  }
-
-  #restoreCompactBookCoverTexture(record: BookRecord) {
-    if (record.texture) this.#setBookCoverTexture(record, record.texture);
-    if (!record.detailTextureReady) return;
-    record.detailTexture?.dispose();
-    record.detailTexture = undefined;
-    record.detailTextureReady = false;
   }
 
   #applyBookStates() {
@@ -6834,7 +6200,7 @@ export class ShopScene {
       this.#inspectionOpeningDelay = INSPECTION_OPENING_DELAY_SECONDS;
       this.#applyInspectionOpenAngle(record);
       this.#resetInspectionZoom();
-      this.#promoteBookCoverTexture(publication.id, record);
+      this.#bookTextures.promoteBookCoverTexture(publication.id, record);
       this.#setHoveredPublicationId(undefined);
       this.#onSelectPublication(publication.id);
       this.#applyBookStates();
@@ -7693,7 +7059,7 @@ export class ShopScene {
   }
 
   #showCompactInspectionBook(record: BookRecord) {
-    this.#restoreCompactBookCoverTexture(record);
+    this.#bookTextures.restoreCompactBookCoverTexture(record);
     record.inspectionGroup.visible = false;
     record.exteriorMaterial.visible = true;
   }
@@ -8361,7 +7727,10 @@ export class ShopScene {
       ? this.#booksById.get(this.#carriedPublicationId)
       : undefined;
     if (record && this.#carriedPublicationId)
-      this.#promoteBookCoverTexture(this.#carriedPublicationId, record);
+      this.#bookTextures.promoteBookCoverTexture(
+        this.#carriedPublicationId,
+        record,
+      );
     this.#syncCarriedBookPresentation();
     this.#updateHeldPhysicsTarget();
     this.#updateInteractionTarget();
@@ -9007,7 +8376,7 @@ export class ShopScene {
     record.state = transition.state;
     this.#shelfPresentation = record.shelfPresentation;
     if (previousShelfId) this.#renumberSpineShelf(previousShelfId);
-    this.#promoteBookCoverTexture(publicationId, record);
+    this.#bookTextures.promoteBookCoverTexture(publicationId, record);
     this.#carriedPublicationIds.unshift(publicationId);
     this.#carriedPublicationId = publicationId;
     this.#discardError = undefined;
@@ -9231,7 +8600,7 @@ export class ShopScene {
     this.#scene.attach(record.mesh);
     this.#camera.getWorldDirection(this.#viewDirection);
     record.state = transition.state;
-    this.#restoreCompactBookCoverTexture(record);
+    this.#bookTextures.restoreCompactBookCoverTexture(record);
     const charge = MathUtils.clamp(throwCharge, 0, 1);
     const throwSpeed = MathUtils.lerp(THROW_MIN_SPEED, THROW_MAX_SPEED, charge);
     const throwLift = MathUtils.lerp(THROW_MIN_LIFT, THROW_MAX_LIFT, charge);
@@ -9365,7 +8734,7 @@ export class ShopScene {
     record.mesh.quaternion.copy(animation.targetRotation);
     record.mesh.scale.setScalar(1);
     record.shelfPreview = 0;
-    this.#restoreCompactBookCoverTexture(record);
+    this.#bookTextures.restoreCompactBookCoverTexture(record);
     if (animation.placements)
       this.#applySpineShelfPlacements(animation.shelfId, animation.placements);
     else {
