@@ -69,6 +69,8 @@ import {
   createReadingChairInstance,
   createReadingTables,
 } from "~/game/interior/readingFurniture";
+import {createSpineShelfFixture} from "~/game/interior/shelfFixtures";
+import {createTelevisionRooms} from "~/game/interior/televisionRooms";
 import {
   createNightWindows,
   createTheatreSeating,
@@ -272,7 +274,6 @@ import {
   SHOP_TV_CAVE,
   SHOP_TV_CAVE_DOOR_CENTER_Z,
   SHOP_TV_CAVE_HALL,
-  SHOP_TV_CAVE_SHELF_BOARD_Y_CENTERS,
   SHOP_UPPER_STACK_CENTER_X,
   SHOP_UPPER_STACK_LENGTH,
   SHOP_UPPER_STACK_ZS,
@@ -303,13 +304,6 @@ import {
   SHOP_STAIR_LOWER_FLIGHT_CENTER_Z,
   SHOP_STAIR_OPENING_WIDTH,
   SPINE_SHELF_BACKING_THICKNESS,
-  SPINE_SHELF_BOARD_DEPTH,
-  SPINE_SHELF_BOARD_THICKNESS,
-  SPINE_SHELF_BOARD_Y_OFFSETS,
-  SPINE_SHELF_DIVIDER_DEPTH,
-  SPINE_SHELF_DIVIDER_HEIGHT,
-  SPINE_SHELF_DIVIDER_THICKNESS,
-  SPINE_SHELF_HEIGHT,
 } from "~/game/shopLayout";
 import {
   ShopPhysicsWorld,
@@ -345,10 +339,6 @@ import {
 } from "~/game/worldSave";
 import {createWoodMaterial, loadWoodTextures} from "~/game/woodMaterials";
 import {
-  createUpholsteryMaterial,
-  loadUpholsteryTextures,
-} from "~/game/upholsteryMaterials";
-import {
   detectWideReaderPage,
   getWideReaderPageIndices,
   mirrorReaderPageHorizontalRange,
@@ -381,11 +371,9 @@ const FACE_SHELF_SLOT_COUNT = FACE_DISPLAY_COLUMNS * FACE_DISPLAY_ROWS;
 const FACE_DISPLAY_SHELF_HALF_WIDTH = 4.4;
 const FACE_DISPLAY_SHELF_INSET = 0.15;
 const FACE_DISPLAY_SHELF_FRONT_Z = -9.54;
-const FACE_OUT_SHELF_INSET = 0.1;
 const SHOP_PLAYER_START_X = 0;
 const SHOP_PLAYER_START_Z = 25;
 const SPINE_SHELF_GAP = 0.018;
-const SPINE_SHELF_FRONT_OFFSET = 0.57;
 const TELEVISION_TABLE_SHELF_BACK_INSET = 0.91;
 const HELD_BOOK_STACK_GAP = 0.012;
 const HELD_BOOK_FAN_X_SPACING = 0.105;
@@ -429,7 +417,6 @@ const MODEL_TELEVISION_PHYSICS_ID = "crt-television";
 const MODEL_TELEVISION_SCREEN_NODE_NAME = "TVScreen";
 const MODEL_TELEVISION_DENSITY = 60;
 const FIXED_TELEVISION_SAVE_ID = "fixed";
-const THEATRE_TELEVISION_SAVE_ID = "moonlight-theatre";
 const DISCARD_TOSS_DURATION_SECONDS = 0.52;
 const SHELVE_BOOK_DURATION_SECONDS = 0.34;
 const LOOK_SENSITIVITY = 0.0021;
@@ -2639,199 +2626,6 @@ export class ShopScene {
     this.#emitGameState();
   }
 
-  #createSpineShelfFixture(
-    parent: Group,
-    fixtureId: string,
-    x: number,
-    z: number,
-    length: number,
-    bayCount: number,
-    faceNormals: readonly (-1 | 1)[],
-    woodMaterial: MeshStandardMaterial,
-    backingMaterial: MeshStandardMaterial,
-    shelfEdgeMaterial: MeshStandardMaterial,
-    backingThickness = SPINE_SHELF_BACKING_THICKNESS,
-    elevation = 0,
-    axis: "x" | "z" = "z",
-  ) {
-    const alongX = axis === "x";
-    this.#addBox(
-      parent,
-      alongX
-        ? [length, SPINE_SHELF_HEIGHT, backingThickness]
-        : [backingThickness, SPINE_SHELF_HEIGHT, length],
-      [x, elevation + SPINE_SHELF_HEIGHT / 2, z],
-      backingMaterial,
-    );
-
-    for (const y of SPINE_SHELF_BOARD_Y_OFFSETS) {
-      const shelf = this.#addBox(
-        parent,
-        alongX
-          ? [length, SPINE_SHELF_BOARD_THICKNESS, SPINE_SHELF_BOARD_DEPTH]
-          : [SPINE_SHELF_BOARD_DEPTH, SPINE_SHELF_BOARD_THICKNESS, length],
-        [x, elevation + y, z],
-        woodMaterial,
-        true,
-      );
-      this.#registerPropPlacementSupport(shelf);
-    }
-
-    const bayWidth = length / bayCount;
-    for (let divider = 0; divider <= bayCount; divider += 1)
-      this.#addBox(
-        parent,
-        alongX
-          ? [
-              SPINE_SHELF_DIVIDER_THICKNESS,
-              SPINE_SHELF_DIVIDER_HEIGHT,
-              SPINE_SHELF_DIVIDER_DEPTH,
-            ]
-          : [
-              SPINE_SHELF_DIVIDER_DEPTH,
-              SPINE_SHELF_DIVIDER_HEIGHT,
-              SPINE_SHELF_DIVIDER_THICKNESS,
-            ],
-        alongX
-          ? [
-              x - length / 2 + divider * bayWidth,
-              elevation + SPINE_SHELF_DIVIDER_HEIGHT / 2,
-              z,
-            ]
-          : [
-              x,
-              elevation + SPINE_SHELF_DIVIDER_HEIGHT / 2,
-              z - length / 2 + divider * bayWidth,
-            ],
-        shelfEdgeMaterial,
-      );
-    if (alongX) {
-      this.#createPosterSurface(
-        parent,
-        `${fixtureId}:end:west`,
-        1,
-        3.96,
-        [x - length / 2 - 0.055, elevation + 2.05, z],
-        -Math.PI / 2,
-      );
-      this.#createPosterSurface(
-        parent,
-        `${fixtureId}:end:east`,
-        1,
-        3.96,
-        [x + length / 2 + 0.055, elevation + 2.05, z],
-        Math.PI / 2,
-      );
-    } else {
-      this.#createPosterSurface(
-        parent,
-        `${fixtureId}:end:north`,
-        1,
-        3.96,
-        [x, elevation + 2.05, z - length / 2 - 0.055],
-        Math.PI,
-      );
-      this.#createPosterSurface(
-        parent,
-        `${fixtureId}:end:south`,
-        1,
-        3.96,
-        [x, elevation + 2.05, z + length / 2 + 0.055],
-        0,
-      );
-    }
-
-    for (const normal of faceNormals) {
-      const shelfAxis = new Vector3(alongX ? 1 : 0, 0, alongX ? 0 : 1);
-      const shelfNormal = new Vector3(
-        alongX ? 0 : normal,
-        0,
-        alongX ? normal : 0,
-      );
-      let targetRotationY = normal > 0 ? Math.PI / 2 : -Math.PI / 2;
-      if (alongX) targetRotationY = normal > 0 ? 0 : Math.PI;
-      let face = normal > 0 ? "east" : "west";
-      if (alongX) face = normal > 0 ? "south" : "north";
-      const signKeys = new Map<number, string>();
-      for (let bay = 0; bay < bayCount; bay += 1) {
-        const bayCenter = -length / 2 + bayWidth * (bay + 0.5);
-        const signKey = this.#signs.createSpineShelfSignSlot(
-          parent,
-          `${fixtureId.toUpperCase()} · BAY ${String(bay + 1).padStart(2, "0")}`,
-          alongX ? x + bayCenter : x + normal * 0.57,
-          alongX ? z + normal * 0.57 : z + bayCenter,
-          bayWidth - 0.22,
-          targetRotationY,
-          elevation,
-        );
-        signKeys.set(bay, signKey);
-        const signPreviewTarget = new Mesh(
-          new PlaneGeometry(bayWidth - 0.18, SPINE_SHELF_HEIGHT),
-          new MeshBasicMaterial({
-            depthWrite: false,
-            opacity: 0,
-            transparent: true,
-          }),
-        );
-        signPreviewTarget.name = `spine-shelf-sign-preview-target-${fixtureId}-${face}-${bay}`;
-        // Broad raycast-only surface; keep sign previews independent from
-        // book placement rows and the physical shelf boards between them.
-        signPreviewTarget.visible = false;
-        signPreviewTarget.position.set(
-          alongX ? x + bayCenter : x + normal * SPINE_SHELF_FRONT_OFFSET,
-          elevation + SPINE_SHELF_HEIGHT / 2,
-          alongX ? z + normal * SPINE_SHELF_FRONT_OFFSET : z + bayCenter,
-        );
-        signPreviewTarget.rotation.y = targetRotationY;
-        signPreviewTarget.userData.shelfId = `${fixtureId}:${face}:0:${bay}`;
-        parent.add(signPreviewTarget);
-        this.#signs.registerPreviewTarget(signPreviewTarget);
-      }
-      for (let row = 0; row < 4; row += 1) {
-        for (let bay = 0; bay < bayCount; bay += 1) {
-          const shelfId = `${fixtureId}:${face}:${row}:${bay}`;
-          const bayCenter = -length / 2 + bayWidth * (bay + 0.5);
-          const frontCenter = new Vector3(
-            alongX ? x + bayCenter : x + normal * SPINE_SHELF_FRONT_OFFSET,
-            elevation + 0.25 + row * 0.92 + BOOK_HEIGHT / 2,
-            alongX ? z + normal * SPINE_SHELF_FRONT_OFFSET : z + bayCenter,
-          );
-          const definition: SpineShelfDefinition = {
-            axis: shelfAxis,
-            backInset: SPINE_SHELF_FRONT_OFFSET - backingThickness / 2,
-            faceInset: FACE_OUT_SHELF_INSET,
-            faceTilt: 0,
-            frontCenter,
-            halfWidth: (bayWidth - 0.18) / 2,
-            id: shelfId,
-            normal: shelfNormal,
-          };
-          const signKey = signKeys.get(bay);
-          if (signKey) definition.signKey = signKey;
-          this.#spineShelfDefinitions.set(shelfId, definition);
-          const material = new MeshBasicMaterial({
-            color: "#d94c3f",
-            depthWrite: false,
-            opacity: 0,
-            transparent: true,
-          });
-          const target = new Mesh(
-            new PlaneGeometry(bayWidth - 0.16, 0.76),
-            material,
-          );
-          target.name = `spine-shelf-target-${shelfId}`;
-          // Invisible raycast proxy - see mixed-shelf-target note above.
-          target.visible = false;
-          target.position.copy(frontCenter);
-          target.rotation.y = targetRotationY;
-          target.userData.shelfId = shelfId;
-          parent.add(target);
-          this.#shelfTargetMeshes.push(target);
-        }
-      }
-    }
-  }
-
   /** Builds one procedural reading table visual (meshes only). */
 
   /**
@@ -2980,164 +2774,6 @@ export class ShopScene {
       ...(initialChannelId === undefined ? {} : {initialChannelId}),
       ...(initialVolume === undefined ? {} : {initialVolume}),
     };
-  }
-
-  #createTelevisionRooms(parent: Group, woodMaterial: MeshStandardMaterial) {
-    const upholsteryTextures = loadUpholsteryTextures(
-      this.#textureLoader,
-      this.#renderer.capabilities.getMaxAnisotropy(),
-    );
-    const acousticMaterial = createUpholsteryMaterial(upholsteryTextures);
-    const theatreTelevision = new ShopTelevision({
-      ...this.#sharedTelevisionOptions(
-        this.#pendingWorldSave?.televisionChannels?.[
-          THEATRE_TELEVISION_SAVE_ID
-        ] ??
-          this.#pendingWorldSave?.televisionChannels?.[
-            FIXED_TELEVISION_SAVE_ID
-          ],
-        this.#pendingWorldSave?.televisionVolumes?.[
-          THEATRE_TELEVISION_SAVE_ID
-        ] ??
-          this.#pendingWorldSave?.televisionVolumes?.[FIXED_TELEVISION_SAVE_ID],
-      ),
-      flatScreen: {height: 6.6, width: 11.75},
-      parent,
-      position: [-33.78, 9.75, SHOP_THEATRE.centerZ],
-      rotationY: Math.PI / 2,
-      tableMaterial: woodMaterial,
-    });
-    theatreTelevision.object.name = `${THEATRE_TELEVISION_SAVE_ID}-screen`;
-    this.#registerTelevision(THEATRE_TELEVISION_SAVE_ID, theatreTelevision);
-
-    const theatreTrimMaterial = new MeshStandardMaterial({
-      color: "#120f17",
-      metalness: 0.16,
-      roughness: 0.86,
-    });
-    this.#addBox(
-      parent,
-      [1.45, 0.32, 14.5],
-      [-33.05, SHOP_UPPER_FLOOR_Y + 0.16, SHOP_THEATRE.centerZ],
-      theatreTrimMaterial,
-    );
-    for (const z of [12.35, 24.65])
-      this.#addBox(
-        parent,
-        [0.3, 7.35, 0.34],
-        [-33.64, 9.78, z],
-        theatreTrimMaterial,
-      );
-    this.#addBox(
-      parent,
-      [0.3, 0.3, 12.65],
-      [-33.64, 13.42, SHOP_THEATRE.centerZ],
-      theatreTrimMaterial,
-    );
-    for (const x of [-20, -24, -28, -32]) {
-      for (const z of [10.68, 26.32])
-        this.#addBox(parent, [2.25, 2.2, 0.16], [x, 9.15, z], acousticMaterial);
-      this.#addBox(
-        parent,
-        [2.6, 0.12, 12.5],
-        [x, 15.38, SHOP_THEATRE.centerZ],
-        acousticMaterial,
-      );
-    }
-
-    const shelfMaterial = woodMaterial.clone();
-    shelfMaterial.color.set("#75665d");
-    const shelfYs = SHOP_TV_CAVE_SHELF_BOARD_Y_CENTERS;
-    const addShelfBank = (
-      axis: "x" | "z",
-      backingPosition: readonly [x: number, y: number, z: number],
-      shelfPosition: readonly [x: number, z: number],
-      length: number,
-    ) => {
-      const alongX = axis === "x";
-      this.#addBox(
-        parent,
-        alongX ? [length, 4.05, 0.34] : [0.34, 4.05, length],
-        backingPosition,
-        shelfMaterial,
-        true,
-      );
-      for (const y of shelfYs) {
-        const shelf = this.#addBox(
-          parent,
-          alongX ? [length, 0.1, 1.2] : [1.2, 0.1, length],
-          [shelfPosition[0], y, shelfPosition[1]],
-          shelfMaterial,
-          true,
-        );
-        this.#registerPropPlacementSupport(shelf);
-      }
-    };
-    addShelfBank("z", [23.03, 6.95, 18.3], [22.6, 18.3], 8.2);
-    addShelfBank("z", [16.97, 6.95, 16.45], [17.4, 16.45], 4.7);
-    addShelfBank(
-      "x",
-      [SHOP_TV_CAVE.centerX, 6.95, 14.27],
-      [SHOP_TV_CAVE.centerX, 14.7],
-      6.45,
-    );
-    addShelfBank(
-      "x",
-      [SHOP_TV_CAVE.centerX, 6.95, 22.33],
-      [SHOP_TV_CAVE.centerX, 21.9],
-      6.45,
-    );
-
-    const rowYs = shelfYs
-      .slice(0, 3)
-      .map((y) => y + SHOP_MODEL_TELEVISION_SIZE.height / 2 + 0.04);
-    // Cave CRTs are ordinary spawned televisions: seeded once onto the
-    // shelf banks, then persisted through modelProps like any other prop.
-    // Worlds that already seeded restore them from their saves instead of
-    // re-spawning deleted or moved units.
-    if (this.#needsSeedPass(INITIAL_WORLD_SEEDING_VERSION)) {
-      const crtAsset = BUILTIN_SPAWNABLE_PROP_ASSETS.find(
-        (asset) => asset.id === BUILTIN_CRT_TV_ASSET_ID,
-      );
-      if (crtAsset) {
-        const addCrt = (
-          wall: "east" | "north" | "south" | "west",
-          row: number,
-          column: number,
-          position: readonly [x: number, y: number, z: number],
-          rotationY: number,
-        ) => {
-          const id = `tv-cave-v6-${wall}-${row + 1}-${column + 1}`;
-          const quaternion = new Quaternion().setFromAxisAngle(
-            this.#upAxis,
-            rotationY,
-          );
-          this.#createSpawnedCrtTelevision(crtAsset, id, DEFAULT_MODEL_SCALE, {
-            position: {x: position[0], y: position[1], z: position[2]},
-            quaternion: {
-              w: quaternion.w,
-              x: quaternion.x,
-              y: quaternion.y,
-              z: quaternion.z,
-            },
-          });
-        };
-
-        const eastColumnZs = [14.6, 16.3, 18, 19.7, 21.4] as const;
-        const westColumnZs = [14.7, 16.3, 17.9] as const;
-        const crossWallColumnXs = [17.5, 19.5, 21.5] as const;
-        for (const [row, y] of rowYs.entries()) {
-          for (const [column, z] of eastColumnZs.entries())
-            addCrt("east", row, column, [22.4, y, z], Math.PI / 2);
-          for (const [column, z] of westColumnZs.entries())
-            addCrt("west", row, column, [17.6, y, z], -Math.PI / 2);
-          for (const [column, x] of crossWallColumnXs.entries()) {
-            addCrt("north", row, column, [x, y, 14.4], Math.PI);
-            addCrt("south", row, column, [x, y, 22.2], 0);
-          }
-        }
-      }
-    }
   }
 
   #createShopExpansion(
@@ -3385,7 +3021,23 @@ export class ShopScene {
       (parent2, size, position2, material, castShadow) =>
         this.#addBox(parent2, size, position2, material, castShadow),
     );
-    this.#createTelevisionRooms(parent, woodMaterial);
+    createTelevisionRooms(parent, woodMaterial, {
+      addBox: (p, size, pos, mat, castShadow) =>
+        this.#addBox(p, size, pos, mat, castShadow),
+      createSpawnedCrtTelevision: (asset, id, scale, pose) =>
+        this.#createSpawnedCrtTelevision(asset, id, scale, pose),
+      needsSeedPass: (version) => this.#needsSeedPass(version),
+      registerPropPlacementSupport: (object) =>
+        this.#registerPropPlacementSupport(object),
+      registerTelevision: (saveId, television) =>
+        this.#registerTelevision(saveId, television),
+      sharedTelevisionOptions: (channelId, volume) =>
+        this.#sharedTelevisionOptions(channelId, volume),
+      textureLoader: this.#textureLoader,
+      maxTextureAnisotropy: this.#renderer.capabilities.getMaxAnisotropy(),
+      televisionChannels: this.#pendingWorldSave?.televisionChannels,
+      televisionVolumes: this.#pendingWorldSave?.televisionVolumes,
+    });
     this.#signs.createRoomSignSlot(
       parent,
       "moonlight-theatre",
@@ -4756,6 +4408,50 @@ export class ShopScene {
   }
 
   /** Resolves both poster and digital-frame placement against the same wall snap. */
+
+  /** Scene-local adapter for the extracted spine-shelf fixture builder. */
+  #createSpineShelfFixture(
+    parent: Group,
+    fixtureId: string,
+    x: number,
+    z: number,
+    length: number,
+    bayCount: number,
+    faceNormals: readonly (-1 | 1)[],
+    woodMaterial: MeshStandardMaterial,
+    backingMaterial: MeshStandardMaterial,
+    shelfEdgeMaterial: MeshStandardMaterial,
+    backingThickness = SPINE_SHELF_BACKING_THICKNESS,
+    elevation = 0,
+    axis: "x" | "z" = "z",
+  ) {
+    createSpineShelfFixture(
+      parent,
+      fixtureId,
+      x,
+      z,
+      length,
+      bayCount,
+      faceNormals,
+      woodMaterial,
+      backingMaterial,
+      shelfEdgeMaterial,
+      backingThickness,
+      elevation,
+      axis,
+      {
+        addBox: (p, size, pos, mat, castShadow) =>
+          this.#addBox(p, size, pos, mat, castShadow),
+        createPosterSurface: (p, id, w, h, pos, rot) =>
+          this.#createPosterSurface(p, id, w, h, pos, rot),
+        registerPropPlacementSupport: (object) =>
+          this.#registerPropPlacementSupport(object),
+        shelfTargetMeshes: this.#shelfTargetMeshes,
+        signs: this.#signs,
+        spineShelfDefinitions: this.#spineShelfDefinitions,
+      },
+    );
+  }
 
   #bindInput() {
     const passiveOptions = {

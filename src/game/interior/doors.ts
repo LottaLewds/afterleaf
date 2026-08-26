@@ -13,6 +13,20 @@ import {
 } from "~/game/shopLayout";
 import {SHOP_UPPER_FLOOR_Y} from "~/game/shopExpansionLayout";
 import type {AddBox} from "~/game/interior/interiorPrimitives";
+/** Callback signature for building a spine-shelf fixture. */
+export type CreateSpineShelfFixture = (
+  parent: Group,
+  id: string,
+  x: number,
+  z: number,
+  length: number,
+  bayCount: number,
+  faceNormals: readonly (-1 | 1)[],
+  woodMaterial: MeshStandardMaterial,
+  backingMaterial: MeshStandardMaterial,
+  edgeMaterial: MeshStandardMaterial,
+  backingThickness?: number,
+) => void;
 
 export type AutomaticDoor = {
   centerX: number;
@@ -26,21 +40,6 @@ export const RARE_ROOM_DOOR_Z = -1.92;
 
 /** Thickness of the special-collection room's shelf backing. */
 export const SPECIAL_COLLECTION_BACKING_THICKNESS = 0.22;
-
-/** Callback signature for building a spine-shelf fixture. */
-export type CreateSpineShelfFixture = (
-  parent: Group,
-  id: string,
-  x: number,
-  z: number,
-  length: number,
-  rowCount: number,
-  faces: readonly (-1 | 1)[],
-  woodMaterial: MeshStandardMaterial,
-  backingMaterial: MeshStandardMaterial,
-  edgeMaterial: MeshStandardMaterial,
-  backingThickness: number,
-) => unknown;
 
 /**
  * Runtime door state for the upper hallway and the special-collection
