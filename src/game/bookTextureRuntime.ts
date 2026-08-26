@@ -56,6 +56,13 @@ type BookAtlasResource = {
   textures: BookAtlasTextures;
 };
 
+type BookAtlasGroup = {
+  coverAtlas: CatalogShelfAtlas;
+  entries: {item: CatalogItem; record: BookRecord}[];
+  spineAtlas: CatalogShelfAtlas;
+  textures: BookAtlasTextures;
+};
+
 /**
  * Owns the batched-atlas rendering path and the standalone cover/spine
  * texture pipeline for the shop's books. The scene drives it from
@@ -172,39 +179,11 @@ export class BookTextureRuntime {
     return atlasResources;
   }
 
-  async initializeBookAtlasBatches(
+  #collectBookAtlasGroups(
     items: readonly CatalogItem[],
-    revision: number,
+    atlasResources: ReadonlyMap<number, BookAtlasResource>,
   ) {
-    const atlases = this.#host.catalogAtlases();
-    const atlasIndexes = [
-      ...new Set(
-        items.flatMap((item) =>
-          item.shelfAtlas === undefined ? [] : [item.shelfAtlas.index],
-        ),
-      ),
-    ];
-    const atlasResources = await this.#loadBookAtlasResources(
-      atlases,
-      atlasIndexes,
-    );
-    if (!atlasResources) return;
-    if (this.#host.isDisposed() || revision !== this.#revision) {
-      for (const resource of atlasResources.values())
-        for (const texture of Object.values(resource.textures))
-          texture.dispose();
-      return;
-    }
-
-    const groups = new Map<
-      string,
-      {
-        coverAtlas: CatalogShelfAtlas;
-        entries: {item: CatalogItem; record: BookRecord}[];
-        spineAtlas: CatalogShelfAtlas;
-        textures: BookAtlasTextures;
-      }
-    >();
+    const groups = new Map<string, BookAtlasGroup>();
     for (const item of items) {
       const shelfAtlas = item.shelfAtlas;
       const record = this.#host.getBooks().get(item.id);
@@ -229,6 +208,116 @@ export class BookTextureRuntime {
           textures: resource.textures,
         });
     }
+    return groups;
+  }
+
+  #buildBookAtlasBatch(group: BookAtlasGroup) {
+    const {material, uniforms} = createBookExteriorMaterial(
+      new Color("#ffffff"),
+      -1,
+      true,
+      true,
+    );
+    uniforms.coverMap.value = group.textures.front;
+    uniforms.backMap.value = group.textures.back;
+    uniforms.backMapEnabled.value = true;
+    uniforms.spineMap.value = group.textures.spine;
+    uniforms.spineMapEnabled.value = true;
+    const vertexCount = group.entries.reduce(
+      (total, entry) =>
+        total +
+        (entry.record.mesh.geometry.getAttribute("position")?.count ?? 0),
+      0,
+    );
+    const indexCount = group.entries.reduce(
+      (total, entry) =>
+        total + (entry.record.mesh.geometry.getIndex()?.count ?? 0),
+      0,
+    );
+    const mesh = new BatchedMesh(
+      group.entries.length,
+      vertexCount,
+      indexCount,
+      material,
+    );
+    mesh.name = "book-atlas-batch";
+    mesh.userData.publicationIds = group.entries.map(({item}) => item.id);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    mesh.frustumCulled = false;
+    // Three's per-object BatchedMesh culling incorrectly drops thin,
+    // spine-facing books at some camera angles. The whole library is only a
+    // few thousand triangles, so drawing every batched book is cheaper than
+    // falling back to hundreds of standalone meshes.
+    mesh.perObjectFrustumCulled = false;
+    mesh.sortObjects = false;
+    const batch = {material, mesh};
+    for (const {item, record} of group.entries) {
+      const shelfAtlas = item.shelfAtlas;
+      if (!shelfAtlas) continue;
+      const geometry = remapBookGeometryToAtlas(
+        record.mesh.geometry,
+        group.coverAtlas,
+        group.spineAtlas,
+        shelfAtlas.cellIndex,
+        item.aspectRatio,
+        item.thicknessMm,
+      );
+      // Per-instance accent and spine direction, consumed by the merged
+      // book shader in place of uniforms.
+      const positionCount = geometry.getAttribute("position")?.count ?? 0;
+      const accent = new Color(item.accent);
+      const accentArray = new Float32Array(positionCount * 3);
+      for (let index = 0; index < positionCount; index += 1) {
+        accentArray[index * 3] = accent.r;
+        accentArray[index * 3 + 1] = accent.g;
+        accentArray[index * 3 + 2] = accent.b;
+      }
+      geometry.setAttribute("bookAccent", new BufferAttribute(accentArray, 3));
+      const sign = item.direction === "LTR" ? -1 : 1;
+      const signArray = new Float32Array(positionCount).fill(sign);
+      geometry.setAttribute("bookSpineSign", new BufferAttribute(signArray, 1));
+      const geometryId = mesh.addGeometry(geometry);
+      geometry.dispose();
+      const instanceId = mesh.addInstance(geometryId);
+      record.mesh.updateMatrix();
+      mesh.setMatrixAt(instanceId, record.mesh.matrix);
+      record.atlasPlacement = {
+        batch,
+        instanceId,
+        lastMatrix: record.mesh.matrix.clone(),
+        visible: true,
+        detached: false,
+      };
+    }
+    return batch;
+  }
+
+  async initializeBookAtlasBatches(
+    items: readonly CatalogItem[],
+    revision: number,
+  ) {
+    const atlases = this.#host.catalogAtlases();
+    const atlasIndexes = [
+      ...new Set(
+        items.flatMap((item) =>
+          item.shelfAtlas === undefined ? [] : [item.shelfAtlas.index],
+        ),
+      ),
+    ];
+    const atlasResources = await this.#loadBookAtlasResources(
+      atlases,
+      atlasIndexes,
+    );
+    if (!atlasResources) return;
+    if (this.#host.isDisposed() || revision !== this.#revision) {
+      for (const resource of atlasResources.values())
+        for (const texture of Object.values(resource.textures))
+          texture.dispose();
+      return;
+    }
+
+    const groups = this.#collectBookAtlasGroups(items, atlasResources);
 
     const builtIndexes = new Set<number>();
     for (const [key, group] of groups) {
@@ -237,91 +326,8 @@ export class BookTextureRuntime {
       // seconds. Yield so each atlas trio lands in its own frame instead.
       if (this.#host.isDisposed() || revision !== this.#revision) break;
       await this.#host.nextFrame();
-      const {material, uniforms} = createBookExteriorMaterial(
-        new Color("#ffffff"),
-        -1,
-        true,
-        true,
-      );
-      uniforms.coverMap.value = group.textures.front;
-      uniforms.backMap.value = group.textures.back;
-      uniforms.backMapEnabled.value = true;
-      uniforms.spineMap.value = group.textures.spine;
-      uniforms.spineMapEnabled.value = true;
-      const vertexCount = group.entries.reduce(
-        (total, entry) =>
-          total +
-          (entry.record.mesh.geometry.getAttribute("position")?.count ?? 0),
-        0,
-      );
-      const indexCount = group.entries.reduce(
-        (total, entry) =>
-          total + (entry.record.mesh.geometry.getIndex()?.count ?? 0),
-        0,
-      );
-      const mesh = new BatchedMesh(
-        group.entries.length,
-        vertexCount,
-        indexCount,
-        material,
-      );
-      mesh.name = "book-atlas-batch";
-      mesh.userData.publicationIds = group.entries.map(({item}) => item.id);
-      mesh.castShadow = true;
-      mesh.receiveShadow = true;
-      mesh.frustumCulled = false;
-      // Three's per-object BatchedMesh culling incorrectly drops thin,
-      // spine-facing books at some camera angles. The whole library is only a
-      // few thousand triangles, so drawing every batched book is cheaper than
-      // falling back to hundreds of standalone meshes.
-      mesh.perObjectFrustumCulled = false;
-      mesh.sortObjects = false;
-      const batch = {material, mesh};
-      for (const {item, record} of group.entries) {
-        const shelfAtlas = item.shelfAtlas;
-        if (!shelfAtlas) continue;
-        const geometry = remapBookGeometryToAtlas(
-          record.mesh.geometry,
-          group.coverAtlas,
-          group.spineAtlas,
-          shelfAtlas.cellIndex,
-          item.aspectRatio,
-          item.thicknessMm,
-        );
-        // Per-instance accent and spine direction, consumed by the merged
-        // book shader in place of uniforms.
-        const positionCount = geometry.getAttribute("position")?.count ?? 0;
-        const accent = new Color(item.accent);
-        const accentArray = new Float32Array(positionCount * 3);
-        for (let index = 0; index < positionCount; index += 1) {
-          accentArray[index * 3] = accent.r;
-          accentArray[index * 3 + 1] = accent.g;
-          accentArray[index * 3 + 2] = accent.b;
-        }
-        geometry.setAttribute(
-          "bookAccent",
-          new BufferAttribute(accentArray, 3),
-        );
-        const sign = item.direction === "LTR" ? -1 : 1;
-        const signArray = new Float32Array(positionCount).fill(sign);
-        geometry.setAttribute(
-          "bookSpineSign",
-          new BufferAttribute(signArray, 1),
-        );
-        const geometryId = mesh.addGeometry(geometry);
-        geometry.dispose();
-        const instanceId = mesh.addInstance(geometryId);
-        record.mesh.updateMatrix();
-        mesh.setMatrixAt(instanceId, record.mesh.matrix);
-        record.atlasPlacement = {
-          batch,
-          instanceId,
-          lastMatrix: record.mesh.matrix.clone(),
-          visible: true,
-          detached: false,
-        };
-      }
-      this.#host.scene.add(mesh);
+      const batch = this.#buildBookAtlasBatch(group);
+      this.#host.scene.add(batch.mesh);
       this.#batches.push(batch);
       builtIndexes.add(Number(key));
     }

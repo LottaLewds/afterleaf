@@ -202,6 +202,86 @@ export const batchStaticInteriorMeshes = (parent: Group) => {
     return buckets;
   };
 
+  const addMeshToBucket = (
+    object: Object3D,
+    effectiveContainer: Object3D,
+    excludedFromBatch: boolean,
+  ) => {
+    if (
+      excludedFromBatch ||
+      !(object instanceof Mesh) ||
+      object instanceof BatchedMesh ||
+      INTERIOR_BATCH_HARD.test(object.name)
+    )
+      return;
+    const material = object.material;
+    if (
+      Array.isArray(material) ||
+      material.transparent ||
+      // colorWrite/depthWrite-off meshes are raycast-only overlays
+      // (poster surfaces); sweeping them into a batch would either paint
+      // the shared finish material over walls or blank out a whole
+      // bucket, and hiding them breaks placement raycasts.
+      !material.colorWrite ||
+      !material.depthWrite ||
+      !object.geometry.getAttribute("position")
+    )
+      return;
+    const indexed = object.geometry.getIndex() ? "indexed" : "unindexed";
+    let signature: string;
+    let bucketMaterial = material;
+    if (isBakeableColorMaterial(material)) {
+      const attributesKey = Object.keys(object.geometry.attributes)
+        .sort()
+        .join("+");
+      // MeshBasicMaterial has no flatShading; the `in` guard keeps
+      // the finish key honest for both material classes.
+      const flatShading = "flatShading" in material && material.flatShading;
+      signature = [
+        "finish",
+        material.type,
+        String(material.side),
+        String(flatShading),
+        ...(material instanceof MeshStandardMaterial
+          ? [String(material.roughness), String(material.metalness)]
+          : []),
+        attributesKey,
+        indexed,
+      ].join("|");
+      bucketMaterial = finishMaterialFor(signature, material);
+      // Bake once per mesh; clones keep shared source geometries
+      // untouched when siblings carry different tints.
+      const baked = object.geometry.clone();
+      const vertexCount = baked.getAttribute("position").count;
+      const colors = new Float32Array(vertexCount * 3);
+      const {b, g, r} = material.color;
+      for (let index = 0; index < vertexCount; index += 1) {
+        colors[index * 3] = r;
+        colors[index * 3 + 1] = g;
+        colors[index * 3 + 2] = b;
+      }
+      baked.setAttribute("color", new BufferAttribute(colors, 3));
+      object.geometry = baked;
+    } else {
+      // Flags deliberately excluded: per-row renderOrder/shadow flags
+      // would otherwise split identical fixtures into singleton buckets.
+      // Opaque draws are depth-sorted by the GPU regardless.
+      signature = [interiorMaterialSignature(bucketMaterial), indexed].join(
+        ":",
+      );
+    }
+    const buckets = bucketFor(effectiveContainer);
+    let bucket = buckets.get(signature);
+    if (!bucket) {
+      // The batch renders with the bucket material - the shared
+      // finish material for baked buckets, otherwise the first
+      // member's own material.
+      bucket = {material: bucketMaterial, meshes: []};
+      buckets.set(signature, bucket);
+    }
+    bucket.meshes.push(object);
+  };
+
   const visit = (
     object: Object3D,
     scopeContainer: Object3D | null,
@@ -219,79 +299,7 @@ export const batchStaticInteriorMeshes = (parent: Group) => {
     const effectiveContainer =
       scope === null ? parent : container === parent ? parent : container;
 
-    if (
-      !nextExcludedFromBatch &&
-      object instanceof Mesh &&
-      !(object instanceof BatchedMesh) &&
-      !INTERIOR_BATCH_HARD.test(object.name)
-    ) {
-      const material = object.material;
-      if (
-        !Array.isArray(material) &&
-        !material.transparent &&
-        // colorWrite/depthWrite-off meshes are raycast-only overlays
-        // (poster surfaces); sweeping them into a batch would either paint
-        // the shared finish material over walls or blank out a whole
-        // bucket, and hiding them breaks placement raycasts.
-        material.colorWrite &&
-        material.depthWrite &&
-        object.geometry.getAttribute("position")
-      ) {
-        const indexed = object.geometry.getIndex() ? "indexed" : "unindexed";
-        let signature: string;
-        let bucketMaterial = material;
-        if (isBakeableColorMaterial(material)) {
-          const attributesKey = Object.keys(object.geometry.attributes)
-            .sort()
-            .join("+");
-          // MeshBasicMaterial has no flatShading; the `in` guard keeps
-          // the finish key honest for both material classes.
-          const flatShading = "flatShading" in material && material.flatShading;
-          signature = [
-            "finish",
-            material.type,
-            String(material.side),
-            String(flatShading),
-            ...(material instanceof MeshStandardMaterial
-              ? [String(material.roughness), String(material.metalness)]
-              : []),
-            attributesKey,
-            indexed,
-          ].join("|");
-          bucketMaterial = finishMaterialFor(signature, material);
-          // Bake once per mesh; clones keep shared source geometries
-          // untouched when siblings carry different tints.
-          const baked = object.geometry.clone();
-          const vertexCount = baked.getAttribute("position").count;
-          const colors = new Float32Array(vertexCount * 3);
-          const {b, g, r} = material.color;
-          for (let index = 0; index < vertexCount; index += 1) {
-            colors[index * 3] = r;
-            colors[index * 3 + 1] = g;
-            colors[index * 3 + 2] = b;
-          }
-          baked.setAttribute("color", new BufferAttribute(colors, 3));
-          object.geometry = baked;
-        } else {
-          // Flags deliberately excluded: per-row renderOrder/shadow flags
-          // would otherwise split identical fixtures into singleton buckets.
-          // Opaque draws are depth-sorted by the GPU regardless.
-          signature = [interiorMaterialSignature(bucketMaterial), indexed].join(
-            ":",
-          );
-        }
-        const buckets = bucketFor(effectiveContainer);
-        let bucket = buckets.get(signature);
-        if (!bucket) {
-          // The batch renders with the bucket material - the shared
-          // finish material for baked buckets, otherwise the first
-          // member's own material.
-          bucket = {material: bucketMaterial, meshes: []};
-          buckets.set(signature, bucket);
-        }
-        bucket.meshes.push(object);
-      }
-    }
+    addMeshToBucket(object, effectiveContainer, nextExcludedFromBatch);
 
     for (const child of object.children)
       visit(

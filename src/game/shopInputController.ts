@@ -672,83 +672,91 @@ export class ShopInputController {
     return false;
   }
 
+  #placementBlocked() {
+    return (
+      this.#host.artFrames().placement ||
+      this.#host.posters().placement ||
+      this.#host.carriedPublicationId() !== undefined ||
+      this.#host.props().carriedProp !== undefined
+    );
+  }
+
+  #toggleModelPlacement() {
+    if (this.#host.televisionTargeted()) return false;
+    if (this.#host.props().modelPlacement) {
+      this.#host.props().cancelModelPlacement();
+      return true;
+    }
+    if (!this.#placementBlocked())
+      void this.#host
+        .props()
+        .startModelPlacement(this.#host.props().spawnablePropAssetIndex);
+    return true;
+  }
+
+  #toggleArtFramePlacement() {
+    if (this.#host.artFrames().placement) {
+      this.#host.artFrames().cancelDigitalArtFramePlacement();
+      return true;
+    }
+    if (!this.#placementBlocked()) {
+      if (this.#host.artFrames().assets.length > 0)
+        this.#host
+          .artFrames()
+          .startDigitalArtFramePlacement(this.#host.artFrames().assetIndex);
+      else this.#host.artFrames().startEmptyDigitalArtFramePlacement();
+    }
+    return true;
+  }
+
+  #openChannelEditor() {
+    const onMediaChannelCreateRequest = this.#host.onMediaChannelCreateRequest;
+    if (
+      !(
+        this.#host.artFrames().placement ||
+        this.#host.artFrames().targetedId ||
+        this.#host.televisionTargeted()
+      ) ||
+      !onMediaChannelCreateRequest
+    )
+      return false;
+    const kind = this.#host.televisionTargeted() ? "tv" : "art-frame";
+    this.#host.setChannelEditorTelevision(
+      kind === "tv" ? this.#host.targetedTelevision() : undefined,
+    );
+    this.#host.setChannelEditorDigitalArtFrameId(
+      kind === "art-frame" ? this.#host.artFrames().targetedId : undefined,
+    );
+    this.releasePointerLock();
+    onMediaChannelCreateRequest(kind);
+    return true;
+  }
+
+  #togglePosterPlacement() {
+    if (this.#host.posters().placement) {
+      this.#host.posters().cancelPosterPlacement();
+      return true;
+    }
+    if (!this.#placementBlocked()) {
+      if (this.#host.posters().assets.length > 0)
+        void this.#host
+          .posters()
+          .startPosterPlacement(this.#host.posters().assetIndex);
+      else this.#host.posters().startEmptyPosterPlacement();
+    }
+    return true;
+  }
+
   #handlePlacementToggleAction(action: ShortcutAction): boolean {
     switch (action) {
       case "toggleModelPlacement":
-        if (this.#host.televisionTargeted()) return false;
-        if (this.#host.props().modelPlacement) {
-          this.#host.props().cancelModelPlacement();
-          return true;
-        }
-        if (
-          !this.#host.artFrames().placement &&
-          !this.#host.posters().placement &&
-          !this.#host.carriedPublicationId() &&
-          !this.#host.props().carriedProp
-        )
-          void this.#host
-            .props()
-            .startModelPlacement(this.#host.props().spawnablePropAssetIndex);
-        return true;
+        return this.#toggleModelPlacement();
       case "toggleArtFramePlacement":
-        if (this.#host.artFrames().placement) {
-          this.#host.artFrames().cancelDigitalArtFramePlacement();
-          return true;
-        }
-        if (
-          !this.#host.posters().placement &&
-          !this.#host.props().modelPlacement &&
-          !this.#host.carriedPublicationId() &&
-          !this.#host.props().carriedProp
-        ) {
-          if (this.#host.artFrames().assets.length > 0)
-            this.#host
-              .artFrames()
-              .startDigitalArtFramePlacement(this.#host.artFrames().assetIndex);
-          else this.#host.artFrames().startEmptyDigitalArtFramePlacement();
-        }
-        return true;
-      case "channelEditorOpen": {
-        const onMediaChannelCreateRequest =
-          this.#host.onMediaChannelCreateRequest;
-        if (
-          !(
-            this.#host.artFrames().placement ||
-            this.#host.artFrames().targetedId ||
-            this.#host.televisionTargeted()
-          ) ||
-          !onMediaChannelCreateRequest
-        )
-          return false;
-        const kind = this.#host.televisionTargeted() ? "tv" : "art-frame";
-        this.#host.setChannelEditorTelevision(
-          kind === "tv" ? this.#host.targetedTelevision() : undefined,
-        );
-        this.#host.setChannelEditorDigitalArtFrameId(
-          kind === "art-frame" ? this.#host.artFrames().targetedId : undefined,
-        );
-        this.releasePointerLock();
-        onMediaChannelCreateRequest(kind);
-        return true;
-      }
+        return this.#toggleArtFramePlacement();
+      case "channelEditorOpen":
+        return this.#openChannelEditor();
       case "togglePosterPlacement":
-        if (this.#host.posters().placement) {
-          this.#host.posters().cancelPosterPlacement();
-          return true;
-        }
-        if (
-          !this.#host.artFrames().placement &&
-          !this.#host.props().modelPlacement &&
-          !this.#host.carriedPublicationId() &&
-          !this.#host.props().carriedProp
-        ) {
-          if (this.#host.posters().assets.length > 0)
-            void this.#host
-              .posters()
-              .startPosterPlacement(this.#host.posters().assetIndex);
-          else this.#host.posters().startEmptyPosterPlacement();
-        }
-        return true;
+        return this.#togglePosterPlacement();
       default:
         return false;
     }

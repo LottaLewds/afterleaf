@@ -19,11 +19,17 @@ const LEGACY_TV_CAVE_BOUNDS = Object.freeze({
 export const migrateLegacyPropSaves = (
   savedProps: readonly WorldPropSave[],
 ) => {
-  const currentProps = savedProps.filter(
-    (savedProp) => !savedProp.id.startsWith("tv-cave-"),
-  );
+  const currentProps: WorldPropSave[] = [];
+  let migrated = false;
+  for (const savedProp of savedProps) {
+    if (savedProp.id.startsWith("tv-cave-")) {
+      migrated = true;
+      continue;
+    }
+    currentProps.push(savedProp);
+  }
   return {
-    migrated: currentProps.length !== savedProps.length,
+    migrated,
     savedProps: currentProps,
   };
 };

@@ -121,6 +121,156 @@ export type RetainedBookGameplay = Pick<
   baseRotation: Vector3;
 };
 
+type BookRecordSetup = Pick<
+  BookRecord,
+  | "exteriorMaterial"
+  | "exteriorUniforms"
+  | "inspectionBackCover"
+  | "inspectionBackCoverMaterial"
+  | "inspectionFrontCover"
+  | "inspectionFrontCoverMaterial"
+  | "inspectionGroup"
+  | "inspectionLeftAssembly"
+  | "inspectionLeftBlock"
+  | "inspectionLeftMaterial"
+  | "inspectionLeftPage"
+  | "inspectionPaperMaterial"
+  | "inspectionRightAssembly"
+  | "inspectionRightBlock"
+  | "inspectionRightMaterial"
+  | "inspectionRightPage"
+  | "inspectionTurningBackMaterial"
+  | "inspectionTurningFrontMaterial"
+  | "inspectionTurningPage"
+  | "inspectionTurningPositions"
+  | "inspectionTurningTargets"
+  | "inspectionTurningUvs"
+  | "hoverTarget"
+  | "mesh"
+> & {
+  initialTaskBook: boolean;
+  inspectionPaperSimulation: PaperSheetSimulation;
+  item: CatalogItem;
+  retainedGameplay: RetainedBookGameplay | undefined;
+  signature: string;
+  slotIndex: number;
+  spineNormalSign: -1 | 1;
+  thickness: number;
+  width: number;
+};
+
+const createBookRecord = ({
+  exteriorMaterial,
+  exteriorUniforms,
+  hoverTarget,
+  initialTaskBook,
+  inspectionBackCover,
+  inspectionBackCoverMaterial,
+  inspectionFrontCover,
+  inspectionFrontCoverMaterial,
+  inspectionGroup,
+  inspectionLeftAssembly,
+  inspectionLeftBlock,
+  inspectionLeftMaterial,
+  inspectionLeftPage,
+  inspectionPaperMaterial,
+  inspectionPaperSimulation,
+  inspectionRightAssembly,
+  inspectionRightBlock,
+  inspectionRightMaterial,
+  inspectionRightPage,
+  inspectionTurningBackMaterial,
+  inspectionTurningFrontMaterial,
+  inspectionTurningPage,
+  inspectionTurningPositions,
+  inspectionTurningTargets,
+  inspectionTurningUvs,
+  item,
+  mesh,
+  retainedGameplay,
+  signature,
+  slotIndex,
+  spineNormalSign,
+  thickness,
+  width,
+}: BookRecordSetup): BookRecord => ({
+  atlasPlacement: undefined,
+  backTexture: undefined,
+  backTextureReady: item.back === undefined,
+  backTextureUrl: item.back,
+  basePosition: new Vector3(),
+  baseRotation: new Vector3(),
+  coverTextureUrl: item.cover,
+  coverTextureReady: false,
+  detailCoverUrl: item.detailCover,
+  detailTexture: undefined,
+  detailTextureLoading: false,
+  detailTextureReady: false,
+  exteriorMaterial,
+  exteriorUniforms,
+  inspectionBackCover,
+  inspectionBackCoverMaterial,
+  inspectionFrontCover,
+  inspectionFrontCoverMaterial,
+  inspectionGroup,
+  inspectionLightingBlend: 0,
+  inspectionLeftAssembly,
+  inspectionLeftBlock,
+  inspectionLeftMaterial,
+  inspectionLeftPage,
+  inspectionPaperMaterial,
+  inspectionPaperSimulation,
+  inspectionRightAssembly,
+  inspectionRightBlock,
+  inspectionRightMaterial,
+  inspectionRightPage,
+  inspectionTurningBackMaterial,
+  inspectionTurningFrontMaterial,
+  inspectionTurningPage,
+  inspectionTurningPositions,
+  inspectionTurningTargets,
+  inspectionTurningUvs,
+  hoverTarget,
+  mesh,
+  physicsRegistered: false,
+  publicationAccent: item.accent,
+  publicationLanguage: item.language,
+  publicationTitle: item.title,
+  sceneEmissive: new Color(),
+  sceneEmissiveIntensity: 0.2,
+  shelfPosition: new Vector3(),
+  shelfOffset:
+    retainedGameplay?.shelfOffset ??
+    (initialTaskBook ? 0 : faceDisplayShelfOffset(slotIndex)),
+  shelfPresentation:
+    retainedGameplay?.shelfPresentation ?? (initialTaskBook ? "spine" : "face"),
+  signature,
+  slotIndex: retainedGameplay?.slotIndex ?? slotIndex,
+  spineNormalSign,
+  spineTexture: undefined,
+  spineTextureReady: false,
+  spineTextureUrl: item.spine,
+  standaloneTexturesReady: false,
+  state:
+    retainedGameplay?.state ??
+    (initialTaskBook
+      ? {status: "floor"}
+      : {
+          shelfId: faceDisplayShelfId(
+            Math.floor(slotIndex / FACE_DISPLAY_COLUMNS) % FACE_DISPLAY_ROWS,
+          ),
+          slotIndex: slotIndex % FACE_DISPLAY_COLUMNS,
+          status: "shelved",
+        }),
+  taskBook: retainedGameplay?.taskBook ?? initialTaskBook,
+  shelfPreview: 0,
+  targetLift: 0,
+  targetScale: 1,
+  thickness,
+  texture: undefined,
+  width,
+});
+
 export const createBook = (
   item: CatalogItem,
   signature: string,
@@ -319,27 +469,16 @@ export const createBook = (
   );
   mesh.add(inspectionGroup);
 
-  const record: BookRecord = {
-    atlasPlacement: undefined,
-    backTexture: undefined,
-    backTextureReady: item.back === undefined,
-    backTextureUrl: item.back,
-    basePosition: new Vector3(),
-    baseRotation: new Vector3(),
-    coverTextureUrl: item.cover,
-    coverTextureReady: false,
-    detailCoverUrl: item.detailCover,
-    detailTexture: undefined,
-    detailTextureLoading: false,
-    detailTextureReady: false,
+  const record = createBookRecord({
     exteriorMaterial,
     exteriorUniforms,
+    hoverTarget,
+    initialTaskBook,
     inspectionBackCover,
     inspectionBackCoverMaterial,
     inspectionFrontCover,
     inspectionFrontCoverMaterial,
     inspectionGroup,
-    inspectionLightingBlend: 0,
     inspectionLeftAssembly,
     inspectionLeftBlock,
     inspectionLeftMaterial,
@@ -362,47 +501,15 @@ export const createBook = (
     inspectionTurningPositions,
     inspectionTurningTargets,
     inspectionTurningUvs,
-    hoverTarget,
+    item,
     mesh,
-    physicsRegistered: false,
-    publicationAccent: item.accent,
-    publicationLanguage: item.language,
-    publicationTitle: item.title,
-    sceneEmissive: new Color(),
-    sceneEmissiveIntensity: 0.2,
-    shelfPosition: new Vector3(),
-    shelfOffset:
-      retainedGameplay?.shelfOffset ??
-      (initialTaskBook ? 0 : faceDisplayShelfOffset(slotIndex)),
-    shelfPresentation:
-      retainedGameplay?.shelfPresentation ??
-      (initialTaskBook ? "spine" : "face"),
+    retainedGameplay,
     signature,
-    slotIndex: retainedGameplay?.slotIndex ?? slotIndex,
+    slotIndex,
     spineNormalSign,
-    spineTexture: undefined,
-    spineTextureReady: false,
-    spineTextureUrl: item.spine,
-    standaloneTexturesReady: false,
-    state:
-      retainedGameplay?.state ??
-      (initialTaskBook
-        ? {status: "floor"}
-        : {
-            shelfId: faceDisplayShelfId(
-              Math.floor(slotIndex / FACE_DISPLAY_COLUMNS) % FACE_DISPLAY_ROWS,
-            ),
-            slotIndex: slotIndex % FACE_DISPLAY_COLUMNS,
-            status: "shelved",
-          }),
-    taskBook: retainedGameplay?.taskBook ?? initialTaskBook,
-    shelfPreview: 0,
-    targetLift: 0,
-    targetScale: 1,
     thickness,
-    texture: undefined,
     width,
-  };
+  });
   if (retainedGameplay) {
     record.basePosition.copy(retainedGameplay.basePosition);
     record.baseRotation.copy(retainedGameplay.baseRotation);

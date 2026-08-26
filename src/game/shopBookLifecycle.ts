@@ -119,6 +119,85 @@ export class ShopBookLifecycle {
     } else record.state = {status: savedBook.state};
   }
 
+  #syncBookItem(
+    item: CatalogItem,
+    index: number,
+    savedBooks: Map<string, WorldBookSave> | undefined,
+    arrivalIds: ReadonlySet<string>,
+    retainedIds: Set<string>,
+  ) {
+    if (retainedIds.has(item.id)) return;
+    retainedIds.add(item.id);
+    const signature = this.#host.bookSignature(item);
+    let record = this.#host.booksById().get(item.id);
+    let recordCreated = false;
+    if (record?.signature !== signature) {
+      const retainedGameplay: RetainedBookGameplay | undefined = record
+        ? {
+            basePosition: record.basePosition.clone(),
+            baseRotation: record.baseRotation.clone(),
+            shelfOffset: record.shelfOffset,
+            shelfPresentation: record.shelfPresentation,
+            slotIndex: record.slotIndex,
+            state: record.state,
+            taskBook: record.taskBook,
+          }
+        : undefined;
+      const initialSlotIndex = retainedGameplay?.slotIndex ?? index;
+      if (record) {
+        this.#host.physicsWorld().removeBook(item.id);
+        this.disposeBookRecord(record);
+      }
+      record = createBook(
+        item,
+        signature,
+        initialSlotIndex,
+        true,
+        retainedGameplay,
+        this.#placeBookOnFloor.bind(this) as (
+          record: BookRecord,
+          floorIndex: number,
+          seedValue: string,
+        ) => void,
+      );
+      this.#host.booksById().set(item.id, record);
+      recordCreated = true;
+    }
+
+    const restoredFromSave = arrivalIds.has(item.id)
+      ? undefined
+      : savedBooks?.get(item.id);
+    if (restoredFromSave) this.applySavedBook(record, restoredFromSave);
+    else if (recordCreated && arrivalIds.has(item.id))
+      this.#placeNewArrivalAboveFloor(record, item.id);
+    if (!record.taskBook) record.slotIndex = index;
+    this.setShelfPosition(record);
+    if (record.state.status === "shelved" && !restoredFromSave) {
+      record.basePosition.copy(record.shelfPosition);
+      this.setShelfRotation(record, item.id);
+    }
+    if (record.state.status === "carried") {
+      this.#host.bookTextures().promoteBookCoverTexture(item.id, record);
+      if (this.#host.physicsWorld().isReady)
+        this.#host.scene().add(record.mesh);
+      else {
+        this.#host.camera().add(record.mesh);
+        record.mesh.position.copy(this.#host.heldLocalPosition());
+        record.mesh.quaternion.copy(this.#host.heldLocalRotation());
+      }
+    } else if (record.mesh.parent === null) {
+      record.mesh.position.copy(record.basePosition);
+      record.mesh.rotation.set(
+        record.baseRotation.x,
+        record.baseRotation.y,
+        record.baseRotation.z,
+        "XYZ",
+      );
+      this.#host.scene().add(record.mesh);
+    }
+    this.#syncBookPhysics(item.id, record);
+  }
+
   syncBooks(
     items: readonly CatalogItem[],
     newPublicationIds: readonly string[] = this.#host.newPublicationIds(),
@@ -146,78 +225,8 @@ export class ShopBookLifecycle {
     const displayItems = items.filter(
       (item) => !this.#host.bookActions().discardedPublicationIds.has(item.id),
     );
-    for (const [index, item] of displayItems.entries()) {
-      if (retainedIds.has(item.id)) continue;
-      retainedIds.add(item.id);
-      const signature = this.#host.bookSignature(item);
-      let record = this.#host.booksById().get(item.id);
-      let recordCreated = false;
-      if (record?.signature !== signature) {
-        const retainedGameplay: RetainedBookGameplay | undefined = record
-          ? {
-              basePosition: record.basePosition.clone(),
-              baseRotation: record.baseRotation.clone(),
-              shelfOffset: record.shelfOffset,
-              shelfPresentation: record.shelfPresentation,
-              slotIndex: record.slotIndex,
-              state: record.state,
-              taskBook: record.taskBook,
-            }
-          : undefined;
-        const initialSlotIndex = retainedGameplay?.slotIndex ?? index;
-        if (record) {
-          this.#host.physicsWorld().removeBook(item.id);
-          this.disposeBookRecord(record);
-        }
-        record = createBook(
-          item,
-          signature,
-          initialSlotIndex,
-          true,
-          retainedGameplay,
-          this.#placeBookOnFloor.bind(this) as (
-            record: BookRecord,
-            floorIndex: number,
-            seedValue: string,
-          ) => void,
-        );
-        this.#host.booksById().set(item.id, record);
-        recordCreated = true;
-      }
-
-      const restoredFromSave = arrivalIds.has(item.id)
-        ? undefined
-        : savedBooks?.get(item.id);
-      if (restoredFromSave) this.applySavedBook(record, restoredFromSave);
-      else if (recordCreated && arrivalIds.has(item.id))
-        this.#placeNewArrivalAboveFloor(record, item.id);
-      if (!record.taskBook) record.slotIndex = index;
-      this.setShelfPosition(record);
-      if (record.state.status === "shelved" && !restoredFromSave) {
-        record.basePosition.copy(record.shelfPosition);
-        this.setShelfRotation(record, item.id);
-      }
-      if (record.state.status === "carried") {
-        this.#host.bookTextures().promoteBookCoverTexture(item.id, record);
-        if (this.#host.physicsWorld().isReady)
-          this.#host.scene().add(record.mesh);
-        else {
-          this.#host.camera().add(record.mesh);
-          record.mesh.position.copy(this.#host.heldLocalPosition());
-          record.mesh.quaternion.copy(this.#host.heldLocalRotation());
-        }
-      } else if (record.mesh.parent === null) {
-        record.mesh.position.copy(record.basePosition);
-        record.mesh.rotation.set(
-          record.baseRotation.x,
-          record.baseRotation.y,
-          record.baseRotation.z,
-          "XYZ",
-        );
-        this.#host.scene().add(record.mesh);
-      }
-      this.#syncBookPhysics(item.id, record);
-    }
+    for (const [index, item] of displayItems.entries())
+      this.#syncBookItem(item, index, savedBooks, arrivalIds, retainedIds);
 
     for (const [publicationId, record] of this.#host.booksById()) {
       if (retainedIds.has(publicationId)) continue;

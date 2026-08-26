@@ -335,63 +335,38 @@ export class ShopBookPresentation {
     }
   }
 
-  #animateInspectedBook(record: BookRecord, deltaSeconds: number) {
+  #writeInspectionTransitionTarget(returningToHand: boolean) {
     const host = this.#host;
-    const returningToHand = host.inspection().inspectionMode === "closing";
-    const returningToShelf =
-      returningToHand && record.state.status === "shelved";
-    if (returningToShelf) {
-      host.inspection().animateInspectionShelfReturn(record, deltaSeconds);
-      return;
-    }
-    if (
-      !returningToHand &&
-      record.state.status === "shelved" &&
-      host.inspection().inspectionShelfFocusPending
-    ) {
-      if (!this.#animateShelfPreview(record, true, deltaSeconds)) return;
-      host.inspection().inspectionShelfFocusPending = false;
-      return;
-    }
-    if (returningToHand) {
-      const publicationId = host.inspection().inspectionPublicationId;
-      if (
-        host.inspection().inspectionPhysicsReturnActive ||
-        (publicationId &&
-          host.inspection().beginInspectionPhysicsReturn(record, publicationId))
-      ) {
-        host.inspection().animateInspectionPhysicsReturn(record, deltaSeconds);
-        return;
-      }
-    }
     if (!returningToHand) host.inspection().updateInspectionLocalTarget();
-    let targetPosition = host.inspection().inspectionLocalPosition;
-    let targetRotation = host.inspection().inspectionLocalRotation;
-    if (returningToHand) {
-      const publicationId = host.inspection().inspectionPublicationId;
-      const carriedIndex = publicationId
-        ? host.carriedPublicationIds().indexOf(publicationId)
-        : -1;
-      if (carriedIndex >= 0) {
-        this.writeHeldBookLocalPosition(
-          carriedIndex,
-          host.inspection().inspectionLocalPosition,
-        );
-        this.writeHeldBookLocalRotation(
-          carriedIndex,
-          host.inspection().inspectionLocalRotation,
-        );
-      } else {
-        host
-          .inspection()
-          .inspectionLocalPosition.copy(host.heldLocalPosition());
-        host
-          .inspection()
-          .inspectionLocalRotation.copy(host.heldLocalRotation());
-      }
-      targetPosition = host.inspection().inspectionLocalPosition;
-      targetRotation = host.inspection().inspectionLocalRotation;
+    if (!returningToHand) return;
+    const publicationId = host.inspection().inspectionPublicationId;
+    const carriedIndex = publicationId
+      ? host.carriedPublicationIds().indexOf(publicationId)
+      : -1;
+    if (carriedIndex >= 0) {
+      this.writeHeldBookLocalPosition(
+        carriedIndex,
+        host.inspection().inspectionLocalPosition,
+      );
+      this.writeHeldBookLocalRotation(
+        carriedIndex,
+        host.inspection().inspectionLocalRotation,
+      );
+      return;
     }
+    host.inspection().inspectionLocalPosition.copy(host.heldLocalPosition());
+    host.inspection().inspectionLocalRotation.copy(host.heldLocalRotation());
+  }
+
+  #animateInspectionMesh(
+    record: BookRecord,
+    deltaSeconds: number,
+    returningToHand: boolean,
+  ) {
+    const host = this.#host;
+    this.#writeInspectionTransitionTarget(returningToHand);
+    const targetPosition = host.inspection().inspectionLocalPosition;
+    const targetRotation = host.inspection().inspectionLocalRotation;
     if (record.mesh.parent !== host.camera()) host.camera().attach(record.mesh);
     record.mesh.position.x = MathUtils.damp(
       record.mesh.position.x,
@@ -443,6 +418,36 @@ export class ShopBookPresentation {
       record.mesh.quaternion.copy(targetRotation);
       host.inspection().finishInspectionClose();
     }
+  }
+
+  #animateInspectedBook(record: BookRecord, deltaSeconds: number) {
+    const host = this.#host;
+    const returningToHand = host.inspection().inspectionMode === "closing";
+    if (returningToHand && record.state.status === "shelved") {
+      host.inspection().animateInspectionShelfReturn(record, deltaSeconds);
+      return;
+    }
+    if (
+      !returningToHand &&
+      record.state.status === "shelved" &&
+      host.inspection().inspectionShelfFocusPending
+    ) {
+      if (!this.#animateShelfPreview(record, true, deltaSeconds)) return;
+      host.inspection().inspectionShelfFocusPending = false;
+      return;
+    }
+    if (returningToHand) {
+      const publicationId = host.inspection().inspectionPublicationId;
+      if (
+        host.inspection().inspectionPhysicsReturnActive ||
+        (publicationId &&
+          host.inspection().beginInspectionPhysicsReturn(record, publicationId))
+      ) {
+        host.inspection().animateInspectionPhysicsReturn(record, deltaSeconds);
+        return;
+      }
+    }
+    this.#animateInspectionMesh(record, deltaSeconds, returningToHand);
   }
 
   #animateShelfPreview(
