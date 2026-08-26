@@ -37,7 +37,7 @@ import {
   INSPECTION_FRAME_FILL,
   INSPECTION_PAGE_GUTTER,
 } from "~/game/bookInspectionTuning";
-import {clampUnit, dotWithPhysicsQuaternion} from "~/game/mathHelpers";
+import {dotWithPhysicsQuaternion} from "~/game/mathHelpers";
 import {BOOK_HEIGHT} from "~/game/bookTuning";
 import {
   ARCADE_CABINET_HEIGHT,
@@ -96,6 +96,7 @@ import {
   ShopBookPresentation,
   type ShopBookPresentationHost,
 } from "~/game/shopBookPresentation";
+import {ShopPlayerMovement} from "~/game/shopPlayerMovement";
 import {ShopWorldPersistence} from "~/game/shopWorldPersistence";
 
 import type {CatalogAtlases, CatalogIdentity, CatalogItem} from "~/catalog";
@@ -106,11 +107,6 @@ import {type UiMode} from "~/game/uiMode";
 
 import {
   DEFAULT_PITCH_LIMIT,
-  getPlanarMovement,
-  resolvePlayerGrounded,
-  resolveShopMovement,
-  type PlanarMovementInput,
-  type PlanarPoint,
   type ShopCollisionWorld,
 } from "~/game/shopGameplay";
 import {
@@ -142,7 +138,6 @@ import {
   SHOP_PHYSICS_PLAYER_EYE_HEIGHT,
   type BookPhysicsPose,
   type MutableBookPhysicsTransform,
-  type MutablePlayerMovement,
 } from "~/game/ShopPhysicsWorld";
 import {
   ShopTelevision,
@@ -169,14 +164,6 @@ import type {PosterAsset} from "~/posters/protocol";
 const SHOP_PLAYER_START_X = 0;
 const SHOP_PLAYER_START_Z = 25;
 const MAX_PIXEL_RATIO = 2;
-const PLAYER_RADIUS = 0.3;
-const WALK_SPEED = 2.65;
-const SPRINT_SPEED = 4.35;
-const PLAYER_GRAVITY = -18;
-const PLAYER_JUMP_SPEED = 6.2;
-const PLAYER_JUMP_BUFFER_MS = 160;
-const PLAYER_JUMP_COYOTE_MS = 160;
-const PLAYER_TERMINAL_VELOCITY = -24;
 const SHOP_MEDIA_CATALOG_REFRESH_INTERVAL_MS = 10_000;
 // Late async prop models (CRT GLBs, cabinets, lamps) usually finish well
 // within this window; the second compile pass sweeps up their programs.
@@ -445,9 +432,6 @@ export class ShopScene {
   readonly #getPadMappingOverrides: () => ArcadePadMappingOverrides;
   readonly #onPauseRequest: (() => void) | undefined;
   readonly #onResumeRequest: (() => void) | undefined;
-  readonly #movementDelta: PlanarPoint = {x: 0, z: 0};
-  readonly #movementInput: PlanarMovementInput = {forward: 0, right: 0};
-  readonly #movementPosition: PlanarPoint = {x: 0, z: 0};
   // Every placed cabinet runs its own session; the "active" one is the
   // cabinet whose UI (picker or game) the player is currently driving.
   readonly #arcadeCabinets: ShopArcadeCabinet[] = [];
@@ -485,14 +469,6 @@ export class ShopScene {
     position: new Vector3(),
     rotation: new Quaternion(),
   };
-  readonly #playerDesiredDisplacement = new Vector3();
-  readonly #playerMovement: MutablePlayerMovement = {
-    ceilingHit: false,
-    collisionCount: 0,
-    correctedDisplacement: new Vector3(),
-    eyePosition: new Vector3(),
-    grounded: false,
-  };
   readonly #physicsWorld = new ShopPhysicsWorld();
   readonly #playerVelocity = new Vector3();
   readonly #posterRaycastMeshes: Mesh[] = [];
@@ -520,6 +496,7 @@ export class ShopScene {
   readonly #bookActions: BookCarryActions;
   readonly #bookLifecycle: ShopBookLifecycle;
   readonly #bookPresentation: ShopBookPresentation;
+  readonly #playerMovementController: ShopPlayerMovement;
   readonly #worldPersistence: ShopWorldPersistence;
   readonly #scanner: InteractionScanner;
   readonly #props: MovablePropLifecycle;
@@ -537,9 +514,6 @@ export class ShopScene {
   #moonEnvironment: Texture | undefined;
   #onReady: (() => void) | undefined;
   #inputSuspended = false;
-  #lastPlayerGroundedAt = Number.NEGATIVE_INFINITY;
-  #playerGrounded = false;
-  #playerVerticalVelocity = 0;
   #mediaCatalogRefreshHandle: number | undefined;
   #lateShaderPrecompileHandle: number | undefined;
   #mediaCatalogRequestPending = false;
@@ -962,6 +936,16 @@ export class ShopScene {
           rotation: pose.rotation,
         }),
     });
+    this.#playerMovementController = new ShopPlayerMovement({
+      camera: () => this.#camera,
+      collisionWorld: SHOP_COLLISION_WORLD,
+      input: () => this.#input,
+      inputState: () => this.#inputController.state,
+      inspectionSpread: () => this.#inspection.inspectionMode === "spread",
+      markWorldStateDirty: () => this.#worldPersistence.markDirty(),
+      physicsWorld: () => this.#physicsWorld,
+      playerVelocity: () => this.#playerVelocity,
+    });
 
     if (DEV)
       (window as ShopPerformanceDebugWindow).__AFTERLEAF_PERFORMANCE_DEBUG__ = {
@@ -1176,11 +1160,7 @@ export class ShopScene {
       SHOP_PLAYER_START_Z,
     );
     this.#physicsWorld.resetPlayer(this.#camera.position);
-    this.#playerVelocity.set(0, 0, 0);
-    this.#playerGrounded = false;
-    this.#lastPlayerGroundedAt = Number.NEGATIVE_INFINITY;
-    this.#playerVerticalVelocity = 0;
-    this.#inputController.state.jumpQueued = false;
+    this.#playerMovementController.reset();
     this.#worldPersistence.markDirty();
   }
 
@@ -1453,7 +1433,7 @@ export class ShopScene {
     this.#inputController.consumePointerMovement(deltaSeconds);
     this.#inputController.updateCameraLook(deltaSeconds);
     this.#bookActions.updateThrowCharge(deltaSeconds);
-    this.#movePlayer(deltaSeconds);
+    this.#playerMovementController.update(deltaSeconds);
     this.#doors.updateRareRoom(
       deltaSeconds,
       this.#camera.position.x,
@@ -2071,119 +2051,6 @@ export class ShopScene {
 
   #bookSignature(item: CatalogItem) {
     return `${item.cover}|${item.detailCover ?? "no-detail-cover"}|${item.back ?? "solid-back"}|${item.spine ?? "generated-spine"}|${item.accent}|${item.thicknessMm}|${item.aspectRatio ?? "default-aspect"}|${item.direction}|${item.title}`;
-  }
-
-  #movePlayer(deltaSeconds: number) {
-    if (
-      !this.#inputController.state.pointerLocked ||
-      this.#inspection.inspectionMode === "spread"
-    ) {
-      this.#playerVelocity.set(0, 0, 0);
-      this.#playerVerticalVelocity = 0;
-      this.#inputController.state.jumpQueued = false;
-      return;
-    }
-    // Digital keyboard input and analog stick input combine, then clamp.
-    const padMovement = this.#input.gamepad.movement;
-    this.#movementInput.forward = clampUnit(
-      Number(this.#input.isActionDown("moveForward")) -
-        Number(this.#input.isActionDown("moveBackward")) +
-        padMovement.forward,
-    );
-    this.#movementInput.right = clampUnit(
-      Number(this.#input.isActionDown("moveRight")) -
-        Number(this.#input.isActionDown("moveLeft")) +
-        padMovement.right,
-    );
-    const sprinting = this.#input.isActionDown("sprint");
-    getPlanarMovement(
-      this.#movementInput,
-      this.#inputController.state.lookAngles.yaw,
-      (sprinting ? SPRINT_SPEED : WALK_SPEED) * deltaSeconds,
-      this.#movementDelta,
-    );
-    const previousX = this.#camera.position.x;
-    const previousY = this.#camera.position.y;
-    const previousZ = this.#camera.position.z;
-    if (this.#physicsWorld.isReady) {
-      const movementTime = performance.now();
-      const canJump =
-        this.#playerGrounded ||
-        movementTime - this.#lastPlayerGroundedAt <= PLAYER_JUMP_COYOTE_MS ||
-        this.#camera.position.y <= SHOP_PHYSICS_PLAYER_EYE_HEIGHT + 0.025;
-      const jumpBuffered =
-        this.#inputController.state.jumpQueued &&
-        movementTime - this.#inputController.state.jumpQueuedAt <=
-          PLAYER_JUMP_BUFFER_MS;
-      if (jumpBuffered && canJump) {
-        this.#playerVerticalVelocity = PLAYER_JUMP_SPEED;
-        this.#playerGrounded = false;
-        this.#lastPlayerGroundedAt = Number.NEGATIVE_INFINITY;
-      } else
-        this.#playerVerticalVelocity = Math.max(
-          PLAYER_TERMINAL_VELOCITY,
-          this.#playerVerticalVelocity + PLAYER_GRAVITY * deltaSeconds,
-        );
-      this.#inputController.state.jumpQueued = jumpBuffered && !canJump;
-      this.#playerDesiredDisplacement.set(
-        this.#movementDelta.x,
-        this.#playerVerticalVelocity * deltaSeconds,
-        this.#movementDelta.z,
-      );
-      this.#physicsWorld.movePlayer(
-        this.#playerDesiredDisplacement,
-        this.#playerMovement,
-      );
-      this.#camera.position.copy(this.#playerMovement.eyePosition);
-      const correctedY = this.#playerMovement.correctedDisplacement.y;
-      const descending = this.#playerVerticalVelocity <= 0;
-      const supportedWhileFalling =
-        descending && correctedY > this.#playerDesiredDisplacement.y + 0.0001;
-      // Rapier can retain a ground contact during the first upward sweep based
-      // on its planar direction. It must not cancel a jump that just launched.
-      const grounded = resolvePlayerGrounded(
-        this.#playerVerticalVelocity,
-        this.#playerMovement.grounded,
-        supportedWhileFalling,
-      );
-      if (
-        grounded ||
-        (this.#playerVerticalVelocity > 0 && this.#playerMovement.ceilingHit)
-      )
-        this.#playerVerticalVelocity = 0;
-      this.#playerGrounded = grounded;
-      if (grounded) this.#lastPlayerGroundedAt = movementTime;
-    } else {
-      this.#inputController.state.jumpQueued = false;
-      this.#movementPosition.x = previousX;
-      this.#movementPosition.z = previousZ;
-      resolveShopMovement(
-        this.#movementPosition,
-        this.#movementDelta,
-        PLAYER_RADIUS,
-        SHOP_COLLISION_WORLD,
-        this.#movementPosition,
-      );
-      this.#camera.position.set(
-        this.#movementPosition.x,
-        SHOP_PHYSICS_PLAYER_EYE_HEIGHT,
-        this.#movementPosition.z,
-      );
-      this.#playerGrounded = true;
-      this.#lastPlayerGroundedAt = performance.now();
-      this.#playerVerticalVelocity = 0;
-    }
-    this.#playerVelocity.set(
-      (this.#camera.position.x - previousX) / deltaSeconds,
-      (this.#camera.position.y - previousY) / deltaSeconds,
-      (this.#camera.position.z - previousZ) / deltaSeconds,
-    );
-    if (
-      this.#camera.position.x !== previousX ||
-      this.#camera.position.y !== previousY ||
-      this.#camera.position.z !== previousZ
-    )
-      this.#worldPersistence.markDirty();
   }
 
   #handleDetectedWidePage(url: string) {
