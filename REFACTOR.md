@@ -23,12 +23,12 @@ These files are unused within the repository and account for approximately 1,980
 ## 2. Consolidate interaction state
 
 - [ ] Add focused tests for interaction-mode and target-precedence behavior before refactoring:
-  - [ ] `GameStateEmitter`: prompts and interaction rows agree in every mode.
+  - [x] `GameStateEmitter`: prompts and interaction rows agree in every mode.
   - [ ] `InteractionScanner`: arcade, television, prop, sign, frame, poster, and book precedence remains stable.
   - [ ] `ShopInputController`: action and wheel routing remains stable.
   - [ ] Carrying, inspection, placement, pointer-lock, and arcade-session transitions clear stale targets.
-- [ ] Introduce one explicit interaction view/resolver containing the active mode, target, prompt, and available actions.
-- [ ] Make `GameStateEmitter` consume that resolver instead of maintaining separate prompt and interaction-mode chains.
+- [x] Introduce one explicit interaction view/resolver containing the active mode, target, prompt, and available actions.
+- [x] Make `GameStateEmitter` consume that resolver instead of maintaining separate prompt and interaction-mode chains.
 - [ ] Extract `InteractionScanner` target-clearing and target-candidate helpers; keep the raycast precedence in one readable pipeline.
 - [ ] Split `ShopInputController.handleActionDown` by mode or command group.
 - [ ] Split `ShopInputController.handleWheel` into inspection, placement, carried-prop, carried-book, media, and shelf handlers.
