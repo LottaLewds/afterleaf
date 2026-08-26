@@ -32,20 +32,12 @@ import floorNormalUrl from "~/assets/materials/laminate-floor-normal.webp";
 import floorSurfaceUrl from "~/assets/materials/laminate-floor-surface.webp";
 import moonriseSkyUrl from "~/assets/materials/qwantani-moonrise-sky.webp";
 import {
-  DIGITAL_ART_FRAME_INTERVALS,
-  MAX_POSTER_HEIGHT,
-  MIN_POSTER_HEIGHT,
-  normalizePosterRotation,
-  POSTER_WHEEL_ROTATION_STEP,
-} from "~/game/wallDecorTuning";
-import {
   INSPECTION_TRANSITION_POSITION_EPSILON_SQ,
   INSPECTION_TRANSITION_ROTATION_EPSILON,
   SHELF_PREVIEW_SPEED,
   SHELF_PREVIEW_PULL_END,
   SHELF_PREVIEW_ROTATION_START,
   SHELF_PREVIEW_FOCUS_HANDOFF_PROGRESS,
-  SHELF_BROWSE_INTERVAL_MS,
 } from "~/game/bookInspectionTuning";
 import {TRASH_CAN_PROP_ID} from "~/game/discardBin";
 import {
@@ -102,9 +94,7 @@ import {createPosterSurface as createPosterSurfaceTarget} from "~/game/interior/
 import type {ReadingFurnitureMaterials} from "~/game/propRegistration";
 import {createReadingChairInstance} from "~/game/interior/readingFurniture";
 import {createDeskLamps} from "~/game/interior/lightingProps";
-import {
-  createFaceOutDisplay,
-} from "~/game/interior/shelfFixtures";
+import {createFaceOutDisplay} from "~/game/interior/shelfFixtures";
 import {buildShopInterior} from "~/game/interior/shopComposition";
 import {InspectionController} from "~/game/inspection/InspectionController";
 import {ShopSignSystem} from "~/game/signs/ShopSignSystem";
@@ -124,11 +114,7 @@ import {
   MovablePropLifecycle,
   type MovablePropLifecycleHost,
 } from "~/game/movablePropSystem";
-import {
-  DEFAULT_MODEL_SCALE,
-  PROP_MAX_PROJECTION_DISTANCE,
-  PROP_MIN_PROJECTION_DISTANCE,
-} from "~/game/propTuning";
+import {ShopInputController} from "~/game/shopInputController";
 
 import type {CatalogAtlases, CatalogIdentity, CatalogItem} from "~/catalog";
 import type {ArtFrameImage} from "~/artFrames/protocol";
@@ -137,21 +123,15 @@ import type {ShopSignEditRequest} from "~/game/signs/ShopSignSystem";
 import {type UiMode} from "~/game/uiMode";
 
 import {
-  clampLookDeltaMagnitude,
-  dampLookAngles,
   DEFAULT_PITCH_LIMIT,
   getPlanarMovement,
-  isPlausiblePointerMovement,
   isPointInsideShopObstacle,
   resolvePlayerGrounded,
   resolveShopMovement,
-  updateLookAngles,
-  type LookAngles,
   type PlanarMovementInput,
   type PlanarPoint,
   type ShopCollisionWorld,
 } from "~/game/shopGameplay";
-import {keyboardLayoutEntry, readKeyboardLayout} from "~/game/keyboardLayout";
 import {
   loadShortcuts,
   type ShortcutAction,
@@ -163,7 +143,6 @@ import {
   padForwardEvent,
   type ArcadePadMappingOverrides,
 } from "~/arcade/controllerMappings";
-import {describeKeyboardEvent} from "~/arcade/emulatorHost";
 import {findArcadeSystem} from "~/arcade/systems";
 import {type InteractionPromptToken} from "~/game/input/hints";
 import {SHOP_TV_CAVE, SHOP_UPPER_FLOOR_Y} from "~/game/shopExpansionLayout";
@@ -210,11 +189,7 @@ import {
   readerPageSourceUrl,
   subscribeToWideReaderPages,
 } from "~/reader/pageSpreadDetection";
-import {
-  getArrowNavigation,
-  getReaderSpread,
-  type ReaderNavigation,
-} from "~/reader/pagination";
+import {getReaderSpread, type ReaderNavigation} from "~/reader/pagination";
 import {
   DEFAULT_TV_CHANNEL_ID,
   type TvChannel,
@@ -241,14 +216,6 @@ const PLAYER_JUMP_BUFFER_MS = 160;
 const PLAYER_JUMP_COYOTE_MS = 160;
 const PLAYER_TERMINAL_VELOCITY = -24;
 const SHOP_MEDIA_CATALOG_REFRESH_INTERVAL_MS = 10_000;
-const TV_WHEEL_SCRUB_RESET_MS = 900;
-const TV_WHEEL_SCRUB_STEPS_SECONDS = [3, 5, 10, 15, 30] as const;
-const LOOK_SENSITIVITY = 0.0021;
-/** Gamepad look speed in equivalent mouse pixels per second at full deflection. */
-const GAMEPAD_LOOK_SPEED = 700;
-
-const LOOK_SMOOTHING = 32;
-const MAX_LOOK_DELTA_PER_FRAME = (Math.PI / 180) * 10;
 const WORLD_SAVE_INTERVAL_MS = 10_000;
 const WORLD_SAVE_IDLE_TIMEOUT_MS = 250;
 // Late async prop models (CRT GLBs, cabinets, lamps) usually finish well
@@ -264,7 +231,6 @@ const DISCARD_TARGETED_EMISSIVE = new Color("#ff3524");
 const DISCARD_TARGETED_EMISSIVE_INTENSITY = 0.95;
 const PROP_PLACEMENT_GRID_SIZE = 0.25;
 const PROP_PLACEMENT_HEIGHT_STEP = 0.125;
-const PROP_WHEEL_ROTATION_STEP = MathUtils.degToRad(5);
 const LEGACY_TV_CAVE_BOUNDS = Object.freeze({
   maxX: 23.5,
   maxZ: 11.5,
@@ -525,14 +491,11 @@ export class ShopScene {
   readonly #inspection: InspectionController;
   readonly #snapshotInput: GameSnapshotInput;
   readonly #input: InputManager;
+  readonly #inputController: ShopInputController;
   readonly #getShortcuts: () => ShortcutsConfig;
   readonly #getPadMappingOverrides: () => ArcadePadMappingOverrides;
   readonly #onPauseRequest: (() => void) | undefined;
   readonly #onResumeRequest: (() => void) | undefined;
-  readonly #keyboardLayout = new Map<string, string>();
-  readonly #lookAngles: LookAngles = {pitch: 0, yaw: 0};
-  readonly #lookDelta: LookAngles = {pitch: 0, yaw: 0};
-  readonly #lookTarget: LookAngles = {pitch: 0, yaw: 0};
   readonly #movementDelta: PlanarPoint = {x: 0, z: 0};
   readonly #movementInput: PlanarMovementInput = {forward: 0, right: 0};
   readonly #movementPosition: PlanarPoint = {x: 0, z: 0};
@@ -546,7 +509,6 @@ export class ShopScene {
   readonly #gamepadLookSensitivity: () => number;
   readonly #newPublicationIds: () => readonly string[];
   readonly #tvScreenLighting: () => boolean;
-  readonly #nextLookAngles: LookAngles = {pitch: 0, yaw: 0};
   readonly #onDiscardPublication:
     | ((publicationId: string) => Promise<boolean>)
     | undefined;
@@ -620,9 +582,6 @@ export class ShopScene {
   #hoveredPublicationId: string | undefined;
 
   #interactiveMeshes: Mesh[] = [];
-  #didWarnPointerMovement = false;
-  #ignoreNextLockedPointerMove = false;
-  #anomalousPointerMovementCount = 0;
   #lastFrameTime = 0;
   #lastItems: readonly CatalogItem[] | undefined;
   #lastNewPublicationIds: readonly string[] | undefined;
@@ -631,19 +590,12 @@ export class ShopScene {
   #moonEnvironment: Texture | undefined;
   #onReady: (() => void) | undefined;
   #inputSuspended = false;
-  #pointerLocked = false;
-  #pointerLockReleasePending = false;
-  #resumePointerLockAfterRelease = false;
-  #jumpQueued = false;
-  #jumpQueuedAt = Number.NEGATIVE_INFINITY;
   #lastPlayerGroundedAt = Number.NEGATIVE_INFINITY;
   #playerGrounded = false;
   #playerVerticalVelocity = 0;
   #mediaCatalogRefreshHandle: number | undefined;
   #lateShaderPrecompileHandle: number | undefined;
   #mediaCatalogRequestPending = false;
-  #pendingPointerMovementX = 0;
-  #pendingPointerMovementY = 0;
   #pendingWorldSave: WorldSaveV1 | undefined;
   #ready = false;
   #resizeDirty = true;
@@ -651,16 +603,12 @@ export class ShopScene {
   #shelfPresentation: ShelfPresentation = "spine";
   readonly #shelfHoverMeshesByShelf = new Map<string, Mesh[]>();
   readonly #ungroupedShelfHoverMeshes: Mesh[] = [];
-  #shelfBrowseReadyAt = 0;
   #channelEditorDigitalArtFrameId: string | undefined;
   #channelEditorTelevision: ShopTelevision | undefined;
   #targetedProp: MovablePropRecord | undefined;
   #televisionInteraction: ShopTelevisionInteraction | undefined;
   #televisionTargeted = false;
   #targetedTelevision: ShopTelevision | undefined;
-  #tvWheelScrubDirection: -1 | 1 | undefined;
-  #tvWheelScrubLastAt = Number.NEGATIVE_INFINITY;
-  #tvWheelScrubStepIndex = 0;
   #tvChannels: readonly TvChannel[] = [];
   #televisionTableMaterial: MeshStandardMaterial | undefined;
   #savedTelevisionChannels: WorldTelevisionChannels = {};
@@ -723,8 +671,8 @@ export class ShopScene {
     this.#input = new InputManager({
       getShortcuts: this.#getShortcuts,
       handleAction: (action, phase) => {
-        if (phase === "up") return this.#handleActionUp(action);
-        return this.#handleActionDown(action);
+        if (phase === "up") return this.#inputController.handleActionUp(action);
+        return this.#inputController.handleActionDown(action);
       },
       // While menus or dialogs own the page, bound keys must not swallow
       // typing or scrolling.
@@ -733,10 +681,10 @@ export class ShopScene {
         if (this.#paused()) this.#onResumeRequest?.();
         else this.#onPauseRequest?.();
       },
-      onKeyEvent: (event) => this.#observeKeyboardEvent(event),
+      onKeyEvent: (event) => this.#inputController.observeKeyboardEvent(event),
     });
     this.#input.setKeyboardInterceptor((event) =>
-      this.#forwardArcadeKey(event),
+      this.#inputController.forwardArcadeKey(event),
     );
     this.#input.setRawGamepadForward((name, down) => {
       const cabinet =
@@ -776,7 +724,7 @@ export class ShopScene {
     this.#signs = new ShopSignSystem({
       maxTextureAnisotropy: this.#renderer.capabilities.getMaxAnisotropy(),
       onEditRequest: options.onSignEditRequest,
-      releasePointerLock: () => this.#releasePointerLock(),
+      releasePointerLock: () => this.#inputController.releasePointerLock(),
     });
 
     this.#artFrameTextures = new ArtFrameTextureCache({
@@ -833,8 +781,8 @@ export class ShopScene {
       initialPageIndex: (publicationId) =>
         this.#initialPageIndex(publicationId),
       applyBookStates: () => this.#applyBookStates(),
-      releasePointerLock: () => this.#releasePointerLock(),
-      requestPointerLock: () => this.#requestPointerLock(),
+      releasePointerLock: () => this.#inputController.releasePointerLock(),
+      requestPointerLock: () => this.#inputController.requestPointerLock(),
       dropCarriedBook: (fromCurrentPose, throwBook, charge, override) =>
         this.#bookActions.dropCarriedBook(
           fromCurrentPose,
@@ -854,6 +802,65 @@ export class ShopScene {
     );
     this.#bookActions = new BookCarryActions(this.#createBookCarryHost());
     this.#scanner = new InteractionScanner(this.#createScannerHost());
+    this.#inputController = new ShopInputController({
+      abortSignal: this.#abortController.signal,
+      activeArcadeCabinet: () => this.#activeArcadeCabinet,
+      arcadeStatusForUi: () => this.#arcadeStatusForUi(),
+      artFrames: () => this.#artFrames,
+      bookActions: () => this.#bookActions,
+      booksById: () => this.#booksById,
+      camera: () => this.#camera,
+      canvas: () => this.#canvas,
+      carriedPublicationId: () => this.#carriedPublicationId,
+      carriedPublicationIds: () => this.#carriedPublicationIds,
+      cycleCarriedBook: (direction) => this.#cycleCarriedBook(direction),
+      disposed: () => this.#disposed,
+      emitGameState: () => this.#emitGameState(),
+      gamepadLookSensitivity: () => this.#gamepadLookSensitivity(),
+      handleImagePaste: this.#handleImagePaste,
+      hoveredPublicationId: () => this.#hoveredPublicationId,
+      input: () => this.#input,
+      interact: (allowNonBookPropPickup) =>
+        this.#interact(allowNonBookPropPickup),
+      inspection: () => this.#inspection,
+      markWorldStateDirty: () => {
+        this.#worldStateDirty = true;
+      },
+      mouseSensitivity: () => this.#mouseSensitivity(),
+      onMediaChannelCreateRequest: () => this.#onMediaChannelCreateRequest,
+      paused: () => this.#paused(),
+      physicsWorld: () => this.#physicsWorld,
+      posters: () => this.#posters,
+      props: () => this.#props,
+      refreshMediaCatalogIfActive: () => this.#refreshMediaCatalogIfActive(),
+      scanner: () => this.#scanner,
+      setArcadeTargeted: (cabinet) => this.#setArcadeTargeted(cabinet),
+      setChannelEditorDigitalArtFrameId: (id) => {
+        this.#channelEditorDigitalArtFrameId = id;
+      },
+      setChannelEditorTelevision: (television) => {
+        this.#channelEditorTelevision = television;
+      },
+      setHoveredPublicationId: (publicationId) =>
+        this.#setHoveredPublicationId(publicationId),
+      setPropTargeted: (record) => this.#setPropTargeted(record),
+      setShelfPresentation: (presentation) => {
+        this.#shelfPresentation = presentation;
+      },
+      setTelevisionTargeted: (targeted, interaction, television) =>
+        this.#setTelevisionTargeted(targeted, interaction, television),
+      setTrashTargeted: (targeted) => this.#setTrashTargeted(targeted),
+      signs: () => this.#signs,
+      shelfPresentation: () => this.#shelfPresentation,
+      targetedArcadeCabinet: () => this.#targetedArcadeCabinet,
+      targetedProp: () => this.#targetedProp,
+      targetedTelevision: () => this.#targetedTelevision,
+      televisionTargeted: () => this.#televisionTargeted,
+      stepAwayFromArcade: () => this.stepAwayFromArcade(),
+      turnInspectionPage: (navigation) => this.turnInspectionPage(navigation),
+      updateHeldPhysicsTarget: () => this.#updateHeldPhysicsTarget(),
+      quitActiveArcadeGame: () => this.quitActiveArcadeGame(),
+    });
     this.#snapshotInput = {
       activeArcadeCabinet: () => this.#activeArcadeCabinet,
       arcadeProps: () => this.#props.arcadeProps,
@@ -877,7 +884,7 @@ export class ShopScene {
       inspectionPageIndex: () => this.#inspection.inspectionPageIndex,
       inspectionPageLoadCount: () => this.#inspection.inspectionPageLoadCount,
       inspectionPublication: () => this.#inspection.inspectionPublication(),
-      keyboardLayout: () => this.#keyboardLayout,
+      keyboardLayout: () => this.#inputController.state.keyboardLayout,
       mode: () => this.#mode,
       modelAnimationLabel: (record) =>
         this.#props.modelAnimationLabel(record) ?? "",
@@ -885,7 +892,7 @@ export class ShopScene {
       modelPlacement: () => this.#props.modelPlacement,
       onGameStateChange: () => this.#onGameStateChange,
       physicsWorld: () => this.#physicsWorld,
-      pointerLocked: () => this.#pointerLocked,
+      pointerLocked: () => this.#inputController.state.pointerLocked,
       posters: () => this.#posters,
       propPlacementDistance: () => this.#props.propPlacementDistance,
       propPlacementSnapping: () => this.#props.propPlacementSnapping,
@@ -911,7 +918,7 @@ export class ShopScene {
       emitGameState: () => this.#emitGameState(),
       importPoster: options.importPoster,
       isDisposed: () => this.#disposed,
-      isPointerLocked: () => this.#pointerLocked,
+      isPointerLocked: () => this.#inputController.state.pointerLocked,
       markWorldStateDirty: () => {
         this.#worldStateDirty = true;
       },
@@ -937,7 +944,7 @@ export class ShopScene {
         importArtFrameImage: options.importArtFrameImage,
         importPoster: options.importPoster,
         isDisposed: () => this.#disposed,
-        isPointerLocked: () => this.#pointerLocked,
+        isPointerLocked: () => this.#inputController.state.pointerLocked,
         markWorldStateDirty: () => {
           this.#worldStateDirty = true;
         },
@@ -978,8 +985,8 @@ export class ShopScene {
         scene: this.#scene,
       };
 
-    this.#bindInput();
-    void this.#loadKeyboardLayout();
+    this.#inputController.bind();
+    void this.#inputController.loadKeyboardLayout();
     this.#observeSize();
     const unsubscribeFromWidePages = subscribeToWideReaderPages((url) =>
       this.#handleDetectedWidePage(url),
@@ -1169,14 +1176,14 @@ export class ShopScene {
     if (this.#disposed || this.#arcadeStatusForUi()) return;
     this.#inputSuspended = false;
     if (this.#inspection.inspectionMode === "spread") return;
-    this.#requestPointerLock();
+    this.#inputController.requestPointerLock();
   }
 
   releasePointerLock() {
     if (this.#disposed) return;
     if (this.#inputSuspended) return;
     this.#inputSuspended = true;
-    this.#suspendInput();
+    this.#inputController.suspendInput();
   }
 
   unstuckPlayer() {
@@ -1191,7 +1198,7 @@ export class ShopScene {
     this.#playerGrounded = false;
     this.#lastPlayerGroundedAt = Number.NEGATIVE_INFINITY;
     this.#playerVerticalVelocity = 0;
-    this.#jumpQueued = false;
+    this.#inputController.state.jumpQueued = false;
     this.#worldStateDirty = true;
   }
 
@@ -1207,7 +1214,7 @@ export class ShopScene {
     this.#emitGameState();
     // Re-capture the cursor on the picker's own click gesture: launching and
     // playing keep it hidden, matching free roam.
-    if (!this.#paused()) this.#requestPointerLock();
+    if (!this.#paused()) this.#inputController.requestPointerLock();
   }
 
   /** Playing → back to the ROM picker of the active session. */
@@ -1257,7 +1264,7 @@ export class ShopScene {
     this.#emitGameState();
     // Hand control back immediately (called from an activating gesture such
     // as Escape or the Leave button), mirroring inspection close.
-    if (!this.#paused()) this.#requestPointerLock();
+    if (!this.#paused()) this.#inputController.requestPointerLock();
   }
 
   /**
@@ -1287,7 +1294,7 @@ export class ShopScene {
     if (!status) {
       // Only the ROM picker needs a visible cursor; resuming a live session
       // keeps the pointer exactly where walking left it.
-      this.#releasePointerLock();
+      this.#inputController.releasePointerLock();
       cabinet.beginBrowsing();
     }
     this.#emitGameState();
@@ -1315,8 +1322,8 @@ export class ShopScene {
     const deltaZ = this.#arcadeAimTarget.z - this.#camera.position.z;
     const horizontal = Math.hypot(deltaX, deltaZ);
     if (horizontal < Number.EPSILON) return;
-    this.#lookTarget.yaw = Math.atan2(-deltaX, -deltaZ);
-    this.#lookTarget.pitch = MathUtils.clamp(
+    this.#inputController.state.lookTarget.yaw = Math.atan2(-deltaX, -deltaZ);
+    this.#inputController.state.lookTarget.pitch = MathUtils.clamp(
       Math.atan2(deltaY, horizontal),
       -DEFAULT_PITCH_LIMIT,
       DEFAULT_PITCH_LIMIT,
@@ -1350,7 +1357,7 @@ export class ShopScene {
       this.#props.restoreGhostedObject(
         this.#props.carriedProp.ghostMaterialSwaps,
       );
-    this.#releasePointerLock();
+    this.#inputController.releasePointerLock();
     this.#abortController.abort();
     this.#tvVideos.clearMessageTimer();
     for (const mixer of this.#props.modelMixers) mixer.stopAllAction();
@@ -1444,7 +1451,7 @@ export class ShopScene {
     if (paused) {
       if (!this.#inputSuspended) {
         this.#inputSuspended = true;
-        this.#suspendInput();
+        this.#inputController.suspendInput();
       }
       this.#frameHandle = requestAnimationFrame(this.#animate);
       return;
@@ -1454,15 +1461,15 @@ export class ShopScene {
     // every cabinet's attract mode and live screens stay animated.
     const arcadeActive = this.#arcadeStatusForUi() !== undefined;
     if (arcadeActive) {
-      this.#updateCameraLook(deltaSeconds);
+      this.#inputController.updateCameraLook(deltaSeconds);
       this.#renderer.render(this.#scene, this.#camera);
       this.#frameHandle = requestAnimationFrame(this.#animate);
       return;
     }
     this.#inputSuspended = false;
 
-    this.#consumePointerMovement(deltaSeconds);
-    this.#updateCameraLook(deltaSeconds);
+    this.#inputController.consumePointerMovement(deltaSeconds);
+    this.#inputController.updateCameraLook(deltaSeconds);
     this.#bookActions.updateThrowCharge(deltaSeconds);
     this.#movePlayer(deltaSeconds);
     this.#doors.updateRareRoom(
@@ -1895,928 +1902,6 @@ export class ShopScene {
     return material;
   }
 
-  #bindInput() {
-    const passiveOptions = {
-      passive: true,
-      signal: this.#abortController.signal,
-    } as const;
-    this.#canvas.addEventListener(
-      "pointerdown",
-      this.#handleCanvasPointerDown,
-      passiveOptions,
-    );
-    document.addEventListener(
-      "pointermove",
-      this.#handlePointerMove,
-      passiveOptions,
-    );
-    window.addEventListener("paste", this.#handleImagePaste, {
-      signal: this.#abortController.signal,
-    });
-    this.#canvas.addEventListener("wheel", this.#handleWheel, {
-      passive: false,
-      signal: this.#abortController.signal,
-    });
-    document.addEventListener("pointerup", this.#handleInspectionPointerUp, {
-      signal: this.#abortController.signal,
-    });
-    document.addEventListener(
-      "pointercancel",
-      this.#handleInspectionPointerUp,
-      {signal: this.#abortController.signal},
-    );
-    document.addEventListener(
-      "pointerlockchange",
-      this.#handlePointerLockChange,
-      passiveOptions,
-    );
-    this.#input.attach(this.#abortController.signal);
-    window.addEventListener("blur", this.#handleWindowBlur, passiveOptions);
-    window.addEventListener("focus", this.#refreshMediaCatalogIfActive, {
-      signal: this.#abortController.signal,
-    });
-    document.addEventListener(
-      "visibilitychange",
-      this.#refreshMediaCatalogIfActive,
-      {signal: this.#abortController.signal},
-    );
-  }
-
-  async #loadKeyboardLayout() {
-    const layout = await readKeyboardLayout();
-    if (!layout || this.#disposed) return;
-    let changed = false;
-    for (const [code, label] of layout) {
-      const normalizedLabel = label.toLowerCase();
-      if (
-        !normalizedLabel ||
-        this.#keyboardLayout.get(code) === normalizedLabel
-      )
-        continue;
-      this.#keyboardLayout.set(code, normalizedLabel);
-      changed = true;
-    }
-    if (changed) this.#emitGameState();
-  }
-
-  #observeKeyboardEvent(event: KeyboardEvent) {
-    const entry = keyboardLayoutEntry(event);
-    if (!entry) return;
-    const [code, label] = entry;
-    if (this.#keyboardLayout.get(code) === label) return;
-    this.#keyboardLayout.set(code, label);
-    this.#emitGameState();
-  }
-
-  readonly #handleCanvasPointerDown = (event: PointerEvent) => {
-    if (event.button !== 0 || this.#paused()) return;
-    // An arcade session owns the pointer; clicking must not re-lock it.
-    if (this.#arcadeStatusForUi()) return;
-    if (this.#inspection.inspectionMode === "spread") {
-      if (this.#inspection.inspectionOpenAngleTarget > 0) {
-        this.#inspection.openInspectionBook();
-        return;
-      }
-      this.#inspection.beginInspectionPointerTurn(event);
-      return;
-    }
-    if (this.#inspection.inspectionMode === "closing") return;
-    if (this.#pointerLocked) {
-      this.#interact(false);
-      return;
-    }
-    this.requestPointerLock();
-  };
-
-  readonly #handlePointerMove = (event: PointerEvent) => {
-    if (this.#paused()) return;
-    if (this.#inspection.inspectionDragging) {
-      this.#inspection.inspectionDragCurrentX = event.clientX;
-      if (
-        Math.abs(
-          this.#inspection.inspectionDragCurrentX -
-            this.#inspection.inspectionDragStartX,
-        ) > 4
-      )
-        this.#inspection.inspectionDragMoved = true;
-      this.#inspection.updateInspectionDragProgress();
-      return;
-    }
-    if (this.#inspection.inspectionMode === "spread") {
-      if (event.target instanceof HTMLInputElement) return;
-      this.#inspection.setInspectionPointer(event.clientX, event.clientY);
-      this.#inspection.updateInspectionZoomPanTarget();
-      return;
-    }
-    if (!this.#pointerLocked) return;
-    if (this.#ignoreNextLockedPointerMove) {
-      this.#ignoreNextLockedPointerMove = false;
-      return;
-    }
-    if (!isPlausiblePointerMovement(event.movementX, event.movementY))
-      this.#anomalousPointerMovementCount += 1;
-    if (!Number.isFinite(event.movementX) || !Number.isFinite(event.movementY))
-      return;
-    if (event.movementX === 0 && event.movementY === 0) return;
-    this.#scanner.shelfBrowsePublicationId = undefined;
-    this.#pendingPointerMovementX += event.movementX;
-    this.#pendingPointerMovementY += event.movementY;
-  };
-
-  #consumePointerMovement(deltaSeconds: number) {
-    // Gamepad look rides the same smoothed pointer-delta path as the mouse.
-    const padLook = this.#input.gamepad.look;
-    if (this.#pointerLocked && (padLook.yaw !== 0 || padLook.pitch !== 0)) {
-      const padSensitivity = this.#gamepadLookSensitivity();
-      const padMultiplier =
-        Number.isFinite(padSensitivity) && padSensitivity > 0
-          ? padSensitivity
-          : 1;
-      this.#pendingPointerMovementX +=
-        padLook.yaw * GAMEPAD_LOOK_SPEED * padMultiplier * deltaSeconds;
-      this.#pendingPointerMovementY +=
-        padLook.pitch * GAMEPAD_LOOK_SPEED * padMultiplier * deltaSeconds;
-    }
-    const movementX = this.#pendingPointerMovementX;
-    const movementY = this.#pendingPointerMovementY;
-    const anomalousEventCount = this.#anomalousPointerMovementCount;
-    this.#pendingPointerMovementX = 0;
-    this.#pendingPointerMovementY = 0;
-    this.#anomalousPointerMovementCount = 0;
-
-    if (anomalousEventCount > 0 && DEV && !this.#didWarnPointerMovement) {
-      this.#didWarnPointerMovement = true;
-      console.warn(
-        "Afterleaf bounded an anomalous pointer-lock movement burst.",
-        {
-          eventCount: anomalousEventCount,
-          frameDeltaMs: deltaSeconds * 1000,
-          movementX,
-          movementY,
-        },
-      );
-    }
-    if (movementX === 0 && movementY === 0) return;
-
-    const sensitivity = this.#mouseSensitivity();
-    const sensitivityMultiplier = Number.isFinite(sensitivity)
-      ? Math.max(0, sensitivity)
-      : 1;
-    clampLookDeltaMagnitude(
-      -movementX * LOOK_SENSITIVITY * sensitivityMultiplier,
-      -movementY * LOOK_SENSITIVITY * sensitivityMultiplier,
-      MAX_LOOK_DELTA_PER_FRAME,
-      this.#lookDelta,
-    );
-    updateLookAngles(
-      this.#lookTarget,
-      this.#lookDelta.yaw,
-      this.#lookDelta.pitch,
-      this.#nextLookAngles,
-      Math.PI * 0.46,
-    );
-    this.#lookTarget.yaw = this.#nextLookAngles.yaw;
-    this.#lookTarget.pitch = this.#nextLookAngles.pitch;
-    this.#worldStateDirty = true;
-  }
-
-  readonly #handleWheel = (event: WheelEvent) => {
-    if (this.#paused() || this.#bookActions.shelveAnimation) return;
-    if (this.#inspection.inspectionMode === "spread") {
-      if (event.deltaY === 0) return;
-      event.preventDefault();
-      this.#inspection.zoomInspectionAtPointer(event);
-      return;
-    }
-    const artFramePlacement = this.#artFrames.placement;
-    if (this.#pointerLocked && artFramePlacement && event.deltaY !== 0) {
-      event.preventDefault();
-      if (event.shiftKey)
-        artFramePlacement.rotation = normalizePosterRotation(
-          artFramePlacement.rotation -
-            Math.sign(event.deltaY) * POSTER_WHEEL_ROTATION_STEP,
-        );
-      else
-        artFramePlacement.desiredHeight = MathUtils.clamp(
-          artFramePlacement.desiredHeight * Math.exp(-event.deltaY * 0.0015),
-          MIN_POSTER_HEIGHT,
-          MAX_POSTER_HEIGHT,
-        );
-      this.#artFrames.updateDigitalArtFramePlacementTarget();
-      this.#emitGameState();
-      return;
-    }
-    const posterPlacement = this.#posters.placement;
-    if (this.#pointerLocked && posterPlacement && event.deltaY !== 0) {
-      event.preventDefault();
-      if (event.shiftKey)
-        posterPlacement.rotation = normalizePosterRotation(
-          posterPlacement.rotation -
-            Math.sign(event.deltaY) * POSTER_WHEEL_ROTATION_STEP,
-        );
-      else
-        posterPlacement.desiredHeight = MathUtils.clamp(
-          posterPlacement.desiredHeight * Math.exp(-event.deltaY * 0.0015),
-          MIN_POSTER_HEIGHT,
-          MAX_POSTER_HEIGHT,
-        );
-      this.#posters.updatePosterPlacementTarget();
-      this.#emitGameState();
-      return;
-    }
-    if (
-      this.#pointerLocked &&
-      this.#props.carriedProp?.modelBaseSize &&
-      event.shiftKey &&
-      event.deltaY !== 0
-    ) {
-      event.preventDefault();
-      this.#props.setModelPropScale(
-        this.#props.carriedProp,
-        (this.#props.carriedProp.modelScale ?? DEFAULT_MODEL_SCALE) *
-          Math.exp(-event.deltaY * 0.0015),
-      );
-      return;
-    }
-    if (
-      this.#pointerLocked &&
-      this.#props.carriedProp &&
-      event.ctrlKey &&
-      event.deltaY !== 0
-    ) {
-      event.preventDefault();
-      const rotationStep = this.#props.propPlacementSnapping
-        ? this.#props.carriedProp.rotationSnapStep
-        : PROP_WHEEL_ROTATION_STEP;
-      this.#props.propPlacementYaw = normalizePosterRotation(
-        this.#props.propPlacementYaw - Math.sign(event.deltaY) * rotationStep,
-      );
-      this.#updateHeldPhysicsTarget();
-      this.#worldStateDirty = true;
-      this.#emitGameState();
-      return;
-    }
-    if (this.#pointerLocked && this.#props.carriedProp) {
-      const wheelDelta =
-        Math.abs(event.deltaX) > Math.abs(event.deltaY)
-          ? event.deltaX
-          : event.deltaY;
-      if (Math.abs(wheelDelta) < 1) return;
-      event.preventDefault();
-      this.#props.propPlacementDistance = MathUtils.clamp(
-        this.#props.propPlacementDistance - wheelDelta * 0.0025,
-        PROP_MIN_PROJECTION_DISTANCE,
-        PROP_MAX_PROJECTION_DISTANCE,
-      );
-      this.#worldStateDirty = true;
-      this.#emitGameState();
-      return;
-    }
-    if (this.#pointerLocked && this.#carriedPublicationIds.length > 1) {
-      const wheelDelta =
-        Math.abs(event.deltaX) > Math.abs(event.deltaY)
-          ? event.deltaX
-          : event.deltaY;
-      if (Math.abs(wheelDelta) < 1) return;
-      if (!this.#cycleCarriedBook(Math.sign(wheelDelta))) return;
-      event.preventDefault();
-      return;
-    }
-    if (this.#pointerLocked && this.#televisionTargeted && event.deltaY !== 0) {
-      const direction = Math.sign(event.deltaY) as -1 | 1;
-      if (event.ctrlKey) {
-        event.preventDefault();
-        this.#targetedTelevision?.adjustVolume(direction === 1 ? -1 : 1);
-        this.#tvWheelScrubDirection = undefined;
-        this.#tvWheelScrubLastAt = Number.NEGATIVE_INFINITY;
-        this.#tvWheelScrubStepIndex = 0;
-        return;
-      }
-      const continuesScrub =
-        direction === this.#tvWheelScrubDirection &&
-        event.timeStamp >= this.#tvWheelScrubLastAt &&
-        event.timeStamp - this.#tvWheelScrubLastAt <= TV_WHEEL_SCRUB_RESET_MS;
-      const stepIndex = continuesScrub
-        ? Math.min(
-            this.#tvWheelScrubStepIndex + 1,
-            TV_WHEEL_SCRUB_STEPS_SECONDS.length - 1,
-          )
-        : 0;
-      const stepSeconds = TV_WHEEL_SCRUB_STEPS_SECONDS[stepIndex];
-      if (
-        !stepSeconds ||
-        !this.#targetedTelevision?.scrub(direction * stepSeconds)
-      )
-        return;
-      event.preventDefault();
-      this.#tvWheelScrubDirection = direction;
-      this.#tvWheelScrubLastAt = event.timeStamp;
-      this.#tvWheelScrubStepIndex = stepIndex;
-      return;
-    }
-    // Cabinet volume: the actively-attached session wins (reticle targeting
-    // is not how an attached session is tracked, and pointer lock may be
-    // released right after booting from the picker); otherwise a targeted,
-    // still-running cabinet responds while the player is stepped away.
-    const arcadeVolumeCabinet =
-      this.#activeArcadeCabinet?.sessionStatus === "playing"
-        ? this.#activeArcadeCabinet
-        : this.#targetedArcadeCabinet?.sessionStatus === "playing"
-          ? this.#targetedArcadeCabinet
-          : undefined;
-    if (arcadeVolumeCabinet && event.ctrlKey && event.deltaY !== 0) {
-      event.preventDefault();
-      // Same convention as the TV: wheel up raises the cabinet's volume.
-      arcadeVolumeCabinet.adjustArcadeVolume(
-        Math.sign(event.deltaY) === 1 ? -1 : 1,
-      );
-      return;
-    }
-    if (
-      !this.#pointerLocked ||
-      !this.#input.isActionDown("throw") ||
-      event.timeStamp < this.#shelfBrowseReadyAt
-    )
-      return;
-    const wheelDelta =
-      Math.abs(event.deltaX) > Math.abs(event.deltaY)
-        ? event.deltaX
-        : event.deltaY;
-    if (
-      Math.abs(wheelDelta) < 4 ||
-      !this.#scanner.browseShelf(Math.sign(wheelDelta))
-    )
-      return;
-    event.preventDefault();
-    this.#shelfBrowseReadyAt = event.timeStamp + SHELF_BROWSE_INTERVAL_MS;
-  };
-
-  readonly #handleInspectionPointerUp = () => {
-    if (!this.#inspection.inspectionDragging) return;
-    this.#inspection.inspectionDragging = false;
-    const decision =
-      !this.#inspection.inspectionDragMoved ||
-      this.#inspection.inspectionDragCompletion() >= 0.5
-        ? "commit"
-        : "cancel";
-    this.#inspection.inspectionDragReleaseDecision = decision;
-    if (this.#inspection.inspectionTurnPage !== undefined)
-      this.#inspection.resolveInspectionDragDecision(decision);
-    this.#inspection.inspectionDragNavigation = undefined;
-  };
-
-  #updateCameraLook(deltaSeconds: number) {
-    if (this.#inspection.inspectionMode === "spread") return;
-    dampLookAngles(
-      this.#lookAngles,
-      this.#lookTarget,
-      LOOK_SMOOTHING,
-      deltaSeconds,
-      this.#nextLookAngles,
-    );
-    this.#lookAngles.yaw = this.#nextLookAngles.yaw;
-    this.#lookAngles.pitch = this.#nextLookAngles.pitch;
-    this.#camera.rotation.set(this.#lookAngles.pitch, this.#lookAngles.yaw, 0);
-  }
-
-  readonly #handlePointerLockChange = () => {
-    const wasPointerLocked = this.#pointerLocked;
-    this.#pointerLocked = document.pointerLockElement === this.#canvas;
-    const releaseCompleted =
-      !this.#pointerLocked && this.#pointerLockReleasePending;
-    const resumePointerLock =
-      releaseCompleted && this.#resumePointerLockAfterRelease;
-    if (releaseCompleted) {
-      this.#pointerLockReleasePending = false;
-      this.#resumePointerLockAfterRelease = false;
-    }
-    this.#resetPointerMovement();
-    this.#ignoreNextLockedPointerMove =
-      this.#pointerLocked && !wasPointerLocked;
-    if (!this.#pointerLocked) {
-      this.#input.suspend();
-      this.#bookActions.cancelThrowCharge();
-      this.#jumpQueued = false;
-    }
-    this.#canvas.style.cursor = this.#pointerLocked ? "none" : "pointer";
-    this.#emitGameState();
-    // Pointer lock state is orthogonal to menus: unlocks never open the
-    // pause menu. Escape routing owns that (modal stack, then the armed
-    // fallback), so programmatic releases and browser lock teardowns around
-    // mode changes cannot summon it.
-    if (
-      resumePointerLock &&
-      !this.#paused() &&
-      this.#inspection.inspectionMode !== "spread" &&
-      !this.#arcadeStatusForUi() &&
-      !this.#disposed
-    )
-      this.#requestPointerLock();
-  };
-
-  /**
-   * Single action dispatcher for every input device. Candidates arrive in
-   * `ACTION_DISPATCH_ORDER`; each case checks its own context and returns
-   * false when the action does not apply, letting the next candidate run.
-   */
-  readonly #handleActionDown = (action: ShortcutAction): boolean => {
-    if (this.#paused()) return true;
-    if (this.#inspection.inspectionMode === "spread") {
-      switch (action) {
-        case "inspectionTurnLeft":
-        case "inspectionTurnRight": {
-          const publication = this.#inspection.inspectionPublication();
-          if (!publication) return true;
-          const navigation = getArrowNavigation(
-            action === "inspectionTurnLeft" ? "ArrowLeft" : "ArrowRight",
-            publication.direction,
-          );
-          this.#inspection.inspectionHeldNavigation = navigation;
-          this.turnInspectionPage(navigation);
-          return true;
-        }
-        case "inspectionThrow":
-          if (
-            this.#inspection.inspectionPublicationId !==
-            this.#carriedPublicationId
-          )
-            return true;
-          this.#inspection.startInspectionClose("throw");
-          return true;
-        case "inspectionDrop":
-          if (
-            this.#inspection.inspectionPublicationId !==
-            this.#carriedPublicationId
-          )
-            return true;
-          this.#inspection.startInspectionClose("drop");
-          return true;
-        case "inspectionReturn":
-          this.#inspection.startInspectionClose("return");
-          return true;
-        default:
-          // A spread owns all other actions while it is open.
-          return true;
-      }
-    }
-    if (!this.#pointerLocked) return false;
-    switch (action) {
-      case "jump":
-        this.#jumpQueued = true;
-        this.#jumpQueuedAt = performance.now();
-        return true;
-      case "moveForward":
-      case "moveBackward":
-      case "moveLeft":
-      case "moveRight":
-      case "sprint":
-        // Held-state actions are queried per frame via isActionDown.
-        return true;
-      case "toggleModelPlacement":
-        if (this.#televisionTargeted) return false;
-        if (this.#props.modelPlacement) {
-          this.#props.cancelModelPlacement();
-          return true;
-        }
-        if (
-          !this.#artFrames.placement &&
-          !this.#posters.placement &&
-          !this.#carriedPublicationId &&
-          !this.#props.carriedProp
-        )
-          void this.#props.startModelPlacement(
-            this.#props.spawnablePropAssetIndex,
-          );
-        return true;
-      case "toggleArtFramePlacement":
-        if (this.#artFrames.placement) {
-          this.#artFrames.cancelDigitalArtFramePlacement();
-          return true;
-        }
-        if (
-          !this.#posters.placement &&
-          !this.#props.modelPlacement &&
-          !this.#carriedPublicationId &&
-          !this.#props.carriedProp
-        ) {
-          if (this.#artFrames.assets.length > 0)
-            this.#artFrames.startDigitalArtFramePlacement(
-              this.#artFrames.assetIndex,
-            );
-          else this.#artFrames.startEmptyDigitalArtFramePlacement();
-        }
-        return true;
-      case "channelEditorOpen":
-        if (
-          !(
-            this.#artFrames.placement ||
-            this.#artFrames.targetedId ||
-            this.#televisionTargeted
-          ) ||
-          !this.#onMediaChannelCreateRequest
-        )
-          return false;
-        {
-          const kind = this.#televisionTargeted ? "tv" : "art-frame";
-          this.#channelEditorTelevision =
-            kind === "tv" ? this.#targetedTelevision : undefined;
-          this.#channelEditorDigitalArtFrameId =
-            kind === "art-frame" ? this.#artFrames.targetedId : undefined;
-          this.#releasePointerLock();
-          this.#onMediaChannelCreateRequest(kind);
-        }
-        return true;
-      case "togglePosterPlacement":
-        if (this.#posters.placement) {
-          this.#posters.cancelPosterPlacement();
-          return true;
-        }
-        if (
-          !this.#artFrames.placement &&
-          !this.#props.modelPlacement &&
-          !this.#carriedPublicationId &&
-          !this.#props.carriedProp
-        ) {
-          if (this.#posters.assets.length > 0)
-            void this.#posters.startPosterPlacement(this.#posters.assetIndex);
-          else this.#posters.startEmptyPosterPlacement();
-        }
-        return true;
-      case "placementCycleLeft":
-        if (this.#props.modelPlacement) {
-          this.#props.cycleModelPlacement(-1);
-          return true;
-        }
-        if (this.#posters.placement) {
-          this.#posters.cyclePoster(-1);
-          return true;
-        }
-        return false;
-      case "placementCycleRight":
-        if (this.#props.modelPlacement) {
-          this.#props.cycleModelPlacement(1);
-          return true;
-        }
-        if (this.#posters.placement) {
-          this.#posters.cyclePoster(1);
-          return true;
-        }
-        return false;
-      case "placementCycleChannelLeft":
-        if (!this.#artFrames.placement) return false;
-        this.#artFrames.cycleDigitalArtFramePlacementChannel(-1);
-        return true;
-      case "placementCycleChannelRight":
-        if (!this.#artFrames.placement) return false;
-        this.#artFrames.cycleDigitalArtFramePlacementChannel(1);
-        return true;
-      case "placementCycleImageLeft":
-        if (!this.#artFrames.placement) return false;
-        this.#artFrames.cycleDigitalArtFramePlacementImage(-1);
-        return true;
-      case "placementCycleImageRight":
-        if (!this.#artFrames.placement) return false;
-        this.#artFrames.cycleDigitalArtFramePlacementImage(1);
-        return true;
-      case "placementToggleFit":
-        if (!this.#artFrames.placement) return false;
-        this.#artFrames.placement.fit =
-          this.#artFrames.placement.fit === "contain" ? "cover" : "contain";
-        this.#artFrames.preview?.setFit(this.#artFrames.placement.fit);
-        this.#emitGameState();
-        return true;
-      case "placementToggleInterval": {
-        if (!this.#artFrames.placement) return false;
-        const intervalIndex = DIGITAL_ART_FRAME_INTERVALS.indexOf(
-          this.#artFrames.placement
-            .intervalSeconds as (typeof DIGITAL_ART_FRAME_INTERVALS)[number],
-        );
-        const interval =
-          DIGITAL_ART_FRAME_INTERVALS[
-            (Math.max(0, intervalIndex) + 1) %
-              DIGITAL_ART_FRAME_INTERVALS.length
-          ];
-        if (interval !== undefined)
-          this.#artFrames.placement.intervalSeconds = interval;
-        this.#emitGameState();
-        return true;
-      }
-      case "propToggleSnap":
-        if (!this.#props.carriedProp) return false;
-        this.#props.propPlacementSnapping = !this.#props.propPlacementSnapping;
-        this.#emitGameState();
-        return true;
-      case "propCycleAnimationLeft":
-        if (!this.#targetedProp?.modelAnimations?.length) return false;
-        this.#props.cycleModelAnimation(this.#targetedProp, -1);
-        return true;
-      case "propCycleAnimationRight":
-        if (!this.#targetedProp?.modelAnimations?.length) return false;
-        this.#props.cycleModelAnimation(this.#targetedProp, 1);
-        return true;
-      case "removeTargeted": {
-        const targetedTelevisionProp = this.#targetedTelevision
-          ? this.#props.televisionProps.get(this.#targetedTelevision)
-          : undefined;
-        const targetedArcadeProp = this.#targetedArcadeCabinet
-          ? this.#props.arcadeProps.get(this.#targetedArcadeCabinet)
-          : undefined;
-        if (targetedTelevisionProp?.spawned) {
-          this.#props.removeSpawnedProp(targetedTelevisionProp);
-          return true;
-        }
-        if (targetedArcadeProp?.spawned) {
-          this.#props.removeSpawnedProp(targetedArcadeProp);
-          return true;
-        }
-        if (this.#targetedProp?.spawned) {
-          this.#props.removeSpawnedProp(this.#targetedProp);
-          return true;
-        }
-        if (this.#artFrames.targetedId) {
-          this.#artFrames.removeTargetedDigitalArtFrame();
-          return true;
-        }
-        if (this.#posters.targetedId) {
-          this.#posters.removeTargetedPoster();
-          return true;
-        }
-        // Nothing targeted: let later candidates use the same binding.
-        return false;
-      }
-      case "placementToggleGridSnap": {
-        if (!this.#artFrames.placement && !this.#posters.placement)
-          return false;
-        const placement = this.#artFrames.placement ?? this.#posters.placement;
-        if (placement) placement.gridSnap = !placement.gridSnap;
-        this.#artFrames.updateDigitalArtFramePlacementTarget();
-        this.#posters.updatePosterPlacementTarget();
-        this.#emitGameState();
-        return true;
-      }
-      case "pickUpCancel":
-        if (this.#props.modelPlacement) {
-          this.#props.cancelModelPlacement();
-          return true;
-        }
-        if (this.#artFrames.placement) {
-          this.#artFrames.cancelDigitalArtFramePlacement();
-          return true;
-        }
-        if (this.#posters.placement) {
-          this.#posters.cancelPosterPlacement();
-          return true;
-        }
-        if (this.#props.carriedProp) {
-          this.#props.cancelCarriedProp();
-          return true;
-        }
-        if (this.#targetedArcadeCabinet) {
-          const cabinetProp = this.#props.arcadeProps.get(
-            this.#targetedArcadeCabinet,
-          );
-          if (cabinetProp) this.#props.pickUpProp(cabinetProp);
-          return true;
-        }
-        if (this.#televisionTargeted) {
-          const televisionProp = this.#targetedTelevision
-            ? this.#props.televisionProps.get(this.#targetedTelevision)
-            : undefined;
-          if (televisionProp) this.#props.pickUpProp(televisionProp);
-          return true;
-        }
-        if (this.#targetedProp) {
-          this.#props.pickUpProp(this.#targetedProp);
-          return true;
-        }
-        if (this.#artFrames.targetedId || this.#posters.targetedId) {
-          this.#interact();
-          return true;
-        }
-        return false;
-      case "artFramePreviousChannel":
-        if (!this.#artFrames.targetedId) return false;
-        this.#artFrames.records
-          .get(this.#artFrames.targetedId)
-          ?.frame.changeChannel(-1);
-        this.#worldStateDirty = true;
-        this.#emitGameState();
-        return true;
-      case "artFrameNextChannel":
-        if (!this.#artFrames.targetedId) return false;
-        this.#artFrames.records
-          .get(this.#artFrames.targetedId)
-          ?.frame.changeChannel(1);
-        this.#worldStateDirty = true;
-        this.#emitGameState();
-        return true;
-      case "artFrameInterval":
-        if (!this.#artFrames.targetedId) return false;
-        this.#artFrames.cycleTargetedDigitalArtFrameInterval();
-        return true;
-      case "artFrameFit":
-        if (!this.#artFrames.targetedId) return false;
-        this.#artFrames.cycleTargetedDigitalArtFrameFit();
-        return true;
-      case "tvPreviousChannel":
-        if (!this.#televisionTargeted) return false;
-        this.#targetedTelevision?.previousChannel();
-        return true;
-      case "tvMute":
-        if (!this.#televisionTargeted) return false;
-        this.#targetedTelevision?.toggleMuted();
-        return true;
-      case "toggleShelfPresentation":
-        if (!this.#carriedPublicationId) return false;
-        this.#shelfPresentation =
-          this.#shelfPresentation === "spine" ? "face" : "spine";
-        this.#scanner.update();
-        return true;
-      case "propPinToggle": {
-        // Pin or release whatever movable prop is under the reticle: a
-        // locked prop keeps a fixed body that still blocks the player,
-        // books, and other props, but nothing can bump it around.
-        const lockableProp =
-          this.#targetedProp ??
-          (this.#targetedTelevision
-            ? this.#props.televisionProps.get(this.#targetedTelevision)
-            : undefined) ??
-          (this.#targetedArcadeCabinet
-            ? this.#props.arcadeProps.get(this.#targetedArcadeCabinet)
-            : undefined);
-        if (!lockableProp || this.#props.carriedProp === lockableProp)
-          return false;
-        const locked = !lockableProp.locked;
-        lockableProp.locked = locked;
-        this.#physicsWorld.setPropLocked(lockableProp.id, locked);
-        this.#worldStateDirty = true;
-        this.#emitGameState();
-        return true;
-      }
-      case "interact":
-        this.#triggerInteraction();
-        return true;
-      case "throw":
-        if (this.#televisionTargeted) this.#targetedTelevision?.skip();
-        else if (this.#artFrames.targetedId)
-          this.#artFrames.records.get(this.#artFrames.targetedId)?.frame.skip();
-        else if (this.#props.carriedProp) this.#props.dropCarriedProp(true);
-        else if (this.#carriedPublicationId)
-          this.#bookActions.startThrowCharge();
-        // Held throw state drives shelf browsing; isActionDown covers it.
-        return true;
-      case "drop":
-        if (this.#artFrames.placement || this.#posters.placement) return true;
-        if (this.#artFrames.targetedId)
-          this.#artFrames.removeTargetedDigitalArtFrame();
-        else if (this.#posters.targetedId) this.#posters.removeTargetedPoster();
-        else if (this.#props.carriedProp) this.#props.dropCarriedProp();
-        else this.#bookActions.dropCarriedBook();
-        return true;
-      case "inspectionReturn": {
-        const hoveredRecord = this.#hoveredPublicationId
-          ? this.#booksById.get(this.#hoveredPublicationId)
-          : undefined;
-        if (this.#carriedPublicationId)
-          this.#inspection.advanceInspectionMode(this.#carriedPublicationId);
-        else if (hoveredRecord?.state.status === "shelved")
-          this.#inspection.advanceInspectionMode(this.#hoveredPublicationId);
-        return true;
-      }
-      default:
-        return false;
-    }
-  };
-
-  readonly #handleActionUp = (action: ShortcutAction): boolean => {
-    if (this.#paused()) return true;
-    switch (action) {
-      case "throw":
-        if (this.#bookActions.throwChargeActive)
-          this.#bookActions.releaseThrowCharge();
-        else if (this.#inspection.inspectionMode === "none") {
-          this.#scanner.shelfBrowsePublicationId = undefined;
-          this.#scanner.update();
-        }
-        return true;
-      case "inspectionTurnLeft":
-      case "inspectionTurnRight": {
-        const direction =
-          this.#inspection.inspectionPublication()?.direction ?? "LTR";
-        const navigation = getArrowNavigation(
-          action === "inspectionTurnLeft" ? "ArrowLeft" : "ArrowRight",
-          direction,
-        );
-        if (this.#inspection.inspectionHeldNavigation === navigation)
-          this.#inspection.inspectionHeldNavigation = undefined;
-        return true;
-      }
-      default:
-        // Decline so lower-priority candidates sharing the binding still
-        // receive the release - throwing must see its own key-up.
-        return false;
-    }
-  };
-
-  #triggerInteraction() {
-    if (this.#televisionTargeted) {
-      if (this.#targetedTelevision?.powered())
-        this.#targetedTelevision.nextChannel();
-      else this.#targetedTelevision?.togglePower();
-      return;
-    }
-    if (this.#props.carriedProp) {
-      this.#props.dropCarriedProp();
-      return;
-    }
-    if (this.#targetedProp || this.#posters.targetedId) return;
-    this.#interact();
-  }
-
-  /** Raw-key interceptor: while an arcade session plays, keys feed it. */
-  #forwardArcadeKey(event: KeyboardEvent): boolean {
-    if (this.#paused()) return false;
-    if (this.#activeArcadeCabinet?.sessionStatus !== "playing") return false;
-    // Tab owns the menus and must never reach the game; the global modal
-    // stack handles it. Escape stays browser-reserved for pointer lock.
-    if (event.type === "keydown" && event.code === "Tab") return true;
-    if (event.type === "keydown" && event.code === "KeyR") {
-      event.preventDefault();
-      this.stepAwayFromArcade();
-      return true;
-    }
-    if (event.type === "keydown" && event.code === "KeyP") {
-      event.preventDefault();
-      this.quitActiveArcadeGame();
-      return true;
-    }
-    event.preventDefault();
-    this.#activeArcadeCabinet.forwardKey(
-      event.type === "keydown",
-      describeKeyboardEvent(event),
-    );
-    return true;
-  }
-
-  readonly #handleWindowBlur = () => {
-    this.#input.suspend();
-    this.#inspection.inspectionHeldNavigation = undefined;
-    this.#bookActions.cancelThrowCharge();
-    this.#jumpQueued = false;
-    this.#scanner.shelfBrowsePublicationId = undefined;
-    this.#resetPointerMovement();
-  };
-
-  #resetPointerMovement() {
-    this.#pendingPointerMovementX = 0;
-    this.#pendingPointerMovementY = 0;
-    this.#anomalousPointerMovementCount = 0;
-    this.#lookTarget.yaw = this.#lookAngles.yaw;
-    this.#lookTarget.pitch = this.#lookAngles.pitch;
-  }
-
-  #requestPointerLock() {
-    if (this.#disposed || document.pointerLockElement === this.#canvas) return;
-    if (this.#pointerLockReleasePending) {
-      this.#resumePointerLockAfterRelease = true;
-      return;
-    }
-    this.#resumePointerLockAfterRelease = false;
-    void this.#canvas.requestPointerLock().catch((cause) => {
-      if (DEV) console.warn("Afterleaf could not acquire pointer lock.", cause);
-    });
-  }
-
-  #releasePointerLock() {
-    this.#resumePointerLockAfterRelease = false;
-    if (
-      this.#pointerLockReleasePending ||
-      document.pointerLockElement !== this.#canvas
-    )
-      return;
-    this.#pointerLockReleasePending = true;
-    document.exitPointerLock();
-  }
-
-  #suspendInput() {
-    this.#input.suspend();
-    this.#bookActions.cancelThrowCharge();
-    this.#jumpQueued = false;
-    this.#resetPointerMovement();
-    this.#releasePointerLock();
-    this.#setHoveredPublicationId(undefined);
-    this.#scanner.shelfTargeted = false;
-    this.#scanner.shelfTargetSelection = undefined;
-    this.#signs.previewKey = undefined;
-    this.#signs.targetedKey = undefined;
-    this.#signs.updateTargetVisuals();
-    this.#setPropTargeted(undefined);
-    this.#setTelevisionTargeted(false);
-    this.#setArcadeTargeted(undefined);
-    this.#setTrashTargeted(false);
-    this.#emitGameState();
-  }
-
   #setTelevisionTargeted(
     targeted: boolean,
     interaction?: ShopTelevisionInteraction,
@@ -2830,9 +1915,9 @@ export class ShopScene {
     )
       return;
     if (nextTelevision !== this.#targetedTelevision) {
-      this.#tvWheelScrubDirection = undefined;
-      this.#tvWheelScrubLastAt = Number.NEGATIVE_INFINITY;
-      this.#tvWheelScrubStepIndex = 0;
+      this.#inputController.state.tvWheelScrubDirection = undefined;
+      this.#inputController.state.tvWheelScrubLastAt = Number.NEGATIVE_INFINITY;
+      this.#inputController.state.tvWheelScrubStepIndex = 0;
     }
     this.#targetedTelevision?.setTargeted(undefined);
     this.#targetedTelevision = nextTelevision;
@@ -3077,13 +2162,15 @@ export class ShopScene {
     } else this.#camera.position.copy(save.player.position);
     this.#camera.quaternion.copy(save.player.quaternion);
     this.#physicsPoseEuler.setFromQuaternion(this.#camera.quaternion, "YXZ");
-    this.#lookAngles.pitch = this.#physicsPoseEuler.x;
-    this.#lookAngles.yaw = this.#physicsPoseEuler.y;
-    this.#lookTarget.pitch = this.#lookAngles.pitch;
-    this.#lookTarget.yaw = this.#lookAngles.yaw;
+    this.#inputController.state.lookAngles.pitch = this.#physicsPoseEuler.x;
+    this.#inputController.state.lookAngles.yaw = this.#physicsPoseEuler.y;
+    this.#inputController.state.lookTarget.pitch =
+      this.#inputController.state.lookAngles.pitch;
+    this.#inputController.state.lookTarget.yaw =
+      this.#inputController.state.lookAngles.yaw;
     this.#camera.rotation.set(
-      this.#lookAngles.pitch,
-      this.#lookAngles.yaw,
+      this.#inputController.state.lookAngles.pitch,
+      this.#inputController.state.lookAngles.yaw,
       0,
       "YXZ",
     );
@@ -3528,10 +2615,13 @@ export class ShopScene {
   }
 
   #movePlayer(deltaSeconds: number) {
-    if (!this.#pointerLocked || this.#inspection.inspectionMode === "spread") {
+    if (
+      !this.#inputController.state.pointerLocked ||
+      this.#inspection.inspectionMode === "spread"
+    ) {
       this.#playerVelocity.set(0, 0, 0);
       this.#playerVerticalVelocity = 0;
-      this.#jumpQueued = false;
+      this.#inputController.state.jumpQueued = false;
       return;
     }
     // Digital keyboard input and analog stick input combine, then clamp.
@@ -3549,7 +2639,7 @@ export class ShopScene {
     const sprinting = this.#input.isActionDown("sprint");
     getPlanarMovement(
       this.#movementInput,
-      this.#lookAngles.yaw,
+      this.#inputController.state.lookAngles.yaw,
       (sprinting ? SPRINT_SPEED : WALK_SPEED) * deltaSeconds,
       this.#movementDelta,
     );
@@ -3563,8 +2653,9 @@ export class ShopScene {
         movementTime - this.#lastPlayerGroundedAt <= PLAYER_JUMP_COYOTE_MS ||
         this.#camera.position.y <= SHOP_PHYSICS_PLAYER_EYE_HEIGHT + 0.025;
       const jumpBuffered =
-        this.#jumpQueued &&
-        movementTime - this.#jumpQueuedAt <= PLAYER_JUMP_BUFFER_MS;
+        this.#inputController.state.jumpQueued &&
+        movementTime - this.#inputController.state.jumpQueuedAt <=
+          PLAYER_JUMP_BUFFER_MS;
       if (jumpBuffered && canJump) {
         this.#playerVerticalVelocity = PLAYER_JUMP_SPEED;
         this.#playerGrounded = false;
@@ -3574,7 +2665,7 @@ export class ShopScene {
           PLAYER_TERMINAL_VELOCITY,
           this.#playerVerticalVelocity + PLAYER_GRAVITY * deltaSeconds,
         );
-      this.#jumpQueued = jumpBuffered && !canJump;
+      this.#inputController.state.jumpQueued = jumpBuffered && !canJump;
       this.#playerDesiredDisplacement.set(
         this.#movementDelta.x,
         this.#playerVerticalVelocity * deltaSeconds,
@@ -3604,7 +2695,7 @@ export class ShopScene {
       this.#playerGrounded = grounded;
       if (grounded) this.#lastPlayerGroundedAt = movementTime;
     } else {
-      this.#jumpQueued = false;
+      this.#inputController.state.jumpQueued = false;
       this.#movementPosition.x = previousX;
       this.#movementPosition.z = previousZ;
       resolveShopMovement(
@@ -4112,7 +3203,7 @@ export class ShopScene {
       interactiveMeshes: () => this.#interactiveMeshes,
       movableProps: () => this.#props.records,
       movablePropTargetMeshes: () => this.#props.targetMeshes,
-      pointerLocked: () => this.#pointerLocked,
+      pointerLocked: () => this.#inputController.state.pointerLocked,
       posters: () => this.#posters,
       raycaster: () => this.#raycaster,
       setArcadeTargeted: (cabinet) => this.#setArcadeTargeted(cabinet),
@@ -4156,7 +3247,7 @@ export class ShopScene {
       heldTargetPose: () => this.#heldTargetPose,
       hoveredPublicationId: () => this.#hoveredPublicationId,
       inspectionMode: () => this.#inspection.inspectionMode,
-      lookYaw: () => this.#lookAngles.yaw,
+      lookYaw: () => this.#inputController.state.lookAngles.yaw,
       markWorldStateDirty: () => {
         this.#worldStateDirty = true;
       },
