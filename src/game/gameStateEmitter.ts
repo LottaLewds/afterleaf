@@ -28,8 +28,8 @@ import type {
   ModelPlacementSession,
   MovablePropRecord,
   ShelfTargetSelection,
-  ShelveAnimation,
 } from "~/game/ShopScene";
+import type {ShelveAnimation} from "~/game/bookCarryActions";
 import {INTERACTION_ROW_MODES, type UiMode} from "~/game/uiMode";
 import type {PosterSystem} from "~/game/posters/PosterSystem";
 import type {ShopSignSystem} from "~/game/signs/ShopSignSystem";

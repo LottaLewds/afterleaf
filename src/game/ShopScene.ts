@@ -9,7 +9,6 @@ import {
   EquirectangularReflectionMapping,
   Euler,
   Group,
-  LinearFilter,
   MathUtils,
   Mesh,
   MeshBasicMaterial,
@@ -18,7 +17,6 @@ import {
   Object3D,
   PCFSoftShadowMap,
   PerspectiveCamera,
-  PlaneGeometry,
   Quaternion,
   Raycaster,
   RepeatWrapping,
@@ -33,160 +31,134 @@ import {
   type ColorSpace,
   type Material,
 } from "three";
+import floorAlbedoUrl from "~/assets/materials/laminate-floor-albedo.webp";
+import floorNormalUrl from "~/assets/materials/laminate-floor-normal.webp";
+import floorSurfaceUrl from "~/assets/materials/laminate-floor-surface.webp";
+import moonriseSkyUrl from "~/assets/materials/qwantani-moonrise-sky.webp";
+import {BUILTIN_TRASH_CAN_ASSET_ID} from "~/game/propAssetIds";
+import {
+  DIGITAL_ART_FRAME_INTERVALS,
+  MAX_POSTER_HEIGHT,
+  MIN_POSTER_HEIGHT,
+  normalizePosterRotation,
+  POSTER_WHEEL_ROTATION_STEP,
+} from "~/game/wallDecorTuning";
+import {
+  INSPECTION_TRANSITION_POSITION_EPSILON_SQ,
+  INSPECTION_TRANSITION_ROTATION_EPSILON,
+  SHELF_PREVIEW_SPEED,
+  SHELF_PREVIEW_PULL_END,
+  SHELF_PREVIEW_ROTATION_START,
+  SHELF_PREVIEW_FOCUS_HANDOFF_PROGRESS,
+  SHELF_BROWSE_INTERVAL_MS,
+} from "~/game/bookInspectionTuning";
+import {TRASH_CAN_PROP_ID} from "~/game/discardBin";
+import {
+  BOOK_UNDER_SHELF_RECOVERY_Y,
+  BOOK_VOID_RECOVERY_Y,
+} from "~/game/bookTuning";
+import {createWorldSave} from "~/game/worldSaveSnapshot";
+import {physicalBookWidth} from "~/game/bookDimensions";
+import {
+  INSPECTION_ACTION_CLOSE_SPEED,
+  INSPECTION_COVER_ANIMATION_SPEED,
+  INSPECTION_FRAME_FILL,
+  INSPECTION_OPEN_ANGLE,
+  INSPECTION_PAGE_GUTTER,
+} from "~/game/bookInspectionTuning";
+import {hashString} from "~/game/mathHelpers";
+import {clampUnit, dotWithPhysicsQuaternion} from "~/game/mathHelpers";
+import {bookDropPosition} from "~/game/bookDropPlacement";
+import {BOOK_HEIGHT} from "~/game/bookTuning";
+import type {BuiltinSpawnablePropAsset} from "~/game/propTemplates";
+import {
+  ARCADE_CABINET_HEIGHT,
+  ShopArcadeCabinet,
+  type ArcadeSessionStatus,
+} from "~/game/ShopArcadeCabinet";
 import {GLTFLoader} from "three/examples/jsm/loaders/GLTFLoader.js";
 import {KTX2Loader} from "three/examples/jsm/loaders/KTX2Loader.js";
 import {RectAreaLightUniformsLib} from "three/examples/jsm/lights/RectAreaLightUniformsLib.js";
 import {clone as cloneWithSkeleton} from "three/examples/jsm/utils/SkeletonUtils.js";
 import {DEV} from "solid-js";
-import {buildMergedStaticParts} from "~/game/staticModelBatching";
-import {createBookExteriorMaterial} from "~/game/bookExteriorMaterial";
-import {disposeObject} from "~/game/threeDisposal";
+import {ShopAudioManager} from "~/game/ShopAudioManager";
+import {FpsHud} from "~/game/FpsHud";
 import {
-  addInteriorBox,
-  createPosterSurface as createPosterSurfaceTarget,
-} from "~/game/interior/interiorPrimitives";
-import {createReadingChairInstance} from "~/game/interior/readingFurniture";
-import {createFaceOutDisplay} from "~/game/interior/shelfFixtures";
-import {buildShopInterior} from "~/game/interior/shopComposition";
-import {
-  createCeilingLightRig,
-  createDeskLamps,
-  playModelAnimations,
-} from "~/game/interior/lightingProps";
-import {
-  DEFAULT_MODEL_SCALE,
-  MAX_MODEL_SCALE,
-  MIN_MODEL_SCALE,
-} from "~/game/propTuning";
-import {
-  BUILTIN_ARCADE_CABINET_ASSET_ID,
-  BUILTIN_CEILING_LIGHT_ASSET_ID,
-  BUILTIN_CRT_TV_ASSET_ID,
-  BUILTIN_TRASH_CAN_ASSET_ID,
-} from "~/game/propAssetIds";
-import {
-  BUILTIN_SPAWNABLE_PROP_ASSETS,
-  TEMPLATE_SPAWNED_BUILTIN_ASSET_IDS,
-  placeClonedTemplateObject,
-  PropTemplateCache,
-  type BuiltinSpawnablePropAsset,
-  type SpawnablePropAsset,
-} from "~/game/propTemplates";
-import {
-  clampUnit,
-  dotWithPhysicsQuaternion,
-  hashString,
-} from "~/game/mathHelpers";
-import {normalizePosterRotation} from "~/game/wallDecorTuning";
-import {
-  createBook,
   faceDisplayShelfId,
   faceDisplayShelfOffset,
   type BookRecord,
+  createBook,
   type RetainedBookGameplay,
 } from "~/game/bookFactory";
-import {
-  BOOK_HEIGHT,
-  BOOK_UNDER_SHELF_RECOVERY_Y,
-  BOOK_VOID_RECOVERY_Y,
-} from "~/game/bookTuning";
-import {
-  DiscardBin,
-  TRASH_CAN_HEIGHT,
-  TRASH_CAN_PROP_ID,
-} from "~/game/discardBin";
-import {ArtFrameTextureCache} from "~/game/artFrameTextureCache";
-import type {DigitalArtFramePasteTarget} from "~/game/artFrameSystem";
-import {ArtFrameSystem} from "~/game/artFrameSystem";
-import {BookTextureRuntime} from "~/game/bookTextureRuntime";
+import {createBookExteriorMaterial} from "~/game/bookExteriorMaterial";
+import {INSPECTION_TRANSITION_SPEED} from "~/game/bookInspectionTuning";
+import type {ShopArcadePlayRequest} from "~/game/ShopArcadeCabinet";
+import {disposeObject} from "~/game/threeDisposal";
+import type {
+  MovablePropRegistration,
+  PropMaterialSwap,
+} from "~/game/propRegistration";
 import {
   GameStateEmitter,
   type GameSnapshotInput,
 } from "~/game/gameStateEmitter";
-import {createWorldSave} from "~/game/worldSaveSnapshot";
-import {TvVideoImporter} from "~/game/tvVideoImporter";
-import {PosterSystem} from "~/game/posters/PosterSystem";
-import {DoorSystem} from "~/game/interior/doors";
 import {
-  shopSignKey,
-  ShopSignSystem,
-  type ShopSignEditRequest,
-  type ShopSignKind,
-} from "~/game/signs/ShopSignSystem";
-import {
-  type MovablePropRegistration,
-  type PropMaterialSwap,
-  type ReadingFurnitureMaterials,
-} from "~/game/propRegistration";
-import {
-  INSPECTION_ACTION_CLOSE_SPEED,
-  INSPECTION_COVER_ANIMATION_SPEED,
-  INSPECTION_FRAME_FILL,
-  INSPECTION_LIGHTING_BLEND_SPEED,
-  INSPECTION_OPEN_ANGLE,
-  INSPECTION_OPENING_DELAY_SECONDS,
-  INSPECTION_PAGE_DEFORMATION,
-  INSPECTION_PAGE_DRAG_FOLLOW_SPEED,
-  INSPECTION_PAGE_GUTTER,
-  INSPECTION_PAGE_TURN_SPEED,
-  INSPECTION_READER_EMISSIVE,
-  INSPECTION_READER_EMISSIVE_INTENSITY,
-  INSPECTION_SURFACE_GAP,
-  INSPECTION_TRANSITION_POSITION_EPSILON_SQ,
-  INSPECTION_TRANSITION_ROTATION_EPSILON,
-  INSPECTION_TRANSITION_SPEED,
-  invertPageTurnEasing,
-  SHELF_BROWSE_INTERVAL_MS,
-  SHELF_PREVIEW_FOCUS_HANDOFF_PROGRESS,
-  SHELF_PREVIEW_PULL_END,
-  SHELF_PREVIEW_ROTATION_SPEED,
-  SHELF_PREVIEW_ROTATION_START,
-  SHELF_PREVIEW_SPEED,
-  SHELF_PREVIEW_TRANSLATION_SPEED,
-  SHELF_RETURN_CLOSE_HANDOFF_ANGLE,
-  SHELF_RETURN_ROTATION_HANDOFF_EPSILON,
-} from "~/game/bookInspectionTuning";
-import {
-  DIGITAL_ART_FRAME_INTERVALS,
-  MAX_POSTER_HEIGHT,
-  MIN_POSTER_HEIGHT,
-  POSTER_INTERACTION_DISTANCE,
-  POSTER_WHEEL_ROTATION_STEP,
-} from "~/game/wallDecorTuning";
-import {FpsHud} from "~/game/FpsHud";
-
-import {artFrameChannelId, type ArtFrameImage} from "~/artFrames/protocol";
-import {describeKeyboardEvent} from "~/arcade/emulatorHost";
-import {findArcadeSystem} from "~/arcade/systems";
-import floorAlbedoUrl from "~/assets/materials/laminate-floor-albedo.webp";
-import floorNormalUrl from "~/assets/materials/laminate-floor-normal.webp";
-import floorSurfaceUrl from "~/assets/materials/laminate-floor-surface.webp";
-import moonriseSkyUrl from "~/assets/materials/qwantani-moonrise-sky.webp";
+  createDeskLamps,
+  createCeilingLightRig,
+} from "~/game/interior/lightingProps";
+import {getInitialModelAnimationIndex} from "~/game/modelTelevision";
+import {playModelAnimations} from "~/game/interior/lightingProps";
 import crtTvModelUrl from "~/assets/models/crt-tv.glb?url";
 import trashCanModelUrl from "~/assets/models/trash_can.glb?url";
+import {findModelTelevisionScreen} from "~/game/modelTelevision";
+import {MIN_MODEL_SCALE, MAX_MODEL_SCALE} from "~/game/propTuning";
+import {DEFAULT_MODEL_SCALE} from "~/game/propTuning";
+import {
+  BUILTIN_ARCADE_CABINET_ASSET_ID,
+  BUILTIN_CEILING_LIGHT_ASSET_ID,
+  BUILTIN_CRT_TV_ASSET_ID,
+} from "~/game/propAssetIds";
+import type {ShopSignKind} from "~/game/signs/ShopSignSystem";
+import {shopSignKey} from "~/game/signs/ShopSignSystem";
+import type {DigitalArtFramePasteTarget} from "~/game/artFrameSystem";
+import {addInteriorBox} from "~/game/interior/interiorPrimitives";
+import {createPosterSurface as createPosterSurfaceTarget} from "~/game/interior/interiorPrimitives";
+import {buildMergedStaticParts} from "~/game/staticModelBatching";
+import type {ReadingFurnitureMaterials} from "~/game/propRegistration";
+import {createReadingChairInstance} from "~/game/interior/readingFurniture";
+import {
+  createFaceOutDisplay,
+  createSpineShelfFixture as _unusedSsf,
+} from "~/game/interior/shelfFixtures";
+import {buildShopInterior} from "~/game/interior/shopComposition";
+import {InspectionController} from "~/game/inspection/InspectionController";
+import {PropTemplateCache} from "~/game/propTemplates";
+import {
+  BUILTIN_SPAWNABLE_PROP_ASSETS,
+  placeClonedTemplateObject,
+  TEMPLATE_SPAWNED_BUILTIN_ASSET_IDS,
+  type SpawnablePropAsset,
+} from "~/game/propTemplates";
+import {ShopSignSystem} from "~/game/signs/ShopSignSystem";
+import {DiscardBin} from "~/game/discardBin";
+import {DoorSystem} from "~/game/interior/doors";
+import {PosterSystem} from "~/game/posters/PosterSystem";
+import {ArtFrameSystem} from "~/game/artFrameSystem";
+import {TvVideoImporter} from "~/game/tvVideoImporter";
+import {ArtFrameTextureCache} from "~/game/artFrameTextureCache";
+import {BookTextureRuntime} from "~/game/bookTextureRuntime";
+import {BookCarryActions, type BookCarryHost} from "~/game/bookCarryActions";
+import {
+  InteractionScanner,
+  type InteractionScannerHost,
+} from "~/game/interactionScanner";
+
 import type {CatalogAtlases, CatalogIdentity, CatalogItem} from "~/catalog";
-import {bookDropPosition} from "~/game/bookDropPlacement";
-import {physicalBookWidth} from "~/game/bookDimensions";
+import type {ArtFrameImage} from "~/artFrames/protocol";
+import {artFrameChannelId} from "~/artFrames/protocol";
+import type {ShopSignEditRequest} from "~/game/signs/ShopSignSystem";
 import {type UiMode} from "~/game/uiMode";
-import {
-  ARCADE_CABINET_HEIGHT,
-  ShopArcadeCabinet,
-  type ArcadeSessionStatus,
-  type ShopArcadePlayRequest,
-} from "~/game/ShopArcadeCabinet";
-import {PageTextureCache} from "~/game/PageTextureCache";
-import {ShopAudioManager} from "~/game/ShopAudioManager";
-import {
-  findModelTelevisionScreen,
-  getInitialModelAnimationIndex,
-} from "~/game/modelTelevision";
-import {
-  getPageBlockSplit,
-  writeActiveLeafDeformation,
-  writeActiveLeafPositions,
-  type ActiveLeafDeformationTarget,
-  type ActiveLeafVertex,
-} from "~/game/PageTurnGeometry";
+
 import {
   clampLookDeltaMagnitude,
   dampLookAngles,
@@ -196,7 +168,6 @@ import {
   isPointInsideShopObstacle,
   resolvePlayerGrounded,
   resolveShopMovement,
-  transitionBookInteraction,
   updateLookAngles,
   type LookAngles,
   type PlanarMovementInput,
@@ -215,12 +186,12 @@ import {
   padForwardEvent,
   type ArcadePadMappingOverrides,
 } from "~/arcade/controllerMappings";
+import {describeKeyboardEvent} from "~/arcade/emulatorHost";
+import {findArcadeSystem} from "~/arcade/systems";
 import {type InteractionPromptToken} from "~/game/input/hints";
 import {SHOP_TV_CAVE, SHOP_UPPER_FLOOR_Y} from "~/game/shopExpansionLayout";
 
 import {
-  findAdjacentShelfBook,
-  insertSpineShelfBook,
   spineShelfBookNormalOffset,
   ShelfPresentation,
   type SpineShelfPlacement,
@@ -233,7 +204,6 @@ import {
   RARE_ROOM_CENTER_Z,
   FACE_DISPLAY_ROWS,
   FACE_SHELF_ID,
-  FACE_DISPLAY_COLUMN_SPACING,
   SHOP_INTERIOR_FOOTPRINTS,
   SHOP_MODEL_TELEVISION_SCALE,
   SHOP_MODEL_TELEVISION_SIZE,
@@ -254,7 +224,6 @@ import type {ShopMediaCatalog} from "~/game/shopMediaCatalog";
 import type {ModelAsset} from "~/models/protocol";
 import {
   INITIAL_WORLD_SEEDING_VERSION,
-  MAX_CARRIED_BOOKS,
   WORLD_SEEDING_VERSION,
   worldSaveCanReconcileCatalog,
   worldSaveMatchesCatalog,
@@ -268,23 +237,13 @@ import {
   type WorldTelevisionVolumes,
 } from "~/game/worldSave";
 import {
-  detectWideReaderPage,
   getWideReaderPageIndices,
-  mirrorReaderPageHorizontalRange,
-  readerPageHalf,
   readerPageSourceUrl,
-  readerPageTextureUrl,
   subscribeToWideReaderPages,
 } from "~/reader/pageSpreadDetection";
-import {ReaderPagePreloader} from "~/reader/ReaderPagePreloader";
-import {createReaderPagePreloadPlan} from "~/reader/pagePreloadPlan";
 import {
-  READER_PAGE_TEXTURE_CACHE_SIZE,
-  clampPageIndex,
-  getAdjacentSpreadStart,
   getArrowNavigation,
   getReaderSpread,
-  getReaderSpreadSides,
   type ReaderNavigation,
 } from "~/reader/pagination";
 import {
@@ -299,7 +258,6 @@ import type {PosterAsset} from "~/posters/protocol";
 const FACE_SHELF_SLOT_COUNT = FACE_DISPLAY_COLUMNS * FACE_DISPLAY_ROWS;
 const SHOP_PLAYER_START_X = 0;
 const SHOP_PLAYER_START_Z = 25;
-const SPINE_SHELF_GAP = 0.018;
 const HELD_BOOK_STACK_GAP = 0.012;
 const HELD_BOOK_FAN_X_SPACING = 0.105;
 const HELD_BOOK_FAN_Y_SPACING = 0.008;
@@ -313,17 +271,6 @@ const PLAYER_JUMP_SPEED = 6.2;
 const PLAYER_JUMP_BUFFER_MS = 160;
 const PLAYER_JUMP_COYOTE_MS = 160;
 const PLAYER_TERMINAL_VELOCITY = -24;
-const THROW_CHARGE_SECONDS = 1.8;
-const THROW_MIN_SPEED = 8.5;
-const THROW_MAX_SPEED = 13.5;
-const THROW_MIN_LIFT = 1.4;
-const THROW_MAX_LIFT = 15;
-const SHELF_INTERACTION_DISTANCE = 2.75;
-const INTERACTION_DISTANCE = SHELF_INTERACTION_DISTANCE;
-const TRASH_INTERACTION_DISTANCE = 2.65;
-const SIGN_INTERACTION_DISTANCE = 3.4;
-const TELEVISION_INTERACTION_DISTANCE = 3.6;
-const ARCADE_INTERACTION_DISTANCE = 3.4;
 // Each entry places one cabinet (model screen faces +Z; rotationY flips it
 // toward the shop interior). Add entries to open more arcade lanes. The
 // origin is the model center, so the lane spawns half a height above floor.
@@ -331,7 +278,6 @@ const ARCADE_CABINET_PLACEMENTS: readonly {
   position: readonly [number, number, number];
   rotationY: number;
 }[] = [{position: [2.7, ARCADE_CABINET_HEIGHT / 2, 16.2], rotationY: Math.PI}];
-const MOVABLE_PROP_INTERACTION_DISTANCE = 4;
 const SHOP_MEDIA_CATALOG_REFRESH_INTERVAL_MS = 10_000;
 const TV_WHEEL_SCRUB_RESET_MS = 900;
 const TV_WHEEL_SCRUB_STEPS_SECONDS = [3, 5, 10, 15, 30] as const;
@@ -340,8 +286,6 @@ const MODEL_TELEVISION_PHYSICS_ID = "crt-television";
 // television: the node's first mesh becomes the video screen.
 const MODEL_TELEVISION_SCREEN_NODE_NAME = "TVScreen";
 const MODEL_TELEVISION_DENSITY = 60;
-const DISCARD_TOSS_DURATION_SECONDS = 0.52;
-const SHELVE_BOOK_DURATION_SECONDS = 0.34;
 const LOOK_SENSITIVITY = 0.0021;
 /** Gamepad look speed in equivalent mouse pixels per second at full deflection. */
 const GAMEPAD_LOOK_SPEED = 700;
@@ -358,9 +302,7 @@ const SHADER_PRECOMPILE_LATE_DELAY_MS = 4_000;
 // The full-shop reticle sweep runs on a fixed-rate budget (60 Hz) instead
 // of every animation tick; highlight prompts and clicks tolerate a frame
 // or two of latency, and the sweep costs real time against many props.
-const AIM_SWEEP_MIN_INTERVAL_MS = 1000 / 60;
 /** Extra reach margin so culling never drops a bank the ray could graze. */
-const SHELF_HOVER_CULL_MARGIN = 1.5;
 const DISCARD_TARGETED_EMISSIVE = new Color("#ff3524");
 const DISCARD_TARGETED_EMISSIVE_INTENSITY = 0.95;
 const CARRIED_PROP_OPACITY = 0.32;
@@ -423,7 +365,7 @@ const SHOP_COLLISION_WORLD: ShopCollisionWorld = {
   obstacles: SHOP_INTERIOR_FOOTPRINTS,
 };
 
-type SpineShelfDefinition = {
+export type SpineShelfDefinition = {
   axis: Vector3;
   backInset: number;
   faceInset: number;
@@ -493,29 +435,9 @@ export type ModelPlacementSession = {
   revision: number;
 };
 
-type DiscardAnimation = {
-  elapsedSeconds: number;
-  publicationId: string;
-  startPosition: Vector3;
-  startRotation: Quaternion;
-};
-
-export type ShelveAnimation = {
-  elapsedSeconds: number;
-  placements: readonly SpineShelfPlacement[] | undefined;
-  publicationId: string;
-  shelfId: string;
-  startPosition: Vector3;
-  startRotation: Quaternion;
-  targetPosition: Vector3;
-  targetRotation: Quaternion;
-};
-
 export type InspectionCloseAction = "drop" | "return" | "throw";
 
 export type InspectionMode = "closing" | "none" | "spread";
-
-type InspectionShelfReturnPhase = "close" | "rotate" | "translate";
 
 export type ShopInteraction = {
   /** Display string for keyboard users; also used as the aria label. */
@@ -684,33 +606,7 @@ export class ShopScene {
   readonly #onTextPaste:
     | ((text: string) => boolean | Promise<boolean>)
     | undefined;
-  readonly #inspectionPointerNdc = new Vector2();
-  readonly #inspectionLocalPosition = new Vector3();
-  readonly #inspectionLocalRotation = new Quaternion();
-  readonly #inspectionShelfWorldRotation = new Quaternion();
-  readonly #inspectionPageTextureCache = new PageTextureCache<Texture>({
-    load: (url) => this.#loadInspectionPageTexture(url),
-    maxEntries: READER_PAGE_TEXTURE_CACHE_SIZE,
-    onLoadingChange: (count) => {
-      this.#inspectionPageLoadCount = count;
-      if (!this.#disposed) this.#emitGameState();
-    },
-  });
-  readonly #inspectionPagePreloader = new ReaderPagePreloader({
-    maxEntries: READER_PAGE_TEXTURE_CACHE_SIZE,
-  });
-  readonly #inspectionLeafDeformation: ActiveLeafDeformationTarget = {
-    curl: 0,
-    eased: 0,
-    lift: 0,
-    normalized: 0,
-    phase: "peel",
-    phaseProgress: 0,
-    sourceSide: 1,
-    torsion: 0,
-    turnAngle: 0,
-  };
-  readonly #inspectionLeafVertex: ActiveLeafVertex = {x: 0, y: 0, z: 0};
+
   readonly #loadMediaCatalog: (
     signal: AbortSignal,
   ) => Promise<ShopMediaCatalog>;
@@ -723,6 +619,7 @@ export class ShopScene {
   readonly #artFrameTextures: ArtFrameTextureCache;
   readonly #bookTextures: BookTextureRuntime;
   readonly #gameStateEmitter = new GameStateEmitter();
+  readonly #inspection: InspectionController;
   readonly #snapshotInput: GameSnapshotInput;
   readonly #input: InputManager;
   readonly #getShortcuts: () => ShortcutsConfig;
@@ -802,27 +699,15 @@ export class ShopScene {
   readonly #propSupportBounds = new Box3();
   readonly #propPlacementSupports: PropPlacementSupport[] = [];
   readonly #raycaster = new Raycaster();
-  readonly #reticle = new Vector2();
   /** Frame timestamp from the animation loop; one time source per frame. */
   #frameNowMs = 0;
-  #lastAimSweepTimeMs = -Infinity;
   readonly #renderer: WebGLRenderer;
   readonly #scene = new Scene();
   readonly #spineShelfDefinitions = new Map<string, SpineShelfDefinition>();
   readonly #selectedPublicationId: () => string | null | undefined;
   readonly #shelfTargetMeshes: Mesh[] = [];
-  readonly #shelfSnapMesh = new Mesh(
-    new PlaneGeometry(1, 1),
-    new MeshBasicMaterial({
-      color: "#78b594",
-      depthWrite: false,
-      opacity: 0.42,
-      transparent: true,
-    }),
-  );
   readonly #shelfPreviewBaseRotation = new Quaternion();
   readonly #shelfPreviewTargetRotation = new Quaternion();
-  readonly #shelfTargetOffset = new Vector3();
   readonly #textureLoader = new TextureLoader();
   /**
    * Lazily initialized because support detection needs the renderer. Serves
@@ -830,13 +715,6 @@ export class ShopScene {
    */
   #ktx2Loader: KTX2Loader | undefined;
   readonly #televisions: ShopTelevision[] = [];
-  readonly #televisionTargetPosition = new Vector3();
-  readonly #televisionTargetScale = new Vector3();
-  readonly #trashTossTarget = new Vector3();
-  readonly #trashTossRotation = new Quaternion().setFromEuler(
-    new Euler(-Math.PI / 2, 0.45, Math.PI * 0.5),
-  );
-  readonly #throwAngularVelocity = new Vector3(2.8, 4.5, 1.9);
   readonly #throwVelocity = new Vector3();
   readonly #upAxis = new Vector3(0, 1, 0);
   readonly #viewDirection = new Vector3();
@@ -844,67 +722,13 @@ export class ShopScene {
   #carriedProp: MovablePropRecord | undefined;
   readonly #carriedPublicationIds: string[] = [];
   #carriedPublicationId: string | undefined;
-  #discardAnimation: DiscardAnimation | undefined;
-  #shelveAnimation: ShelveAnimation | undefined;
-  #discardBusy = false;
-  #discardError: string | undefined;
-  readonly #discardedPublicationIds = new Set<string>();
+  readonly #bookActions: BookCarryActions;
+  readonly #scanner: InteractionScanner;
   #disposed = false;
   #stagedBootStarted = false;
   #frameHandle: number | undefined;
   #hoveredPublicationId: string | undefined;
-  #inspectionMode: InspectionMode = "none";
-  #inspectionDragCurrentX = 0;
-  #inspectionDragMoved = false;
-  #inspectionDragNavigation: ReaderNavigation | undefined;
-  #inspectionDragReleaseDecision: "cancel" | "commit" | undefined;
-  #inspectionDragStartX = 0;
-  #inspectionDragging = false;
-  #inspectionCloseAction: InspectionCloseAction | undefined;
-  #inspectionOpenAngle = 0;
-  #inspectionOpenAngleTarget = 0;
-  #inspectionOpeningDelay = 0;
-  #inspectionOpeningHalf: "left" | "right" = "left";
-  #inspectionPageIndex = 0;
-  #inspectionPageLoadCount = 0;
-  #inspectionPhysicsReturnActive = false;
-  #inspectionPublicationId: string | undefined;
-  #inspectionResumePageIndex = 0;
-  #inspectionShelfFocusPending = false;
-  #inspectionShelfReturnPhase: InspectionShelfReturnPhase | undefined;
-  #inspectionPointerX = 0;
-  #inspectionPointerY = 0;
-  #inspectionTextureRevision = 0;
-  #inspectionTextureUrls = new Set<string>();
-  #inspectionTurnPage: "left" | "right" | undefined;
-  #inspectionTurnFromSingle = false;
-  #inspectionTurnOpeningFromBack = false;
-  #inspectionTurnNavigation: ReaderNavigation = "forward";
-  #inspectionTurnPreparing = false;
-  #inspectionTurnProgress = 0;
-  #inspectionTurnProgressTarget = 0;
-  #inspectionTurnRevision = 0;
-  #inspectionTurnTextureUrls = new Set<string>();
-  #inspectionTurnToSingle = false;
-  #inspectionTurnDestinationTexture: Texture | null = null;
-  #inspectionTurnDestinationPreviousTexture: Texture | null = null;
-  #inspectionTurnAnchorX = 1;
-  #inspectionTurnAnchorY = 0.5;
-  #inspectionTurnSourceSide: "left" | "right" = "left";
-  #inspectionTurnSourceDestinationTexture: Texture | null = null;
-  #inspectionTurnSourceTexture: Texture | null = null;
-  #inspectionTurnBackSourceRevealed = false;
-  #inspectionTurnTargetPageIndex = 0;
-  #inspectionTurnWillCommit = true;
-  #inspectionQueuedTurn: ReaderNavigation | undefined;
-  #inspectionHeldNavigation: ReaderNavigation | undefined;
-  #inspectionTurningBackTexture: Texture | undefined;
-  #inspectionZoom = 1;
-  #inspectionZoomOffsetX = 0;
-  #inspectionZoomOffsetY = 0;
-  #inspectionZoomOffsetTargetX = 0;
-  #inspectionZoomOffsetTargetY = 0;
-  #inspectionZoomTarget = 1;
+
   #interactiveMeshes: Mesh[] = [];
   #didWarnPointerMovement = false;
   #ignoreNextLockedPointerMove = false;
@@ -912,7 +736,6 @@ export class ShopScene {
   #lastFrameTime = 0;
   #lastItems: readonly CatalogItem[] | undefined;
   #lastNewPublicationIds: readonly string[] | undefined;
-  #pendingDiscardPublicationId: string | undefined;
   #lastPixelRatio = 0;
   #lastSelectedPublicationId: string | null | undefined;
   #moonEnvironment: Texture | undefined;
@@ -953,21 +776,9 @@ export class ShopScene {
   #ready = false;
   #resizeDirty = true;
   #resizeObserver: ResizeObserver | undefined;
-  #shelfTargeted = false;
-  #shelfTargetSelection: ShelfTargetSelection | undefined;
   #shelfPresentation: ShelfPresentation = "spine";
   readonly #shelfHoverMeshesByShelf = new Map<string, Mesh[]>();
   readonly #ungroupedShelfHoverMeshes: Mesh[] = [];
-  readonly #shelfHoverSweepScratch: Mesh[] = [];
-  /** Camera pose at the last completed reticle sweep. */
-  readonly #lastSweepPosition = new Vector3();
-  readonly #lastSweepQuaternion = new Quaternion();
-  /**
-   * Forces the next reticle sweep even when the camera has not moved, set
-   * whenever targetable scene content changes (books reshelved, props moved).
-   */
-  #interactionTargetsDirty = true;
-  #shelfBrowsePublicationId: string | undefined;
   #shelfBrowseReadyAt = 0;
   #channelEditorDigitalArtFrameId: string | undefined;
   #channelEditorTelevision: ShopTelevision | undefined;
@@ -982,11 +793,6 @@ export class ShopScene {
   #televisionTableMaterial: MeshStandardMaterial | undefined;
   #savedTelevisionChannels: WorldTelevisionChannels = {};
   #savedTelevisionVolumes: WorldTelevisionVolumes = {};
-  #trashTargeted = false;
-  #targetedTrashBinId: string | undefined;
-  #throwChargeActive = false;
-  #throwChargeBucket = -1;
-  #throwChargeSeconds = 0;
   #viewportHeight = 1;
   #viewportWidth = 1;
   #worldSaveIdleHandle: number | undefined;
@@ -1115,21 +921,64 @@ export class ShopScene {
         publicationId === this.#lastSelectedPublicationId,
       isBookInFlight: (publicationId) =>
         this.#carriedPublicationIds.includes(publicationId) ||
-        publicationId === this.#inspectionPublicationId ||
-        publicationId === this.#discardAnimation?.publicationId ||
-        publicationId === this.#shelveAnimation?.publicationId,
+        publicationId === this.#inspection.inspectionPublicationId ||
+        publicationId === this.#bookActions.discardAnimation?.publicationId ||
+        publicationId === this.#bookActions.shelveAnimation?.publicationId,
       isPinnedOrInFlight: (publicationId) =>
         publicationId === this.#hoveredPublicationId ||
         publicationId === this.#lastSelectedPublicationId ||
         this.#carriedPublicationIds.includes(publicationId) ||
-        publicationId === this.#inspectionPublicationId ||
-        publicationId === this.#discardAnimation?.publicationId,
+        publicationId === this.#inspection.inspectionPublicationId ||
+        publicationId === this.#bookActions.discardAnimation?.publicationId,
       maxAnisotropy: () => this.#renderer.capabilities.getMaxAnisotropy(),
       nextFrame: () => ShopScene.nextFrame(),
       renderer: this.#renderer,
       scene: this.#scene,
       textureLoader: this.#textureLoader,
     });
+    this.#inspection = new InspectionController({
+      booksById: () => this.#booksById,
+      emitGameState: () => this.#emitGameState(),
+      scene: () => this.#scene,
+      carriedPublicationId: () => this.#carriedPublicationId,
+      physicsWorld: () => this.#physicsWorld,
+      camera: () => this.#camera,
+      catalogItems: () => this.#catalogItems(),
+      bookTextures: () => this.#bookTextures,
+      onPageIndexChange: (publicationId, pageIndex) =>
+        this.#onPageIndexChange?.(publicationId, pageIndex),
+      physicsPosePosition: () => this.#physicsPosePosition,
+      physicsPoseRotation: () => this.#physicsPoseRotation,
+      physicsPose: () => this.#physicsPose,
+      physicsPoseEuler: () => this.#physicsPoseEuler,
+      canvas: () => this.#canvas,
+      horizontalFieldOfView: () => this.#horizontalFieldOfView(),
+      disposed: () => this.#disposed,
+      physicsTransform: () => this.#physicsTransform,
+      setHoveredPublicationId: (publicationId) =>
+        this.#setHoveredPublicationId(publicationId),
+      onSelectPublication: this.#onSelectPublication,
+      initialPageIndex: (publicationId) =>
+        this.#initialPageIndex(publicationId),
+      applyBookStates: () => this.#applyBookStates(),
+      releasePointerLock: () => this.#releasePointerLock(),
+      requestPointerLock: () => this.#requestPointerLock(),
+      dropCarriedBook: (fromCurrentPose, throwBook, charge, override) =>
+        this.#bookActions.dropCarriedBook(
+          fromCurrentPose,
+          throwBook,
+          charge,
+          override,
+        ),
+      raycaster: () => this.#raycaster,
+      viewportWidth: () => this.#viewportWidth,
+      textureLoader: () => this.#textureLoader,
+      renderer: () => this.#renderer,
+      spreadDistance: () => this.#spreadDistance(),
+      heldTargetPose: () => this.#heldTargetPose,
+    });
+    this.#bookActions = new BookCarryActions(this.#createBookCarryHost());
+    this.#scanner = new InteractionScanner(this.#createScannerHost());
     this.#snapshotInput = {
       activeArcadeCabinet: () => this.#activeArcadeCabinet,
       arcadeProps: () => this.#arcadeProps,
@@ -1140,18 +989,19 @@ export class ShopScene {
       carriedProp: () => this.#carriedProp,
       carriedPublicationId: () => this.#carriedPublicationId,
       carriedPublicationIds: () => this.#carriedPublicationIds,
-      discardBusy: () => this.#discardBusy,
-      discardError: () => this.#discardError,
-      discardedPublicationIds: () => this.#discardedPublicationIds,
+      discardBusy: () => this.#bookActions.discardBusy,
+      discardError: () => this.#bookActions.discardError,
+      discardedPublicationIds: () => this.#bookActions.discardedPublicationIds,
       getShortcuts: () => this.#getShortcuts(),
       hoveredPublicationId: () => this.#hoveredPublicationId,
       input: () => this.#input,
-      inspectionCloseAction: () => this.#inspectionCloseAction,
-      inspectionMode: () => this.#inspectionMode,
-      inspectionOpenAngleTarget: () => this.#inspectionOpenAngleTarget,
-      inspectionPageIndex: () => this.#inspectionPageIndex,
-      inspectionPageLoadCount: () => this.#inspectionPageLoadCount,
-      inspectionPublication: () => this.#inspectionPublication(),
+      inspectionCloseAction: () => this.#inspection.inspectionCloseAction,
+      inspectionMode: () => this.#inspection.inspectionMode,
+      inspectionOpenAngleTarget: () =>
+        this.#inspection.inspectionOpenAngleTarget,
+      inspectionPageIndex: () => this.#inspection.inspectionPageIndex,
+      inspectionPageLoadCount: () => this.#inspection.inspectionPageLoadCount,
+      inspectionPublication: () => this.#inspection.inspectionPublication(),
       keyboardLayout: () => this.#keyboardLayout,
       mode: () => this.#mode,
       modelAnimationLabel: (record) => this.#modelAnimationLabel(record) ?? "",
@@ -1164,9 +1014,9 @@ export class ShopScene {
       propPlacementDistance: () => this.#propPlacementDistance,
       propPlacementSnapping: () => this.#propPlacementSnapping,
       shelfPresentation: () => this.#shelfPresentation,
-      shelfTargetSelection: () => this.#shelfTargetSelection,
-      shelfTargeted: () => this.#shelfTargeted,
-      shelveAnimation: () => this.#shelveAnimation,
+      shelfTargetSelection: () => this.#scanner.shelfTargetSelection,
+      shelfTargeted: () => this.#scanner.shelfTargeted,
+      shelveAnimation: () => this.#bookActions.shelveAnimation,
       signs: () => this.#signs,
       spawnablePropAssets: () => this.#spawnablePropAssets,
       targetedArcadeCabinet: () => this.#targetedArcadeCabinet,
@@ -1174,9 +1024,9 @@ export class ShopScene {
       targetedTelevision: () => this.#targetedTelevision,
       televisionProps: () => this.#televisionProps,
       televisionTargeted: () => this.#televisionTargeted,
-      throwChargeActive: () => this.#throwChargeActive,
-      throwChargeProgress: () => this.#throwChargeProgress(),
-      trashTargeted: () => this.#trashTargeted,
+      throwChargeActive: () => this.#bookActions.throwChargeActive,
+      throwChargeProgress: () => this.#bookActions.throwChargeProgress(),
+      trashTargeted: () => this.#scanner.trashTargeted,
       tvVideos: () => this.#tvVideos,
     };
     this.#posters = new PosterSystem({
@@ -1326,7 +1176,7 @@ export class ShopScene {
       seedDefaultProps: () => this.#seedDefaultProps(),
       sharedTelevisionOptions: (channelId, volume) =>
         this.#sharedTelevisionOptions(channelId, volume),
-      shelfSnapMesh: this.#shelfSnapMesh,
+      shelfSnapMesh: this.#scanner.shelfSnapMesh,
       shelfTargetMeshes: this.#shelfTargetMeshes,
       signs: this.#signs,
       spineShelfDefinitions: this.#spineShelfDefinitions,
@@ -1440,7 +1290,7 @@ export class ShopScene {
     // ladder exits, so external re-lock requests are ignored meanwhile.
     if (this.#disposed || this.#arcadeStatusForUi()) return;
     this.#inputSuspended = false;
-    if (this.#inspectionMode === "spread") return;
+    if (this.#inspection.inspectionMode === "spread") return;
     this.#requestPointerLock();
   }
 
@@ -1595,66 +1445,6 @@ export class ShopScene {
     );
   }
 
-  seekInspectionPage(pageIndex: number) {
-    const publication = this.#inspectionPublication();
-    if (!publication || this.#inspectionMode !== "spread") return;
-    const record = this.#booksById.get(publication.id);
-    if (!record) return;
-    const clampedPageIndex = clampPageIndex(
-      pageIndex,
-      publication.pages.length,
-    );
-    const nextPageIndex = getReaderSpread(
-      clampedPageIndex,
-      publication.pages.length,
-      "spread",
-      getWideReaderPageIndices(publication.pages),
-    ).start;
-    if (nextPageIndex === this.#inspectionPageIndex) return;
-    if (this.#inspectionOpenAngleTarget > 0) {
-      this.#inspectionResumePageIndex = nextPageIndex;
-      this.#openInspectionBook();
-      return;
-    }
-    this.#inspectionTurnRevision += 1;
-    this.#inspectionTurnPreparing = false;
-    this.#inspectionDragging = false;
-    this.#inspectionDragReleaseDecision = undefined;
-    this.#inspectionQueuedTurn = undefined;
-    this.#inspectionHeldNavigation = undefined;
-    this.#releaseInspectionTurnTextures();
-    this.#inspectionPageIndex = nextPageIndex;
-    this.#inspectionTurnPage = undefined;
-    this.#inspectionTurnFromSingle = false;
-    this.#inspectionTurnOpeningFromBack = false;
-    this.#inspectionTurnToSingle = false;
-    record.inspectionTurningPage.visible = false;
-    record.inspectionTurningFrontMaterial.map = null;
-    this.#setInspectionTurningBackTexture(record, null);
-    this.#configureInspectionPages(record, publication);
-    void this.#syncInspectionPageTextures(publication);
-    this.#onPageIndexChange?.(publication.id, this.#inspectionPageIndex);
-    this.#emitGameState();
-  }
-
-  turnInspectionPage(navigation: ReaderNavigation) {
-    const publication = this.#inspectionPublication();
-    if (!publication || this.#inspectionMode !== "spread") return;
-    const nextPageIndex = getAdjacentSpreadStart(
-      this.#inspectionPageIndex,
-      publication.pages.length,
-      "spread",
-      navigation,
-      getWideReaderPageIndices(publication.pages),
-    );
-    if (nextPageIndex === this.#inspectionPageIndex) return;
-    if (this.#inspectionOpenAngleTarget > 0) {
-      this.seekInspectionPage(nextPageIndex);
-      return;
-    }
-    this.#turnInspectionPages(navigation);
-  }
-
   async #initializePhysics() {
     try {
       const ready = await this.#physicsWorld.initialize();
@@ -1702,9 +1492,9 @@ export class ShopScene {
     this.#artFrames.clearRecords();
     this.#artFrames.preview?.dispose();
     this.#artFrames.preview = undefined;
-    this.#inspectionPageTextureCache.dispose();
-    this.#inspectionTurningBackTexture?.dispose();
-    this.#inspectionTurningBackTexture = undefined;
+    this.#inspection.inspectionPageTextureCache.dispose();
+    this.#inspection.inspectionTurningBackTexture?.dispose();
+    this.#inspection.inspectionTurningBackTexture = undefined;
     this.#resizeObserver?.disconnect();
     this.#resizeObserver = undefined;
     this.#ktx2Loader?.dispose();
@@ -1792,7 +1582,7 @@ export class ShopScene {
 
     this.#consumePointerMovement(deltaSeconds);
     this.#updateCameraLook(deltaSeconds);
-    this.#updateThrowCharge(deltaSeconds);
+    this.#bookActions.updateThrowCharge(deltaSeconds);
     this.#movePlayer(deltaSeconds);
     this.#doors.updateRareRoom(
       deltaSeconds,
@@ -1804,22 +1594,22 @@ export class ShopScene {
       this.#camera.position.x,
       this.#camera.position.z,
     );
-    this.#updateInteractionTarget();
-    this.#inspectionZoom = MathUtils.damp(
-      this.#inspectionZoom,
-      this.#inspectionZoomTarget,
+    this.#scanner.update();
+    this.#inspection.inspectionZoom = MathUtils.damp(
+      this.#inspection.inspectionZoom,
+      this.#inspection.inspectionZoomTarget,
       INSPECTION_TRANSITION_SPEED,
       deltaSeconds,
     );
-    this.#inspectionZoomOffsetX = MathUtils.damp(
-      this.#inspectionZoomOffsetX,
-      this.#inspectionZoomOffsetTargetX,
+    this.#inspection.inspectionZoomOffsetX = MathUtils.damp(
+      this.#inspection.inspectionZoomOffsetX,
+      this.#inspection.inspectionZoomOffsetTargetX,
       INSPECTION_TRANSITION_SPEED,
       deltaSeconds,
     );
-    this.#inspectionZoomOffsetY = MathUtils.damp(
-      this.#inspectionZoomOffsetY,
-      this.#inspectionZoomOffsetTargetY,
+    this.#inspection.inspectionZoomOffsetY = MathUtils.damp(
+      this.#inspection.inspectionZoomOffsetY,
+      this.#inspection.inspectionZoomOffsetTargetY,
       INSPECTION_TRANSITION_SPEED,
       deltaSeconds,
     );
@@ -1829,9 +1619,9 @@ export class ShopScene {
     for (const record of this.#artFrames.records.values())
       record.frame.update(deltaSeconds);
     this.#animateBooks(deltaSeconds);
-    this.#animateShelve(deltaSeconds);
+    this.#bookActions.animateShelve(deltaSeconds);
     this.#bookTextures.syncBookAtlasBatches();
-    this.#animateDiscard(deltaSeconds);
+    this.#bookActions.animateDiscard(deltaSeconds);
     for (const mixer of this.#modelMixers) mixer.update(deltaSeconds);
     this.#renderer.render(this.#scene, this.#camera);
     this.#frameHandle = requestAnimationFrame(this.#animate);
@@ -2245,19 +2035,6 @@ export class ShopScene {
     this.#emitGameState();
   }
 
-  /** Builds one procedural reading table visual (meshes only). */
-
-  /**
-   * Builds the shared ceiling-light spawn template: just the fixture
-   * meshes, registered once so the prop is spawnable on every world.
-   */
-
-  /**
-   * Builds one ceiling light's illumination rig: a downward spotlight plus
-   * its floor target. Both parent to the prop object so they travel with
-   * it whenever the light is moved.
-   */
-
   #createSpawnedCeilingLight(
     asset: BuiltinSpawnablePropAsset,
     id: string,
@@ -2309,6 +2086,7 @@ export class ShopScene {
     return environment;
   }
 
+  /** Builds the upper-floor reading tables and chairs. */
   #createUpperReadingFurniture(
     parent: Group,
     woodMaterial: MeshStandardMaterial,
@@ -3566,6 +3344,14 @@ export class ShopScene {
 
   /** Resolves both poster and digital-frame placement against the same wall snap. */
 
+  turnInspectionPage(navigation: ReaderNavigation) {
+    this.#inspection.turnInspectionPage(navigation);
+  }
+
+  seekInspectionPage(pageIndex: number) {
+    this.#inspection.seekInspectionPage(pageIndex);
+  }
+
   #emitGameState() {
     this.#gameStateEmitter.emit(this.#snapshotInput);
   }
@@ -3671,15 +3457,15 @@ export class ShopScene {
     if (event.button !== 0 || this.#paused()) return;
     // An arcade session owns the pointer; clicking must not re-lock it.
     if (this.#arcadeStatusForUi()) return;
-    if (this.#inspectionMode === "spread") {
-      if (this.#inspectionOpenAngleTarget > 0) {
-        this.#openInspectionBook();
+    if (this.#inspection.inspectionMode === "spread") {
+      if (this.#inspection.inspectionOpenAngleTarget > 0) {
+        this.#inspection.openInspectionBook();
         return;
       }
-      this.#beginInspectionPointerTurn(event);
+      this.#inspection.beginInspectionPointerTurn(event);
       return;
     }
-    if (this.#inspectionMode === "closing") return;
+    if (this.#inspection.inspectionMode === "closing") return;
     if (this.#pointerLocked) {
       this.#interact(false);
       return;
@@ -3689,19 +3475,22 @@ export class ShopScene {
 
   readonly #handlePointerMove = (event: PointerEvent) => {
     if (this.#paused()) return;
-    if (this.#inspectionDragging) {
-      this.#inspectionDragCurrentX = event.clientX;
+    if (this.#inspection.inspectionDragging) {
+      this.#inspection.inspectionDragCurrentX = event.clientX;
       if (
-        Math.abs(this.#inspectionDragCurrentX - this.#inspectionDragStartX) > 4
+        Math.abs(
+          this.#inspection.inspectionDragCurrentX -
+            this.#inspection.inspectionDragStartX,
+        ) > 4
       )
-        this.#inspectionDragMoved = true;
-      this.#updateInspectionDragProgress();
+        this.#inspection.inspectionDragMoved = true;
+      this.#inspection.updateInspectionDragProgress();
       return;
     }
-    if (this.#inspectionMode === "spread") {
+    if (this.#inspection.inspectionMode === "spread") {
       if (event.target instanceof HTMLInputElement) return;
-      this.#setInspectionPointer(event.clientX, event.clientY);
-      this.#updateInspectionZoomPanTarget();
+      this.#inspection.setInspectionPointer(event.clientX, event.clientY);
+      this.#inspection.updateInspectionZoomPanTarget();
       return;
     }
     if (!this.#pointerLocked) return;
@@ -3714,7 +3503,7 @@ export class ShopScene {
     if (!Number.isFinite(event.movementX) || !Number.isFinite(event.movementY))
       return;
     if (event.movementX === 0 && event.movementY === 0) return;
-    this.#shelfBrowsePublicationId = undefined;
+    this.#scanner.shelfBrowsePublicationId = undefined;
     this.#pendingPointerMovementX += event.movementX;
     this.#pendingPointerMovementY += event.movementY;
   };
@@ -3777,11 +3566,11 @@ export class ShopScene {
   }
 
   readonly #handleWheel = (event: WheelEvent) => {
-    if (this.#paused() || this.#shelveAnimation) return;
-    if (this.#inspectionMode === "spread") {
+    if (this.#paused() || this.#bookActions.shelveAnimation) return;
+    if (this.#inspection.inspectionMode === "spread") {
       if (event.deltaY === 0) return;
       event.preventDefault();
-      this.#zoomInspectionAtPointer(event);
+      this.#inspection.zoomInspectionAtPointer(event);
       return;
     }
     const artFramePlacement = this.#artFrames.placement;
@@ -3938,27 +3727,31 @@ export class ShopScene {
       Math.abs(event.deltaX) > Math.abs(event.deltaY)
         ? event.deltaX
         : event.deltaY;
-    if (Math.abs(wheelDelta) < 4 || !this.#browseShelf(Math.sign(wheelDelta)))
+    if (
+      Math.abs(wheelDelta) < 4 ||
+      !this.#scanner.browseShelf(Math.sign(wheelDelta))
+    )
       return;
     event.preventDefault();
     this.#shelfBrowseReadyAt = event.timeStamp + SHELF_BROWSE_INTERVAL_MS;
   };
 
   readonly #handleInspectionPointerUp = () => {
-    if (!this.#inspectionDragging) return;
-    this.#inspectionDragging = false;
+    if (!this.#inspection.inspectionDragging) return;
+    this.#inspection.inspectionDragging = false;
     const decision =
-      !this.#inspectionDragMoved || this.#inspectionDragCompletion() >= 0.5
+      !this.#inspection.inspectionDragMoved ||
+      this.#inspection.inspectionDragCompletion() >= 0.5
         ? "commit"
         : "cancel";
-    this.#inspectionDragReleaseDecision = decision;
-    if (this.#inspectionTurnPage !== undefined)
-      this.#resolveInspectionDragDecision(decision);
-    this.#inspectionDragNavigation = undefined;
+    this.#inspection.inspectionDragReleaseDecision = decision;
+    if (this.#inspection.inspectionTurnPage !== undefined)
+      this.#inspection.resolveInspectionDragDecision(decision);
+    this.#inspection.inspectionDragNavigation = undefined;
   };
 
   #updateCameraLook(deltaSeconds: number) {
-    if (this.#inspectionMode === "spread") return;
+    if (this.#inspection.inspectionMode === "spread") return;
     dampLookAngles(
       this.#lookAngles,
       this.#lookTarget,
@@ -3987,7 +3780,7 @@ export class ShopScene {
       this.#pointerLocked && !wasPointerLocked;
     if (!this.#pointerLocked) {
       this.#input.suspend();
-      this.#cancelThrowCharge();
+      this.#bookActions.cancelThrowCharge();
       this.#jumpQueued = false;
     }
     this.#canvas.style.cursor = this.#pointerLocked ? "none" : "pointer";
@@ -3999,7 +3792,7 @@ export class ShopScene {
     if (
       resumePointerLock &&
       !this.#paused() &&
-      this.#inspectionMode !== "spread" &&
+      this.#inspection.inspectionMode !== "spread" &&
       !this.#arcadeStatusForUi() &&
       !this.#disposed
     )
@@ -4013,32 +3806,38 @@ export class ShopScene {
    */
   readonly #handleActionDown = (action: ShortcutAction): boolean => {
     if (this.#paused()) return true;
-    if (this.#inspectionMode === "spread") {
+    if (this.#inspection.inspectionMode === "spread") {
       switch (action) {
         case "inspectionTurnLeft":
         case "inspectionTurnRight": {
-          const publication = this.#inspectionPublication();
+          const publication = this.#inspection.inspectionPublication();
           if (!publication) return true;
           const navigation = getArrowNavigation(
             action === "inspectionTurnLeft" ? "ArrowLeft" : "ArrowRight",
             publication.direction,
           );
-          this.#inspectionHeldNavigation = navigation;
+          this.#inspection.inspectionHeldNavigation = navigation;
           this.turnInspectionPage(navigation);
           return true;
         }
         case "inspectionThrow":
-          if (this.#inspectionPublicationId !== this.#carriedPublicationId)
+          if (
+            this.#inspection.inspectionPublicationId !==
+            this.#carriedPublicationId
+          )
             return true;
-          this.#startInspectionClose("throw");
+          this.#inspection.startInspectionClose("throw");
           return true;
         case "inspectionDrop":
-          if (this.#inspectionPublicationId !== this.#carriedPublicationId)
+          if (
+            this.#inspection.inspectionPublicationId !==
+            this.#carriedPublicationId
+          )
             return true;
-          this.#startInspectionClose("drop");
+          this.#inspection.startInspectionClose("drop");
           return true;
         case "inspectionReturn":
-          this.#startInspectionClose("return");
+          this.#inspection.startInspectionClose("return");
           return true;
         default:
           // A spread owns all other actions while it is open.
@@ -4314,7 +4113,7 @@ export class ShopScene {
         if (!this.#carriedPublicationId) return false;
         this.#shelfPresentation =
           this.#shelfPresentation === "spine" ? "face" : "spine";
-        this.#updateInteractionTarget();
+        this.#scanner.update();
         return true;
       case "propPinToggle": {
         // Pin or release whatever movable prop is under the reticle: a
@@ -4344,7 +4143,8 @@ export class ShopScene {
         else if (this.#artFrames.targetedId)
           this.#artFrames.records.get(this.#artFrames.targetedId)?.frame.skip();
         else if (this.#carriedProp) this.#dropCarriedProp(true);
-        else if (this.#carriedPublicationId) this.#startThrowCharge();
+        else if (this.#carriedPublicationId)
+          this.#bookActions.startThrowCharge();
         // Held throw state drives shelf browsing; isActionDown covers it.
         return true;
       case "drop":
@@ -4353,16 +4153,16 @@ export class ShopScene {
           this.#artFrames.removeTargetedDigitalArtFrame();
         else if (this.#posters.targetedId) this.#posters.removeTargetedPoster();
         else if (this.#carriedProp) this.#dropCarriedProp();
-        else this.#dropCarriedBook();
+        else this.#bookActions.dropCarriedBook();
         return true;
       case "inspectionReturn": {
         const hoveredRecord = this.#hoveredPublicationId
           ? this.#booksById.get(this.#hoveredPublicationId)
           : undefined;
         if (this.#carriedPublicationId)
-          this.#advanceInspectionMode(this.#carriedPublicationId);
+          this.#inspection.advanceInspectionMode(this.#carriedPublicationId);
         else if (hoveredRecord?.state.status === "shelved")
-          this.#advanceInspectionMode(this.#hoveredPublicationId);
+          this.#inspection.advanceInspectionMode(this.#hoveredPublicationId);
         return true;
       }
       default:
@@ -4374,21 +4174,23 @@ export class ShopScene {
     if (this.#paused()) return true;
     switch (action) {
       case "throw":
-        if (this.#throwChargeActive) this.#releaseThrowCharge();
-        else if (this.#inspectionMode === "none") {
-          this.#shelfBrowsePublicationId = undefined;
-          this.#updateInteractionTarget();
+        if (this.#bookActions.throwChargeActive)
+          this.#bookActions.releaseThrowCharge();
+        else if (this.#inspection.inspectionMode === "none") {
+          this.#scanner.shelfBrowsePublicationId = undefined;
+          this.#scanner.update();
         }
         return true;
       case "inspectionTurnLeft":
       case "inspectionTurnRight": {
-        const direction = this.#inspectionPublication()?.direction ?? "LTR";
+        const direction =
+          this.#inspection.inspectionPublication()?.direction ?? "LTR";
         const navigation = getArrowNavigation(
           action === "inspectionTurnLeft" ? "ArrowLeft" : "ArrowRight",
           direction,
         );
-        if (this.#inspectionHeldNavigation === navigation)
-          this.#inspectionHeldNavigation = undefined;
+        if (this.#inspection.inspectionHeldNavigation === navigation)
+          this.#inspection.inspectionHeldNavigation = undefined;
         return true;
       }
       default:
@@ -4440,10 +4242,10 @@ export class ShopScene {
 
   readonly #handleWindowBlur = () => {
     this.#input.suspend();
-    this.#inspectionHeldNavigation = undefined;
-    this.#cancelThrowCharge();
+    this.#inspection.inspectionHeldNavigation = undefined;
+    this.#bookActions.cancelThrowCharge();
     this.#jumpQueued = false;
-    this.#shelfBrowsePublicationId = undefined;
+    this.#scanner.shelfBrowsePublicationId = undefined;
     this.#resetPointerMovement();
   };
 
@@ -4480,13 +4282,13 @@ export class ShopScene {
 
   #suspendInput() {
     this.#input.suspend();
-    this.#cancelThrowCharge();
+    this.#bookActions.cancelThrowCharge();
     this.#jumpQueued = false;
     this.#resetPointerMovement();
     this.#releasePointerLock();
     this.#setHoveredPublicationId(undefined);
-    this.#shelfTargeted = false;
-    this.#shelfTargetSelection = undefined;
+    this.#scanner.shelfTargeted = false;
+    this.#scanner.shelfTargetSelection = undefined;
     this.#signs.previewKey = undefined;
     this.#signs.targetedKey = undefined;
     this.#signs.updateTargetVisuals();
@@ -4531,8 +4333,8 @@ export class ShopScene {
   }
 
   #setTrashTargeted(targeted: boolean) {
-    if (targeted === this.#trashTargeted) return;
-    this.#trashTargeted = targeted;
+    if (targeted === this.#scanner.trashTargeted) return;
+    this.#scanner.trashTargeted = targeted;
     this.#applyBookStates();
     this.#emitGameState();
   }
@@ -4544,7 +4346,8 @@ export class ShopScene {
   }
 
   #setHoveredPublicationId(publicationId: string | undefined) {
-    if (publicationId === undefined) this.#shelfBrowsePublicationId = undefined;
+    if (publicationId === undefined)
+      this.#scanner.shelfBrowsePublicationId = undefined;
     if (publicationId === this.#hoveredPublicationId) return;
     this.#hoveredPublicationId = publicationId;
     const record = publicationId
@@ -4642,10 +4445,10 @@ export class ShopScene {
       }
 
       const discardPending =
-        previousItem.id === this.#pendingDiscardPublicationId;
+        previousItem.id === this.#bookActions.pendingDiscardPublicationId;
       if (
         !discardPending &&
-        !this.#discardedPublicationIds.has(previousItem.id)
+        !this.#bookActions.discardedPublicationIds.has(previousItem.id)
       )
         return false;
       removedCount += 1;
@@ -4770,7 +4573,8 @@ export class ShopScene {
     return new Map(
       save.books
         .filter(
-          (book) => !this.#discardedPublicationIds.has(book.publicationId),
+          (book) =>
+            !this.#bookActions.discardedPublicationIds.has(book.publicationId),
         )
         .map((book) => [book.publicationId, book]),
     );
@@ -4840,11 +4644,15 @@ export class ShopScene {
     });
     const arrivalIds = new Set(unobservedArrivalIds);
     const retainedIds = new Set<string>([
-      ...(this.#discardAnimation ? [this.#discardAnimation.publicationId] : []),
-      ...(this.#shelveAnimation ? [this.#shelveAnimation.publicationId] : []),
+      ...(this.#bookActions.discardAnimation
+        ? [this.#bookActions.discardAnimation.publicationId]
+        : []),
+      ...(this.#bookActions.shelveAnimation
+        ? [this.#bookActions.shelveAnimation.publicationId]
+        : []),
     ]);
     const displayItems = items.filter(
-      (item) => !this.#discardedPublicationIds.has(item.id),
+      (item) => !this.#bookActions.discardedPublicationIds.has(item.id),
     );
     for (const [index, item] of displayItems.entries()) {
       if (retainedIds.has(item.id)) continue;
@@ -4920,8 +4728,8 @@ export class ShopScene {
 
     for (const [publicationId, record] of this.#booksById) {
       if (retainedIds.has(publicationId)) continue;
-      if (this.#inspectionPublicationId === publicationId)
-        this.#endInspection();
+      if (this.#inspection.inspectionPublicationId === publicationId)
+        this.#inspection.endInspection();
       if (this.#carriedPublicationIds.includes(publicationId))
         this.#removeCarriedPublication(publicationId);
       this.#physicsWorld.removeBook(publicationId);
@@ -5071,7 +4879,7 @@ export class ShopScene {
         .filter(
           ([publicationId, record]) =>
             record.state.status === "carried" &&
-            publicationId !== this.#discardAnimation?.publicationId,
+            publicationId !== this.#bookActions.discardAnimation?.publicationId,
         )
         .map(([publicationId]) => publicationId),
     );
@@ -5122,7 +4930,7 @@ export class ShopScene {
       }
       bucket.push(record.hoverTarget);
     }
-    this.#interactionTargetsDirty = true;
+    this.#scanner.markDirty();
   }
 
   #disposeBookRecord(record: BookRecord) {
@@ -5142,7 +4950,7 @@ export class ShopScene {
     record.inspectionLeftMaterial.map = null;
     record.inspectionRightMaterial.map = null;
     record.inspectionTurningFrontMaterial.map = null;
-    this.#setInspectionTurningBackTexture(record, null);
+    this.#inspection.setInspectionTurningBackTexture(record, null);
     record.inspectionTurningPage.visible = false;
     record.inspectionLeftPage.geometry.dispose();
     record.inspectionRightPage.geometry.dispose();
@@ -5170,7 +4978,7 @@ export class ShopScene {
     for (const [publicationId, record] of this.#booksById) {
       const selected =
         publicationId === this.#lastSelectedPublicationId ||
-        publicationId === this.#inspectionPublicationId;
+        publicationId === this.#inspection.inspectionPublicationId;
       const hovered = publicationId === this.#hoveredPublicationId;
       const shelfHovered = hovered && record.state.status === "shelved";
       let targetScale = 1;
@@ -5179,7 +4987,8 @@ export class ShopScene {
       record.targetScale = targetScale;
       record.targetLift = hovered && !shelfHovered ? 0.08 : 0;
       const discardTargeted =
-        publicationId === this.#carriedPublicationId && this.#trashTargeted;
+        publicationId === this.#carriedPublicationId &&
+        this.#scanner.trashTargeted;
       record.sceneEmissive.set(
         discardTargeted
           ? DISCARD_TARGETED_EMISSIVE
@@ -5196,52 +5005,12 @@ export class ShopScene {
           : 0.2;
       record.exteriorMaterial.emissive.copy(record.sceneEmissive);
       record.exteriorMaterial.emissiveIntensity = record.sceneEmissiveIntensity;
-      this.#applyInspectionLighting(record);
+      this.#inspection.applyInspectionLighting(record);
     }
   }
 
-  #applyInspectionLighting(record: BookRecord) {
-    record.exteriorMaterial.emissive
-      .copy(record.sceneEmissive)
-      .lerp(INSPECTION_READER_EMISSIVE, record.inspectionLightingBlend);
-    record.exteriorMaterial.emissiveIntensity = MathUtils.lerp(
-      record.sceneEmissiveIntensity,
-      INSPECTION_READER_EMISSIVE_INTENSITY,
-      record.inspectionLightingBlend,
-    );
-    record.inspectionFrontCoverMaterial.emissive.copy(
-      record.exteriorMaterial.emissive,
-    );
-    record.inspectionFrontCoverMaterial.emissiveIntensity =
-      record.exteriorMaterial.emissiveIntensity;
-    record.inspectionBackCoverMaterial.emissive.copy(
-      record.exteriorMaterial.emissive,
-    );
-    record.inspectionBackCoverMaterial.emissiveIntensity =
-      record.exteriorMaterial.emissiveIntensity;
-  }
-
-  #animateInspectionLighting(
-    record: BookRecord,
-    focused: boolean,
-    deltaSeconds: number,
-  ) {
-    const target = focused ? 1 : 0;
-    if (record.inspectionLightingBlend === target) return;
-    const nextBlend = MathUtils.damp(
-      record.inspectionLightingBlend,
-      target,
-      INSPECTION_LIGHTING_BLEND_SPEED,
-      deltaSeconds,
-    );
-    if (Math.abs(nextBlend - target) < 0.001)
-      record.inspectionLightingBlend = target;
-    else record.inspectionLightingBlend = nextBlend;
-    this.#applyInspectionLighting(record);
-  }
-
   #movePlayer(deltaSeconds: number) {
-    if (!this.#pointerLocked || this.#inspectionMode === "spread") {
+    if (!this.#pointerLocked || this.#inspection.inspectionMode === "spread") {
       this.#playerVelocity.set(0, 0, 0);
       this.#playerVerticalVelocity = 0;
       this.#jumpQueued = false;
@@ -5349,1017 +5118,13 @@ export class ShopScene {
       this.#worldStateDirty = true;
   }
 
-  #inspectionPublication() {
-    const publicationId =
-      this.#inspectionPublicationId ?? this.#carriedPublicationId;
-    if (!publicationId) return;
-    return this.#catalogItems().find((item) => item.id === publicationId);
-  }
-
-  #advanceInspectionMode(publicationId = this.#carriedPublicationId) {
-    if (!publicationId) return;
-    const publication = this.#catalogItems().find(
-      (item) => item.id === publicationId,
-    );
-    if (!publication || publication.pages.length === 0) return;
-    const record = this.#booksById.get(publication.id);
-    if (!record) return;
-
-    if (this.#inspectionMode === "none") {
-      const inspectableFromShelf = record.state.status === "shelved";
-      if (
-        publication.id !== this.#carriedPublicationId &&
-        !inspectableFromShelf
-      )
-        return;
-      this.#inspectionPublicationId = publication.id;
-      const bookmarkedPage = clampPageIndex(
-        this.#initialPageIndex(publication.id),
-        publication.pages.length,
-      );
-      const firstInteriorPage = publication.pages.length > 1 ? 1 : 0;
-      this.#inspectionResumePageIndex = getReaderSpread(
-        bookmarkedPage === 0 ? firstInteriorPage : bookmarkedPage,
-        publication.pages.length,
-        "spread",
-        getWideReaderPageIndices(publication.pages),
-      ).start;
-      this.#inspectionPageIndex = 0;
-      this.#inspectionMode = "spread";
-      this.#inspectionShelfFocusPending =
-        inspectableFromShelf && record.shelfPresentation === "spine";
-      this.#inspectionOpeningHalf =
-        publication.direction === "LTR" ? "left" : "right";
-      this.#inspectionCloseAction = undefined;
-      this.#inspectionOpenAngle = INSPECTION_OPEN_ANGLE;
-      this.#inspectionOpenAngleTarget = INSPECTION_OPEN_ANGLE;
-      this.#inspectionOpeningDelay = INSPECTION_OPENING_DELAY_SECONDS;
-      this.#applyInspectionOpenAngle(record);
-      this.#resetInspectionZoom();
-      this.#bookTextures.promoteBookCoverTexture(publication.id, record);
-      this.#setHoveredPublicationId(undefined);
-      this.#onSelectPublication(publication.id);
-      this.#applyBookStates();
-      this.#releasePointerLock();
-    } else {
-      this.#startInspectionClose("return");
-      return;
-    }
-
-    this.#configureInspectionPages(record, publication);
-    if (this.#inspectionOpeningDelay > 0) {
-      record.inspectionGroup.visible = false;
-      record.exteriorMaterial.visible = true;
-    }
-    void this.#syncInspectionPageTextures(publication);
-    this.#emitGameState();
-  }
-
-  #openInspectionBook() {
-    const publication = this.#inspectionPublication();
-    if (
-      !publication ||
-      this.#inspectionMode !== "spread" ||
-      this.#inspectionOpenAngleTarget === 0
-    )
-      return;
-    const record = this.#booksById.get(publication.id);
-    if (!record) return;
-
-    this.#inspectionPageIndex = this.#inspectionResumePageIndex;
-    this.#inspectionOpenAngleTarget = 0;
-    this.#configureInspectionPages(record, publication);
-    if (this.#inspectionOpeningDelay > 0) {
-      record.inspectionGroup.visible = false;
-      record.exteriorMaterial.visible = true;
-    }
-    void this.#syncInspectionPageTextures(publication);
-    this.#onPageIndexChange?.(publication.id, this.#inspectionPageIndex);
-    this.#emitGameState();
-  }
-
-  #startInspectionClose(action: InspectionCloseAction) {
-    if (this.#inspectionMode !== "spread") return;
-    const publication = this.#inspectionPublication();
-    if (!publication) return;
-    const record = this.#booksById.get(publication.id);
-    if (!record) return;
-    this.#inspectionShelfFocusPending = false;
-    this.#requestPointerLock();
-    if (record.state.status === "shelved") {
-      this.#scene.attach(record.mesh);
-      this.#inspectionShelfWorldRotation.setFromEuler(
-        this.#physicsPoseEuler.set(
-          record.baseRotation.x,
-          record.baseRotation.y,
-          record.baseRotation.z,
-          "XYZ",
-        ),
-      );
-      this.#inspectionShelfReturnPhase = "close";
-    }
-    const widePages = getWideReaderPageIndices(publication.pages);
-    const currentSpread = getReaderSpread(
-      this.#inspectionPageIndex,
-      publication.pages.length,
-      "spread",
-      widePages,
-    );
-    const alreadyOnClosedCover =
-      currentSpread.start === 0 ||
-      (currentSpread.start === publication.pages.length - 1 &&
-        !widePages.has(currentSpread.start));
-    if (alreadyOnClosedCover) {
-      this.#cancelInspectionPageTurn(record, publication);
-      this.#inspectionOpenAngle = INSPECTION_OPEN_ANGLE;
-      this.#inspectionOpenAngleTarget = INSPECTION_OPEN_ANGLE;
-      this.#applyInspectionOpenAngle(record);
-      this.#showCompactInspectionBook(record);
-    } else if (this.#inspectionOpenAngleTarget !== INSPECTION_OPEN_ANGLE) {
-      this.#inspectionOpenAngleTarget = INSPECTION_OPEN_ANGLE;
-      this.#cancelInspectionPageTurn(record, publication);
-    }
-    this.#inspectionMode = "closing";
-    this.#inspectionCloseAction = action;
-    this.#inspectionPhysicsReturnActive = false;
-    this.#inspectionOpeningDelay = 0;
-    this.#resetInspectionZoom();
-    if (this.#inspectionOpenAngle === INSPECTION_OPEN_ANGLE)
-      this.#showCompactInspectionBook(record);
-    this.#emitGameState();
-  }
-
-  #finishInspectionClose() {
-    const action = this.#inspectionCloseAction;
-    const publicationId = this.#inspectionPublicationId;
-    const record = publicationId
-      ? this.#booksById.get(publicationId)
-      : undefined;
-    this.#endInspection();
-    if (action === "return" && publicationId && record) {
-      record.mesh.updateMatrixWorld(true);
-      record.mesh.getWorldPosition(this.#physicsPosePosition);
-      record.mesh.getWorldQuaternion(this.#physicsPoseRotation);
-      this.#physicsWorld.snapHeldBook(publicationId, this.#physicsPose);
-    }
-    if (action === "drop") this.#dropCarriedBook(true, false, 0, publicationId);
-    else if (action === "throw")
-      this.#dropCarriedBook(true, true, 0, publicationId);
-  }
-
-  #endInspection() {
-    if (this.#inspectionMode === "none") return;
-    const publicationId = this.#inspectionPublicationId;
-    const record = publicationId
-      ? this.#booksById.get(publicationId)
-      : undefined;
-    this.#inspectionMode = "none";
-    this.#inspectionCloseAction = undefined;
-    this.#inspectionOpenAngle = 0;
-    this.#inspectionOpenAngleTarget = 0;
-    this.#inspectionOpeningDelay = 0;
-    this.#inspectionPhysicsReturnActive = false;
-    this.#inspectionShelfFocusPending = false;
-    this.#inspectionShelfReturnPhase = undefined;
-    this.#resetInspectionZoom();
-    this.#inspectionTurnRevision += 1;
-    this.#inspectionTurnPreparing = false;
-    this.#inspectionDragging = false;
-    this.#inspectionDragReleaseDecision = undefined;
-    this.#inspectionQueuedTurn = undefined;
-    this.#inspectionHeldNavigation = undefined;
-    this.#inspectionTurnPage = undefined;
-    this.#inspectionTurnFromSingle = false;
-    this.#inspectionTurnOpeningFromBack = false;
-    this.#inspectionTurnToSingle = false;
-    this.#releaseInspectionTurnTextures();
-    this.#releaseInspectionPageTextures();
-    if (record) {
-      this.#applyInspectionOpenAngle(record);
-      this.#showCompactInspectionBook(record);
-      if (record.mesh.parent === this.#camera) this.#scene.attach(record.mesh);
-      if (record.state.status === "shelved") {
-        record.mesh.position.copy(record.shelfPosition);
-        record.mesh.rotation.set(
-          record.baseRotation.x,
-          record.baseRotation.y,
-          record.baseRotation.z,
-          "XYZ",
-        );
-        record.mesh.scale.setScalar(1);
-        record.shelfPreview = 0;
-      }
-    }
-    this.#inspectionPublicationId = undefined;
-    this.#emitGameState();
-  }
-
-  #cancelInspectionPageTurn(record: BookRecord, publication: CatalogItem) {
-    this.#inspectionTurnRevision += 1;
-    this.#inspectionTurnPreparing = false;
-    this.#inspectionDragging = false;
-    this.#inspectionDragNavigation = undefined;
-    this.#inspectionDragReleaseDecision = undefined;
-    this.#inspectionQueuedTurn = undefined;
-    this.#inspectionHeldNavigation = undefined;
-    if (this.#inspectionTurnPage !== undefined) {
-      const sourceMaterial =
-        this.#inspectionTurnSourceSide === "left"
-          ? record.inspectionLeftMaterial
-          : record.inspectionRightMaterial;
-      sourceMaterial.map = this.#inspectionTurnSourceTexture;
-      sourceMaterial.needsUpdate = true;
-      const destinationMaterial =
-        this.#inspectionTurnPage === "left"
-          ? record.inspectionLeftMaterial
-          : record.inspectionRightMaterial;
-      destinationMaterial.map = this.#inspectionTurnDestinationPreviousTexture;
-      destinationMaterial.needsUpdate = true;
-    }
-    this.#inspectionTurnPage = undefined;
-    this.#inspectionTurnFromSingle = false;
-    this.#inspectionTurnOpeningFromBack = false;
-    this.#inspectionTurnToSingle = false;
-    record.inspectionTurningPage.visible = false;
-    record.inspectionTurningFrontMaterial.map = null;
-    this.#setInspectionTurningBackTexture(record, null);
-    this.#releaseInspectionTurnTextures();
-    this.#configureInspectionPages(record, publication);
-  }
-
-  #turnInspectionPages(navigation: ReaderNavigation) {
-    const publication = this.#inspectionPublication();
-    if (
-      !publication ||
-      this.#inspectionMode !== "spread" ||
-      this.#inspectionOpenAngle > 0.08
-    )
-      return;
-    const previousPageIndex = this.#inspectionPageIndex;
-    const nextPageIndex = getAdjacentSpreadStart(
-      previousPageIndex,
-      publication.pages.length,
-      "spread",
-      navigation,
-      getWideReaderPageIndices(publication.pages),
-    );
-    if (nextPageIndex === previousPageIndex) return;
-    if (
-      this.#inspectionTurnPage !== undefined ||
-      this.#inspectionTurnPreparing
-    ) {
-      // Accept the next command only once the in-flight turn is past 80%;
-      // the damped easing makes early progress look faster than it is, so a
-      // high threshold keeps rapid taps from queueing unintended turns.
-      const forward = this.#inspectionTurnNavigation === "forward";
-      const completion = forward
-        ? this.#inspectionTurnProgress
-        : 1 - this.#inspectionTurnProgress;
-      if (completion <= 0.8) return;
-      // Buffer the latest intent; it fires once the in-flight turn finishes.
-      this.#inspectionQueuedTurn = navigation;
-      return;
-    }
-    const record = this.#booksById.get(publication.id);
-    if (!record) return;
-    void this.#prepareInspectionPageTurn(
-      record,
-      publication,
-      nextPageIndex,
-      navigation,
-    );
-  }
-
-  #beginInspectionPointerTurn(event: PointerEvent) {
-    const publication = this.#inspectionPublication();
-    if (
-      !publication ||
-      this.#inspectionMode !== "spread" ||
-      this.#inspectionOpeningDelay > 0 ||
-      this.#inspectionOpenAngle > 0.08 ||
-      this.#inspectionTurnPage !== undefined
-    )
-      return;
-    const record = this.#booksById.get(publication.id);
-    if (!record) return;
-    const bounds = this.#canvas.getBoundingClientRect();
-    const pointerX = ((event.clientX - bounds.left) / bounds.width) * 2 - 1;
-    const pointerY = -((event.clientY - bounds.top) / bounds.height) * 2 + 1;
-    this.#inspectionPointerNdc.set(pointerX, pointerY);
-    this.#raycaster.setFromCamera(this.#inspectionPointerNdc, this.#camera);
-    const intersections = this.#raycaster.intersectObjects(
-      [record.inspectionLeftPage, record.inspectionRightPage].filter(
-        (page) => page.visible,
-      ),
-      false,
-    );
-    const intersection = intersections[0];
-    const page = intersection?.object;
-    if (!page) return;
-    let clickedSide: "left" | "right";
-    if (record.inspectionLeftPage.visible && record.inspectionRightPage.visible)
-      clickedSide = page === record.inspectionLeftPage ? "left" : "right";
-    else clickedSide = pointerX < 0 ? "left" : "right";
-    const forwardSide = publication.direction === "LTR" ? "right" : "left";
-    const navigation = clickedSide === forwardSide ? "forward" : "backward";
-    this.#inspectionDragging = true;
-    this.#inspectionDragMoved = false;
-    this.#inspectionDragNavigation = navigation;
-    this.#inspectionDragReleaseDecision = undefined;
-    this.#inspectionDragStartX = event.clientX;
-    this.#inspectionDragCurrentX = event.clientX;
-    const textureU = intersection?.uv?.x ?? 1;
-    this.#inspectionTurnAnchorX = MathUtils.clamp(
-      clickedSide === "right" ? textureU : 1 - textureU,
-      0.08,
-      1,
-    );
-    this.#inspectionTurnAnchorY = intersection?.uv?.y ?? 0.5;
-    this.#turnInspectionPages(navigation);
-  }
-
-  #inspectionDragCompletion() {
-    const navigation = this.#inspectionDragNavigation;
-    const publication = this.#inspectionPublication();
-    if (!navigation || !publication) return 0;
-    const forward = navigation === "forward";
-    const ltr = publication.direction === "LTR";
-    const destinationSide = forward === ltr ? "left" : "right";
-    const screenDirection = destinationSide === "left" ? -1 : 1;
-    const dragDistance =
-      (this.#inspectionDragCurrentX - this.#inspectionDragStartX) *
-      screenDirection;
-    const distance = this.#inspectionBaseDistance() / this.#inspectionZoom;
-    const bookWidth = physicalBookWidth(publication.aspectRatio, BOOK_HEIGHT);
-    const pagePixelWidth =
-      (bookWidth / (distance * Math.tan(this.#horizontalFieldOfView() / 2))) *
-      (this.#viewportWidth / 2);
-    const grabRadius = Math.max(
-      1,
-      pagePixelWidth * this.#inspectionTurnAnchorX,
-    );
-    const turnAngle = Math.acos(
-      1 - MathUtils.clamp(dragDistance / grabRadius, 0, 2),
-    );
-    return invertPageTurnEasing(MathUtils.clamp(turnAngle / Math.PI, 0, 1));
-  }
-
-  #updateInspectionDragProgress() {
-    const navigation = this.#inspectionDragNavigation;
-    const publication = this.#inspectionPublication();
-    if (!navigation || !publication || this.#inspectionTurnPage === undefined)
-      return;
-    const completion = this.#inspectionDragCompletion();
-    this.#inspectionTurnProgressTarget =
-      navigation === "forward" ? completion : 1 - completion;
-  }
-
-  #resolveInspectionDragDecision(decision: "cancel" | "commit") {
-    this.#inspectionDragReleaseDecision = undefined;
-    this.#inspectionTurnWillCommit = decision === "commit";
-    const forward = this.#inspectionTurnNavigation === "forward";
-    this.#inspectionTurnProgressTarget =
-      decision === "commit" ? (forward ? 1 : 0) : forward ? 0 : 1;
-  }
-
-  #zoomInspectionAtPointer(event: WheelEvent) {
-    this.#setInspectionPointer(event.clientX, event.clientY);
-    const nextZoom = MathUtils.clamp(
-      this.#inspectionZoomTarget * Math.exp(-event.deltaY * 0.0015),
-      1,
-      4,
-    );
-    if (nextZoom === this.#inspectionZoomTarget) return;
-    this.#inspectionZoomTarget = nextZoom;
-    this.#updateInspectionZoomPanTarget();
-  }
-
-  #setInspectionPointer(clientX: number, clientY: number) {
-    const bounds = this.#canvas.getBoundingClientRect();
-    this.#inspectionPointerX = MathUtils.clamp(
-      ((clientX - bounds.left) / bounds.width) * 2 - 1,
-      -1,
-      1,
-    );
-    this.#inspectionPointerY = MathUtils.clamp(
-      -((clientY - bounds.top) / bounds.height) * 2 + 1,
-      -1,
-      1,
-    );
-  }
-
-  #updateInspectionZoomPanTarget() {
-    const baseDistance = this.#inspectionBaseDistance();
-    const zoomPanScale = 1 - 1 / this.#inspectionZoomTarget;
-    this.#inspectionZoomOffsetTargetX =
-      -this.#inspectionPointerX *
-      baseDistance *
-      Math.tan(this.#horizontalFieldOfView() / 2) *
-      zoomPanScale;
-    this.#inspectionZoomOffsetTargetY =
-      -this.#inspectionPointerY *
-      baseDistance *
-      Math.tan(MathUtils.degToRad(this.#camera.fov) / 2) *
-      zoomPanScale;
-  }
-
-  #inspectionPageUrls(publication: CatalogItem, pageIndex: number) {
-    const widePages = getWideReaderPageIndices(publication.pages);
-    const spreadSides = getReaderSpreadSides(
-      pageIndex,
-      publication.pages.length,
-      publication.direction,
-      widePages,
-    );
-    const isWideSpread = widePages.has(pageIndex);
-    const pageUrl = (
-      index: number | undefined,
-      half: "left" | "right" | undefined,
-    ) => {
-      if (index === undefined) return;
-      const url = this.#inspectionPageUrl(publication, index);
-      return url ? readerPageTextureUrl(url, half) : undefined;
-    };
-    return {
-      left: pageUrl(spreadSides.left, isWideSpread ? "left" : undefined),
-      right: pageUrl(spreadSides.right, isWideSpread ? "right" : undefined),
-    };
-  }
-
-  #inspectionPageUrl(publication: CatalogItem, pageIndex: number) {
-    return pageIndex === 0
-      ? (publication.detailCover ?? publication.cover)
-      : publication.pages[pageIndex];
-  }
-
-  async #prepareInspectionPageTurn(
-    record: BookRecord,
-    publication: CatalogItem,
-    nextPageIndex: number,
-    navigation: ReaderNavigation,
-  ) {
-    const revision = ++this.#inspectionTurnRevision;
-    this.#inspectionTurnPreparing = true;
-    this.#inspectionTurnTargetPageIndex = nextPageIndex;
-    const targetUrls = this.#inspectionPageUrls(publication, nextPageIndex);
-    // Hold the current spread as well: its textures stay assigned to the
-    // surface materials until the turn commits, so they must stay referenced
-    // even if a prior texture sync was invalidated and dropped its holds.
-    const currentUrls = this.#inspectionPageUrls(
-      publication,
-      this.#inspectionPageIndex,
-    );
-    const requestedUrls = new Set(
-      [
-        currentUrls.left,
-        currentUrls.right,
-        targetUrls.left,
-        targetUrls.right,
-      ].filter((url): url is string => url !== undefined),
-    );
-    const textures = new Map<string, Texture>();
-    await Promise.all(
-      [...requestedUrls].map(async (url) => {
-        try {
-          textures.set(
-            url,
-            await this.#inspectionPageTextureCache.acquire(url),
-          );
-        } catch {
-          // A missing destination texture still turns as an unprinted leaf.
-        }
-      }),
-    );
-    if (
-      this.#disposed ||
-      revision !== this.#inspectionTurnRevision ||
-      this.#inspectionPublication()?.id !== publication.id
-    ) {
-      for (const url of textures.keys())
-        this.#inspectionPageTextureCache.release(url);
-      return;
-    }
-
-    this.#releaseInspectionTurnTextures();
-    this.#inspectionTurnTextureUrls = new Set(textures.keys());
-    const widePages = getWideReaderPageIndices(publication.pages);
-    const currentSpread = getReaderSpread(
-      this.#inspectionPageIndex,
-      publication.pages.length,
-      "spread",
-      widePages,
-    );
-    const targetSpread = getReaderSpread(
-      nextPageIndex,
-      publication.pages.length,
-      "spread",
-      widePages,
-    );
-    const currentIsClosedSide =
-      currentSpread.start === 0 ||
-      (currentSpread.start === publication.pages.length - 1 &&
-        !widePages.has(currentSpread.start));
-    const targetIsClosedSide =
-      targetSpread.start === 0 ||
-      (targetSpread.start === publication.pages.length - 1 &&
-        !widePages.has(targetSpread.start));
-    this.#inspectionTurnFromSingle = currentIsClosedSide && !targetIsClosedSide;
-    this.#inspectionTurnOpeningFromBack =
-      this.#inspectionTurnFromSingle && currentSpread.start > 0;
-    this.#inspectionTurnBackSourceRevealed = false;
-    this.#inspectionTurnToSingle = !currentIsClosedSide && targetIsClosedSide;
-    this.#inspectionTurnNavigation = navigation;
-    const ltr = publication.direction === "LTR";
-    const forward = navigation === "forward";
-    const sourceSide: "left" | "right" = forward === ltr ? "right" : "left";
-    const destinationSide = sourceSide === "left" ? "right" : "left";
-    const sourceMaterial =
-      sourceSide === "left"
-        ? record.inspectionLeftMaterial
-        : record.inspectionRightMaterial;
-    this.#inspectionTurnSourceSide = sourceSide;
-    this.#inspectionTurnSourceTexture = sourceMaterial.map;
-    this.#inspectionTurnTargetPageIndex = nextPageIndex;
-    const sourceTargetUrl = targetUrls[sourceSide];
-    const sourceDestinationTexture = sourceTargetUrl
-      ? (textures.get(sourceTargetUrl) ?? null)
-      : null;
-    const destinationTargetUrl = targetUrls[destinationSide];
-    const destinationTexture = destinationTargetUrl
-      ? (textures.get(destinationTargetUrl) ?? null)
-      : null;
-    const destinationMaterial =
-      destinationSide === "left"
-        ? record.inspectionLeftMaterial
-        : record.inspectionRightMaterial;
-    const sourceAssembly =
-      sourceSide === "left"
-        ? record.inspectionLeftAssembly
-        : record.inspectionRightAssembly;
-    const destinationAssembly =
-      destinationSide === "left"
-        ? record.inspectionLeftAssembly
-        : record.inspectionRightAssembly;
-    this.#inspectionTurnDestinationPreviousTexture = destinationMaterial.map;
-    this.#inspectionTurnDestinationTexture = destinationTexture;
-    this.#inspectionTurnSourceDestinationTexture = sourceDestinationTexture;
-    if (forward) {
-      record.inspectionTurningFrontMaterial.map = sourceMaterial.map;
-      this.#setInspectionTurningBackTexture(record, destinationTexture);
-    } else {
-      this.#setInspectionTurningBackTexture(record, sourceMaterial.map);
-      record.inspectionTurningFrontMaterial.map = destinationTexture;
-    }
-    if (!this.#inspectionTurnOpeningFromBack) {
-      sourceMaterial.map = sourceDestinationTexture;
-      sourceMaterial.needsUpdate = true;
-    }
-    record.inspectionTurningFrontMaterial.needsUpdate = true;
-    record.inspectionTurningBackMaterial.needsUpdate = true;
-    this.#inspectionTurnPreparing = false;
-    this.#inspectionTurnPage = destinationSide;
-    this.#inspectionTurnProgress = forward ? 0 : 1;
-    this.#inspectionTurnProgressTarget = forward ? 1 : 0;
-    this.#inspectionTurnWillCommit = true;
-    if (this.#inspectionTurnFromSingle) {
-      if (this.#inspectionTurnOpeningFromBack)
-        destinationAssembly.visible = false;
-      else {
-        record.inspectionLeftAssembly.visible = true;
-        record.inspectionRightAssembly.visible = true;
-        destinationMaterial.map = destinationTexture;
-        destinationMaterial.needsUpdate = true;
-      }
-    } else if (this.#inspectionTurnToSingle) {
-      sourceAssembly.visible = false;
-      destinationAssembly.visible = true;
-    }
-    record.inspectionTurningPage.visible = true;
-    this.#updateInspectionTurningPageGeometry(record, publication, 0, true);
-    if (this.#inspectionDragging) this.#updateInspectionDragProgress();
-    else if (this.#inspectionDragReleaseDecision)
-      this.#resolveInspectionDragDecision(this.#inspectionDragReleaseDecision);
-  }
-
-  #configureInspectionPages(record: BookRecord, publication: CatalogItem) {
-    record.inspectionGroup.visible = true;
-    record.exteriorMaterial.visible = false;
-    const pageZ = record.thickness / 2 + INSPECTION_SURFACE_GAP;
-    const pageCenterOffset = record.width / 2 + INSPECTION_PAGE_GUTTER / 2;
-    record.inspectionLeftAssembly.position.x = 0;
-    record.inspectionRightAssembly.position.x = 0;
-    record.inspectionLeftAssembly.visible = true;
-    record.inspectionRightAssembly.visible = true;
-    record.inspectionLeftPage.rotation.y = 0;
-    record.inspectionRightPage.rotation.y = 0;
-    if (this.#inspectionTurnPage === undefined) {
-      record.inspectionTurningPage.visible = false;
-      record.inspectionTurningFrontMaterial.map = null;
-      this.#setInspectionTurningBackTexture(record, null);
-    }
-    const widePages = getWideReaderPageIndices(publication.pages);
-    const spread = getReaderSpread(
-      this.#inspectionPageIndex,
-      publication.pages.length,
-      "spread",
-      widePages,
-    );
-    const isWideSpread = widePages.has(spread.start);
-    const isTerminalBackSide =
-      spread.start > 0 &&
-      spread.start === publication.pages.length - 1 &&
-      !isWideSpread;
-    const openingFromBack =
-      this.#inspectionOpenAngleTarget === 0 && isTerminalBackSide;
-    record.inspectionFrontCover.visible = !openingFromBack;
-    record.inspectionBackCover.visible = openingFromBack;
-    const paperDepth = Math.max(0.012, record.thickness);
-    const pageBlocks = getPageBlockSplit({
-      committedPageIndex: this.#inspectionPageIndex,
-      direction: publication.direction,
-      totalDepth: paperDepth,
-      totalPages: publication.pages.length,
-    });
-    record.inspectionLeftBlock.scale.z = pageBlocks.left.fraction;
-    record.inspectionRightBlock.scale.z = pageBlocks.right.fraction;
-    record.inspectionLeftBlock.position.z =
-      record.thickness / 2 - pageBlocks.left.depth / 2;
-    record.inspectionRightBlock.position.z =
-      record.thickness / 2 - pageBlocks.right.depth / 2;
-    record.inspectionLeftBlock.visible = pageBlocks.left.depth > 0;
-    record.inspectionRightBlock.visible = pageBlocks.right.depth > 0;
-    const visiblePageCount = spread.pageIndices.length;
-    record.inspectionLeftPage.position.set(-pageCenterOffset, 0, pageZ);
-    record.inspectionRightPage.position.set(pageCenterOffset, 0, pageZ);
-    if (visiblePageCount > 1 || isWideSpread) {
-      record.inspectionLeftPage.visible = true;
-      record.inspectionRightPage.visible = true;
-      return;
-    }
-    const isClosedSide = spread.start === 0 || isTerminalBackSide;
-    if (!isClosedSide) {
-      // A wide scan discovered on the next source page can leave one physical
-      // face unprinted. Keep the book open and render that face as bare paper.
-      record.inspectionLeftPage.visible = true;
-      record.inspectionRightPage.visible = true;
-      return;
-    }
-    const spreadSides = getReaderSpreadSides(
-      this.#inspectionPageIndex,
-      publication.pages.length,
-      publication.direction,
-      widePages,
-    );
-    const singlePageIsLeft = spreadSides.left !== undefined;
-    const singlePageVisible =
-      !openingFromBack || this.#inspectionOpenAngle < INSPECTION_OPEN_ANGLE / 2;
-    record.inspectionLeftPage.visible = singlePageIsLeft && singlePageVisible;
-    record.inspectionRightPage.visible = !singlePageIsLeft && singlePageVisible;
-    if (this.#inspectionOpenAngleTarget === INSPECTION_OPEN_ANGLE) {
-      record.inspectionLeftAssembly.visible = true;
-      record.inspectionRightAssembly.visible = true;
-      return;
-    }
-    record.inspectionLeftAssembly.visible = singlePageIsLeft;
-    record.inspectionRightAssembly.visible = !singlePageIsLeft;
-    if (singlePageIsLeft)
-      record.inspectionLeftAssembly.position.x = pageCenterOffset;
-    else record.inspectionRightAssembly.position.x = -pageCenterOffset;
-  }
-
-  #updateInspectionTurningPageGeometry(
-    record: BookRecord,
-    publication: CatalogItem,
-    deltaSeconds: number,
-    resetSimulation = false,
-  ) {
-    const turningPage = record.inspectionTurningPage;
-    const pageZ = record.thickness / 2 + INSPECTION_SURFACE_GAP;
-    const pageCenterOffset = record.width / 2 + INSPECTION_PAGE_GUTTER / 2;
-    writeActiveLeafDeformation(
-      this.#inspectionLeafDeformation,
-      this.#inspectionTurnProgress,
-      publication.direction,
-      INSPECTION_PAGE_DEFORMATION,
-    );
-    const turnCompletion =
-      this.#inspectionTurnNavigation === "forward"
-        ? this.#inspectionLeafDeformation.eased
-        : 1 - this.#inspectionLeafDeformation.eased;
-    let spineX = 0;
-    if (this.#inspectionTurnFromSingle || this.#inspectionTurnToSingle) {
-      const singlePageIndex = this.#inspectionTurnFromSingle
-        ? this.#inspectionPageIndex
-        : this.#inspectionTurnTargetPageIndex;
-      const singlePageSides = getReaderSpreadSides(
-        singlePageIndex,
-        publication.pages.length,
-        publication.direction,
-        getWideReaderPageIndices(publication.pages),
-      );
-      const singlePageIsLeft = singlePageSides.left !== undefined;
-      const closedBindingOffset = singlePageIsLeft
-        ? pageCenterOffset
-        : -pageCenterOffset;
-      spineX =
-        closedBindingOffset *
-        (this.#inspectionTurnFromSingle ? 1 - turnCompletion : turnCompletion);
-      const singlePageAssembly = singlePageIsLeft
-        ? record.inspectionLeftAssembly
-        : record.inspectionRightAssembly;
-      singlePageAssembly.position.x = spineX;
-    }
-    this.#syncInspectionBackOpeningSpread(record, turnCompletion);
-    turningPage.position.set(spineX, 0, pageZ);
-    turningPage.rotation.set(0, 0, 0);
-    writeActiveLeafPositions(
-      record.inspectionTurningUvs,
-      record.inspectionTurningTargets,
-      record.width,
-      BOOK_HEIGHT,
-      this.#inspectionLeafDeformation,
-      this.#inspectionLeafVertex,
-    );
-    if (resetSimulation)
-      record.inspectionPaperSimulation.reset(record.inspectionTurningTargets);
-    record.inspectionPaperSimulation.step({
-      deltaSeconds,
-      dragging: this.#inspectionDragging,
-      grabU: this.#inspectionTurnAnchorX,
-      grabV: this.#inspectionTurnAnchorY,
-      outputPositions: record.inspectionTurningPositions,
-      targetPositions: record.inspectionTurningTargets,
-    });
-    record.inspectionTurningPage.geometry.getAttribute("position").needsUpdate =
-      true;
-  }
-
-  #syncInspectionBackOpeningSpread(record: BookRecord, turnCompletion: number) {
-    if (!this.#inspectionTurnOpeningFromBack) return;
-    const sourceRevealed = turnCompletion > 0.5;
-    if (sourceRevealed === this.#inspectionTurnBackSourceRevealed) return;
-    this.#inspectionTurnBackSourceRevealed = sourceRevealed;
-    const sourceMaterial =
-      this.#inspectionTurnSourceSide === "left"
-        ? record.inspectionLeftMaterial
-        : record.inspectionRightMaterial;
-    sourceMaterial.map = sourceRevealed
-      ? this.#inspectionTurnSourceDestinationTexture
-      : this.#inspectionTurnSourceTexture;
-    sourceMaterial.needsUpdate = true;
-  }
-
-  #animateInspectionPageTurn(record: BookRecord, deltaSeconds: number) {
-    this.#updateHeldInspectionTurn();
-    if (this.#inspectionTurnPage === undefined) return;
-    const turningPage = record.inspectionTurningPage;
-    this.#inspectionTurnProgress = MathUtils.damp(
-      this.#inspectionTurnProgress,
-      this.#inspectionTurnProgressTarget,
-      this.#inspectionDragging
-        ? INSPECTION_PAGE_DRAG_FOLLOW_SPEED
-        : INSPECTION_PAGE_TURN_SPEED,
-      deltaSeconds,
-    );
-    const publication = this.#inspectionPublication();
-    if (!publication) return;
-    this.#updateInspectionTurningPageGeometry(
-      record,
-      publication,
-      deltaSeconds,
-    );
-    if (this.#inspectionDragging) return;
-    if (
-      Math.abs(
-        this.#inspectionTurnProgress - this.#inspectionTurnProgressTarget,
-      ) > 0.002
-    )
-      return;
-    this.#inspectionTurnProgress = this.#inspectionTurnProgressTarget;
-    if (this.#inspectionTurnWillCommit) {
-      const destinationMaterial =
-        this.#inspectionTurnPage === "left"
-          ? record.inspectionLeftMaterial
-          : record.inspectionRightMaterial;
-      destinationMaterial.map = this.#inspectionTurnDestinationTexture;
-      destinationMaterial.needsUpdate = true;
-      this.#inspectionPageIndex = this.#inspectionTurnTargetPageIndex;
-    } else {
-      const sourceMaterial =
-        this.#inspectionTurnSourceSide === "left"
-          ? record.inspectionLeftMaterial
-          : record.inspectionRightMaterial;
-      sourceMaterial.map = this.#inspectionTurnSourceTexture;
-      sourceMaterial.needsUpdate = true;
-      const destinationMaterial =
-        this.#inspectionTurnPage === "left"
-          ? record.inspectionLeftMaterial
-          : record.inspectionRightMaterial;
-      destinationMaterial.map = this.#inspectionTurnDestinationPreviousTexture;
-      destinationMaterial.needsUpdate = true;
-    }
-    turningPage.visible = false;
-    record.inspectionTurningFrontMaterial.map = null;
-    this.#setInspectionTurningBackTexture(record, null);
-    this.#inspectionTurnPage = undefined;
-    this.#inspectionTurnFromSingle = false;
-    this.#inspectionTurnOpeningFromBack = false;
-    this.#inspectionTurnToSingle = false;
-    this.#configureInspectionPages(record, publication);
-    if (!this.#inspectionTurnWillCommit) {
-      // Flush first so a queued prepare re-holds the restored spread
-      // textures before this release drops the finished turn's holds.
-      this.#flushQueuedInspectionTurn();
-      this.#releaseInspectionTurnTextures();
-      return;
-    }
-    this.#onPageIndexChange?.(publication.id, this.#inspectionPageIndex);
-    this.#emitGameState();
-    // Re-acquire order matters here: the sync below re-holds the newly
-    // displayed spread, and a queued prepare re-holds current+target, both
-    // synchronously within this task. Releasing the finished turn's holds
-    // must also happen in this task — deferring it lets a stale sync run
-    // after a newer prepare swapped the turn-texture set, releasing the
-    // textures still assigned to materials and flashing them white.
-    void this.#syncInspectionPageTextures(publication);
-    this.#flushQueuedInspectionTurn();
-    this.#releaseInspectionTurnTextures();
-  }
-
-  #flushQueuedInspectionTurn() {
-    const navigation = this.#inspectionQueuedTurn;
-    if (!navigation) return;
-    this.#inspectionQueuedTurn = undefined;
-    this.turnInspectionPage(navigation);
-  }
-
-  // Fires the held key's navigation every frame the book can accept a turn,
-  // producing continuous page turns while A or D is held down.
-  #updateHeldInspectionTurn() {
-    const navigation = this.#inspectionHeldNavigation;
-    if (!navigation) return;
-    if (
-      this.#inspectionMode !== "spread" ||
-      this.#inspectionOpeningDelay > 0 ||
-      this.#inspectionOpenAngle > 0.08 ||
-      this.#inspectionTurnPage !== undefined ||
-      this.#inspectionTurnPreparing ||
-      this.#inspectionDragging
-    )
-      return;
-    this.turnInspectionPage(navigation);
-  }
-
-  #releaseInspectionTurnTextures() {
-    for (const url of this.#inspectionTurnTextureUrls)
-      this.#inspectionPageTextureCache.release(url);
-    this.#inspectionTurnTextureUrls.clear();
-    this.#inspectionTurnDestinationTexture = null;
-    this.#inspectionTurnDestinationPreviousTexture = null;
-    this.#inspectionTurnSourceDestinationTexture = null;
-    this.#inspectionTurnSourceTexture = null;
-    this.#inspectionTurnBackSourceRevealed = false;
-  }
-
-  #setInspectionTurningBackTexture(
-    record: BookRecord,
-    texture: Texture | null,
-  ) {
-    this.#inspectionTurningBackTexture?.dispose();
-    this.#inspectionTurningBackTexture = texture?.clone();
-    const backTexture = this.#inspectionTurningBackTexture;
-    if (backTexture) {
-      const horizontalRange = mirrorReaderPageHorizontalRange(
-        backTexture.offset.x,
-        backTexture.repeat.x,
-      );
-      backTexture.offset.x = horizontalRange.offset;
-      backTexture.repeat.x = horizontalRange.repeat;
-      backTexture.needsUpdate = true;
-    }
-    record.inspectionTurningBackMaterial.map = backTexture ?? null;
-    record.inspectionTurningBackMaterial.needsUpdate = true;
-  }
-
-  #applyInspectionOpenAngle(record: BookRecord) {
-    record.inspectionLeftAssembly.rotation.y =
-      this.#inspectionOpeningHalf === "left" ? this.#inspectionOpenAngle : 0;
-    record.inspectionRightAssembly.rotation.y =
-      this.#inspectionOpeningHalf === "right" ? -this.#inspectionOpenAngle : 0;
-    const closedRatio = this.#inspectionOpenAngle / INSPECTION_OPEN_ANGLE;
-    const closedOffset = record.width / 2 + INSPECTION_PAGE_GUTTER / 2;
-    record.inspectionGroup.position.x =
-      (this.#inspectionOpeningHalf === "left" ? -1 : 1) *
-      closedOffset *
-      closedRatio;
-  }
-
-  #showCompactInspectionBook(record: BookRecord) {
-    this.#bookTextures.restoreCompactBookCoverTexture(record);
-    record.inspectionGroup.visible = false;
-    record.exteriorMaterial.visible = true;
-  }
-
-  #animateInspectionOpening(
-    record: BookRecord,
-    deltaSeconds: number,
-    speed = INSPECTION_COVER_ANIMATION_SPEED,
-  ) {
-    if (this.#inspectionOpeningDelay > 0) {
-      this.#inspectionOpeningDelay = Math.max(
-        0,
-        this.#inspectionOpeningDelay - deltaSeconds,
-      );
-      if (this.#inspectionOpeningDelay > 0) return;
-      record.inspectionGroup.visible = true;
-      record.exteriorMaterial.visible = false;
-    }
-    if (this.#inspectionOpenAngle === this.#inspectionOpenAngleTarget) return;
-    this.#inspectionOpenAngle = MathUtils.damp(
-      this.#inspectionOpenAngle,
-      this.#inspectionOpenAngleTarget,
-      speed,
-      deltaSeconds,
-    );
-    if (
-      Math.abs(this.#inspectionOpenAngle - this.#inspectionOpenAngleTarget) <
-      0.001
-    )
-      this.#inspectionOpenAngle = this.#inspectionOpenAngleTarget;
-    this.#applyInspectionOpenAngle(record);
-    if (record.inspectionBackCover.visible) {
-      const backPage =
-        record.inspectionBackCover.parent === record.inspectionLeftAssembly
-          ? record.inspectionLeftPage
-          : record.inspectionRightPage;
-      backPage.visible = this.#inspectionOpenAngle < INSPECTION_OPEN_ANGLE / 2;
-    }
-  }
-
-  async #syncInspectionPageTextures(publication: CatalogItem) {
-    const revision = ++this.#inspectionTextureRevision;
-    const turnRevision = this.#inspectionTurnRevision;
-    const pageUrls = this.#inspectionPageUrls(
-      publication,
-      this.#inspectionPageIndex,
-    );
-    const requestedUrls = new Set(
-      [pageUrls.left, pageUrls.right].filter(
-        (url): url is string => url !== undefined,
-      ),
-    );
-    const textures = new Map<string, Texture>();
-    const preloadPlan = createReaderPagePreloadPlan({
-      pageCount: publication.pages.length,
-      pageIndex: this.#inspectionPageIndex,
-      pageUrl: (pageIndex) => this.#inspectionPageUrl(publication, pageIndex),
-      requestedUrls,
-      widePageIndices: getWideReaderPageIndices(publication.pages),
-    });
-    const requestedTextureLoads = [...requestedUrls].map(async (url) => {
-      try {
-        textures.set(url, await this.#inspectionPageTextureCache.acquire(url));
-      } catch {
-        // The paper color remains visible when an individual page is absent.
-      }
-    });
-    for (const url of preloadPlan.httpUrls)
-      void this.#inspectionPagePreloader.preload(url).catch(() => {});
-    await Promise.all(requestedTextureLoads);
-    if (
-      this.#disposed ||
-      revision !== this.#inspectionTextureRevision ||
-      // A page turn prepared after this sync started owns the surface
-      // materials; applying spread textures here would flash mid-turn.
-      turnRevision !== this.#inspectionTurnRevision ||
-      this.#inspectionPublication()?.id !== publication.id
-    ) {
-      for (const url of textures.keys())
-        this.#inspectionPageTextureCache.release(url);
-      return;
-    }
-
-    for (const url of this.#inspectionTextureUrls)
-      this.#inspectionPageTextureCache.release(url);
-    this.#inspectionTextureUrls = new Set(textures.keys());
-    const record = this.#booksById.get(publication.id);
-    if (!record) return;
-    record.inspectionLeftMaterial.map = pageUrls.left
-      ? (textures.get(pageUrls.left) ?? null)
-      : null;
-    record.inspectionRightMaterial.map = pageUrls.right
-      ? (textures.get(pageUrls.right) ?? null)
-      : null;
-    record.inspectionLeftMaterial.needsUpdate = true;
-    record.inspectionRightMaterial.needsUpdate = true;
-
-    for (const url of preloadPlan.textureUrls)
-      void this.#inspectionPageTextureCache.prefetch(url).catch(() => {});
-  }
-
   #handleDetectedWidePage(url: string) {
-    const publication = this.#inspectionPublication();
-    if (this.#disposed || this.#inspectionMode !== "spread" || !publication)
+    const publication = this.#inspection.inspectionPublication();
+    if (
+      this.#disposed ||
+      this.#inspection.inspectionMode !== "spread" ||
+      !publication
+    )
       return;
     const pageIndex = publication.pages.findIndex(
       (page) => readerPageSourceUrl(page) === url,
@@ -6367,82 +5132,21 @@ export class ShopScene {
     if (pageIndex <= 0) return;
     const record = this.#booksById.get(publication.id);
     if (!record) return;
-    this.#cancelInspectionPageTurn(record, publication);
-    this.#inspectionTextureRevision += 1;
-    this.#inspectionPageIndex = getReaderSpread(
-      this.#inspectionPageIndex,
+    this.#inspection.cancelInspectionPageTurn(record, publication);
+    this.#inspection.inspectionTextureRevision += 1;
+    this.#inspection.inspectionPageIndex = getReaderSpread(
+      this.#inspection.inspectionPageIndex,
       publication.pages.length,
       "spread",
       getWideReaderPageIndices(publication.pages),
     ).start;
-    this.#configureInspectionPages(record, publication);
-    void this.#syncInspectionPageTextures(publication);
-    this.#onPageIndexChange?.(publication.id, this.#inspectionPageIndex);
+    this.#inspection.configureInspectionPages(record, publication);
+    void this.#inspection.syncInspectionPageTextures(publication);
+    this.#onPageIndexChange?.(
+      publication.id,
+      this.#inspection.inspectionPageIndex,
+    );
     this.#emitGameState();
-  }
-
-  #releaseInspectionPageTextures() {
-    this.#inspectionTextureRevision += 1;
-    for (const url of this.#inspectionTextureUrls)
-      this.#inspectionPageTextureCache.release(url);
-    this.#inspectionTextureUrls.clear();
-    const publicationId =
-      this.#inspectionPublicationId ?? this.#carriedPublicationId;
-    const record = publicationId
-      ? this.#booksById.get(publicationId)
-      : undefined;
-    if (!record) return;
-    record.inspectionLeftMaterial.map = null;
-    record.inspectionRightMaterial.map = null;
-    record.inspectionTurningFrontMaterial.map = null;
-    this.#setInspectionTurningBackTexture(record, null);
-    record.inspectionTurningPage.visible = false;
-    record.inspectionLeftMaterial.needsUpdate = true;
-    record.inspectionRightMaterial.needsUpdate = true;
-    record.inspectionTurningFrontMaterial.needsUpdate = true;
-    record.inspectionTurningBackMaterial.needsUpdate = true;
-  }
-
-  #loadInspectionPageTexture(url: string) {
-    return new Promise<Texture>((resolvePromise, rejectPromise) => {
-      let requestedTexture: Texture | undefined;
-      requestedTexture = this.#textureLoader.load(
-        url,
-        (texture) => {
-          const image = texture.image;
-          const publication = this.#inspectionPublication();
-          if (image instanceof HTMLImageElement && publication)
-            detectWideReaderPage(
-              url,
-              image.naturalWidth,
-              image.naturalHeight,
-              physicalBookWidth(publication.aspectRatio, 1),
-            );
-          const half = readerPageHalf(url);
-          if (half) {
-            texture.repeat.x = 0.5;
-            texture.offset.x = half === "left" ? 0 : 0.5;
-            texture.needsUpdate = true;
-          }
-          texture.colorSpace = SRGBColorSpace;
-          texture.minFilter = LinearFilter;
-          texture.anisotropy = Math.min(
-            8,
-            this.#renderer.capabilities.getMaxAnisotropy(),
-          );
-          resolvePromise(texture);
-        },
-        undefined,
-        (error) => {
-          requestedTexture?.dispose();
-          rejectPromise(
-            error instanceof Error
-              ? error
-              : new Error(`Could not load inspection page ${url}`),
-          );
-        },
-      );
-    });
   }
 
   #horizontalFieldOfView() {
@@ -6451,7 +5155,7 @@ export class ShopScene {
   }
 
   #spreadDistance() {
-    const publication = this.#inspectionPublication();
+    const publication = this.#inspection.inspectionPublication();
     const bookWidth = physicalBookWidth(publication?.aspectRatio, BOOK_HEIGHT);
     const spreadWidth = bookWidth * 2 + INSPECTION_PAGE_GUTTER;
     const spreadHeight = BOOK_HEIGHT;
@@ -6471,81 +5175,57 @@ export class ShopScene {
     );
   }
 
-  #inspectionBaseDistance() {
-    return this.#spreadDistance();
-  }
-
-  #resetInspectionZoom() {
-    this.#inspectionZoom = 1;
-    this.#inspectionZoomTarget = 1;
-    this.#inspectionZoomOffsetX = 0;
-    this.#inspectionZoomOffsetY = 0;
-    this.#inspectionZoomOffsetTargetX = 0;
-    this.#inspectionZoomOffsetTargetY = 0;
-    this.#inspectionPointerX = 0;
-    this.#inspectionPointerY = 0;
-  }
-
-  #updateInspectionLocalTarget() {
-    const distance = this.#inspectionBaseDistance() / this.#inspectionZoom;
-    this.#inspectionLocalPosition.set(
-      this.#inspectionZoomOffsetX,
-      this.#inspectionZoomOffsetY,
-      -distance,
-    );
-  }
-
   #animateInspectedBook(record: BookRecord, deltaSeconds: number) {
-    const returningToHand = this.#inspectionMode === "closing";
+    const returningToHand = this.#inspection.inspectionMode === "closing";
     const returningToShelf =
       returningToHand && record.state.status === "shelved";
     if (returningToShelf) {
-      this.#animateInspectionShelfReturn(record, deltaSeconds);
+      this.#inspection.animateInspectionShelfReturn(record, deltaSeconds);
       return;
     }
     if (
       !returningToHand &&
       record.state.status === "shelved" &&
-      this.#inspectionShelfFocusPending
+      this.#inspection.inspectionShelfFocusPending
     ) {
       if (!this.#animateShelfPreview(record, true, deltaSeconds)) return;
-      this.#inspectionShelfFocusPending = false;
+      this.#inspection.inspectionShelfFocusPending = false;
       return;
     }
     if (returningToHand) {
-      const publicationId = this.#inspectionPublicationId;
+      const publicationId = this.#inspection.inspectionPublicationId;
       if (
-        this.#inspectionPhysicsReturnActive ||
+        this.#inspection.inspectionPhysicsReturnActive ||
         (publicationId &&
-          this.#beginInspectionPhysicsReturn(record, publicationId))
+          this.#inspection.beginInspectionPhysicsReturn(record, publicationId))
       ) {
-        this.#animateInspectionPhysicsReturn(record, deltaSeconds);
+        this.#inspection.animateInspectionPhysicsReturn(record, deltaSeconds);
         return;
       }
     }
-    if (!returningToHand) this.#updateInspectionLocalTarget();
-    let targetPosition = this.#inspectionLocalPosition;
-    let targetRotation = this.#inspectionLocalRotation;
+    if (!returningToHand) this.#inspection.updateInspectionLocalTarget();
+    let targetPosition = this.#inspection.inspectionLocalPosition;
+    let targetRotation = this.#inspection.inspectionLocalRotation;
     if (returningToHand) {
-      const publicationId = this.#inspectionPublicationId;
+      const publicationId = this.#inspection.inspectionPublicationId;
       const carriedIndex = publicationId
         ? this.#carriedPublicationIds.indexOf(publicationId)
         : -1;
       if (carriedIndex >= 0) {
         this.#writeHeldBookLocalPosition(
           carriedIndex,
-          this.#inspectionLocalPosition,
+          this.#inspection.inspectionLocalPosition,
         );
         this.#writeHeldBookLocalRotation(
           carriedIndex,
-          this.#inspectionLocalRotation,
+          this.#inspection.inspectionLocalRotation,
         );
       } else {
-        this.#inspectionLocalPosition.copy(this.#heldLocalPosition);
-        this.#inspectionLocalRotation.copy(this.#heldLocalRotation);
+        this.#inspection.inspectionLocalPosition.copy(this.#heldLocalPosition);
+        this.#inspection.inspectionLocalRotation.copy(this.#heldLocalRotation);
       }
-      targetPosition = this.#inspectionLocalPosition;
-      targetRotation = this.#inspectionLocalRotation;
+      targetPosition = this.#inspection.inspectionLocalPosition;
+      targetRotation = this.#inspection.inspectionLocalRotation;
     }
     if (record.mesh.parent !== this.#camera) this.#camera.attach(record.mesh);
     record.mesh.position.x = MathUtils.damp(
@@ -6571,22 +5251,26 @@ export class ShopScene {
       1 - Math.exp(-INSPECTION_TRANSITION_SPEED * deltaSeconds),
     );
     record.mesh.scale.setScalar(1);
-    const closeAction = this.#inspectionCloseAction;
+    const closeAction = this.#inspection.inspectionCloseAction;
     const coverAnimationSpeed =
       returningToHand && (closeAction === "drop" || closeAction === "throw")
         ? INSPECTION_ACTION_CLOSE_SPEED
         : INSPECTION_COVER_ANIMATION_SPEED;
-    this.#animateInspectionOpening(record, deltaSeconds, coverAnimationSpeed);
+    this.#inspection.animateInspectionOpening(
+      record,
+      deltaSeconds,
+      coverAnimationSpeed,
+    );
     if (
-      this.#inspectionMode === "closing" &&
-      this.#inspectionOpenAngle === INSPECTION_OPEN_ANGLE &&
+      this.#inspection.inspectionMode === "closing" &&
+      this.#inspection.inspectionOpenAngle === INSPECTION_OPEN_ANGLE &&
       record.inspectionGroup.visible
     )
-      this.#showCompactInspectionBook(record);
-    this.#animateInspectionPageTurn(record, deltaSeconds);
+      this.#inspection.showCompactInspectionBook(record);
+    this.#inspection.animateInspectionPageTurn(record, deltaSeconds);
     if (
-      this.#inspectionMode === "closing" &&
-      this.#inspectionOpenAngle === INSPECTION_OPEN_ANGLE &&
+      this.#inspection.inspectionMode === "closing" &&
+      this.#inspection.inspectionOpenAngle === INSPECTION_OPEN_ANGLE &&
       record.mesh.position.distanceToSquared(targetPosition) <
         INSPECTION_TRANSITION_POSITION_EPSILON_SQ &&
       1 - Math.abs(record.mesh.quaternion.dot(targetRotation)) <
@@ -6594,123 +5278,8 @@ export class ShopScene {
     ) {
       record.mesh.position.copy(targetPosition);
       record.mesh.quaternion.copy(targetRotation);
-      this.#finishInspectionClose();
+      this.#inspection.finishInspectionClose();
     }
-  }
-
-  #beginInspectionPhysicsReturn(record: BookRecord, publicationId: string) {
-    if (!this.#physicsWorld.isReady) return false;
-    record.mesh.updateMatrixWorld(true);
-    record.mesh.getWorldPosition(this.#physicsPosePosition);
-    record.mesh.getWorldQuaternion(this.#physicsPoseRotation);
-    if (!this.#physicsWorld.snapHeldBook(publicationId, this.#physicsPose))
-      return false;
-    if (
-      !this.#physicsWorld.sampleInterpolatedBookTransform(
-        publicationId,
-        this.#physicsTransform,
-      )
-    )
-      return false;
-    this.#physicsWorld.setHeldTarget(publicationId, this.#heldTargetPose);
-    if (record.mesh.parent !== this.#scene) this.#scene.attach(record.mesh);
-    this.#inspectionPhysicsReturnActive = true;
-    return true;
-  }
-
-  #animateInspectionPhysicsReturn(record: BookRecord, deltaSeconds: number) {
-    const publicationId = this.#inspectionPublicationId;
-    if (!publicationId) return;
-    const closeAction = this.#inspectionCloseAction;
-    const actionClosingSpeed =
-      closeAction === "drop" || closeAction === "throw"
-        ? INSPECTION_ACTION_CLOSE_SPEED
-        : INSPECTION_COVER_ANIMATION_SPEED;
-    this.#animateInspectionOpening(record, deltaSeconds, actionClosingSpeed);
-    if (
-      this.#inspectionOpenAngle === INSPECTION_OPEN_ANGLE &&
-      record.inspectionGroup.visible
-    )
-      this.#showCompactInspectionBook(record);
-    this.#animateInspectionPageTurn(record, deltaSeconds);
-    if (
-      !this.#physicsWorld.sampleInterpolatedBookTransform(
-        publicationId,
-        this.#physicsTransform,
-      )
-    )
-      return;
-    if (record.mesh.parent !== this.#scene) this.#scene.attach(record.mesh);
-    record.mesh.position.copy(this.#physicsTransform.position);
-    record.mesh.quaternion.copy(this.#physicsTransform.rotation);
-    record.mesh.scale.setScalar(1);
-    if (this.#inspectionOpenAngle !== INSPECTION_OPEN_ANGLE) return;
-    this.#finishInspectionClose();
-  }
-
-  #animateInspectionShelfReturn(record: BookRecord, deltaSeconds: number) {
-    let phase = this.#inspectionShelfReturnPhase;
-    if (!phase) return;
-    if (record.mesh.parent !== this.#scene) this.#scene.attach(record.mesh);
-    record.mesh.scale.setScalar(1);
-    this.#animateInspectionOpening(record, deltaSeconds);
-    this.#animateInspectionPageTurn(record, deltaSeconds);
-
-    if (phase === "close") {
-      if (
-        INSPECTION_OPEN_ANGLE - this.#inspectionOpenAngle >
-        SHELF_RETURN_CLOSE_HANDOFF_ANGLE
-      )
-        return;
-      this.#inspectionOpenAngle = INSPECTION_OPEN_ANGLE;
-      this.#applyInspectionOpenAngle(record);
-      this.#showCompactInspectionBook(record);
-      phase = "rotate";
-      this.#inspectionShelfReturnPhase = phase;
-    }
-
-    if (phase === "rotate") {
-      record.mesh.quaternion.slerp(
-        this.#inspectionShelfWorldRotation,
-        1 - Math.exp(-SHELF_PREVIEW_ROTATION_SPEED * deltaSeconds),
-      );
-      if (
-        1 -
-          Math.abs(
-            record.mesh.quaternion.dot(this.#inspectionShelfWorldRotation),
-          ) >=
-        SHELF_RETURN_ROTATION_HANDOFF_EPSILON
-      )
-        return;
-      record.mesh.quaternion.copy(this.#inspectionShelfWorldRotation);
-      phase = "translate";
-      this.#inspectionShelfReturnPhase = phase;
-    }
-
-    record.mesh.position.x = MathUtils.damp(
-      record.mesh.position.x,
-      record.shelfPosition.x,
-      SHELF_PREVIEW_TRANSLATION_SPEED,
-      deltaSeconds,
-    );
-    record.mesh.position.y = MathUtils.damp(
-      record.mesh.position.y,
-      record.shelfPosition.y,
-      SHELF_PREVIEW_TRANSLATION_SPEED,
-      deltaSeconds,
-    );
-    record.mesh.position.z = MathUtils.damp(
-      record.mesh.position.z,
-      record.shelfPosition.z,
-      SHELF_PREVIEW_TRANSLATION_SPEED,
-      deltaSeconds,
-    );
-    if (
-      record.mesh.position.distanceToSquared(record.shelfPosition) >=
-      INSPECTION_TRANSITION_POSITION_EPSILON_SQ
-    )
-      return;
-    this.#finishInspectionClose();
   }
 
   #heldBookStackOffset(index: number) {
@@ -6755,8 +5324,8 @@ export class ShopScene {
       publicationId,
     ] of this.#carriedPublicationIds.entries()) {
       if (
-        publicationId === this.#inspectionPublicationId &&
-        this.#inspectionMode !== "none"
+        publicationId === this.#inspection.inspectionPublicationId &&
+        this.#inspection.inspectionMode !== "none"
       )
         continue;
       const record = this.#booksById.get(publicationId);
@@ -6771,11 +5340,11 @@ export class ShopScene {
 
   #writeHeldBookTargetPose(index: number, publicationId: string) {
     const inspecting =
-      this.#inspectionMode === "spread" &&
-      publicationId === this.#inspectionPublicationId;
+      this.#inspection.inspectionMode === "spread" &&
+      publicationId === this.#inspection.inspectionPublicationId;
     if (inspecting) {
-      this.#updateInspectionLocalTarget();
-      this.#heldTargetPosition.copy(this.#inspectionLocalPosition);
+      this.#inspection.updateInspectionLocalTarget();
+      this.#heldTargetPosition.copy(this.#inspection.inspectionLocalPosition);
     } else this.#writeHeldBookLocalPosition(index, this.#heldTargetPosition);
     this.#heldTargetPosition.applyMatrix4(this.#camera.matrixWorld);
     this.#camera.getWorldQuaternion(this.#heldTargetRotation);
@@ -6835,79 +5404,12 @@ export class ShopScene {
     }
   }
 
-  #createShelfTargetSelection(
-    target: Object3D,
-    point: Vector3,
-    publicationId: string,
-  ): ShelfTargetSelection | undefined {
-    const shelfId = target.userData.shelfId;
-    if (typeof shelfId !== "string") return undefined;
-    const shelf = this.#spineShelfDefinitions.get(shelfId);
-    const carriedRecord = this.#booksById.get(publicationId);
-    if (!shelf || !carriedRecord) return undefined;
-    const offset = this.#shelfTargetOffset
-      .copy(point)
-      .sub(shelf.frontCenter)
-      .dot(shelf.axis);
-    const presentation = this.#shelfPresentation;
-    const shelfBooks = [...this.#booksById.entries()].flatMap(([id, record]) =>
-      record.state.status === "shelved" && record.state.shelfId === shelfId
-        ? [
-            {
-              center: record.shelfOffset,
-              id,
-              width:
-                record.shelfPresentation === "face"
-                  ? record.width
-                  : record.thickness,
-            },
-          ]
-        : [],
-    );
-    const insertionWidth =
-      presentation === "face" ? carriedRecord.width : carriedRecord.thickness;
-    const placements = insertSpineShelfBook(
-      shelfBooks,
-      {center: offset, id: publicationId, width: insertionWidth},
-      {max: shelf.halfWidth, min: -shelf.halfWidth},
-      SPINE_SHELF_GAP,
-    );
-    const insertion = placements?.find(
-      (placement) => placement.id === publicationId,
-    );
-    if (!placements || !insertion) return undefined;
-    return {
-      offset: insertion.center,
-      placements,
-      presentation,
-      shelfId,
-      slotIndex: insertion.slotIndex,
-    };
-  }
-
-  #shelfSignKeyForTarget(shelfId: string, offset?: number) {
-    const shelf = this.#spineShelfDefinitions.get(shelfId);
-    if (!shelf) return undefined;
-    if (shelf.signKey) return shelf.signKey;
-    if (!shelfId.startsWith(`${FACE_SHELF_ID}:`) || offset === undefined)
-      return undefined;
-    const column = MathUtils.clamp(
-      Math.round(
-        offset / FACE_DISPLAY_COLUMN_SPACING + (FACE_DISPLAY_COLUMNS - 1) / 2,
-      ),
-      0,
-      FACE_DISPLAY_COLUMNS - 1,
-    );
-    const key = shopSignKey("shelf", String(column));
-    return this.#signs.has(key) ? key : undefined;
-  }
-
   #cycleCarriedBook(direction: number) {
     if (
       direction === 0 ||
-      this.#discardBusy ||
-      this.#throwChargeActive ||
-      this.#inspectionMode !== "none" ||
+      this.#bookActions.discardBusy ||
+      this.#bookActions.throwChargeActive ||
+      this.#inspection.inspectionMode !== "none" ||
       this.#carriedPublicationIds.length < 2
     )
       return false;
@@ -6929,546 +5431,14 @@ export class ShopScene {
       );
     this.#syncCarriedBookPresentation();
     this.#updateHeldPhysicsTarget();
-    this.#updateInteractionTarget();
+    this.#scanner.update();
     this.#emitGameState();
     return true;
   }
 
-  #browseShelf(direction: number) {
-    if (direction === 0 || this.#carriedPublicationId || this.#carriedProp)
-      return false;
-    const publicationId = this.#hoveredPublicationId;
-    const record = publicationId
-      ? this.#booksById.get(publicationId)
-      : undefined;
-    if (!publicationId || record?.state.status !== "shelved") return false;
-    const shelfId = record.state.shelfId;
-    const shelfBooks = [...this.#booksById.entries()].flatMap(
-      ([id, shelfRecord]) =>
-        shelfRecord.state.status === "shelved" &&
-        shelfRecord.state.shelfId === shelfId
-          ? [
-              {
-                center: shelfRecord.shelfOffset,
-                id,
-                width:
-                  shelfRecord.shelfPresentation === "face"
-                    ? shelfRecord.width
-                    : shelfRecord.thickness,
-              },
-            ]
-          : [],
-    );
-    const adjacentBook = findAdjacentShelfBook(
-      shelfBooks,
-      publicationId,
-      direction < 0 ? -1 : 1,
-    );
-    if (!adjacentBook) return true;
-    this.#shelfBrowsePublicationId = adjacentBook.id;
-    this.#setHoveredPublicationId(adjacentBook.id);
-    return true;
-  }
-
-  #findShelfHoverTargetPublicationId() {
-    // Whole-shelf cull: shelves farther than the interaction reach cannot
-    // contain a hit, so only nearby banks' proxies are raycast. Ungrouped
-    // proxies (shelf definition missing) always stay in the candidate set.
-    const scratch = this.#shelfHoverSweepScratch;
-    scratch.length = 0;
-    for (const [shelfId, meshes] of this.#shelfHoverMeshesByShelf) {
-      const shelf = this.#spineShelfDefinitions.get(shelfId);
-      if (!shelf) continue;
-      const cullDistance =
-        INTERACTION_DISTANCE + shelf.halfWidth + SHELF_HOVER_CULL_MARGIN;
-      if (
-        this.#camera.position.distanceToSquared(shelf.frontCenter) >
-        cullDistance * cullDistance
-      )
-        continue;
-      for (const mesh of meshes) scratch.push(mesh);
-    }
-    for (const mesh of this.#ungroupedShelfHoverMeshes) scratch.push(mesh);
-    if (scratch.length === 0) return undefined;
-    const intersections = this.#raycaster.intersectObjects(scratch, false);
-    for (const intersection of intersections) {
-      if (intersection.distance > INTERACTION_DISTANCE) break;
-      const candidateId = intersection.object.userData.publicationId;
-      if (typeof candidateId === "string") return candidateId;
-    }
-    return undefined;
-  }
-
-  #updateInteractionTarget() {
-    // An arcade session owns the screen; retargeting would fight its UI.
-    if (this.#arcadeStatusForUi()) {
-      this.#signs.clearShelfSignPreview();
-      return;
-    }
-    if (this.#inspectionMode !== "none") {
-      this.#setHoveredPublicationId(undefined);
-      this.#shelfTargeted = false;
-      this.#shelfTargetSelection = undefined;
-      this.#signs.clearShelfSignPreview();
-      this.#signs.targetedKey = undefined;
-      this.#posters.targetedId = undefined;
-      this.#artFrames.setDigitalArtFrameTargeted();
-      this.#setPropTargeted(undefined);
-      this.#setTrashTargeted(false);
-      this.#setTelevisionTargeted(false);
-      this.#updateShelfTargetVisuals();
-      return;
-    }
-    if (this.#shelveAnimation) {
-      this.#setHoveredPublicationId(undefined);
-      this.#shelfTargeted = false;
-      this.#shelfTargetSelection = undefined;
-      this.#signs.clearShelfSignPreview();
-      this.#signs.targetedKey = undefined;
-      this.#posters.targetedId = undefined;
-      this.#artFrames.setDigitalArtFrameTargeted();
-      this.#setPropTargeted(undefined);
-      this.#setTrashTargeted(false);
-      this.#setTelevisionTargeted(false);
-      this.#updateShelfTargetVisuals();
-      this.#signs.updateTargetVisuals();
-      return;
-    }
-    if (!this.#pointerLocked) {
-      this.#signs.clearShelfSignPreview();
-      this.#posters.updatePosterPlacementTarget();
-      this.#artFrames.updateDigitalArtFramePlacementTarget();
-      this.#setHoveredPublicationId(undefined);
-      if (
-        this.#shelfTargeted ||
-        this.#trashTargeted ||
-        this.#televisionTargeted ||
-        this.#targetedProp !== undefined ||
-        this.#artFrames.targetedId !== undefined ||
-        this.#posters.targetedId !== undefined ||
-        this.#signs.targetedKey !== undefined
-      ) {
-        this.#shelfTargeted = false;
-        this.#shelfTargetSelection = undefined;
-        this.#signs.targetedKey = undefined;
-        this.#posters.targetedId = undefined;
-        this.#artFrames.setDigitalArtFrameTargeted();
-        this.#setPropTargeted(undefined);
-        this.#setTrashTargeted(false);
-        this.#setTelevisionTargeted(false);
-        this.#setArcadeTargeted(undefined);
-        this.#updateShelfTargetVisuals();
-        this.#signs.updateTargetVisuals();
-        this.#emitGameState();
-      }
-      return;
-    }
-
-    // Aiming results feed highlight prompts and clicks, which tolerate a
-    // frame or two of latency - so the full-shop reticle sweep runs on a
-    // fixed-rate budget instead of every tick, capping its cost while the
-    // player whips the view around.
-    if (this.#frameNowMs - this.#lastAimSweepTimeMs < AIM_SWEEP_MIN_INTERVAL_MS)
-      return;
-    // The reticle is screen-center, so the sweep result only changes when
-    // the camera moves or targetable content changed; skip otherwise.
-    if (
-      !this.#interactionTargetsDirty &&
-      this.#camera.position.equals(this.#lastSweepPosition) &&
-      this.#camera.quaternion.equals(this.#lastSweepQuaternion)
-    )
-      return;
-    this.#interactionTargetsDirty = false;
-    this.#lastSweepPosition.copy(this.#camera.position);
-    this.#lastSweepQuaternion.copy(this.#camera.quaternion);
-    this.#lastAimSweepTimeMs = this.#frameNowMs;
-    this.#camera.updateMatrixWorld();
-    this.#raycaster.setFromCamera(this.#reticle, this.#camera);
-    if (this.#artFrames.placement) {
-      this.#setHoveredPublicationId(undefined);
-      this.#shelfTargeted = false;
-      this.#shelfTargetSelection = undefined;
-      this.#signs.clearShelfSignPreview();
-      this.#signs.targetedKey = undefined;
-      this.#posters.targetedId = undefined;
-      this.#artFrames.setDigitalArtFrameTargeted();
-      this.#setPropTargeted(undefined);
-      this.#setTrashTargeted(false);
-      this.#setTelevisionTargeted(false);
-      this.#updateShelfTargetVisuals();
-      this.#signs.updateTargetVisuals();
-      this.#artFrames.updateDigitalArtFramePlacementTarget();
-      return;
-    }
-    if (this.#posters.placement) {
-      this.#setHoveredPublicationId(undefined);
-      this.#shelfTargeted = false;
-      this.#shelfTargetSelection = undefined;
-      this.#signs.clearShelfSignPreview();
-      this.#signs.targetedKey = undefined;
-      this.#posters.targetedId = undefined;
-      this.#artFrames.setDigitalArtFrameTargeted();
-      this.#setPropTargeted(undefined);
-      this.#setTrashTargeted(false);
-      this.#setTelevisionTargeted(false);
-      this.#setArcadeTargeted(undefined);
-      this.#updateShelfTargetVisuals();
-      this.#signs.updateTargetVisuals();
-      this.#posters.updatePosterPlacementTarget();
-      return;
-    }
-    if (this.#carriedProp) {
-      this.#setHoveredPublicationId(undefined);
-      this.#shelfTargeted = false;
-      this.#shelfTargetSelection = undefined;
-      this.#signs.clearShelfSignPreview();
-      this.#signs.targetedKey = undefined;
-      this.#posters.targetedId = undefined;
-      this.#artFrames.setDigitalArtFrameTargeted();
-      this.#setPropTargeted(undefined);
-      this.#setTrashTargeted(false);
-      this.#setTelevisionTargeted(false);
-      this.#setArcadeTargeted(undefined);
-      this.#updateShelfTargetVisuals();
-      this.#signs.updateTargetVisuals();
-      return;
-    }
-    if (this.#carriedPublicationId) {
-      this.#signs.targetedKey = undefined;
-      this.#posters.targetedId = undefined;
-      this.#artFrames.setDigitalArtFrameTargeted();
-      this.#setPropTargeted(undefined);
-      this.#setTelevisionTargeted(false);
-      const trashIntersection = this.#raycaster.intersectObjects(
-        this.#discardBin.volumeMeshes,
-        false,
-      )[0];
-      const trashTargeted =
-        trashIntersection !== undefined &&
-        trashIntersection.distance <= TRASH_INTERACTION_DISTANCE;
-      this.#targetedTrashBinId = trashTargeted
-        ? (trashIntersection?.object.userData.propId as string | undefined)
-        : undefined;
-      let pickupPublicationId: string | undefined;
-      if (
-        !trashTargeted &&
-        this.#carriedPublicationIds.length < MAX_CARRIED_BOOKS
-      ) {
-        const directBookIntersection = this.#raycaster.intersectObjects(
-          this.#interactiveMeshes,
-          false,
-        )[0];
-        const directPublicationId =
-          directBookIntersection &&
-          directBookIntersection.distance <= INTERACTION_DISTANCE
-            ? directBookIntersection.object.userData.publicationId
-            : undefined;
-        const directRecord =
-          typeof directPublicationId === "string"
-            ? this.#booksById.get(directPublicationId)
-            : undefined;
-        if (directRecord?.state.status === "floor")
-          pickupPublicationId = directPublicationId;
-        else {
-          const shelfPublicationId = this.#findShelfHoverTargetPublicationId();
-          const shelfRecord = shelfPublicationId
-            ? this.#booksById.get(shelfPublicationId)
-            : undefined;
-          if (shelfRecord?.state.status === "shelved")
-            pickupPublicationId = shelfPublicationId;
-        }
-      }
-      if (pickupPublicationId) {
-        this.#setHoveredPublicationId(pickupPublicationId);
-        this.#shelfTargeted = false;
-        this.#shelfTargetSelection = undefined;
-        this.#signs.clearShelfSignPreview();
-        this.#setTrashTargeted(false);
-        this.#updateShelfTargetVisuals();
-        this.#signs.updateTargetVisuals();
-        return;
-      }
-      this.#setHoveredPublicationId(undefined);
-      let selection: ShelfTargetSelection | undefined;
-      if (!trashTargeted) {
-        const intersections = this.#raycaster.intersectObjects(
-          this.#shelfTargetMeshes,
-          false,
-        );
-        for (const intersection of intersections) {
-          if (intersection.distance > SHELF_INTERACTION_DISTANCE) break;
-          selection = this.#createShelfTargetSelection(
-            intersection.object,
-            intersection.point,
-            this.#carriedPublicationId,
-          );
-          if (selection) break;
-        }
-      }
-      this.#shelfTargeted = selection !== undefined;
-      this.#shelfTargetSelection = selection;
-      this.#signs.previewKey = selection
-        ? this.#shelfSignKeyForTarget(selection.shelfId, selection.offset)
-        : undefined;
-      this.#setTrashTargeted(trashTargeted);
-      this.#updateShelfTargetVisuals();
-      this.#signs.updateTargetVisuals();
-      this.#emitGameState();
-      return;
-    }
-
-    if (this.#shelfTargeted) {
-      this.#shelfTargeted = false;
-      this.#shelfTargetSelection = undefined;
-      this.#updateShelfTargetVisuals();
-    }
-    let arcadeCabinet: ShopArcadeCabinet | undefined;
-    let arcadeIntersection:
-      | ReturnType<Raycaster["intersectObjects"]>[number]
-      | undefined;
-    for (const candidate of this.#arcadeCabinets) {
-      candidate.object.getWorldPosition(this.#televisionTargetPosition);
-      // Scale the cull radius with the cabinet so resized units stay
-      // targetable even when their center sits far above or beside the eye.
-      const cabinetProp = this.#arcadeProps.get(candidate);
-      const cabinetRadius = cabinetProp
-        ? Math.max(
-            cabinetProp.halfWidth,
-            cabinetProp.halfHeight,
-            cabinetProp.halfDepth,
-          )
-        : 0;
-      const cabinetCullDistance =
-        ARCADE_INTERACTION_DISTANCE + 1.2 + cabinetRadius * 2;
-      if (
-        this.#camera.position.distanceToSquared(
-          this.#televisionTargetPosition,
-        ) >
-        cabinetCullDistance * cabinetCullDistance
-      )
-        continue;
-      const candidateIntersection = this.#raycaster.intersectObjects(
-        candidate.interactionTargets,
-        false,
-      )[0];
-      if (
-        !candidateIntersection ||
-        (arcadeIntersection &&
-          candidateIntersection.distance >= arcadeIntersection.distance)
-      )
-        continue;
-      arcadeCabinet = candidate;
-      arcadeIntersection = candidateIntersection;
-    }
-    const arcadeTargeted =
-      arcadeCabinet !== undefined &&
-      arcadeIntersection !== undefined &&
-      arcadeIntersection.distance <= ARCADE_INTERACTION_DISTANCE;
-    this.#setArcadeTargeted(arcadeTargeted ? arcadeCabinet : undefined);
-    if (arcadeTargeted) {
-      this.#signs.clearShelfSignPreview();
-      this.#setTelevisionTargeted(false);
-      this.#setPropTargeted(undefined);
-      this.#setTrashTargeted(false);
-      this.#signs.targetedKey = undefined;
-      this.#posters.targetedId = undefined;
-      this.#artFrames.setDigitalArtFrameTargeted();
-      this.#signs.updateTargetVisuals();
-      this.#setHoveredPublicationId(undefined);
-      return;
-    }
-    let television: ShopTelevision | undefined;
-    let televisionIntersection:
-      | ReturnType<Raycaster["intersectObjects"]>[number]
-      | undefined;
-    for (const candidate of this.#televisions) {
-      candidate.object.getWorldPosition(this.#televisionTargetPosition);
-      candidate.object.getWorldScale(this.#televisionTargetScale);
-      const televisionScale = Math.max(
-        this.#televisionTargetScale.x,
-        this.#televisionTargetScale.y,
-        this.#televisionTargetScale.z,
-      );
-      const televisionCullDistance =
-        TELEVISION_INTERACTION_DISTANCE +
-        candidate.interactionBoundsRadius * televisionScale;
-      if (
-        this.#camera.position.distanceToSquared(
-          this.#televisionTargetPosition,
-        ) >
-        televisionCullDistance * televisionCullDistance
-      )
-        continue;
-      const candidateIntersection = this.#raycaster.intersectObjects(
-        // Raycaster only reads the input list, so bypass the readonly getter.
-        candidate.interactionTargets as Mesh[],
-        false,
-      )[0];
-      if (
-        !candidateIntersection ||
-        (televisionIntersection &&
-          candidateIntersection.distance >= televisionIntersection.distance)
-      )
-        continue;
-      television = candidate;
-      televisionIntersection = candidateIntersection;
-    }
-    const televisionInteraction = televisionIntersection
-      ? television?.resolveInteractionTarget(televisionIntersection.object)
-      : undefined;
-    const televisionTargeted =
-      televisionInteraction !== undefined &&
-      televisionIntersection !== undefined &&
-      televisionIntersection.distance <= TELEVISION_INTERACTION_DISTANCE;
-    this.#setTelevisionTargeted(
-      televisionTargeted,
-      televisionInteraction,
-      television,
-    );
-    if (televisionTargeted) {
-      this.#signs.clearShelfSignPreview();
-      this.#setPropTargeted(undefined);
-      this.#setTrashTargeted(false);
-      this.#signs.targetedKey = undefined;
-      this.#posters.targetedId = undefined;
-      this.#artFrames.setDigitalArtFrameTargeted();
-      this.#signs.updateTargetVisuals();
-      this.#setHoveredPublicationId(undefined);
-      return;
-    }
-    const directBookIntersection = this.#raycaster.intersectObjects(
-      this.#interactiveMeshes,
-      false,
-    )[0];
-    const propIntersection = this.#raycaster.intersectObjects(
-      this.#movablePropTargetMeshes,
-      false,
-    )[0];
-    const propId = propIntersection?.object.userData.movablePropId;
-    const targetedProp =
-      propIntersection &&
-      propIntersection.distance <= MOVABLE_PROP_INTERACTION_DISTANCE &&
-      (!directBookIntersection ||
-        directBookIntersection.distance > INTERACTION_DISTANCE ||
-        propIntersection.distance < directBookIntersection.distance) &&
-      typeof propId === "string"
-        ? this.#movableProps.get(propId)
-        : undefined;
-    this.#setPropTargeted(targetedProp);
-    if (targetedProp) {
-      this.#signs.clearShelfSignPreview();
-      this.#setTrashTargeted(false);
-      this.#signs.targetedKey = undefined;
-      this.#posters.targetedId = undefined;
-      this.#artFrames.setDigitalArtFrameTargeted();
-      this.#signs.updateTargetVisuals();
-      this.#setHoveredPublicationId(undefined);
-      return;
-    }
-    this.#setTrashTargeted(false);
-    const shelfIntersection = this.#raycaster
-      .intersectObjects(this.#signs.previewTargetMeshes, false)
-      .find((candidate) => candidate.distance <= SHELF_INTERACTION_DISTANCE);
-    const shelfId = shelfIntersection?.object.userData.shelfId;
-    const shelf =
-      typeof shelfId === "string"
-        ? this.#spineShelfDefinitions.get(shelfId)
-        : undefined;
-    const shelfOffset =
-      shelf && shelfIntersection
-        ? this.#shelfTargetOffset
-            .copy(shelfIntersection.point)
-            .sub(shelf.frontCenter)
-            .dot(shelf.axis)
-        : undefined;
-    const shelfSignPreviewKey =
-      typeof shelfId === "string"
-        ? this.#shelfSignKeyForTarget(shelfId, shelfOffset)
-        : undefined;
-    const signIntersection = this.#raycaster
-      .intersectObjects(this.#signs.targetMeshes, false)
-      .find((candidate) => candidate.distance <= SIGN_INTERACTION_DISTANCE);
-    const signKey = signIntersection?.object.userData.signKey;
-    const targetedSignKey = typeof signKey === "string" ? signKey : undefined;
-    const nextShelfSignPreviewKey =
-      signIntersection === undefined ? shelfSignPreviewKey : undefined;
-    const shelfSignPreviewChanged =
-      nextShelfSignPreviewKey !== this.#signs.previewKey;
-    this.#signs.previewKey = nextShelfSignPreviewKey;
-    const targetedSignChanged = targetedSignKey !== this.#signs.targetedKey;
-    if (targetedSignChanged || shelfSignPreviewChanged) {
-      this.#signs.targetedKey = targetedSignKey;
-      this.#signs.updateTargetVisuals();
-      if (targetedSignChanged) this.#emitGameState();
-    }
-    if (targetedSignKey !== undefined) {
-      this.#posters.targetedId = undefined;
-      this.#artFrames.setDigitalArtFrameTargeted();
-      this.#setHoveredPublicationId(undefined);
-      return;
-    }
-    const artFrameIntersection = this.#raycaster
-      .intersectObjects(this.#artFrames.targetMeshes, false)
-      .find((candidate) => candidate.distance <= POSTER_INTERACTION_DISTANCE);
-    const artFrameId = artFrameIntersection?.object.userData.digitalArtFrameId;
-    const targetedArtFrameId =
-      typeof artFrameId === "string" ? artFrameId : undefined;
-    this.#artFrames.setDigitalArtFrameTargeted(targetedArtFrameId);
-    if (targetedArtFrameId) {
-      this.#posters.targetedId = undefined;
-      this.#setHoveredPublicationId(undefined);
-      return;
-    }
-    const posterIntersection = this.#raycaster
-      .intersectObjects(this.#posters.targetMeshes, false)
-      .find((candidate) => candidate.distance <= POSTER_INTERACTION_DISTANCE);
-    const posterId = posterIntersection?.object.userData.posterId;
-    const targetedPosterId =
-      typeof posterId === "string" ? posterId : undefined;
-    if (targetedPosterId !== this.#posters.targetedId) {
-      this.#posters.targetedId = targetedPosterId;
-      this.#emitGameState();
-    }
-    if (targetedPosterId) {
-      this.#artFrames.setDigitalArtFrameTargeted();
-      this.#setHoveredPublicationId(undefined);
-      return;
-    }
-    const directPublicationId =
-      directBookIntersection &&
-      directBookIntersection.distance <= INTERACTION_DISTANCE
-        ? directBookIntersection.object.userData.publicationId
-        : undefined;
-    const directRecord =
-      typeof directPublicationId === "string"
-        ? this.#booksById.get(directPublicationId)
-        : undefined;
-    const shelfPublicationId = this.#findShelfHoverTargetPublicationId();
-    let publicationId =
-      directRecord?.state.status === "floor"
-        ? directPublicationId
-        : (shelfPublicationId ?? directPublicationId);
-    const browsedRecord = this.#shelfBrowsePublicationId
-      ? this.#booksById.get(this.#shelfBrowsePublicationId)
-      : undefined;
-    const naturallyTargetedRecord =
-      typeof publicationId === "string"
-        ? this.#booksById.get(publicationId)
-        : undefined;
-    if (
-      browsedRecord?.state.status === "shelved" &&
-      naturallyTargetedRecord?.state.status === "shelved" &&
-      browsedRecord.state.shelfId === naturallyTargetedRecord.state.shelfId
-    )
-      publicationId = this.#shelfBrowsePublicationId;
-    else this.#shelfBrowsePublicationId = undefined;
-    this.#setHoveredPublicationId(
-      typeof publicationId === "string" ? publicationId : undefined,
-    );
-  }
-
   #interact(allowNonBookPropPickup = true) {
-    if (this.#discardBusy || this.#shelveAnimation) return;
+    if (this.#bookActions.discardBusy || this.#bookActions.shelveAnimation)
+      return;
     if (this.#artFrames.placement) {
       this.#artFrames.placeDigitalArtFrame();
       return;
@@ -7483,9 +5453,11 @@ export class ShopScene {
     }
     if (this.#carriedPublicationId) {
       if (this.#hoveredPublicationId) {
-        this.#pickUpBook(this.#hoveredPublicationId);
-      } else if (this.#trashTargeted) void this.#discardCarriedBook();
-      else if (this.#shelfTargeted) this.#shelveCarriedBook();
+        this.#bookActions.pickUpBook(this.#hoveredPublicationId);
+      } else if (this.#scanner.trashTargeted)
+        void this.#bookActions.discardCarriedBook();
+      else if (this.#scanner.shelfTargeted)
+        this.#bookActions.shelveCarriedBook();
       return;
     }
     if (this.#targetedArcadeCabinet) {
@@ -7551,480 +5523,117 @@ export class ShopScene {
       return;
     }
     if (!this.#hoveredPublicationId) return;
-    this.#pickUpBook(this.#hoveredPublicationId);
+    this.#bookActions.pickUpBook(this.#hoveredPublicationId);
   }
 
-  #pickUpBook(publicationId: string) {
-    if (
-      this.#carriedPublicationIds.length >= MAX_CARRIED_BOOKS ||
-      this.#carriedProp
-    )
-      return;
-    const record = this.#booksById.get(publicationId);
-    if (!record) return;
-    const previousShelfId =
-      record.state.status === "shelved" ? record.state.shelfId : undefined;
-    const transition = transitionBookInteraction(record.state, {
-      type: "pick-up",
-    });
-    if (!transition.ok) return;
-
-    record.state = transition.state;
-    this.#shelfPresentation = record.shelfPresentation;
-    if (previousShelfId) this.#renumberSpineShelf(previousShelfId);
-    this.#bookTextures.promoteBookCoverTexture(publicationId, record);
-    this.#carriedPublicationIds.unshift(publicationId);
-    this.#carriedPublicationId = publicationId;
-    this.#discardError = undefined;
-    this.#setHoveredPublicationId(undefined);
-    this.#physicsWorld.holdBook(publicationId);
-    if (this.#physicsWorld.isReady) this.#scene.attach(record.mesh);
-    else {
-      this.#camera.add(record.mesh);
-      this.#writeHeldBookLocalPosition(0, record.mesh.position);
-      this.#writeHeldBookLocalRotation(0, record.mesh.quaternion);
-    }
-    record.mesh.scale.setScalar(1);
-    record.targetLift = 0;
-    record.targetScale = 1;
-    this.#syncInteractiveMeshes();
-    this.#updateHeldPhysicsTarget();
-    this.#updateShelfTargetVisuals();
-    this.#worldStateDirty = true;
-    this.#emitGameState();
-  }
-
-  #shelveCarriedBook() {
-    if (this.#discardBusy || this.#shelveAnimation) return;
-    const publicationId = this.#carriedPublicationId;
-    if (!publicationId) return;
-    const record = this.#booksById.get(publicationId);
-    if (!record) return;
-    const selection = this.#shelfTargetSelection;
-    if (!selection) return;
-    const transition = transitionBookInteraction(record.state, {
-      shelfId: selection.shelfId,
-      slotIndex: selection.slotIndex,
-      type: "shelve",
-    });
-    if (!transition.ok) return;
-
-    record.mesh.updateMatrixWorld(true);
-    const startPosition = record.mesh.getWorldPosition(new Vector3());
-    const startRotation = record.mesh.getWorldQuaternion(new Quaternion());
-    this.#scene.attach(record.mesh);
-    record.mesh.position.copy(startPosition);
-    record.mesh.quaternion.copy(startRotation);
-    record.state = transition.state;
-    record.shelfPresentation = selection.presentation;
-    record.slotIndex = selection.slotIndex;
-    record.shelfOffset = selection.offset;
-    const insertedPlacement = selection.placements?.find(
-      (placement) => placement.id === publicationId,
-    );
-    if (insertedPlacement) {
-      record.slotIndex = insertedPlacement.slotIndex;
-      record.shelfOffset = insertedPlacement.center;
-    }
-    this.#setShelfPosition(record);
-    this.#setShelfRotation(record, publicationId);
-    const targetPosition = record.shelfPosition.clone();
-    const targetRotation = new Quaternion().setFromEuler(
-      new Euler(
-        record.baseRotation.x,
-        record.baseRotation.y,
-        record.baseRotation.z,
-        "XYZ",
-      ),
-    );
-    this.#shelveAnimation = {
-      elapsedSeconds: 0,
-      placements: selection.placements,
-      publicationId,
-      shelfId: selection.shelfId,
-      startPosition,
-      startRotation,
-      targetPosition,
-      targetRotation,
+  #createScannerHost(): InteractionScannerHost {
+    return {
+      arcadeCabinets: () => this.#arcadeCabinets,
+      arcadeProps: () => this.#arcadeProps,
+      arcadeStatusForUi: () => this.#arcadeStatusForUi(),
+      artFrames: () => this.#artFrames,
+      booksById: () => this.#booksById,
+      camera: () => this.#camera,
+      carriedProp: () => this.#carriedProp,
+      carriedPublicationId: () => this.#carriedPublicationId,
+      carriedPublicationIds: () => this.#carriedPublicationIds,
+      discardBinVolumeMeshes: () => this.#discardBin.volumeMeshes,
+      emitGameState: () => this.#emitGameState(),
+      frameNowMs: () => this.#frameNowMs,
+      hoveredPublicationId: () => this.#hoveredPublicationId,
+      inspectionMode: () => this.#inspection.inspectionMode,
+      interactiveMeshes: () => this.#interactiveMeshes,
+      movableProps: () => this.#movableProps,
+      movablePropTargetMeshes: () => this.#movablePropTargetMeshes,
+      pointerLocked: () => this.#pointerLocked,
+      posters: () => this.#posters,
+      raycaster: () => this.#raycaster,
+      setArcadeTargeted: (cabinet) => this.#setArcadeTargeted(cabinet),
+      setHoveredPublicationId: (publicationId) =>
+        this.#setHoveredPublicationId(publicationId),
+      setPropTargeted: (record) => this.#setPropTargeted(record),
+      setTelevisionTargeted: (targeted, interaction, television) =>
+        this.#setTelevisionTargeted(targeted, interaction, television),
+      setTrashTargeted: (targeted) => this.#setTrashTargeted(targeted),
+      shelfHoverMeshesByShelf: () => this.#shelfHoverMeshesByShelf,
+      shelfPresentation: () => this.#shelfPresentation,
+      shelfTargetMeshes: () => this.#shelfTargetMeshes,
+      shelveAnimation: () => this.#bookActions.shelveAnimation,
+      signs: () => this.#signs,
+      spineShelfDefinitions: () => this.#spineShelfDefinitions,
+      targetedProp: () => this.#targetedProp,
+      televisionTargeted: () => this.#televisionTargeted,
+      televisions: () => this.#televisions,
+      ungroupedShelfHoverMeshes: () => this.#ungroupedShelfHoverMeshes,
     };
-    this.#removeCarriedPublication(publicationId);
-    this.#discardError = undefined;
-    this.#shelfTargeted = false;
-    this.#shelfTargetSelection = undefined;
-    this.#setTrashTargeted(false);
-    this.#syncCarriedBookPresentation();
-    this.#updateHeldPhysicsTarget();
-    this.#syncInteractiveMeshes();
-    this.#updateShelfTargetVisuals();
-    this.#worldStateDirty = true;
-    this.#emitGameState();
   }
 
-  #applySpineShelfPlacements(
-    shelfId: string,
-    placements: readonly SpineShelfPlacement[],
-  ) {
-    for (const placement of placements) {
-      const record = this.#booksById.get(placement.id);
-      if (!record) continue;
-      record.slotIndex = placement.slotIndex;
-      record.shelfOffset = placement.center;
-      record.state = {
-        shelfId,
-        slotIndex: placement.slotIndex,
-        status: "shelved",
-      };
-      this.#setShelfPosition(record);
-      record.basePosition.copy(record.shelfPosition);
-      this.#setShelfRotation(record, placement.id);
-      this.#physicsWorld.shelveBook(
-        placement.id,
-        this.#setPhysicsPose(record.shelfPosition, record.baseRotation),
-      );
-    }
-  }
-
-  #renumberSpineShelf(shelfId: string) {
-    if (!this.#spineShelfDefinitions.has(shelfId)) return;
-    const records = [...this.#booksById.values()]
-      .filter(
-        (record) =>
-          record.state.status === "shelved" && record.state.shelfId === shelfId,
-      )
-      .sort((first, second) => first.shelfOffset - second.shelfOffset);
-    for (const [slotIndex, record] of records.entries()) {
-      record.slotIndex = slotIndex;
-      record.state = {shelfId, slotIndex, status: "shelved"};
-    }
-  }
-
-  #throwChargeProgress() {
-    return MathUtils.clamp(
-      this.#throwChargeSeconds / THROW_CHARGE_SECONDS,
-      0,
-      1,
-    );
-  }
-
-  #startThrowCharge() {
-    if (
-      this.#throwChargeActive ||
-      !this.#carriedPublicationId ||
-      this.#inspectionMode !== "none"
-    )
-      return;
-    this.#throwChargeActive = true;
-    this.#throwChargeBucket = 0;
-    this.#throwChargeSeconds = 0;
-    this.#emitGameState();
-  }
-
-  #updateThrowCharge(deltaSeconds: number) {
-    if (!this.#throwChargeActive) return;
-    if (!this.#carriedPublicationId || this.#inspectionMode !== "none") {
-      this.#cancelThrowCharge();
-      return;
-    }
-    this.#throwChargeSeconds = Math.min(
-      THROW_CHARGE_SECONDS,
-      this.#throwChargeSeconds + deltaSeconds,
-    );
-    const bucket = Math.round(this.#throwChargeProgress() * 50);
-    if (bucket === this.#throwChargeBucket) return;
-    this.#throwChargeBucket = bucket;
-    this.#emitGameState();
-  }
-
-  #cancelThrowCharge() {
-    if (!this.#throwChargeActive) return;
-    this.#throwChargeActive = false;
-    this.#throwChargeBucket = -1;
-    this.#throwChargeSeconds = 0;
-    this.#emitGameState();
-  }
-
-  #releaseThrowCharge() {
-    if (!this.#throwChargeActive) return;
-    const charge = this.#throwChargeProgress();
-    this.#throwChargeActive = false;
-    this.#throwChargeBucket = -1;
-    this.#throwChargeSeconds = 0;
-    this.#throwCarriedBook(charge);
-  }
-
-  #throwCarriedBook(charge = 0) {
-    if (
-      this.#carriedPublicationIds.length === 0 ||
-      this.#inspectionMode !== "none"
-    )
-      return;
-    this.#dropCarriedBook(false, true, charge);
-  }
-
-  #dropCarriedBook(
-    fromCurrentPose = false,
-    throwBook = false,
-    throwCharge = 0,
-    publicationIdOverride?: string,
-  ) {
-    if (this.#discardBusy) return;
-    const publicationId = publicationIdOverride ?? this.#carriedPublicationId;
-    if (!publicationId) return;
-    const record = this.#booksById.get(publicationId);
-    if (!record) return;
-    if (this.#throwChargeActive) {
-      this.#throwChargeActive = false;
-      this.#throwChargeBucket = -1;
-      this.#throwChargeSeconds = 0;
-    }
-    const transition = transitionBookInteraction(record.state, {type: "drop"});
-    if (!transition.ok) return;
-
-    let dropPose = this.#heldTargetPose;
-    if (fromCurrentPose) {
-      record.mesh.updateMatrixWorld(true);
-      record.mesh.getWorldPosition(this.#physicsPosePosition);
-      record.mesh.getWorldQuaternion(this.#physicsPoseRotation);
-      dropPose = this.#physicsPose;
-    } else {
-      this.#updateHeldPhysicsTarget();
-      const carriedIndex = this.#carriedPublicationIds.indexOf(publicationId);
-      if (carriedIndex >= 0)
-        this.#writeHeldBookTargetPose(carriedIndex, publicationId);
-      dropPose = this.#heldTargetPose;
-    }
-    this.#scene.attach(record.mesh);
-    this.#camera.getWorldDirection(this.#viewDirection);
-    record.state = transition.state;
-    this.#bookTextures.restoreCompactBookCoverTexture(record);
-    const charge = MathUtils.clamp(throwCharge, 0, 1);
-    const throwSpeed = MathUtils.lerp(THROW_MIN_SPEED, THROW_MAX_SPEED, charge);
-    const throwLift = MathUtils.lerp(THROW_MIN_LIFT, THROW_MAX_LIFT, charge);
-    const linearVelocity = throwBook
-      ? this.#throwVelocity
-          .copy(this.#viewDirection)
-          .multiplyScalar(throwSpeed)
-          .add(this.#playerVelocity)
-          .setY(
-            this.#viewDirection.y * throwSpeed +
-              this.#playerVelocity.y +
-              throwLift,
-          )
-      : this.#playerVelocity;
-    this.#physicsWorld.dropBook(publicationId, {
-      ...(throwBook ? {angularVelocity: this.#throwAngularVelocity} : {}),
-      linearVelocity,
-      pose: dropPose,
-    });
-    this.#physicsWorld.setBookCollisionlessWithHeld(publicationId, true);
-    record.basePosition.set(
-      MathUtils.clamp(
-        this.#camera.position.x + this.#viewDirection.x * 0.95,
-        SHOP_COLLISION_WORLD.bounds.minX + record.width,
-        SHOP_COLLISION_WORLD.bounds.maxX - record.width,
-      ),
-      record.thickness / 2 + 0.014,
-      MathUtils.clamp(
-        this.#camera.position.z + this.#viewDirection.z * 0.95,
-        SHOP_COLLISION_WORLD.bounds.minZ + BOOK_HEIGHT,
-        SHOP_COLLISION_WORLD.bounds.maxZ - BOOK_HEIGHT,
-      ),
-    );
-    record.baseRotation.set(-Math.PI / 2, this.#lookAngles.yaw, -0.04);
-    this.#removeCarriedPublication(publicationId);
-    this.#discardError = undefined;
-    this.#shelfTargeted = false;
-    this.#shelfTargetSelection = undefined;
-    this.#setTrashTargeted(false);
-    this.#syncCarriedBookPresentation();
-    this.#updateHeldPhysicsTarget();
-    this.#syncInteractiveMeshes();
-    this.#updateShelfTargetVisuals();
-    this.#worldStateDirty = true;
-    this.#emitGameState();
-  }
-
-  async #discardCarriedBook() {
-    const publicationId = this.#carriedPublicationId;
-    if (!publicationId || this.#discardBusy || !this.#trashTargeted) return;
-    const record = this.#booksById.get(publicationId);
-    if (!record) return;
-
-    this.#discardBusy = true;
-    this.#discardError = undefined;
-    this.#pendingDiscardPublicationId = publicationId;
-    this.#emitGameState();
-
-    let discarded = false;
-    try {
-      discarded = (await this.#onDiscardPublication?.(publicationId)) === true;
-    } catch (error) {
-      if (!this.#disposed)
-        this.#discardError =
-          error instanceof Error && error.message
-            ? error.message
-            : "The library rejected the discard.";
-    }
-    if (this.#disposed) return;
-    this.#discardBusy = false;
-    this.#pendingDiscardPublicationId = undefined;
-
-    if (!discarded) {
-      this.#discardError ??= this.#onDiscardPublication
-        ? "The library rejected the discard."
-        : "Discard is unavailable in this library.";
-      this.#emitGameState();
-      return;
-    }
-
-    this.#discardError = undefined;
-    this.#discardedPublicationIds.add(publicationId);
-    const currentRecord = this.#booksById.get(publicationId);
-    if (currentRecord !== record) {
-      if (currentRecord) {
-        this.#physicsWorld.removeBook(publicationId);
-        this.#disposeBookRecord(currentRecord);
-        this.#booksById.delete(publicationId);
-      }
-      this.#removeCarriedPublication(publicationId);
-      this.#setTrashTargeted(false);
-      this.#syncCarriedBookPresentation();
-      this.#updateHeldPhysicsTarget();
-      this.#syncInteractiveMeshes();
-      this.#updateShelfTargetVisuals();
-      this.#worldStateDirty = true;
-      this.#emitGameState();
-      this.#flushWorldSave();
-      return;
-    }
-    this.#scene.attach(record.mesh);
-    this.#physicsWorld.removeBook(publicationId);
-    record.physicsRegistered = false;
-    this.#discardAnimation = {
-      elapsedSeconds: 0,
-      publicationId,
-      startPosition: record.mesh.position.clone(),
-      startRotation: record.mesh.quaternion.clone(),
+  #createBookCarryHost(): BookCarryHost {
+    return {
+      applyBookStates: () => this.#applyBookStates(),
+      bookTextures: () => this.#bookTextures,
+      booksById: () => this.#booksById,
+      camera: () => this.#camera,
+      carriedProp: () => this.#carriedProp,
+      carriedPublicationId: () => this.#carriedPublicationId,
+      carriedPublicationIds: () => this.#carriedPublicationIds,
+      clearShelfTargetSelection: () => {
+        this.#scanner.shelfTargeted = false;
+        this.#scanner.shelfTargetSelection = undefined;
+      },
+      discardBinGroup: () => this.#discardBin.group,
+      disposeBookRecord: (record) => this.#disposeBookRecord(record),
+      disposed: () => this.#disposed,
+      emitGameState: () => this.#emitGameState(),
+      flushWorldSave: () => this.#flushWorldSave(),
+      heldTargetPose: () => this.#heldTargetPose,
+      hoveredPublicationId: () => this.#hoveredPublicationId,
+      inspectionMode: () => this.#inspection.inspectionMode,
+      lookYaw: () => this.#lookAngles.yaw,
+      markWorldStateDirty: () => {
+        this.#worldStateDirty = true;
+      },
+      movableProps: () => this.#movableProps,
+      onDiscardPublication: () => this.#onDiscardPublication,
+      physicsPose: () => this.#physicsPose,
+      physicsPosePosition: () => this.#physicsPosePosition,
+      physicsPoseRotation: () => this.#physicsPoseRotation,
+      physicsWorld: () => this.#physicsWorld,
+      playerVelocity: () => this.#playerVelocity,
+      removeCarriedPublication: (publicationId) =>
+        this.#removeCarriedPublication(publicationId),
+      scene: () => this.#scene,
+      setCarriedPublicationId: (publicationId) => {
+        this.#carriedPublicationId = publicationId;
+      },
+      setHoveredPublicationId: (publicationId) =>
+        this.#setHoveredPublicationId(publicationId),
+      setPhysicsPose: (position, rotation) =>
+        this.#setPhysicsPose(position, rotation),
+      setShelfPosition: (record) => this.#setShelfPosition(record),
+      setShelfRotation: (record, publicationId) =>
+        this.#setShelfRotation(record, publicationId),
+      setShelfPresentation: (presentation) => {
+        this.#shelfPresentation = presentation;
+      },
+      setTrashTargeted: (targeted) => this.#setTrashTargeted(targeted),
+      shelfTargetSelection: () => this.#scanner.shelfTargetSelection,
+      spineShelfDefinitions: () => this.#spineShelfDefinitions,
+      syncCarriedBookPresentation: () => this.#syncCarriedBookPresentation(),
+      syncInteractiveMeshes: () => this.#syncInteractiveMeshes(),
+      targetedTrashBinId: () => this.#scanner.targetedTrashBinId,
+      throwVelocity: () => this.#throwVelocity,
+      trashTargeted: () => this.#scanner.trashTargeted,
+      updateHeldPhysicsTarget: () => this.#updateHeldPhysicsTarget(),
+      updateShelfTargetVisuals: () => this.#scanner.updateShelfTargetVisuals(),
+      viewDirection: () => this.#viewDirection,
+      writeHeldBookTargetPose: (index, publicationId) =>
+        this.#writeHeldBookTargetPose(index, publicationId),
+      writeHeldBookLocalPosition: (index, output) =>
+        this.#writeHeldBookLocalPosition(index, output),
+      writeHeldBookLocalRotation: (index, output) =>
+        this.#writeHeldBookLocalRotation(index, output),
     };
-    this.#removeCarriedPublication(publicationId);
-    this.#shelfTargeted = false;
-    this.#shelfTargetSelection = undefined;
-    this.#setTrashTargeted(false);
-    this.#syncCarriedBookPresentation();
-    this.#updateHeldPhysicsTarget();
-    this.#syncInteractiveMeshes();
-    this.#updateShelfTargetVisuals();
-    this.#worldStateDirty = true;
-    this.#emitGameState();
-    this.#flushWorldSave();
-  }
-
-  #finishShelveAnimation() {
-    const animation = this.#shelveAnimation;
-    if (!animation) return;
-    const record = this.#booksById.get(animation.publicationId);
-    this.#shelveAnimation = undefined;
-    if (!record) return;
-
-    record.mesh.position.copy(animation.targetPosition);
-    record.mesh.quaternion.copy(animation.targetRotation);
-    record.mesh.scale.setScalar(1);
-    record.shelfPreview = 0;
-    this.#bookTextures.restoreCompactBookCoverTexture(record);
-    if (animation.placements)
-      this.#applySpineShelfPlacements(animation.shelfId, animation.placements);
-    else {
-      record.basePosition.copy(record.shelfPosition);
-      this.#physicsWorld.shelveBook(
-        animation.publicationId,
-        this.#setPhysicsPose(record.shelfPosition, record.baseRotation),
-      );
-    }
-    this.#syncInteractiveMeshes();
-    this.#applyBookStates();
-    this.#updateShelfTargetVisuals();
-    this.#worldStateDirty = true;
-    this.#emitGameState();
-  }
-
-  #animateShelve(deltaSeconds: number) {
-    const animation = this.#shelveAnimation;
-    if (!animation) return;
-    const record = this.#booksById.get(animation.publicationId);
-    if (!record) {
-      this.#shelveAnimation = undefined;
-      return;
-    }
-    animation.elapsedSeconds = Math.min(
-      SHELVE_BOOK_DURATION_SECONDS,
-      animation.elapsedSeconds + deltaSeconds,
-    );
-    const progress = animation.elapsedSeconds / SHELVE_BOOK_DURATION_SECONDS;
-    const eased = 1 - (1 - progress) ** 3;
-    record.mesh.position.lerpVectors(
-      animation.startPosition,
-      animation.targetPosition,
-      eased,
-    );
-    record.mesh.quaternion.slerpQuaternions(
-      animation.startRotation,
-      animation.targetRotation,
-      eased,
-    );
-    record.mesh.scale.setScalar(1);
-    if (progress >= 1) this.#finishShelveAnimation();
-  }
-
-  #animateDiscard(deltaSeconds: number) {
-    const animation = this.#discardAnimation;
-    if (!animation) return;
-    const record = this.#booksById.get(animation.publicationId);
-    if (!record) {
-      this.#discardAnimation = undefined;
-      return;
-    }
-
-    animation.elapsedSeconds = Math.min(
-      DISCARD_TOSS_DURATION_SECONDS,
-      animation.elapsedSeconds + deltaSeconds,
-    );
-    const progress = animation.elapsedSeconds / DISCARD_TOSS_DURATION_SECONDS;
-    const eased = 1 - (1 - progress) ** 3;
-    // Aim the toss at whichever bin the player targeted, falling back to
-    // the seeded discard bin when that one is gone.
-    const discardBin =
-      (this.#targetedTrashBinId !== undefined
-        ? this.#movableProps.get(this.#targetedTrashBinId)?.object
-        : undefined) ??
-      this.#movableProps.get(TRASH_CAN_PROP_ID)?.object ??
-      this.#discardBin.group;
-    discardBin.updateWorldMatrix(true, false);
-    this.#trashTossTarget.set(0, TRASH_CAN_HEIGHT * 0.35, 0);
-    discardBin.localToWorld(this.#trashTossTarget);
-    record.mesh.position.lerpVectors(
-      animation.startPosition,
-      this.#trashTossTarget,
-      eased,
-    );
-    record.mesh.position.y += Math.sin(progress * Math.PI) * 0.72;
-    record.mesh.quaternion.slerpQuaternions(
-      animation.startRotation,
-      this.#trashTossRotation,
-      eased,
-    );
-    record.mesh.scale.setScalar(1 - progress * 0.28);
-    if (progress < 1) return;
-
-    this.#discardAnimation = undefined;
-    this.#physicsWorld.removeBook(animation.publicationId);
-    this.#disposeBookRecord(record);
-    this.#booksById.delete(animation.publicationId);
-    if (this.#hoveredPublicationId === animation.publicationId)
-      this.#hoveredPublicationId = undefined;
-    this.#syncInteractiveMeshes();
-    this.#applyBookStates();
-    this.#worldStateDirty = true;
-    this.#emitGameState();
   }
 
   readonly #scheduleWorldSave = () => {
@@ -8086,7 +5695,7 @@ export class ShopScene {
           books: this.#booksById,
           camera: this.#camera,
           catalogIdentity: () => this.#catalogIdentity(),
-          discardedPublicationIds: this.#discardedPublicationIds,
+          discardedPublicationIds: this.#bookActions.discardedPublicationIds,
           discardBin: this.#discardBin,
           movableProps: this.#movableProps,
           pendingModelPropSaves: this.#pendingModelPropSaves,
@@ -8117,52 +5726,6 @@ export class ShopScene {
       if (DEV)
         console.warn("Afterleaf could not persist the shop state.", error);
     }
-  }
-
-  #updateShelfTargetVisuals() {
-    const selection = this.#shelfTargetSelection;
-    for (const target of this.#shelfTargetMeshes) {
-      const material = target.material;
-      if (!(material instanceof MeshBasicMaterial)) continue;
-      const selectedShelf = selection?.shelfId === target.userData.shelfId;
-      material.opacity = selectedShelf ? 0.13 : 0;
-      material.color.set("#78b594");
-    }
-    const carriedRecord = this.#carriedPublicationId
-      ? this.#booksById.get(this.#carriedPublicationId)
-      : undefined;
-    if (!selection || !carriedRecord) {
-      this.#shelfSnapMesh.visible = false;
-      return;
-    }
-    this.#shelfSnapMesh.visible = true;
-    const shelf = this.#spineShelfDefinitions.get(selection.shelfId);
-    if (!shelf) {
-      this.#shelfSnapMesh.visible = false;
-      return;
-    }
-    const normalOffset =
-      selection.presentation === "face"
-        ? -shelf.faceInset
-        : spineShelfBookNormalOffset(carriedRecord.width, shelf.backInset) +
-          carriedRecord.width / 2 +
-          0.012;
-    this.#shelfSnapMesh.position
-      .copy(shelf.frontCenter)
-      .addScaledVector(shelf.axis, selection.offset)
-      .addScaledVector(shelf.normal, normalOffset);
-    this.#shelfSnapMesh.rotation.set(
-      selection.presentation === "face" ? shelf.faceTilt : 0,
-      Math.atan2(shelf.normal.x, shelf.normal.z),
-      0,
-    );
-    this.#shelfSnapMesh.scale.set(
-      selection.presentation === "face"
-        ? carriedRecord.width
-        : carriedRecord.thickness,
-      BOOK_HEIGHT,
-      1,
-    );
   }
 
   #syncMovablePropPhysics() {
@@ -8202,19 +5765,20 @@ export class ShopScene {
   #animateBooks(deltaSeconds: number) {
     let interactionStateChanged = false;
     for (const [publicationId, record] of this.#booksById) {
-      if (this.#shelveAnimation?.publicationId === publicationId) continue;
+      if (this.#bookActions.shelveAnimation?.publicationId === publicationId)
+        continue;
       const inspectionFocused =
-        publicationId === this.#inspectionPublicationId &&
-        this.#inspectionMode === "spread";
+        publicationId === this.#inspection.inspectionPublicationId &&
+        this.#inspection.inspectionMode === "spread";
       if (inspectionFocused || record.inspectionLightingBlend > 0)
-        this.#animateInspectionLighting(
+        this.#inspection.animateInspectionLighting(
           record,
           inspectionFocused,
           deltaSeconds,
         );
       if (
-        publicationId === this.#inspectionPublicationId &&
-        this.#inspectionMode !== "none"
+        publicationId === this.#inspection.inspectionPublicationId &&
+        this.#inspection.inspectionMode !== "none"
       ) {
         this.#animateInspectedBook(record, deltaSeconds);
         continue;
@@ -8292,7 +5856,7 @@ export class ShopScene {
         if (positionChanged || rotationChanged) {
           this.#worldStateDirty = true;
           // A moving prop can enter or leave the reticle; re-sweep.
-          this.#interactionTargetsDirty = true;
+          this.#scanner.markDirty();
         }
         continue;
       }
