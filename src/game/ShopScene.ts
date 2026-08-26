@@ -681,7 +681,7 @@ export class ShopScene {
       inspection: () => this.#inspection,
       markWorldStateDirty: () => this.#worldPersistence.markDirty(),
       mouseSensitivity: () => this.#mouseSensitivity(),
-      onMediaChannelCreateRequest: () => this.#onMediaChannelCreateRequest,
+      onMediaChannelCreateRequest: this.#onMediaChannelCreateRequest,
       paused: () => this.#paused(),
       physicsWorld: () => this.#physicsWorld,
       posters: () => this.#posters,

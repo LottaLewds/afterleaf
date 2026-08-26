@@ -50,6 +50,9 @@ const LOOK_SMOOTHING = 32;
 const MAX_LOOK_DELTA_PER_FRAME = (Math.PI / 180) * 10;
 const PROP_WHEEL_ROTATION_STEP = MathUtils.degToRad(5);
 
+const dominantWheelDelta = (event: WheelEvent) =>
+  Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
+
 export type ShopInputState = {
   anomalousPointerMovementCount: number;
   didWarnPointerMovement: boolean;
@@ -94,9 +97,7 @@ export type ShopInputHost = {
   inspection: () => InspectionController;
   markWorldStateDirty: () => void;
   mouseSensitivity: () => number;
-  onMediaChannelCreateRequest: () =>
-    | ((kind: "art-frame" | "tv") => void)
-    | undefined;
+  onMediaChannelCreateRequest: ((kind: "art-frame" | "tv") => void) | undefined;
   paused: () => boolean;
   physicsWorld: () => ShopPhysicsWorld;
   posters: () => PosterSystem;
@@ -351,57 +352,61 @@ export class ShopInputController {
     this.#host.markWorldStateDirty();
   }
 
-  readonly #handleWheel = (event: WheelEvent) => {
-    if (this.#host.paused() || this.#host.bookActions().shelveAnimation) return;
-    if (this.#host.inspection().inspectionMode === "spread") {
-      if (event.deltaY === 0) return;
-      event.preventDefault();
-      this.#host.inspection().zoomInspectionAtPointer(event);
-      return;
-    }
-    const artFramePlacement = this.#host.artFrames().placement;
-    if (this.state.pointerLocked && artFramePlacement && event.deltaY !== 0) {
-      event.preventDefault();
-      if (event.shiftKey)
-        artFramePlacement.rotation = normalizePosterRotation(
-          artFramePlacement.rotation -
-            Math.sign(event.deltaY) * POSTER_WHEEL_ROTATION_STEP,
-        );
-      else
-        artFramePlacement.desiredHeight = MathUtils.clamp(
-          artFramePlacement.desiredHeight * Math.exp(-event.deltaY * 0.0015),
-          MIN_POSTER_HEIGHT,
-          MAX_POSTER_HEIGHT,
-        );
-      this.#host.artFrames().updateDigitalArtFramePlacementTarget();
-      this.#host.emitGameState();
-      return;
-    }
-    const posterPlacement = this.#host.posters().placement;
-    if (this.state.pointerLocked && posterPlacement && event.deltaY !== 0) {
-      event.preventDefault();
-      if (event.shiftKey)
-        posterPlacement.rotation = normalizePosterRotation(
-          posterPlacement.rotation -
-            Math.sign(event.deltaY) * POSTER_WHEEL_ROTATION_STEP,
-        );
-      else
-        posterPlacement.desiredHeight = MathUtils.clamp(
-          posterPlacement.desiredHeight * Math.exp(-event.deltaY * 0.0015),
-          MIN_POSTER_HEIGHT,
-          MAX_POSTER_HEIGHT,
-        );
-      this.#host.posters().updatePosterPlacementTarget();
-      this.#host.emitGameState();
-      return;
-    }
-    const carriedProp = this.#host.props().carriedProp;
+  #handleInspectionWheel(event: WheelEvent): boolean {
+    if (this.#host.inspection().inspectionMode !== "spread") return false;
+    if (event.deltaY === 0) return true;
+    event.preventDefault();
+    this.#host.inspection().zoomInspectionAtPointer(event);
+    return true;
+  }
+
+  #handleWallPlacementWheel(
+    event: WheelEvent,
+    placement:
+      | NonNullable<ArtFrameSystem["placement"]>
+      | NonNullable<PosterSystem["placement"]>
+      | undefined,
+    updateTarget: () => void,
+  ): boolean {
+    if (!this.state.pointerLocked || !placement || event.deltaY === 0)
+      return false;
+    event.preventDefault();
+    if (event.shiftKey)
+      placement.rotation = normalizePosterRotation(
+        placement.rotation -
+          Math.sign(event.deltaY) * POSTER_WHEEL_ROTATION_STEP,
+      );
+    else
+      placement.desiredHeight = MathUtils.clamp(
+        placement.desiredHeight * Math.exp(-event.deltaY * 0.0015),
+        MIN_POSTER_HEIGHT,
+        MAX_POSTER_HEIGHT,
+      );
+    updateTarget();
+    this.#host.emitGameState();
+    return true;
+  }
+
+  #handlePlacementWheel(event: WheelEvent): boolean {
     if (
-      this.state.pointerLocked &&
-      carriedProp?.modelBaseSize &&
-      event.shiftKey &&
-      event.deltaY !== 0
-    ) {
+      this.#handleWallPlacementWheel(
+        event,
+        this.#host.artFrames().placement,
+        () => this.#host.artFrames().updateDigitalArtFramePlacementTarget(),
+      )
+    )
+      return true;
+    return this.#handleWallPlacementWheel(
+      event,
+      this.#host.posters().placement,
+      () => this.#host.posters().updatePosterPlacementTarget(),
+    );
+  }
+
+  #handleCarriedPropWheel(event: WheelEvent): boolean {
+    const carriedProp = this.#host.props().carriedProp;
+    if (!this.state.pointerLocked || !carriedProp) return false;
+    if (carriedProp.modelBaseSize && event.shiftKey && event.deltaY !== 0) {
       event.preventDefault();
       this.#host
         .props()
@@ -410,14 +415,9 @@ export class ShopInputController {
           (carriedProp.modelScale ?? DEFAULT_MODEL_SCALE) *
             Math.exp(-event.deltaY * 0.0015),
         );
-      return;
+      return true;
     }
-    if (
-      this.state.pointerLocked &&
-      carriedProp &&
-      event.ctrlKey &&
-      event.deltaY !== 0
-    ) {
+    if (event.ctrlKey && event.deltaY !== 0) {
       event.preventDefault();
       const rotationStep = this.#host.props().propPlacementSnapping
         ? carriedProp.rotationSnapStep
@@ -429,74 +429,75 @@ export class ShopInputController {
       this.#host.updateHeldPhysicsTarget();
       this.#host.markWorldStateDirty();
       this.#host.emitGameState();
-      return;
+      return true;
     }
-    if (this.state.pointerLocked && carriedProp) {
-      const wheelDelta =
-        Math.abs(event.deltaX) > Math.abs(event.deltaY)
-          ? event.deltaX
-          : event.deltaY;
-      if (Math.abs(wheelDelta) < 1) return;
-      event.preventDefault();
-      this.#host.props().propPlacementDistance = MathUtils.clamp(
-        this.#host.props().propPlacementDistance - wheelDelta * 0.0025,
-        PROP_MIN_PROJECTION_DISTANCE,
-        PROP_MAX_PROJECTION_DISTANCE,
-      );
-      this.#host.markWorldStateDirty();
-      this.#host.emitGameState();
-      return;
-    }
+    const wheelDelta = dominantWheelDelta(event);
+    if (Math.abs(wheelDelta) < 1) return true;
+    event.preventDefault();
+    this.#host.props().propPlacementDistance = MathUtils.clamp(
+      this.#host.props().propPlacementDistance - wheelDelta * 0.0025,
+      PROP_MIN_PROJECTION_DISTANCE,
+      PROP_MAX_PROJECTION_DISTANCE,
+    );
+    this.#host.markWorldStateDirty();
+    this.#host.emitGameState();
+    return true;
+  }
+
+  #handleCarriedBookWheel(event: WheelEvent): boolean {
     if (
-      this.state.pointerLocked &&
-      this.#host.carriedPublicationIds().length > 1
-    ) {
-      const wheelDelta =
-        Math.abs(event.deltaX) > Math.abs(event.deltaY)
-          ? event.deltaX
-          : event.deltaY;
-      if (Math.abs(wheelDelta) < 1) return;
-      if (!this.#host.cycleCarriedBook(Math.sign(wheelDelta))) return;
-      event.preventDefault();
-      return;
-    }
+      !this.state.pointerLocked ||
+      this.#host.carriedPublicationIds().length <= 1
+    )
+      return false;
+    const wheelDelta = dominantWheelDelta(event);
+    if (Math.abs(wheelDelta) < 1) return true;
+    if (!this.#host.cycleCarriedBook(Math.sign(wheelDelta))) return true;
+    event.preventDefault();
+    return true;
+  }
+
+  #handleTelevisionWheel(event: WheelEvent): boolean {
     if (
-      this.state.pointerLocked &&
-      this.#host.televisionTargeted() &&
-      event.deltaY !== 0
-    ) {
-      const direction = Math.sign(event.deltaY) as -1 | 1;
-      if (event.ctrlKey) {
-        event.preventDefault();
-        this.#host.targetedTelevision()?.adjustVolume(direction === 1 ? -1 : 1);
-        this.state.tvWheelScrubDirection = undefined;
-        this.state.tvWheelScrubLastAt = Number.NEGATIVE_INFINITY;
-        this.state.tvWheelScrubStepIndex = 0;
-        return;
-      }
-      const continuesScrub =
-        direction === this.state.tvWheelScrubDirection &&
-        event.timeStamp >= this.state.tvWheelScrubLastAt &&
-        event.timeStamp - this.state.tvWheelScrubLastAt <=
-          TV_WHEEL_SCRUB_RESET_MS;
-      const stepIndex = continuesScrub
-        ? Math.min(
-            this.state.tvWheelScrubStepIndex + 1,
-            TV_WHEEL_SCRUB_STEPS_SECONDS.length - 1,
-          )
-        : 0;
-      const stepSeconds = TV_WHEEL_SCRUB_STEPS_SECONDS[stepIndex];
-      if (
-        !stepSeconds ||
-        !this.#host.targetedTelevision()?.scrub(direction * stepSeconds)
-      )
-        return;
+      !this.state.pointerLocked ||
+      !this.#host.televisionTargeted() ||
+      event.deltaY === 0
+    )
+      return false;
+    const direction = Math.sign(event.deltaY) as -1 | 1;
+    if (event.ctrlKey) {
       event.preventDefault();
-      this.state.tvWheelScrubDirection = direction;
-      this.state.tvWheelScrubLastAt = event.timeStamp;
-      this.state.tvWheelScrubStepIndex = stepIndex;
-      return;
+      this.#host.targetedTelevision()?.adjustVolume(direction === 1 ? -1 : 1);
+      this.state.tvWheelScrubDirection = undefined;
+      this.state.tvWheelScrubLastAt = Number.NEGATIVE_INFINITY;
+      this.state.tvWheelScrubStepIndex = 0;
+      return true;
     }
+    const continuesScrub =
+      direction === this.state.tvWheelScrubDirection &&
+      event.timeStamp >= this.state.tvWheelScrubLastAt &&
+      event.timeStamp - this.state.tvWheelScrubLastAt <=
+        TV_WHEEL_SCRUB_RESET_MS;
+    const stepIndex = continuesScrub
+      ? Math.min(
+          this.state.tvWheelScrubStepIndex + 1,
+          TV_WHEEL_SCRUB_STEPS_SECONDS.length - 1,
+        )
+      : 0;
+    const stepSeconds = TV_WHEEL_SCRUB_STEPS_SECONDS[stepIndex];
+    if (
+      !stepSeconds ||
+      !this.#host.targetedTelevision()?.scrub(direction * stepSeconds)
+    )
+      return true;
+    event.preventDefault();
+    this.state.tvWheelScrubDirection = direction;
+    this.state.tvWheelScrubLastAt = event.timeStamp;
+    this.state.tvWheelScrubStepIndex = stepIndex;
+    return true;
+  }
+
+  #handleArcadeVolumeWheel(event: WheelEvent): boolean {
     // Cabinet volume: the actively-attached session wins (reticle targeting
     // is not how an attached session is tracked, and pointer lock may be
     // released right after booting from the picker); otherwise a targeted,
@@ -507,24 +508,24 @@ export class ShopInputController {
         : this.#host.targetedArcadeCabinet()?.sessionStatus === "playing"
           ? this.#host.targetedArcadeCabinet()
           : undefined;
-    if (arcadeVolumeCabinet && event.ctrlKey && event.deltaY !== 0) {
-      event.preventDefault();
-      // Same convention as the TV: wheel up raises the cabinet's volume.
-      arcadeVolumeCabinet.adjustArcadeVolume(
-        Math.sign(event.deltaY) === 1 ? -1 : 1,
-      );
-      return;
-    }
+    if (!arcadeVolumeCabinet || !event.ctrlKey || event.deltaY === 0)
+      return false;
+    event.preventDefault();
+    // Same convention as the TV: wheel up raises the cabinet's volume.
+    arcadeVolumeCabinet.adjustArcadeVolume(
+      Math.sign(event.deltaY) === 1 ? -1 : 1,
+    );
+    return true;
+  }
+
+  #handleShelfBrowseWheel(event: WheelEvent) {
     if (
       !this.state.pointerLocked ||
       !this.#host.input().isActionDown("throw") ||
       event.timeStamp < this.state.shelfBrowseReadyAt
     )
       return;
-    const wheelDelta =
-      Math.abs(event.deltaX) > Math.abs(event.deltaY)
-        ? event.deltaX
-        : event.deltaY;
+    const wheelDelta = dominantWheelDelta(event);
     if (
       Math.abs(wheelDelta) < 4 ||
       !this.#host.scanner().browseShelf(Math.sign(wheelDelta))
@@ -532,6 +533,17 @@ export class ShopInputController {
       return;
     event.preventDefault();
     this.state.shelfBrowseReadyAt = event.timeStamp + SHELF_BROWSE_INTERVAL_MS;
+  }
+
+  readonly #handleWheel = (event: WheelEvent) => {
+    if (this.#host.paused() || this.#host.bookActions().shelveAnimation) return;
+    if (this.#handleInspectionWheel(event)) return;
+    if (this.#handlePlacementWheel(event)) return;
+    if (this.#handleCarriedPropWheel(event)) return;
+    if (this.#handleCarriedBookWheel(event)) return;
+    if (this.#handleTelevisionWheel(event)) return;
+    if (this.#handleArcadeVolumeWheel(event)) return;
+    this.#handleShelfBrowseWheel(event);
   };
 
   readonly #handleInspectionPointerUp = () => {
@@ -602,64 +614,66 @@ export class ShopInputController {
       this.requestPointerLock();
   };
 
-  /**
-   * Single action dispatcher for every input device. Candidates arrive in
-   * `ACTION_DISPATCH_ORDER`; each case checks its own context and returns
-   * false when the action does not apply, letting the next candidate run.
-   */
-  readonly handleActionDown = (action: ShortcutAction): boolean => {
-    if (this.#host.paused()) return true;
-    if (this.#host.inspection().inspectionMode === "spread") {
-      switch (action) {
-        case "inspectionTurnLeft":
-        case "inspectionTurnRight": {
-          const publication = this.#host.inspection().inspectionPublication();
-          if (!publication) return true;
-          const navigation = getArrowNavigation(
-            action === "inspectionTurnLeft" ? "ArrowLeft" : "ArrowRight",
-            publication.direction,
-          );
-          this.#host.inspection().inspectionHeldNavigation = navigation;
-          this.#host.turnInspectionPage(navigation);
-          return true;
-        }
-        case "inspectionThrow":
-          if (
-            this.#host.inspection().inspectionPublicationId !==
-            this.#host.carriedPublicationId()
-          )
-            return true;
-          this.#host.inspection().startInspectionClose("throw");
-          return true;
-        case "inspectionDrop":
-          if (
-            this.#host.inspection().inspectionPublicationId !==
-            this.#host.carriedPublicationId()
-          )
-            return true;
-          this.#host.inspection().startInspectionClose("drop");
-          return true;
-        case "inspectionReturn":
-          this.#host.inspection().startInspectionClose("return");
-          return true;
-        default:
-          // A spread owns all other actions while it is open.
-          return true;
-      }
-    }
-    if (!this.state.pointerLocked) return false;
+  #handleInspectionAction(action: ShortcutAction): boolean {
     switch (action) {
-      case "jump":
-        this.state.jumpQueued = true;
-        this.state.jumpQueuedAt = performance.now();
+      case "inspectionTurnLeft":
+      case "inspectionTurnRight": {
+        const publication = this.#host.inspection().inspectionPublication();
+        if (!publication) return true;
+        const navigation = getArrowNavigation(
+          action === "inspectionTurnLeft" ? "ArrowLeft" : "ArrowRight",
+          publication.direction,
+        );
+        this.#host.inspection().inspectionHeldNavigation = navigation;
+        this.#host.turnInspectionPage(navigation);
         return true;
-      case "moveForward":
-      case "moveBackward":
-      case "moveLeft":
-      case "moveRight":
-      case "sprint":
-        // Held-state actions are queried per frame via isActionDown.
+      }
+      case "inspectionThrow":
+        if (
+          this.#host.inspection().inspectionPublicationId !==
+          this.#host.carriedPublicationId()
+        )
+          return true;
+        this.#host.inspection().startInspectionClose("throw");
         return true;
+      case "inspectionDrop":
+        if (
+          this.#host.inspection().inspectionPublicationId !==
+          this.#host.carriedPublicationId()
+        )
+          return true;
+        this.#host.inspection().startInspectionClose("drop");
+        return true;
+      case "inspectionReturn":
+        this.#host.inspection().startInspectionClose("return");
+        return true;
+      default:
+        // A spread owns all other actions while it is open.
+        return true;
+    }
+  }
+
+  #handleMovementAction(action: ShortcutAction): boolean {
+    if (action === "jump") {
+      this.state.jumpQueued = true;
+      this.state.jumpQueuedAt = performance.now();
+      return true;
+    }
+    if (
+      action === "moveForward" ||
+      action === "moveBackward" ||
+      action === "moveLeft" ||
+      action === "moveRight" ||
+      action === "sprint"
+    ) {
+      // Held-state actions are queried per frame via isActionDown.
+      return true;
+    }
+    return false;
+  }
+
+  #handlePlacementToggleAction(action: ShortcutAction): boolean {
+    switch (action) {
       case "toggleModelPlacement":
         if (this.#host.televisionTargeted()) return false;
         if (this.#host.props().modelPlacement) {
@@ -694,32 +708,29 @@ export class ShopInputController {
           else this.#host.artFrames().startEmptyDigitalArtFramePlacement();
         }
         return true;
-      case "channelEditorOpen":
-        {
-          const onMediaChannelCreateRequest =
-            this.#host.onMediaChannelCreateRequest();
-          if (
-            !(
-              this.#host.artFrames().placement ||
-              this.#host.artFrames().targetedId ||
-              this.#host.televisionTargeted()
-            ) ||
-            !onMediaChannelCreateRequest
-          )
-            return false;
-          const kind = this.#host.televisionTargeted() ? "tv" : "art-frame";
-          this.#host.setChannelEditorTelevision(
-            kind === "tv" ? this.#host.targetedTelevision() : undefined,
-          );
-          this.#host.setChannelEditorDigitalArtFrameId(
-            kind === "art-frame"
-              ? this.#host.artFrames().targetedId
-              : undefined,
-          );
-          this.releasePointerLock();
-          onMediaChannelCreateRequest(kind);
-        }
+      case "channelEditorOpen": {
+        const onMediaChannelCreateRequest =
+          this.#host.onMediaChannelCreateRequest;
+        if (
+          !(
+            this.#host.artFrames().placement ||
+            this.#host.artFrames().targetedId ||
+            this.#host.televisionTargeted()
+          ) ||
+          !onMediaChannelCreateRequest
+        )
+          return false;
+        const kind = this.#host.televisionTargeted() ? "tv" : "art-frame";
+        this.#host.setChannelEditorTelevision(
+          kind === "tv" ? this.#host.targetedTelevision() : undefined,
+        );
+        this.#host.setChannelEditorDigitalArtFrameId(
+          kind === "art-frame" ? this.#host.artFrames().targetedId : undefined,
+        );
+        this.releasePointerLock();
+        onMediaChannelCreateRequest(kind);
         return true;
+      }
       case "togglePosterPlacement":
         if (this.#host.posters().placement) {
           this.#host.posters().cancelPosterPlacement();
@@ -738,42 +749,49 @@ export class ShopInputController {
           else this.#host.posters().startEmptyPosterPlacement();
         }
         return true;
+      default:
+        return false;
+    }
+  }
+
+  #cyclePlacement(direction: -1 | 1): boolean {
+    if (this.#host.props().modelPlacement) {
+      this.#host.props().cycleModelPlacement(direction);
+      return true;
+    }
+    if (this.#host.posters().placement) {
+      this.#host.posters().cyclePoster(direction);
+      return true;
+    }
+    return false;
+  }
+
+  #handlePlacementCycleAction(action: ShortcutAction): boolean {
+    switch (action) {
       case "placementCycleLeft":
-        if (this.#host.props().modelPlacement) {
-          this.#host.props().cycleModelPlacement(-1);
-          return true;
-        }
-        if (this.#host.posters().placement) {
-          this.#host.posters().cyclePoster(-1);
-          return true;
-        }
-        return false;
+        return this.#cyclePlacement(-1);
       case "placementCycleRight":
-        if (this.#host.props().modelPlacement) {
-          this.#host.props().cycleModelPlacement(1);
-          return true;
-        }
-        if (this.#host.posters().placement) {
-          this.#host.posters().cyclePoster(1);
-          return true;
-        }
-        return false;
+        return this.#cyclePlacement(1);
       case "placementCycleChannelLeft":
+      case "placementCycleChannelRight": {
         if (!this.#host.artFrames().placement) return false;
-        this.#host.artFrames().cycleDigitalArtFramePlacementChannel(-1);
+        this.#host
+          .artFrames()
+          .cycleDigitalArtFramePlacementChannel(
+            action === "placementCycleChannelLeft" ? -1 : 1,
+          );
         return true;
-      case "placementCycleChannelRight":
-        if (!this.#host.artFrames().placement) return false;
-        this.#host.artFrames().cycleDigitalArtFramePlacementChannel(1);
-        return true;
+      }
       case "placementCycleImageLeft":
+      case "placementCycleImageRight": {
         if (!this.#host.artFrames().placement) return false;
-        this.#host.artFrames().cycleDigitalArtFramePlacementImage(-1);
+        this.#host
+          .artFrames()
+          .cycleDigitalArtFramePlacementImage(
+            action === "placementCycleImageLeft" ? -1 : 1,
+          );
         return true;
-      case "placementCycleImageRight":
-        if (!this.#host.artFrames().placement) return false;
-        this.#host.artFrames().cycleDigitalArtFramePlacementImage(1);
-        return true;
+      }
       case "placementToggleFit": {
         const placement = this.#host.artFrames().placement;
         if (!placement) return false;
@@ -797,61 +815,6 @@ export class ShopInputController {
         this.#host.emitGameState();
         return true;
       }
-      case "propToggleSnap": {
-        const carriedProp = this.#host.props().carriedProp;
-        if (!carriedProp) return false;
-        this.#host.props().propPlacementSnapping =
-          !this.#host.props().propPlacementSnapping;
-        this.#host.emitGameState();
-        return true;
-      }
-      case "propCycleAnimationLeft":
-        {
-          const targetedProp = this.#host.targetedProp();
-          if (!targetedProp?.modelAnimations?.length) return false;
-          this.#host.props().cycleModelAnimation(targetedProp, -1);
-        }
-        return true;
-      case "propCycleAnimationRight":
-        {
-          const targetedProp = this.#host.targetedProp();
-          if (!targetedProp?.modelAnimations?.length) return false;
-          this.#host.props().cycleModelAnimation(targetedProp, 1);
-        }
-        return true;
-      case "removeTargeted": {
-        const targetedTelevision = this.#host.targetedTelevision();
-        const targetedTelevisionProp = targetedTelevision
-          ? this.#host.props().televisionProps.get(targetedTelevision)
-          : undefined;
-        const targetedArcadeCabinet = this.#host.targetedArcadeCabinet();
-        const targetedArcadeProp = targetedArcadeCabinet
-          ? this.#host.props().arcadeProps.get(targetedArcadeCabinet)
-          : undefined;
-        if (targetedTelevisionProp?.spawned) {
-          this.#host.props().removeSpawnedProp(targetedTelevisionProp);
-          return true;
-        }
-        if (targetedArcadeProp?.spawned) {
-          this.#host.props().removeSpawnedProp(targetedArcadeProp);
-          return true;
-        }
-        const targetedProp = this.#host.targetedProp();
-        if (targetedProp?.spawned) {
-          this.#host.props().removeSpawnedProp(targetedProp);
-          return true;
-        }
-        if (this.#host.artFrames().targetedId) {
-          this.#host.artFrames().removeTargetedDigitalArtFrame();
-          return true;
-        }
-        if (this.#host.posters().targetedId) {
-          this.#host.posters().removeTargetedPoster();
-          return true;
-        }
-        // Nothing targeted: let later candidates use the same binding.
-        return false;
-      }
       case "placementToggleGridSnap": {
         if (
           !this.#host.artFrames().placement &&
@@ -866,77 +829,134 @@ export class ShopInputController {
         this.#host.emitGameState();
         return true;
       }
-      case "pickUpCancel":
-        if (this.#host.props().modelPlacement) {
-          this.#host.props().cancelModelPlacement();
-          return true;
-        }
-        if (this.#host.artFrames().placement) {
-          this.#host.artFrames().cancelDigitalArtFramePlacement();
-          return true;
-        }
-        if (this.#host.posters().placement) {
-          this.#host.posters().cancelPosterPlacement();
-          return true;
-        }
-        if (this.#host.props().carriedProp) {
-          this.#host.props().cancelCarriedProp();
-          return true;
-        }
-        if (this.#host.targetedArcadeCabinet()) {
-          const targetedArcadeCabinet = this.#host.targetedArcadeCabinet();
-          if (!targetedArcadeCabinet) return true;
-          const cabinetProp = this.#host
-            .props()
-            .arcadeProps.get(targetedArcadeCabinet);
-          if (cabinetProp) this.#host.props().pickUpProp(cabinetProp);
-          return true;
-        }
-        if (this.#host.televisionTargeted()) {
-          const targetedTelevision = this.#host.targetedTelevision();
-          const televisionProp = targetedTelevision
-            ? this.#host.props().televisionProps.get(targetedTelevision)
-            : undefined;
-          if (televisionProp) this.#host.props().pickUpProp(televisionProp);
-          return true;
-        }
-        const targetedProp = this.#host.targetedProp();
-        if (targetedProp) {
-          this.#host.props().pickUpProp(targetedProp);
-          return true;
-        }
-        if (
-          this.#host.artFrames().targetedId ||
-          this.#host.posters().targetedId
-        ) {
-          this.#host.interact();
-          return true;
-        }
+      default:
         return false;
-      case "artFramePreviousChannel":
-        {
-          const targetedId = this.#host.artFrames().targetedId;
-          if (!targetedId) return false;
-          this.#host
-            .artFrames()
-            .records.get(targetedId)
-            ?.frame.changeChannel(-1);
-        }
-        this.#host.markWorldStateDirty();
+    }
+  }
+
+  #handlePropPlacementAction(action: ShortcutAction): boolean {
+    switch (action) {
+      case "propToggleSnap": {
+        const carriedProp = this.#host.props().carriedProp;
+        if (!carriedProp) return false;
+        this.#host.props().propPlacementSnapping =
+          !this.#host.props().propPlacementSnapping;
         this.#host.emitGameState();
         return true;
-      case "artFrameNextChannel":
-        {
-          const targetedId = this.#host.artFrames().targetedId;
-          if (!targetedId) return false;
-          this.#host
-            .artFrames()
-            .records.get(targetedId)
-            ?.frame.changeChannel(1);
-        }
-        this.#host.markWorldStateDirty();
-        this.#host.emitGameState();
+      }
+      case "propCycleAnimationLeft":
+      case "propCycleAnimationRight": {
+        const targetedProp = this.#host.targetedProp();
+        if (!targetedProp?.modelAnimations?.length) return false;
+        this.#host
+          .props()
+          .cycleModelAnimation(
+            targetedProp,
+            action === "propCycleAnimationLeft" ? -1 : 1,
+          );
         return true;
+      }
+      default:
+        return false;
+    }
+  }
+
+  #handleRemovalAction(action: ShortcutAction): boolean {
+    if (action !== "removeTargeted") return false;
+    const targetedTelevision = this.#host.targetedTelevision();
+    const targetedTelevisionProp = targetedTelevision
+      ? this.#host.props().televisionProps.get(targetedTelevision)
+      : undefined;
+    const targetedArcadeCabinet = this.#host.targetedArcadeCabinet();
+    const targetedArcadeProp = targetedArcadeCabinet
+      ? this.#host.props().arcadeProps.get(targetedArcadeCabinet)
+      : undefined;
+    if (targetedTelevisionProp?.spawned) {
+      this.#host.props().removeSpawnedProp(targetedTelevisionProp);
+      return true;
+    }
+    if (targetedArcadeProp?.spawned) {
+      this.#host.props().removeSpawnedProp(targetedArcadeProp);
+      return true;
+    }
+    const targetedProp = this.#host.targetedProp();
+    if (targetedProp?.spawned) {
+      this.#host.props().removeSpawnedProp(targetedProp);
+      return true;
+    }
+    if (this.#host.artFrames().targetedId) {
+      this.#host.artFrames().removeTargetedDigitalArtFrame();
+      return true;
+    }
+    if (this.#host.posters().targetedId) {
+      this.#host.posters().removeTargetedPoster();
+      return true;
+    }
+    // Nothing targeted: let later candidates use the same binding.
+    return false;
+  }
+
+  #handlePickupAction(action: ShortcutAction): boolean {
+    if (action !== "pickUpCancel") return false;
+    const props = this.#host.props();
+    if (props.modelPlacement) {
+      props.cancelModelPlacement();
+      return true;
+    }
+    if (this.#host.artFrames().placement) {
+      this.#host.artFrames().cancelDigitalArtFramePlacement();
+      return true;
+    }
+    if (this.#host.posters().placement) {
+      this.#host.posters().cancelPosterPlacement();
+      return true;
+    }
+    if (props.carriedProp) {
+      props.cancelCarriedProp();
+      return true;
+    }
+    const targetedArcadeCabinet = this.#host.targetedArcadeCabinet();
+    if (targetedArcadeCabinet) {
+      const cabinetProp = props.arcadeProps.get(targetedArcadeCabinet);
+      if (cabinetProp) props.pickUpProp(cabinetProp);
+      return true;
+    }
+    if (this.#host.televisionTargeted()) {
+      const targetedTelevision = this.#host.targetedTelevision();
+      const televisionProp = targetedTelevision
+        ? props.televisionProps.get(targetedTelevision)
+        : undefined;
+      if (televisionProp) props.pickUpProp(televisionProp);
+      return true;
+    }
+    const targetedProp = this.#host.targetedProp();
+    if (targetedProp) {
+      props.pickUpProp(targetedProp);
+      return true;
+    }
+    if (this.#host.artFrames().targetedId || this.#host.posters().targetedId) {
+      this.#host.interact();
+      return true;
+    }
+    return false;
+  }
+
+  #handleTargetMediaAction(action: ShortcutAction): boolean {
+    if (
+      action === "artFramePreviousChannel" ||
+      action === "artFrameNextChannel"
+    ) {
+      const targetedId = this.#host.artFrames().targetedId;
+      if (!targetedId) return false;
+      this.#host
+        .artFrames()
+        .records.get(targetedId)
+        ?.frame.changeChannel(action === "artFramePreviousChannel" ? -1 : 1);
+      this.#host.markWorldStateDirty();
+      this.#host.emitGameState();
+      return true;
+    }
+    switch (action) {
       case "artFrameInterval":
         if (!this.#host.artFrames().targetedId) return false;
         this.#host.artFrames().cycleTargetedDigitalArtFrameInterval();
@@ -953,36 +973,46 @@ export class ShopInputController {
         if (!this.#host.televisionTargeted()) return false;
         this.#host.targetedTelevision()?.toggleMuted();
         return true;
-      case "toggleShelfPresentation":
-        if (!this.#host.carriedPublicationId()) return false;
-        this.#host.setShelfPresentation(
-          this.#host.shelfPresentation() === "spine" ? "face" : "spine",
-        );
-        this.#host.scanner().update();
-        return true;
-      case "propPinToggle": {
-        // Pin or release whatever movable prop is under the reticle: a
-        // locked prop keeps a fixed body that still blocks the player,
-        // books, and other props, but nothing can bump it around.
-        const targetedTelevision = this.#host.targetedTelevision();
-        const targetedArcadeCabinet = this.#host.targetedArcadeCabinet();
-        const lockableProp =
-          this.#host.targetedProp() ??
-          (targetedTelevision
-            ? this.#host.props().televisionProps.get(targetedTelevision)
-            : undefined) ??
-          (targetedArcadeCabinet
-            ? this.#host.props().arcadeProps.get(targetedArcadeCabinet)
-            : undefined);
-        if (!lockableProp || this.#host.props().carriedProp === lockableProp)
-          return false;
-        const locked = !lockableProp.locked;
-        lockableProp.locked = locked;
-        this.#host.physicsWorld().setPropLocked(lockableProp.id, locked);
-        this.#host.markWorldStateDirty();
-        this.#host.emitGameState();
-        return true;
-      }
+      default:
+        return false;
+    }
+  }
+
+  #handleTargetPropertyAction(action: ShortcutAction): boolean {
+    if (action === "toggleShelfPresentation") {
+      if (!this.#host.carriedPublicationId()) return false;
+      this.#host.setShelfPresentation(
+        this.#host.shelfPresentation() === "spine" ? "face" : "spine",
+      );
+      this.#host.scanner().update();
+      return true;
+    }
+    if (action !== "propPinToggle") return false;
+    // Pin or release whatever movable prop is under the reticle: a
+    // locked prop keeps a fixed body that still blocks the player,
+    // books, and other props, but nothing can bump it around.
+    const targetedTelevision = this.#host.targetedTelevision();
+    const targetedArcadeCabinet = this.#host.targetedArcadeCabinet();
+    const lockableProp =
+      this.#host.targetedProp() ??
+      (targetedTelevision
+        ? this.#host.props().televisionProps.get(targetedTelevision)
+        : undefined) ??
+      (targetedArcadeCabinet
+        ? this.#host.props().arcadeProps.get(targetedArcadeCabinet)
+        : undefined);
+    if (!lockableProp || this.#host.props().carriedProp === lockableProp)
+      return false;
+    const locked = !lockableProp.locked;
+    lockableProp.locked = locked;
+    this.#host.physicsWorld().setPropLocked(lockableProp.id, locked);
+    this.#host.markWorldStateDirty();
+    this.#host.emitGameState();
+    return true;
+  }
+
+  #handleGameplayAction(action: ShortcutAction): boolean {
+    switch (action) {
       case "interact":
         this.#triggerInteraction();
         return true;
@@ -1029,6 +1059,33 @@ export class ShopInputController {
       default:
         return false;
     }
+  }
+
+  #handleWorldAction(action: ShortcutAction): boolean {
+    return (
+      this.#handleMovementAction(action) ||
+      this.#handlePlacementToggleAction(action) ||
+      this.#handlePlacementCycleAction(action) ||
+      this.#handlePropPlacementAction(action) ||
+      this.#handleRemovalAction(action) ||
+      this.#handlePickupAction(action) ||
+      this.#handleTargetMediaAction(action) ||
+      this.#handleTargetPropertyAction(action) ||
+      this.#handleGameplayAction(action)
+    );
+  }
+
+  /**
+   * Single action dispatcher for every input device. Candidates arrive in
+   * `ACTION_DISPATCH_ORDER`; each case checks its own context and returns
+   * false when the action does not apply, letting the next candidate run.
+   */
+  readonly handleActionDown = (action: ShortcutAction): boolean => {
+    if (this.#host.paused()) return true;
+    if (this.#host.inspection().inspectionMode === "spread")
+      return this.#handleInspectionAction(action);
+    if (!this.state.pointerLocked) return false;
+    return this.#handleWorldAction(action);
   };
 
   readonly handleActionUp = (action: ShortcutAction): boolean => {

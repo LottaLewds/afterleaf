@@ -25,17 +25,17 @@ These files are unused within the repository and account for approximately 1,980
 - [ ] Add focused tests for interaction-mode and target-precedence behavior before refactoring:
   - [x] `GameStateEmitter`: prompts and interaction rows agree in every mode.
   - [x] `InteractionScanner`: arcade, television, prop, sign, frame, poster, and book precedence remains stable.
-  - [ ] `ShopInputController`: action and wheel routing remains stable.
+  - [x] `ShopInputController`: action and wheel routing remains stable.
   - [ ] Carrying, inspection, placement, pointer-lock, and arcade-session transitions clear stale targets.
 - [x] Introduce one explicit interaction view/resolver containing the active mode, target, prompt, and available actions.
 - [x] Make `GameStateEmitter` consume that resolver instead of maintaining separate prompt and interaction-mode chains.
 - [x] Extract `InteractionScanner` target-clearing and target-candidate helpers; keep the raycast precedence in one readable pipeline.
-- [ ] Split `ShopInputController.handleActionDown` by mode or command group.
-- [ ] Split `ShopInputController.handleWheel` into inspection, placement, carried-prop, carried-book, media, and shelf handlers.
+- [x] Split `ShopInputController.handleActionDown` by mode or command group.
+- [x] Split `ShopInputController.handleWheel` into inspection, placement, carried-prop, carried-book, media, and shelf handlers.
 - [ ] Fold `ShopInteractionCoordinator` into the shared interaction command layer when its behavior is covered by tests.
 - [ ] Fold the thin `ShopTargetingController` into the target-state layer when its side effects are covered by tests.
 
-Current interaction complexity hotspot is `ShopInputController.handleActionDown`; scanner and emitter orchestration are now below the configured threshold.
+The interaction orchestration methods are now below the configured complexity threshold; remaining hotspots are cohesive domain methods listed in the complexity section.
 
 ## 3. Reduce extraction-generated host ceremony
 
@@ -43,7 +43,7 @@ Current interaction complexity hotspot is `ShopInputController.handleActionDown`
 - [ ] Replace repetitive host factories in `ShopScene` with grouped capability slices for world, books, targeting, media, and input.
 - [ ] Keep accessors only for values that genuinely change; pass stable runtime objects directly where safe.
 - [ ] Remove the double accessor around `MovablePropLifecycleHost.tvScreenLighting`.
-- [ ] Remove the double accessor around `ShopInputHost.onMediaChannelCreateRequest`.
+- [x] Remove the double accessor around `ShopInputHost.onMediaChannelCreateRequest`.
 - [ ] Re-run the complexity scan and compare total source lines after the host cleanup.
 
 Do not replace dependency injection with a monolithic `ShopScene` reference; the goal is fewer adapters with clearer, narrower dependencies.
@@ -73,12 +73,12 @@ Do not replace dependency injection with a monolithic `ShopScene` reference; the
 ## 7. Complexity ratchet
 
 - [x] Add `eslint/complexity` to `.oxlintrc.json` at warning level with `max: 30` and `variant: "modified"`.
-- [ ] Drive the interaction hotspots below complexity 30.
+- [x] Drive the interaction hotspots below complexity 30.
 - [ ] Drive remaining game functions below complexity 20 where practical.
 - [ ] Change the rule to error only after the existing baseline is below the threshold.
 - [ ] Add tests alongside each complexity reduction so the metric does not encourage behavior-changing shortcuts.
 
-The current configured baseline reports 11 game functions over 30. The largest remaining values are `GameStateEmitter.emit` (212), `InteractionScanner.update` (101), and `ShopInputController.handleActionDown` (116, using modified switch counting).
+The remaining configured complexity warnings are concentrated in book presentation/inspection, save parsing, texture setup, physics-book updates, shelf fixtures, and interaction coordination.
 
 ## Small cleanup while touching nearby code
 
