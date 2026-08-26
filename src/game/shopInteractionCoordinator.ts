@@ -12,7 +12,7 @@ import type {
   ShopTelevision,
   ShopTelevisionInteraction,
 } from "~/game/ShopTelevision";
-import type {MovablePropRecord} from "~/game/ShopScene";
+import type {MovablePropRecord} from "~/game/shopTypes";
 
 export type ShopInteractionCoordinatorHost = {
   artFrames: () => ArtFrameSystem;

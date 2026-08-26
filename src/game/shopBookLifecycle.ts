@@ -14,7 +14,7 @@ import {bookDropPosition} from "~/game/bookDropPlacement";
 import {hashString} from "~/game/mathHelpers";
 import type {InspectionController} from "~/game/inspection/InspectionController";
 import {spineShelfBookNormalOffset} from "~/game/shelfPlacement";
-import type {SpineShelfDefinition} from "~/game/ShopScene";
+import type {SpineShelfDefinition} from "~/game/shopTypes";
 import type {ShopPhysicsWorld, BookPhysicsPose} from "~/game/ShopPhysicsWorld";
 import type {WorldBookSave} from "~/game/worldSave";
 import {

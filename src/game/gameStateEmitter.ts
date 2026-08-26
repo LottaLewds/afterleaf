@@ -1,4 +1,3 @@
-import type {ShopGameSnapshot} from "~/game/ShopScene";
 import {
   ShopArcadeCabinet,
   type ArcadeSessionStatus,
@@ -18,7 +17,6 @@ import {
   formatInteractionRowKey,
 } from "~/game/input/hints";
 import {formatInteractionKey} from "~/game/keyboardLayout";
-import type {ShopInteraction} from "~/game/ShopScene";
 import type {ShortcutsConfig} from "~/game/input/bindings";
 import type {InputManager} from "~/game/input/inputManager";
 import type {ShelfPresentation} from "~/game/shelfPlacement";
@@ -27,8 +25,10 @@ import type {
   InspectionMode,
   ModelPlacementSession,
   MovablePropRecord,
+  ShopGameSnapshot,
+  ShopInteraction,
   ShelfTargetSelection,
-} from "~/game/ShopScene";
+} from "~/game/shopTypes";
 import type {ShelveAnimation} from "~/game/bookCarryActions";
 import {INTERACTION_ROW_MODES, type UiMode} from "~/game/uiMode";
 import type {PosterSystem} from "~/game/posters/PosterSystem";

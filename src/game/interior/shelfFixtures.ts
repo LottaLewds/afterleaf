@@ -24,21 +24,10 @@ import {faceDisplayShelfId} from "~/game/bookFactory";
 import type {ShopSignSystem} from "~/game/signs/ShopSignSystem";
 import {MIN_POSTER_HEIGHT, POSTER_SURFACE_OFFSET} from "~/game/wallDecorTuning";
 import type {AddBox} from "~/game/interior/interiorPrimitives";
+import type {SpineShelfDefinition} from "~/game/shopTypes";
 
 export const FACE_OUT_SHELF_INSET = 0.1;
 export const SPINE_SHELF_FRONT_OFFSET = 0.57;
-
-export type SpineShelfDefinition = {
-  axis: Vector3;
-  backInset: number;
-  faceInset: number;
-  faceTilt: number;
-  frontCenter: Vector3;
-  halfWidth: number;
-  id: string;
-  normal: Vector3;
-  signKey?: string;
-};
 
 /** Signature of the scene's poster-surface registration delegate. */
 export type CreatePosterSurfaceFn = (

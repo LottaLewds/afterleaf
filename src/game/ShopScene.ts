@@ -1,12 +1,10 @@
 import {
   ACESFilmicToneMapping,
   AmbientLight,
-  AnimationMixer,
   Euler,
   MathUtils,
   Mesh,
   MeshStandardMaterial,
-  Object3D,
   PCFSoftShadowMap,
   PerspectiveCamera,
   Quaternion,
@@ -17,7 +15,6 @@ import {
   TextureLoader,
   Vector3,
   WebGLRenderer,
-  type AnimationClip,
 } from "three";
 import {TRASH_CAN_PROP_ID} from "~/game/discardBin";
 import {physicalBookWidth} from "~/game/bookDimensions";
@@ -27,10 +24,7 @@ import {
 } from "~/game/bookInspectionTuning";
 import {dotWithPhysicsQuaternion} from "~/game/mathHelpers";
 import {BOOK_HEIGHT} from "~/game/bookTuning";
-import {
-  type ArcadeSessionStatus,
-  type ShopArcadeCabinet,
-} from "~/game/ShopArcadeCabinet";
+import {type ShopArcadeCabinet} from "~/game/ShopArcadeCabinet";
 import {KTX2Loader} from "three/examples/jsm/loaders/KTX2Loader.js";
 import {RectAreaLightUniformsLib} from "three/examples/jsm/lights/RectAreaLightUniformsLib.js";
 import {DEV} from "solid-js";
@@ -40,10 +34,7 @@ import type {BookRecord} from "~/game/bookFactory";
 import {INSPECTION_TRANSITION_SPEED} from "~/game/bookInspectionTuning";
 import type {ShopArcadePlayRequest} from "~/game/ShopArcadeCabinet";
 import {disposeObject} from "~/game/threeDisposal";
-import type {
-  MovablePropRegistration,
-  PropMaterialSwap,
-} from "~/game/propRegistration";
+import type {MovablePropRegistration} from "~/game/propRegistration";
 import {
   GameStateEmitter,
   type GameSnapshotInput,
@@ -101,11 +92,7 @@ import type {ShopSignEditRequest} from "~/game/signs/ShopSignSystem";
 import {type UiMode} from "~/game/uiMode";
 
 import {type ShopCollisionWorld} from "~/game/shopGameplay";
-import {
-  loadShortcuts,
-  type ShortcutAction,
-  type ShortcutsConfig,
-} from "~/game/input/bindings";
+import {loadShortcuts, type ShortcutsConfig} from "~/game/input/bindings";
 import {InputManager, type InputMode} from "~/game/input/inputManager";
 import {
   loadPadMappingOverrides,
@@ -113,12 +100,8 @@ import {
   type ArcadePadMappingOverrides,
 } from "~/arcade/controllerMappings";
 import {findArcadeSystem} from "~/arcade/systems";
-import {type InteractionPromptToken} from "~/game/input/hints";
 
-import {
-  ShelfPresentation,
-  type SpineShelfPlacement,
-} from "~/game/shelfPlacement";
+import {ShelfPresentation} from "~/game/shelfPlacement";
 import {SHOP_BOUNDS, SHOP_INTERIOR_FOOTPRINTS} from "~/game/shopLayout";
 import {
   ShopPhysicsWorld,
@@ -131,7 +114,6 @@ import {
   type ShopTelevisionInteraction,
 } from "~/game/ShopTelevision";
 import type {ShopMediaCatalog} from "~/game/shopMediaCatalog";
-import type {ModelAsset} from "~/models/protocol";
 import type {WorldSaveV1} from "~/game/worldSave";
 import {
   getWideReaderPageIndices,
@@ -141,6 +123,11 @@ import {
 import {getReaderSpread, type ReaderNavigation} from "~/reader/pagination";
 import {tvChannelId, tvVideoImportUrl, type TvVideo} from "~/tv/protocol";
 import type {PosterAsset} from "~/posters/protocol";
+import type {
+  MovablePropRecord,
+  ShopGameSnapshot,
+  SpineShelfDefinition,
+} from "~/game/shopTypes";
 
 const SHOP_PLAYER_START_X = 0;
 const SHOP_PLAYER_START_Z = 25;
@@ -156,132 +143,6 @@ const PROP_PLACEMENT_HEIGHT_STEP = 0.125;
 const SHOP_COLLISION_WORLD: ShopCollisionWorld = {
   bounds: SHOP_BOUNDS,
   obstacles: SHOP_INTERIOR_FOOTPRINTS,
-};
-
-export type SpineShelfDefinition = {
-  axis: Vector3;
-  backInset: number;
-  faceInset: number;
-  faceTilt: number;
-  frontCenter: Vector3;
-  halfWidth: number;
-  id: string;
-  normal: Vector3;
-  signKey?: string;
-};
-
-export type ShelfTargetSelection = {
-  offset: number;
-  placements?: readonly SpineShelfPlacement[];
-  presentation: ShelfPresentation;
-  shelfId: string;
-  slotIndex: number;
-};
-
-export type MovablePropRecord = {
-  currentPosition: Vector3;
-  currentRotation: Quaternion;
-  /** Pinned in place: fixed body, immune to bumps, still collides. */
-  locked: boolean;
-  // Explicitly cleared back to undefined on cancel, so these slots honestly
-  // admit undefined under exactOptionalPropertyTypes.
-  placementStartPosition?: Vector3 | undefined;
-  placementStartRotation?: Quaternion | undefined;
-  placementStartScale?: number | undefined;
-  ghostMaterialSwaps: PropMaterialSwap[];
-  halfDepth: number;
-  halfHeight: number;
-  halfWidth: number;
-  heldLocalPosition: Vector3;
-  id: string;
-  label: string;
-  modelAnimationIndex?: number;
-  modelAnimations?: readonly AnimationClip[];
-  modelAsset?: ModelAsset;
-  modelBaseSize?: Vector3;
-  modelMixer?: AnimationMixer;
-  modelScale?: number;
-  object: Object3D;
-  placementSupport: Object3D;
-  rotationSnapStep: number;
-  spawnAssetId?: string;
-  spawned: boolean;
-};
-
-export type ModelTemplate = {
-  animations: readonly AnimationClip[];
-  center: Vector3;
-  normalizationScale: number;
-  scene: Object3D;
-  size: Vector3;
-};
-
-export type ModelPlacementSession = {
-  assetIndex: number;
-  id: string;
-  revision: number;
-};
-
-export type InspectionCloseAction = "drop" | "return" | "throw";
-
-export type InspectionMode = "closing" | "none" | "spread";
-
-export type ShopInteraction = {
-  /** Display string for keyboard users; also used as the aria label. */
-  key: string;
-  label: string;
-  /**
-   * Action refs aligned with the " / " alternatives of `key`. While a
-   * controller is active, prompts are derived from their pad bindings.
-   */
-  actions?: readonly (ShortcutAction | undefined)[];
-  /**
-   * Pad prompt tokens present only while a controller is active; renderers
-   * fall back to plain keycaps when omitted.
-   */
-  prompts?: readonly InteractionPromptToken[];
-};
-
-export type ShopGameSnapshot = {
-  interactionContext?: string;
-  interactions?: readonly ShopInteraction[];
-  carriedBookCount?: number;
-  carriedPublicationId?: string;
-  discardBusy?: boolean;
-  discardError?: string;
-  inspectionBookOpen?: boolean;
-  inspectionCanTurnBackward?: boolean;
-  inspectionCanTurnForward?: boolean;
-  inspectionPageCount?: number;
-  inspectionPageIndex?: number;
-  inspectionPagesLoading?: boolean;
-  looseCount: number;
-  inspectionMode: InspectionMode;
-  physicsReady: boolean;
-  pointerLocked: boolean;
-  modelCount?: number;
-  modelImportError?: string;
-  modelPlacementActive?: boolean;
-  posterCount: number;
-  posterImportError?: string;
-  posterImporting?: boolean;
-  posterPlacementActive?: boolean;
-  digitalArtFrameCount?: number;
-  digitalArtFrameImportError?: string;
-  digitalArtFrameImporting?: boolean;
-  digitalArtFramePlacementActive?: boolean;
-  tvVideoImportError?: string;
-  tvVideoImporting?: boolean;
-  tvVideoImportMessage?: string;
-  /** Session state of the cabinet driving the arcade UI; absent when idle. */
-  arcadeStatus?: ArcadeSessionStatus;
-  arcadeCabinetId?: string;
-  arcadeSystemId?: string;
-  arcadeDetail?: string;
-  arcadeRomName?: string;
-  prompt?: string;
-  shelvedCount: number;
-  throwCharge?: number;
 };
 
 export type ShopSceneOptions = {

@@ -68,7 +68,7 @@ import type {
   ModelPlacementSession,
   ModelTemplate,
   MovablePropRecord,
-} from "~/game/ShopScene";
+} from "~/game/shopTypes";
 import {disposeObject} from "~/game/threeDisposal";
 import type {ModelAsset} from "~/models/protocol";
 import {

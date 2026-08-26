@@ -12,7 +12,7 @@ import type {InputManager} from "~/game/input/inputManager";
 import type {InspectionController} from "~/game/inspection/InspectionController";
 import type {InteractionScanner} from "~/game/interactionScanner";
 import type {MovablePropLifecycle} from "~/game/movablePropSystem";
-import type {MovablePropRecord} from "~/game/ShopScene";
+import type {MovablePropRecord} from "~/game/shopTypes";
 import type {PosterSystem} from "~/game/posters/PosterSystem";
 import type {ShelfPresentation} from "~/game/shelfPlacement";
 import type {ShopPhysicsWorld} from "~/game/ShopPhysicsWorld";

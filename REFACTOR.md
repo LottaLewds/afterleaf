@@ -39,7 +39,7 @@ Current complexity hotspots include `GameStateEmitter.emit`, `ShopInputControlle
 
 ## 3. Reduce extraction-generated host ceremony
 
-- [ ] Move shared data types such as `MovablePropRecord`, `ShelfTargetSelection`, `SpineShelfDefinition`, `ShopInteraction`, and `ShopGameSnapshot` from `ShopScene.ts` into a neutral `shopTypes.ts` module.
+- [x] Move shared data types such as `MovablePropRecord`, `ShelfTargetSelection`, `SpineShelfDefinition`, `ShopInteraction`, and `ShopGameSnapshot` from `ShopScene.ts` into a neutral `shopTypes.ts` module.
 - [ ] Replace repetitive host factories in `ShopScene` with grouped capability slices for world, books, targeting, media, and input.
 - [ ] Keep accessors only for values that genuinely change; pass stable runtime objects directly where safe.
 - [ ] Remove the double accessor around `MovablePropLifecycleHost.tvScreenLighting`.

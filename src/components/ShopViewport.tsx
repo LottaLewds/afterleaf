@@ -23,11 +23,8 @@ import type {CatalogAtlases, CatalogIdentity, CatalogItem} from "~/catalog";
 import {importArtFrameImage} from "~/artFrames/browserClient";
 import {artFrameChannelId} from "~/artFrames/protocol";
 import {ArcadeBrowser} from "~/components/ArcadeBrowser";
-import {
-  ShopScene,
-  type ShopGameSnapshot,
-  type ShopInteraction,
-} from "~/game/ShopScene";
+import {ShopScene} from "~/game/ShopScene";
+import type {ShopGameSnapshot, ShopInteraction} from "~/game/shopTypes";
 import type {ShopSignEditRequest} from "~/game/signs/ShopSignSystem";
 import {
   loadServerWorldSave,

@@ -67,9 +67,8 @@ import {
   SHELF_RETURN_CLOSE_HANDOFF_ANGLE,
   SHELF_RETURN_ROTATION_HANDOFF_EPSILON,
 } from "~/game/bookInspectionTuning";
+import type {InspectionCloseAction, InspectionMode} from "~/game/shopTypes";
 
-export type InspectionMode = "closing" | "none" | "spread";
-export type InspectionCloseAction = "drop" | "return" | "throw";
 export type InspectionShelfReturnPhase = "close" | "rotate" | "translate";
 
 /** Live accessors into the owning scene. */

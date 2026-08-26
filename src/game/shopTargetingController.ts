@@ -3,7 +3,7 @@ import type {BookTextureRuntime} from "~/game/bookTextureRuntime";
 import type {InteractionScanner} from "~/game/interactionScanner";
 import type {ShopBookLifecycle} from "~/game/shopBookLifecycle";
 import type {ShopArcadeCabinet} from "~/game/ShopArcadeCabinet";
-import type {MovablePropRecord} from "~/game/ShopScene";
+import type {MovablePropRecord} from "~/game/shopTypes";
 import type {
   ShopTelevision,
   ShopTelevisionInteraction,

@@ -29,7 +29,7 @@ import {dotWithPhysicsQuaternion} from "~/game/mathHelpers";
 import type {InspectionController} from "~/game/inspection/InspectionController";
 import type {InputManager} from "~/game/input/inputManager";
 import type {ShopBookLifecycle} from "~/game/shopBookLifecycle";
-import type {SpineShelfDefinition} from "~/game/ShopScene";
+import type {SpineShelfDefinition} from "~/game/shopTypes";
 import {isPointInsideShopObstacle} from "~/game/shopGameplay";
 import {SHOP_INTERIOR_FOOTPRINTS} from "~/game/shopLayout";
 import {

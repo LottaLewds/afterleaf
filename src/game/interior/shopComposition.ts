@@ -62,6 +62,7 @@ import {
 import type {ArtFrameSystem} from "~/game/artFrameSystem";
 import type {ReadingFurnitureMaterials} from "~/game/propRegistration";
 import type {WorldSaveV1} from "~/game/worldSave";
+import type {SpineShelfDefinition} from "~/game/shopTypes";
 import {
   SHOP_ATRIUM,
   SHOP_EXPANSION_WALL_BOXES,
@@ -148,10 +149,7 @@ export type ShopCompositionContext = {
   shelfSnapMesh: Mesh;
   shelfTargetMeshes: Mesh[];
   signs: ShopSignSystem;
-  spineShelfDefinitions: Map<
-    string,
-    import("~/game/interior/shelfFixtures").SpineShelfDefinition
-  >;
+  spineShelfDefinitions: Map<string, SpineShelfDefinition>;
   setTelevisionTableMaterial: (material: MeshStandardMaterial) => void;
   textureLoader: TextureLoader;
 };

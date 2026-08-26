@@ -30,7 +30,7 @@ import type {
   MovablePropRecord,
   ShelfTargetSelection,
   SpineShelfDefinition,
-} from "~/game/ShopScene";
+} from "~/game/shopTypes";
 import type {
   ArcadeSessionStatus,
   ShopArcadeCabinet,

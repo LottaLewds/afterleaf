@@ -15,7 +15,7 @@ import type {
   MovablePropRecord,
   ShelfTargetSelection,
   SpineShelfDefinition,
-} from "~/game/ShopScene";
+} from "~/game/shopTypes";
 import type {ShopPhysicsWorld, BookPhysicsPose} from "~/game/ShopPhysicsWorld";
 import type {
   ShelfPresentation,
