@@ -12,11 +12,11 @@ Behavior-preserving cleanup plan from the game-code architecture scan. Keep game
 
 ## 1. Remove dead reader paths
 
-- [ ] Confirm that no external consumer depends on the old reader implementation.
-- [ ] Delete `src/game/BookInspectScene.ts`.
-- [ ] Delete `src/components/BookInspectViewport.tsx`.
-- [ ] Delete `src/components/PublicationReader.tsx`.
-- [ ] Verify that `App` → `ShopViewport` remains the only active reading path.
+- [x] Confirm that no external consumer depends on the old reader implementation.
+- [x] Delete `src/game/BookInspectScene.ts`.
+- [x] Delete `src/components/BookInspectViewport.tsx`.
+- [x] Delete `src/components/PublicationReader.tsx`.
+- [x] Verify that `App` → `ShopViewport` remains the only active reading path.
 
 These files are unused within the repository and account for approximately 1,980 lines.
 
