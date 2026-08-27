@@ -102,7 +102,7 @@ const discoverArtFrameChannelsIn = async (
               if (!label) return;
               return {aspectRatio, filePath, id, label, url: mediaUrl(id)};
             } catch {
-              return;
+              // Skip files that cannot be inspected as art frame images.
             }
           }),
         );

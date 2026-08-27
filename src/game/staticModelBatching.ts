@@ -323,5 +323,5 @@ export const batchStaticInteriorMeshes = (parent: Group) => {
     }
   }
   if (DEV)
-    console.log(`[afterleaf] interior batching: ${batchIndex} batches from ${bucketsByContainer.size} container(s)`);
+    console.info(`[afterleaf] interior batching: ${batchIndex} batches from ${bucketsByContainer.size} container(s)`);
 };

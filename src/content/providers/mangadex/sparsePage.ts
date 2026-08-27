@@ -65,9 +65,9 @@ export const createMangaDexSparsePageMaterializer = (client: MangaDexSparsePageC
       if (!loadedFromDisk) throw error;
       server = await client.getAtHomeServer(remoteId);
       if (server.chapter.data.length !== pageCount)
-        throw new Error("Remote MangaDex metadata changed; fetch the book again");
+        throw new Error("Remote MangaDex metadata changed; fetch the book again", {cause: error});
       filename = server.chapter.data[pageNumber - 1];
-      if (!filename) throw new Error("Remote MangaDex page metadata is incomplete");
+      if (!filename) throw new Error("Remote MangaDex page metadata is incomplete", {cause: error});
       await writeFile(
         metadataPath,
         `${JSON.stringify(createMangaDexSparseMetadata(remoteId, metadataHash, server), null, 2)}\n`,

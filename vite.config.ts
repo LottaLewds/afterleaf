@@ -1026,7 +1026,7 @@ const localLibraryOperationsPlugin = (): Plugin => {
                       sizeBytes: romStat.size,
                     });
                   } catch {
-                    return;
+                    // A file can disappear while the directory listing is being processed.
                   }
                 }),
             );

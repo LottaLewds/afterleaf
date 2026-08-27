@@ -81,7 +81,7 @@ export const FolderBrowserDialog = (props: {
                 onClick={() => void props.browser.openBrowser(entry.path)}
                 type="button"
               >
-                <FiFolder size={12} style={{flexShrink: 0}} />
+                <FiFolder size={12} style={{"flex-shrink": "0"}} />
                 <span class="truncate">{entry.name}</span>
               </button>
             )}

@@ -100,7 +100,7 @@ export const discoverPosters = async (
             url: mediaUrl(id),
           };
         } catch {
-          return;
+          // Skip files that cannot be inspected as poster images.
         }
       }),
     );

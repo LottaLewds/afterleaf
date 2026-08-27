@@ -13,6 +13,6 @@ export const readImageDimensions = async (bytes: Uint8Array): Promise<ImageDimen
       width: metadata.width,
     };
   } catch {
-    return;
+    // Invalid image data has no usable dimensions.
   }
 };

@@ -248,7 +248,6 @@ export const ShopViewport = (props: ShopViewportProps) => {
             if (!worldSaveServerInstanceId || !worldSaveRevision) return false;
             try {
               worldSaveRevision = await queueServerWorldSave(save, worldSaveServerInstanceId, worldSaveRevision);
-              return;
             } catch (cause) {
               if (cause instanceof WorldSaveServerChangedError || cause instanceof WorldSaveConflictError) {
                 setWorldSaveWritable(false);
@@ -396,7 +395,7 @@ export const ShopViewport = (props: ShopViewportProps) => {
             <Show when={gameState().tvVideoImportMessage}>
               {(message) => (
                 <span class="flex max-w-96 items-center gap-2 text-[#b8d7c1]">
-                  <FiCheck size={12} color="#62b47c" style={{flexShrink: 0}} />
+                  <FiCheck size={12} color="#62b47c" style={{"flex-shrink": "0"}} />
                   <span class="truncate">{message()}</span>
                 </span>
               )}

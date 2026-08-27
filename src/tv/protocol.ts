@@ -65,7 +65,7 @@ export const tvVideoImportUrl = (value: string) => {
     if (url.protocol !== "http:" && url.protocol !== "https:") return;
     return url.href;
   } catch {
-    return;
+    // Invalid URLs are rejected by returning undefined.
   }
 };
 

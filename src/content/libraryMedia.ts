@@ -214,6 +214,7 @@ export const importLocalMedia = async (
       if (mediaPath.optional && (error as NodeJS.ErrnoException).code === "ENOENT") continue;
       throw new Error(
         `Could not access library media path ${mediaPath.path}: ${error instanceof Error ? error.message : String(error)}`,
+        {cause: error},
       );
     }
     if (mediaStat.isFile() && !isContentArchivePath(mediaPath.path))

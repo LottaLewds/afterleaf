@@ -1,4 +1,4 @@
-import {FiSettings, FiX} from "solid-icons/fi";
+import {FiAlertTriangle, FiSettings, FiX} from "solid-icons/fi";
 import {createMemo, createSignal, For, Show} from "solid-js";
 import {ARCADE_SYSTEMS, findArcadeSystem} from "~/arcade/systems";
 import type {AfterleafLibraryConfig} from "~/content/libraryConfig";
@@ -21,6 +21,7 @@ export const AdditionalLocationsControl = (props: {
 }) => {
   const [kind, setKind] = createSignal<AdditionalLocationKind>("comicPaths");
   const [reenrollingPath, setReenrollingPath] = createSignal("");
+  const [pendingReenrollPath, setPendingReenrollPath] = createSignal("");
   const browser = createFolderBrowser();
   const arrayLabels: Record<ArrayLocationKind, string> = {
     artFramePaths: "Art frames",
@@ -71,7 +72,7 @@ export const AdditionalLocationsControl = (props: {
   });
   const moveLocation = (from: AdditionalLocationKind, path: string, to: AdditionalLocationKind) => {
     if (from === to) return;
-    let nextConfig = props.config;
+    let nextConfig: AfterleafLibraryConfig;
     if (isBookLocationKind(from)) {
       // Detach the path from its current slot first.
       const detached = {...props.config};
@@ -134,12 +135,6 @@ export const AdditionalLocationsControl = (props: {
     props.onChange(next);
   };
   const reenroll = async (path: string) => {
-    if (
-      !window.confirm(
-        "Re-enroll this book root only if it is the intended mounted library. Re-enrolling an empty unmounted mountpoint can make missing books count as deletions.",
-      )
-    )
-      return;
     browser.setBrowserError("");
     setReenrollingPath(path);
     try {
@@ -149,6 +144,14 @@ export const AdditionalLocationsControl = (props: {
     } finally {
       setReenrollingPath("");
     }
+  };
+  const requestReenroll = (path: string) => setPendingReenrollPath(path);
+  const cancelReenroll = () => setPendingReenrollPath("");
+  const confirmReenroll = () => {
+    const path = pendingReenrollPath();
+    if (!path) return;
+    setPendingReenrollPath("");
+    void reenroll(path);
   };
   return (
     <div class="border border-white/8 bg-[#151e1c] px-4 py-4 sm:px-5">
@@ -211,7 +214,7 @@ export const AdditionalLocationsControl = (props: {
                           : "Re-enrollment is available only when an unavailable root contains supported books"
                       }
                       type="button"
-                      onClick={() => void reenroll(location)}
+                      onClick={() => requestReenroll(location)}
                     >
                       {reenrollingPath() === location ? "Enrolling…" : "Re-enroll"}
                     </button>
@@ -253,6 +256,55 @@ export const AdditionalLocationsControl = (props: {
           </select>
         }
       />
+      <Show when={pendingReenrollPath()}>
+        {(path) => (
+          <div
+            class="fixed inset-0 z-[80] grid place-items-center bg-black/80 p-4 backdrop-blur-md"
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="reenroll-warning-title"
+            aria-describedby="reenroll-warning-description"
+            onClick={cancelReenroll}
+          >
+            <div
+              class="w-full max-w-lg border border-[#d94c3f]/35 bg-[#151d1b] p-6 shadow-[0_30px_100px_#000] sm:p-8"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div class="flex items-start gap-4">
+                <span class="grid size-11 shrink-0 place-items-center border border-[#d94c3f]/35 bg-[#d94c3f]/10 text-[#e16458]">
+                  <FiAlertTriangle size={17} />
+                </span>
+                <div>
+                  <p class="text-[9px] font-bold tracking-[0.2em] text-[#d55247] uppercase">Confirm library root</p>
+                  <h2 id="reenroll-warning-title" class="mt-2 font-serif text-2xl text-[#f0ebdf]">
+                    Re-enroll this root?
+                  </h2>
+                </div>
+              </div>
+              <p id="reenroll-warning-description" class="mt-5 text-xs leading-5 text-[#929e99]">
+                Re-enroll only if <span class="font-semibold break-all text-[#d6dcd8]">{path()}</span> is the intended
+                mounted library. Re-enrolling an empty, unmounted mountpoint can make missing books count as deletions.
+              </p>
+              <div class="mt-7 flex justify-end gap-3">
+                <button
+                  class="border border-white/10 px-4 py-2.5 text-[10px] font-semibold tracking-[0.12em] text-[#9da7a2] uppercase transition hover:border-white/20 hover:bg-white/5 hover:text-white"
+                  type="button"
+                  onClick={cancelReenroll}
+                >
+                  Cancel
+                </button>
+                <button
+                  class="bg-[#d94c3f] px-4 py-2.5 text-[10px] font-bold tracking-[0.12em] text-white uppercase transition hover:bg-[#e45a4e]"
+                  type="button"
+                  onClick={confirmReenroll}
+                >
+                  Re-enroll root
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </Show>
     </div>
   );
 };

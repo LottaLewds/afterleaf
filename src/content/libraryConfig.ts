@@ -117,7 +117,9 @@ const parseLibraryConfigText = (text: string, configPath: string) => {
   try {
     value = JSON.parse(text) as unknown;
   } catch (error) {
-    throw new Error(`${configPath} is not valid JSON: ${error instanceof Error ? error.message : String(error)}`);
+    throw new Error(`${configPath} is not valid JSON: ${error instanceof Error ? error.message : String(error)}`, {
+      cause: error,
+    });
   }
   return parseLibraryConfig(value, configPath);
 };
@@ -253,7 +255,7 @@ const createLibraryRootMarker = async (directory: string) => {
   } catch (error) {
     if (!(error instanceof Error) || !("code" in error) || error.code !== "EEXIST") throw error;
     const existing = await readLibraryRootMarker(directory);
-    if (!existing) throw new Error(`Library root marker is invalid: ${markerPath}`);
+    if (!existing) throw new Error(`Library root marker is invalid: ${markerPath}`, {cause: error});
     return existing;
   }
 };
@@ -271,6 +273,7 @@ const readLibraryRootRegistry = async (registryPath: string) => {
     if (isMissing(error)) return emptyLibraryRootRegistry();
     throw new Error(
       `Could not read library root registry ${registryPath}: ${error instanceof Error ? error.message : String(error)}`,
+      {cause: error},
     );
   }
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))

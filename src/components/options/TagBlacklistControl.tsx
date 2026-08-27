@@ -81,7 +81,7 @@ export const TagBlacklistControl = (props: {
         }}
       >
         <div class="flex min-h-11 items-center gap-2 border border-white/10 bg-[#0c1312] px-3 focus-within:border-[#d55247]/70">
-          <FiSearch size={13} color="#65716c" style={{flexShrink: 0}} />
+          <FiSearch size={13} color="#65716c" style={{"flex-shrink": "0"}} />
           <input
             ref={(element) => {
               input = element;

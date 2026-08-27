@@ -305,7 +305,7 @@ export class BookCarryActions {
     const transition = transitionBookInteraction(record.state, {type: "drop"});
     if (!transition.ok) return;
 
-    let dropPose = host.heldTargetPose();
+    let dropPose: BookPhysicsPose;
     if (fromCurrentPose) {
       record.mesh.updateMatrixWorld(true);
       record.mesh.getWorldPosition(host.physicsPosePosition());
