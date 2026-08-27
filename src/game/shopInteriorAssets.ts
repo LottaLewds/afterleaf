@@ -10,7 +10,6 @@ import {
   Vector2,
   WebGLRenderer,
   type ColorSpace,
-  type Texture,
 } from "three";
 
 import floorAlbedoUrl from "~/assets/materials/laminate-floor-albedo.webp";
@@ -35,26 +34,6 @@ export type ShopInteriorAssetsHost = {
   textureLoader: () => TextureLoader;
 };
 
-export const cloneFloorMaterial = (source: MeshStandardMaterial, repeatX: number, repeatY: number) => {
-  const material = source.clone();
-  const clones = new Map<Texture, Texture>();
-  const cloneTexture = (texture: Texture | null) => {
-    if (!texture) return null;
-    const existing = clones.get(texture);
-    if (existing) return existing;
-    const clone = texture.clone();
-    clone.repeat.set(repeatX, repeatY);
-    clone.needsUpdate = true;
-    clones.set(texture, clone);
-    return clone;
-  };
-  material.aoMap = cloneTexture(source.aoMap);
-  material.map = cloneTexture(source.map);
-  material.normalMap = cloneTexture(source.normalMap);
-  material.roughnessMap = cloneTexture(source.roughnessMap);
-  return material;
-};
-
 /** Creates the reusable materials and small fixture primitives used by the shop builder. */
 export class ShopInteriorAssets {
   readonly #host: ShopInteriorAssetsHost;
@@ -70,7 +49,9 @@ export class ShopInteriorAssets {
       texture.colorSpace = colorSpace;
       texture.wrapS = RepeatWrapping;
       texture.wrapT = RepeatWrapping;
-      texture.repeat.set(6.5, 9.75);
+      // Floor ShapeGeometry stores UVs in world-coordinate units, so a 4 m
+      // tile uses a quarter-repeat on the shared material.
+      texture.repeat.set(0.25, 0.25);
       texture.anisotropy = anisotropy;
       return texture;
     };

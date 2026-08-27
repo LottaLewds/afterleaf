@@ -55,7 +55,7 @@ import {ShopBookLifecycle} from "~/game/shopBookLifecycle";
 import {ShopBookPresentation, type ShopBookPresentationHost} from "~/game/shopBookPresentation";
 import {ShopPlayerMovement} from "~/game/shopPlayerMovement";
 import {ShopWorldPersistence} from "~/game/shopWorldPersistence";
-import {cloneFloorMaterial, ShopInteriorAssets} from "~/game/shopInteriorAssets";
+import {ShopInteriorAssets} from "~/game/shopInteriorAssets";
 import {ShopMediaController} from "~/game/shopMediaController";
 import {bookSignature as catalogBookSignature, ShopCatalogSync} from "~/game/shopCatalogSync";
 import {createShopInteractionCommands, type ShopInteractionCommands} from "~/game/shopInteractionCommands";
@@ -785,7 +785,6 @@ export class ShopScene {
       addBox: (p, size, pos, mat, castShadow) => this.#interiorAssets.addBox(p, size, pos, mat, castShadow),
       artFrames: this.#artFrames,
       cacheBuiltinPropTemplate: (registration) => this.#props.cacheBuiltinPropTemplate(registration),
-      cloneFloorMaterial,
       createFloorMaterial: () => this.#interiorAssets.createFloorMaterial(),
       createPosterSurface: (p, id, w, h, pos, rot) => this.#interiorAssets.createPosterSurface(p, id, w, h, pos, rot),
       createFaceOutDisplay: (p, wood, backing, deps) => createFaceOutDisplay(p, wood, backing, deps),

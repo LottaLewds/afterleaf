@@ -81,7 +81,6 @@ export type ShopCompositionContext = {
   addBox: AddBox;
   artFrames: ArtFrameSystem;
   cacheBuiltinPropTemplate: (registration: MovablePropRegistration) => void;
-  cloneFloorMaterial: (material: MeshStandardMaterial, repeatX: number, repeatY: number) => MeshStandardMaterial;
   createFloorMaterial: () => MeshStandardMaterial;
   createPosterSurface: (
     parent: Group,
@@ -141,13 +140,19 @@ export const buildShopInterior = (ctx: ShopCompositionContext) => {
   architecture.add(ctx.shelfSnapMesh);
 
   const floorMaterial = ctx.createFloorMaterial();
+  const floorCenterZ = 8.5;
   const floor = new Mesh(new PlaneGeometry(26, 39), floorMaterial);
+  const floorUv = floor.geometry.getAttribute("uv");
+  const floorPositions = floor.geometry.getAttribute("position");
+  for (let index = 0; index < floorUv.count; index += 1)
+    floorUv.setXY(index, floorPositions.getX(index), floorPositions.getY(index) - floorCenterZ);
+  floorUv.needsUpdate = true;
   floor.rotation.x = -Math.PI / 2;
-  floor.position.set(0, 0, 8.5);
+  floor.position.set(0, 0, floorCenterZ);
   floor.receiveShadow = true;
   architecture.add(floor);
   const groundFloorStructure = new Mesh(new BoxGeometry(26, 0.18, 39), new MeshBasicMaterial({color: "#242a28"}));
-  groundFloorStructure.position.set(0, -0.092, 8.5);
+  groundFloorStructure.position.set(0, -0.092, floorCenterZ);
   architecture.add(groundFloorStructure);
 
   const wallMaterial = createWallpaperMaterial(ctx.textureLoader, ctx.renderer.capabilities.getMaxAnisotropy());
@@ -318,11 +323,10 @@ export const buildShopInterior = (ctx: ShopCompositionContext) => {
     doors: ctx.doors,
     signs: ctx.signs,
   });
-  const upperFloorMaterial = ctx.cloneFloorMaterial(floorMaterial, 0.25, 0.25);
   buildShopExpansion(
     ctx,
     architecture,
-    upperFloorMaterial,
+    floorMaterial,
     wallMaterial,
     woodMaterial,
     shelfBackingMaterial,
