@@ -1,5 +1,5 @@
 import {FiHardDrive, FiPlay, FiTrash2, FiX} from "solid-icons/fi";
-import {Errored, For, Loading, Show, createMemo, createSignal, onSettled, refresh} from "solid-js";
+import {Errored, For, Loading, Show, createMemo, createSignal, onSettled, refresh, untrack} from "solid-js";
 
 import {arcadeFolderRomUrl, listArcadeFolderRoms} from "~/arcade/romFolders";
 import {deleteSavedRom, getSavedRomUrl, listSavedRoms, saveRomBlob, type ArcadeRomSummary} from "~/arcade/romLibrary";
@@ -61,7 +61,7 @@ export const ArcadeBrowser = (props: ArcadeBrowserProps) => {
       .catch(() => {});
     const timer = window.setInterval(() => {
       if (document.visibilityState !== "visible" || !document.hasFocus()) return;
-      void quietRefresh();
+      void untrack(quietRefresh);
     }, ROM_LISTING_REFRESH_INTERVAL_MS);
     return () => window.clearInterval(timer);
   });
@@ -175,7 +175,7 @@ export const ArcadeBrowser = (props: ArcadeBrowserProps) => {
             class="ml-auto grid size-9 shrink-0 place-items-center text-[#87938e] transition hover:bg-white/5 hover:text-white"
             aria-label="Leave the arcade"
             type="button"
-            onClick={props.onClose}
+            onClick={() => props.onClose()}
           >
             <FiX size={17} />
           </button>

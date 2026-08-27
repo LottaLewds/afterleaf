@@ -25,6 +25,7 @@ import {
   createSignal,
   isPending,
   resolve,
+  untrack,
 } from "solid-js";
 import {loadShortcuts, saveShortcuts, type ShortcutsConfig} from "~/game/input/bindings";
 
@@ -196,7 +197,7 @@ export const App = () => {
   const [blacklistedTags, setBlacklistedTags] = createSignal(loadTagBlacklist());
   const [runtimeLibraryRefresh, setRuntimeLibraryRefresh] = createSignal(0, {equals: false});
   const runtimeLibrary = createMemo(
-    async () => {
+    () => {
       runtimeLibraryRefresh();
       return loadRuntimeLibrary();
     },
@@ -204,23 +205,20 @@ export const App = () => {
   );
   const refetch = async () => {
     setRuntimeLibraryRefresh((revision) => revision + 1);
-    return resolve(() => runtimeLibrary());
+    return resolve(runtimeLibrary);
   };
   type LibraryProvidersState = {
     providers: readonly LibraryProviderDescriptor[];
     error: string | undefined;
   };
   const libraryProviders = createMemo<LibraryProvidersState>(
-    async () => {
-      try {
-        return {providers: await loadLibraryProviders(), error: undefined};
-      } catch (error) {
-        return {
+    () =>
+      loadLibraryProviders()
+        .then((providers) => ({providers, error: undefined}))
+        .catch((error) => ({
           providers: [],
           error: error instanceof Error ? error.message : "The library providers could not be loaded.",
-        };
-      }
-    },
+        })),
     {loadingValue: {providers: [], error: undefined}},
   );
   let latestLibrarySourceStatus = {
@@ -229,31 +227,27 @@ export const App = () => {
   };
   const [librarySourceStatusRefresh, setLibrarySourceStatusRefresh] = createSignal(0, {equals: false});
   const librarySourceStatus = createMemo(
-    async () => {
+    () => {
       librarySourceStatusRefresh();
-      try {
-        latestLibrarySourceStatus = await loadLibrarySourceStatus();
-      } catch {
-        // Keep the last safety status if a later health check is interrupted.
-      }
-      return latestLibrarySourceStatus;
+      return loadLibrarySourceStatus()
+        .then((status) => {
+          latestLibrarySourceStatus = status;
+          return latestLibrarySourceStatus;
+        })
+        .catch(() => {
+          // Keep the last safety status if a later health check is interrupted.
+          return latestLibrarySourceStatus;
+        });
     },
     {loadingValue: latestLibrarySourceStatus},
   );
   const refetchLibrarySourceStatus = async () => {
     setLibrarySourceStatusRefresh((revision) => revision + 1);
-    return resolve(() => librarySourceStatus());
+    return resolve(librarySourceStatus);
   };
-  const blacklistedPublications = createMemo(
-    async () => {
-      try {
-        return await loadBlacklistedPublications();
-      } catch {
-        return [] as readonly string[];
-      }
-    },
-    {loadingValue: [] as readonly string[]},
-  );
+  const blacklistedPublications = createMemo(() => loadBlacklistedPublications().catch(() => [] as readonly string[]), {
+    loadingValue: [] as readonly string[],
+  });
   const [blacklistedPublicationOverride, setBlacklistedPublicationOverride] = createSignal<readonly string[]>();
   const resolvedRuntimeLibrary = () => runtimeLibrary();
   const availableLibraryProviders = createMemo(() => libraryProviders().providers);
@@ -279,7 +273,7 @@ export const App = () => {
     () => unavailableBookPathCount(),
     (count) => {
       if (count === 0) return;
-      const sourceStatusInterval = window.setInterval(() => void refetchLibrarySourceStatus(), 3_000);
+      const sourceStatusInterval = window.setInterval(() => void untrack(refetchLibrarySourceStatus), 3_000);
       return () => window.clearInterval(sourceStatusInterval);
     },
   );
@@ -331,7 +325,7 @@ export const App = () => {
     setLibraryOperation(undefined);
   };
   const scanButtonLabel = () => {
-    if (isPending(() => runtimeLibrary())) return "Loading…";
+    if (isPending(runtimeLibrary)) return "Loading…";
     if (libraryOperation() === "scan")
       return `${libraryScanMode() === "repair" ? "Repairing" : "Scanning"} · ${libraryUpdateElapsedSeconds()}s`;
     if (libraryUpdating()) return "Library busy…";
@@ -452,11 +446,15 @@ export const App = () => {
 
   const startLibraryStatusPolling = () => {
     if (libraryUpdateTimer !== undefined) window.clearInterval(libraryUpdateTimer);
-    libraryUpdateTimer = window.setInterval(() => {
-      const job = activeLibraryJob;
-      if (job) void refreshLibraryUpdateStatus(job);
-      setLibraryUpdateElapsedSeconds(Math.floor((performance.now() - libraryUpdateStartedAt) / 1_000));
-    }, 1_000);
+    libraryUpdateTimer = window.setInterval(
+      () =>
+        untrack(() => {
+          const job = activeLibraryJob;
+          if (job) void refreshLibraryUpdateStatus(job);
+          setLibraryUpdateElapsedSeconds(Math.floor((performance.now() - libraryUpdateStartedAt) / 1_000));
+        }),
+      1_000,
+    );
   };
 
   const beginLibraryUpdate = (operation: LibraryOperation, query?: string) => {
@@ -765,11 +763,13 @@ export const App = () => {
     if (selectedTag && nextTags.includes(normalizeTag(selectedTag))) setTag(null);
   };
 
-  onSettled(() => {
-    // Reattach to a job that survived the reload before the boot fetch can
-    // consider starting a second one; adoption marks the library busy.
-    void reconnectActiveLibraryJob().then(() => maybeFetchOnBoot());
-  });
+  onSettled(() =>
+    untrack(() => {
+      // Reattach to a job that survived the reload before the boot fetch can
+      // consider starting a second one; adoption marks the library busy.
+      void reconnectActiveLibraryJob().then(() => untrack(maybeFetchOnBoot));
+    }),
+  );
   // Modal scopes mirror their dialog signals; the stack decides which one
   // owns Escape instead of a fixed priority chain in the key handler.
   createEscapeScope("purge-blacklisted", purgeBlacklistedOpen, () => {

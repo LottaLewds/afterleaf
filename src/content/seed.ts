@@ -1318,7 +1318,9 @@ const boundedMap = async <T, R>(
   const workers = Array.from({length: Math.min(concurrency, items.length)}, async () => {
     while (nextIndex < items.length) {
       const index = nextIndex++;
-      results[index] = await mapper(items[index]!, index);
+      const item = items[index];
+      if (item === undefined) throw new Error("boundedMap encountered a missing item");
+      results[index] = await mapper(item, index);
     }
   });
   await Promise.all(workers);

@@ -1,5 +1,15 @@
 import {FiCheck, FiChevronLeft, FiChevronRight, FiLoader, FiTrash2, FiX} from "solid-icons/fi";
-import {DEV, For, Show, createEffect, createRenderEffect, createSignal, onSettled, type Accessor} from "solid-js";
+import {
+  DEV,
+  For,
+  Show,
+  createEffect,
+  createRenderEffect,
+  createSignal,
+  onSettled,
+  type Accessor,
+  untrack,
+} from "solid-js";
 
 import type {CatalogAtlases, CatalogIdentity, CatalogItem} from "~/catalog";
 import {importArtFrameImage} from "~/artFrames/browserClient";
@@ -174,6 +184,7 @@ export const ShopViewport = (props: ShopViewportProps) => {
       mediaChannelInput?.focus();
       return;
     }
+    const channelName = mediaChannelName();
     let importChannel: (() => Promise<boolean | undefined>) | undefined;
     if (kind === "art-frame") {
       const image =
@@ -181,12 +192,11 @@ export const ShopViewport = (props: ShopViewportProps) => {
           .find((item) => item.kind === "file" && item.type.startsWith("image/"))
           ?.getAsFile() ?? undefined;
       if (image)
-        importChannel = () =>
-          shopScene?.importArtFrameChannelImage(mediaChannelName(), image) ?? Promise.resolve(undefined);
+        importChannel = () => shopScene?.importArtFrameChannelImage(channelName, image) ?? Promise.resolve(undefined);
     } else {
       const text = event.clipboardData?.getData("text/plain") || event.clipboardData?.getData("text/uri-list");
       if (text && tvVideoImportUrl(text))
-        importChannel = () => shopScene?.importTvChannelVideo(mediaChannelName(), text) ?? Promise.resolve(undefined);
+        importChannel = () => shopScene?.importTvChannelVideo(channelName, text) ?? Promise.resolve(undefined);
     }
     if (!importChannel) {
       setMediaChannelError(
@@ -199,100 +209,106 @@ export const ShopViewport = (props: ShopViewportProps) => {
     void importChannel();
   };
 
-  onSettled(() => {
-    props.onControlsChange?.(controls);
-    const sceneCanvas = canvas;
-    if (!sceneCanvas) return;
+  onSettled(() =>
+    untrack(() => {
+      props.onControlsChange?.(controls);
+      const sceneCanvas = canvas;
+      if (!sceneCanvas) return;
 
-    void (async () => {
-      try {
-        const loadedWorldSave = await loadServerWorldSave(worldSaveAbortController.signal).catch((cause: unknown) => {
-          throw new Error(
-            "The shared world save could not be loaded. The shop was not opened to protect your saved state.",
-            {cause},
-          );
-        });
-        if (worldSaveAbortController.signal.aborted) return;
-        const initialWorldSave: WorldSaveV1 | undefined = loadedWorldSave.save;
-        const worldSaveServerInstanceId = loadedWorldSave.serverInstanceId;
-        let worldSaveRevision = loadedWorldSave.revision;
-        setWorldSaveWritable(worldSaveServerInstanceId !== undefined && worldSaveRevision !== undefined);
-        if (DEV && (!worldSaveServerInstanceId || !worldSaveRevision))
-          console.warn(
-            "Afterleaf loaded the shared world save from an older server process; the shop is read-only until the server and page are restarted.",
-          );
+      void (async () => {
+        try {
+          const loadedWorldSave = await loadServerWorldSave(worldSaveAbortController.signal).catch((cause: unknown) => {
+            throw new Error(
+              "The shared world save could not be loaded. The shop was not opened to protect your saved state.",
+              {cause},
+            );
+          });
+          if (worldSaveAbortController.signal.aborted) return;
+          const initialWorldSave: WorldSaveV1 | undefined = loadedWorldSave.save;
+          const worldSaveServerInstanceId = loadedWorldSave.serverInstanceId;
+          let worldSaveRevision = loadedWorldSave.revision;
+          setWorldSaveWritable(worldSaveServerInstanceId !== undefined && worldSaveRevision !== undefined);
+          if (DEV && (!worldSaveServerInstanceId || !worldSaveRevision))
+            console.warn(
+              "Afterleaf loaded the shared world save from an older server process; the shop is read-only until the server and page are restarted.",
+            );
 
-        shopScene = new ShopScene({
-          canvas: sceneCanvas,
-          catalogAtlases: props.catalogAtlases,
-          catalogAvailable: props.catalogAvailable,
-          catalogIdentity: props.catalogIdentity,
-          catalogItems: props.publications,
-          ...(initialWorldSave === undefined ? {} : {initialWorldSave}),
-          worldSaveWritable,
-          ...(props.pageIndexForPublication === undefined ? {} : {initialPageIndex: props.pageIndexForPublication}),
-          ...(props.gamepadLookSensitivity === undefined ? {} : {gamepadLookSensitivity: props.gamepadLookSensitivity}),
-          ...(props.mouseSensitivity === undefined ? {} : {mouseSensitivity: props.mouseSensitivity}),
-          ...(props.newPublicationIds === undefined ? {} : {newPublicationIds: props.newPublicationIds}),
-          ...(props.tvScreenLighting === undefined ? {} : {tvScreenLighting: props.tvScreenLighting}),
-          selectedPublicationId: props.selectedPublicationId,
-          onGameStateChange: setGameState,
-          onTextPaste: (text) => props.onPasteText?.(text) ?? false,
-          onPageIndexChange: (publicationId, pageIndex) => props.onPageIndexChange?.(publicationId, pageIndex),
-          onDiscardPublication: (publicationId) =>
-            props.onDiscardPublication?.(publicationId) ?? Promise.resolve(false),
-          onSelectPublication: (publicationId) => props.onSelectPublication?.(publicationId),
-          onMediaChannelCreateRequest: openMediaChannelEditor,
-          onSignEditRequest: openSignEditor,
-          onWorldSave: async (save) => {
-            if (!worldSaveServerInstanceId || !worldSaveRevision) return false;
-            try {
-              worldSaveRevision = await queueServerWorldSave(save, worldSaveServerInstanceId, worldSaveRevision);
-            } catch (cause) {
-              if (cause instanceof WorldSaveServerChangedError || cause instanceof WorldSaveConflictError) {
-                setWorldSaveWritable(false);
-                setError(
-                  cause instanceof WorldSaveConflictError
-                    ? "The shared world changed in another tab. Reload this page before making more changes."
-                    : "The Afterleaf server restarted. Reload this page before making more changes.",
-                );
+          shopScene = new ShopScene({
+            canvas: sceneCanvas,
+            catalogAtlases: props.catalogAtlases,
+            catalogAvailable: props.catalogAvailable,
+            catalogIdentity: props.catalogIdentity,
+            catalogItems: props.publications,
+            ...(initialWorldSave === undefined ? {} : {initialWorldSave}),
+            worldSaveWritable,
+            ...(props.pageIndexForPublication === undefined ? {} : {initialPageIndex: props.pageIndexForPublication}),
+            ...(props.gamepadLookSensitivity === undefined
+              ? {}
+              : {gamepadLookSensitivity: props.gamepadLookSensitivity}),
+            ...(props.mouseSensitivity === undefined ? {} : {mouseSensitivity: props.mouseSensitivity}),
+            ...(props.newPublicationIds === undefined ? {} : {newPublicationIds: props.newPublicationIds}),
+            ...(props.tvScreenLighting === undefined ? {} : {tvScreenLighting: props.tvScreenLighting}),
+            selectedPublicationId: props.selectedPublicationId,
+            onGameStateChange: setGameState,
+            onTextPaste: (text) => props.onPasteText?.(text) ?? false,
+            onPageIndexChange: (publicationId, pageIndex) => props.onPageIndexChange?.(publicationId, pageIndex),
+            onDiscardPublication: (publicationId) =>
+              props.onDiscardPublication?.(publicationId) ?? Promise.resolve(false),
+            onSelectPublication: (publicationId) => props.onSelectPublication?.(publicationId),
+            onMediaChannelCreateRequest: openMediaChannelEditor,
+            onSignEditRequest: openSignEditor,
+            onWorldSave: async (save) => {
+              if (!worldSaveServerInstanceId || !worldSaveRevision) return false;
+              try {
+                worldSaveRevision = await queueServerWorldSave(save, worldSaveServerInstanceId, worldSaveRevision);
+              } catch (cause) {
+                if (cause instanceof WorldSaveServerChangedError || cause instanceof WorldSaveConflictError) {
+                  setWorldSaveWritable(false);
+                  setError(
+                    cause instanceof WorldSaveConflictError
+                      ? "The shared world changed in another tab. Reload this page before making more changes."
+                      : "The Afterleaf server restarted. Reload this page before making more changes.",
+                  );
+                }
+                throw cause;
               }
-              throw cause;
-            }
-          },
-          loadMediaCatalog: loadShopMediaCatalog,
-          importTvVideo,
-          importArtFrameImage,
-          importPoster,
-          paused: () =>
-            props.paused?.() === true ||
-            error() !== undefined ||
-            signEditor() !== undefined ||
-            mediaChannelEditor() !== undefined,
-          ...(props.shortcutsConfig === undefined ? {} : {shortcutsConfig: props.shortcutsConfig}),
-          ...(props.padMappingOverrides === undefined ? {} : {padMappingOverrides: props.padMappingOverrides}),
-          ...(props.onOpenMenu === undefined ? {} : {onPauseRequest: props.onOpenMenu}),
-          ...(props.onCloseMenu === undefined ? {} : {onResumeRequest: props.onCloseMenu}),
-          mode: uiMode.mode,
-          onReady: () => setReady(true),
-        });
-        if (!shouldBePointerLocked()) shopScene.releasePointerLock();
-        shopScene.start();
-      } catch (cause) {
-        if (worldSaveAbortController.signal.aborted) return;
-        console.error("Afterleaf 3D shop could not be initialized.", cause);
-        setError(cause instanceof Error ? cause.message : "The 3D shop could not be initialized.");
-      }
-    })();
-  });
+            },
+            loadMediaCatalog: loadShopMediaCatalog,
+            importTvVideo,
+            importArtFrameImage,
+            importPoster,
+            paused: () =>
+              props.paused?.() === true ||
+              error() !== undefined ||
+              signEditor() !== undefined ||
+              mediaChannelEditor() !== undefined,
+            ...(props.shortcutsConfig === undefined ? {} : {shortcutsConfig: props.shortcutsConfig}),
+            ...(props.padMappingOverrides === undefined ? {} : {padMappingOverrides: props.padMappingOverrides}),
+            ...(props.onOpenMenu === undefined ? {} : {onPauseRequest: props.onOpenMenu}),
+            ...(props.onCloseMenu === undefined ? {} : {onResumeRequest: props.onCloseMenu}),
+            mode: uiMode.mode,
+            onReady: () => setReady(true),
+          });
+          if (!shouldBePointerLocked()) shopScene.releasePointerLock();
+          shopScene.start();
+        } catch (cause) {
+          if (worldSaveAbortController.signal.aborted) return;
+          console.error("Afterleaf 3D shop could not be initialized.", cause);
+          setError(cause instanceof Error ? cause.message : "The 3D shop could not be initialized.");
+        }
+      })();
+    }),
+  );
 
-  onSettled(() => {
-    return () => {
-      props.onControlsChange?.(undefined);
-      worldSaveAbortController.abort();
-      shopScene?.dispose();
-    };
-  });
+  onSettled(() =>
+    untrack(() => {
+      return () => {
+        untrack(() => props.onControlsChange)?.(undefined);
+        worldSaveAbortController.abort();
+        shopScene?.dispose();
+      };
+    }),
+  );
 
   createRenderEffect(
     shouldBePointerLocked,
