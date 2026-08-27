@@ -478,6 +478,31 @@ export class InspectionController {
     return {clickedSide, intersection};
   }
 
+  #beginInspectionPointerDrag(
+    event: PointerEvent,
+    publication: CatalogItem,
+    clickedSide: "left" | "right",
+    textureU: number | undefined,
+    textureV: number | undefined,
+  ) {
+    const forwardSide = publication.direction === "LTR" ? "right" : "left";
+    const navigation = clickedSide === forwardSide ? "forward" : "backward";
+    this.inspectionDragging = true;
+    this.inspectionDragMoved = false;
+    this.inspectionDragNavigation = navigation;
+    this.inspectionDragReleaseDecision = undefined;
+    this.inspectionDragStartX = event.clientX;
+    this.inspectionDragCurrentX = event.clientX;
+    const resolvedTextureU = textureU ?? 1;
+    this.inspectionTurnAnchorX = MathUtils.clamp(
+      clickedSide === "right" ? resolvedTextureU : 1 - resolvedTextureU,
+      0.08,
+      1,
+    );
+    this.inspectionTurnAnchorY = textureV ?? 0.5;
+    this.turnInspectionPages(navigation);
+  }
+
   beginInspectionPointerTurn(event: PointerEvent) {
     const publication = this.inspectionPublication();
     if (
@@ -492,19 +517,13 @@ export class InspectionController {
     if (!record) return;
     const pointerHit = this.#findInspectionPointerHit(event, record);
     if (!pointerHit) return;
-    const {clickedSide, intersection} = pointerHit;
-    const forwardSide = publication.direction === "LTR" ? "right" : "left";
-    const navigation = clickedSide === forwardSide ? "forward" : "backward";
-    this.inspectionDragging = true;
-    this.inspectionDragMoved = false;
-    this.inspectionDragNavigation = navigation;
-    this.inspectionDragReleaseDecision = undefined;
-    this.inspectionDragStartX = event.clientX;
-    this.inspectionDragCurrentX = event.clientX;
-    const textureU = intersection?.uv?.x ?? 1;
-    this.inspectionTurnAnchorX = MathUtils.clamp(clickedSide === "right" ? textureU : 1 - textureU, 0.08, 1);
-    this.inspectionTurnAnchorY = intersection?.uv?.y ?? 0.5;
-    this.turnInspectionPages(navigation);
+    this.#beginInspectionPointerDrag(
+      event,
+      publication,
+      pointerHit.clickedSide,
+      pointerHit.intersection?.uv?.x,
+      pointerHit.intersection?.uv?.y,
+    );
   }
 
   cancelInspectionPageTurn(record: BookRecord, publication: CatalogItem) {
@@ -793,17 +812,13 @@ export class InspectionController {
     return textures;
   }
 
-  #prepareInspectionTurnSides(
-    record: BookRecord,
+  #configureInspectionTurnMode(
     publication: CatalogItem,
-    nextPageIndex: number,
+    currentSpread: ReturnType<typeof getReaderSpread>,
+    targetSpread: ReturnType<typeof getReaderSpread>,
+    widePages: ReadonlySet<number>,
     navigation: ReaderNavigation,
-    targetUrls: InspectionPageUrls,
-    textures: Map<string, Texture>,
   ) {
-    const widePages = getWideReaderPageIndices(publication.pages);
-    const currentSpread = getReaderSpread(this.inspectionPageIndex, publication.pages.length, "spread", widePages);
-    const targetSpread = getReaderSpread(nextPageIndex, publication.pages.length, "spread", widePages);
     const currentIsClosedSide =
       currentSpread.start === 0 ||
       (currentSpread.start === publication.pages.length - 1 && !widePages.has(currentSpread.start));
@@ -815,14 +830,19 @@ export class InspectionController {
     this.inspectionTurnBackSourceRevealed = false;
     this.inspectionTurnToSingle = !currentIsClosedSide && targetIsClosedSide;
     this.inspectionTurnNavigation = navigation;
-    const ltr = publication.direction === "LTR";
+  }
+
+  #resolveInspectionTurnSides(
+    record: BookRecord,
+    publication: CatalogItem,
+    navigation: ReaderNavigation,
+    targetUrls: InspectionPageUrls,
+    textures: Map<string, Texture>,
+  ) {
     const forward = navigation === "forward";
-    const sourceSide: "left" | "right" = forward === ltr ? "right" : "left";
+    const sourceSide: "left" | "right" = forward === (publication.direction === "LTR") ? "right" : "left";
     const destinationSide: "left" | "right" = sourceSide === "left" ? "right" : "left";
     const sourceMaterial = sourceSide === "left" ? record.inspectionLeftMaterial : record.inspectionRightMaterial;
-    this.inspectionTurnSourceSide = sourceSide;
-    this.inspectionTurnSourceTexture = sourceMaterial.map;
-    this.inspectionTurnTargetPageIndex = nextPageIndex;
     const sourceTargetUrl = targetUrls[sourceSide];
     const sourceDestinationTexture = sourceTargetUrl ? (textures.get(sourceTargetUrl) ?? null) : null;
     const destinationTargetUrl = targetUrls[destinationSide];
@@ -832,9 +852,6 @@ export class InspectionController {
     const sourceAssembly = sourceSide === "left" ? record.inspectionLeftAssembly : record.inspectionRightAssembly;
     const destinationAssembly =
       destinationSide === "left" ? record.inspectionLeftAssembly : record.inspectionRightAssembly;
-    this.inspectionTurnDestinationPreviousTexture = destinationMaterial.map;
-    this.inspectionTurnDestinationTexture = destinationTexture;
-    this.inspectionTurnSourceDestinationTexture = sourceDestinationTexture;
     return {
       destinationAssembly,
       destinationMaterial,
@@ -843,8 +860,32 @@ export class InspectionController {
       forward,
       sourceAssembly,
       sourceDestinationTexture,
+      sourceSide,
       sourceMaterial,
     };
+  }
+
+  #prepareInspectionTurnSides(
+    record: BookRecord,
+    publication: CatalogItem,
+    nextPageIndex: number,
+    navigation: ReaderNavigation,
+    targetUrls: InspectionPageUrls,
+    textures: Map<string, Texture>,
+  ) {
+    const widePages = getWideReaderPageIndices(publication.pages);
+    const currentSpread = getReaderSpread(this.inspectionPageIndex, publication.pages.length, "spread", widePages);
+    const targetSpread = getReaderSpread(nextPageIndex, publication.pages.length, "spread", widePages);
+    this.#configureInspectionTurnMode(publication, currentSpread, targetSpread, widePages, navigation);
+    const sides = this.#resolveInspectionTurnSides(record, publication, navigation, targetUrls, textures);
+    const {destinationMaterial, destinationTexture, sourceDestinationTexture, sourceSide, sourceMaterial} = sides;
+    this.inspectionTurnSourceSide = sourceSide;
+    this.inspectionTurnSourceTexture = sourceMaterial.map;
+    this.inspectionTurnTargetPageIndex = nextPageIndex;
+    this.inspectionTurnDestinationPreviousTexture = destinationMaterial.map;
+    this.inspectionTurnDestinationTexture = destinationTexture;
+    this.inspectionTurnSourceDestinationTexture = sourceDestinationTexture;
+    return sides;
   }
 
   #configureInspectionTurn(

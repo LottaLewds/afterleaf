@@ -860,35 +860,47 @@ export class ShopInputController {
     return true;
   }
 
+  #handleThrowAction() {
+    if (this.#host.televisionTargeted()) this.#host.targetedTelevision()?.skip();
+    else {
+      const targetedId = this.#host.artFrames().targetedId;
+      if (targetedId) this.#host.artFrames().records.get(targetedId)?.frame.skip();
+      else if (this.#host.props().carriedProp) this.#host.props().dropCarriedProp(true);
+      else if (this.#host.carriedPublicationId()) this.#host.bookActions().startThrowCharge();
+    }
+    // Held throw state drives shelf browsing; isActionDown covers it.
+  }
+
+  #handleDropAction() {
+    if (this.#host.artFrames().placement || this.#host.posters().placement) return;
+    if (this.#host.artFrames().targetedId) this.#host.artFrames().removeTargetedDigitalArtFrame();
+    else if (this.#host.posters().targetedId) this.#host.posters().removeTargetedPoster();
+    else if (this.#host.props().carriedProp) this.#host.props().dropCarriedProp();
+    else this.#host.bookActions().dropCarriedBook();
+  }
+
+  #handleInspectionReturnAction() {
+    const hoveredPublicationId = this.#host.hoveredPublicationId();
+    const carriedPublicationId = this.#host.carriedPublicationId();
+    const hoveredRecord = hoveredPublicationId ? this.#host.booksById().get(hoveredPublicationId) : undefined;
+    if (carriedPublicationId) this.#host.inspection().advanceInspectionMode(carriedPublicationId);
+    else if (hoveredPublicationId && hoveredRecord?.state.status === "shelved")
+      this.#host.inspection().advanceInspectionMode(hoveredPublicationId);
+  }
+
   #handleGameplayAction(action: ShortcutAction): boolean {
     switch (action) {
       case "interact":
         this.#triggerInteraction();
         return true;
       case "throw":
-        if (this.#host.televisionTargeted()) this.#host.targetedTelevision()?.skip();
-        else {
-          const targetedId = this.#host.artFrames().targetedId;
-          if (targetedId) this.#host.artFrames().records.get(targetedId)?.frame.skip();
-          else if (this.#host.props().carriedProp) this.#host.props().dropCarriedProp(true);
-          else if (this.#host.carriedPublicationId()) this.#host.bookActions().startThrowCharge();
-        }
-        // Held throw state drives shelf browsing; isActionDown covers it.
+        this.#handleThrowAction();
         return true;
       case "drop":
-        if (this.#host.artFrames().placement || this.#host.posters().placement) return true;
-        if (this.#host.artFrames().targetedId) this.#host.artFrames().removeTargetedDigitalArtFrame();
-        else if (this.#host.posters().targetedId) this.#host.posters().removeTargetedPoster();
-        else if (this.#host.props().carriedProp) this.#host.props().dropCarriedProp();
-        else this.#host.bookActions().dropCarriedBook();
+        this.#handleDropAction();
         return true;
       case "inspectionReturn": {
-        const hoveredPublicationId = this.#host.hoveredPublicationId();
-        const carriedPublicationId = this.#host.carriedPublicationId();
-        const hoveredRecord = hoveredPublicationId ? this.#host.booksById().get(hoveredPublicationId) : undefined;
-        if (carriedPublicationId) this.#host.inspection().advanceInspectionMode(carriedPublicationId);
-        else if (hoveredPublicationId && hoveredRecord?.state.status === "shelved")
-          this.#host.inspection().advanceInspectionMode(hoveredPublicationId);
+        this.#handleInspectionReturnAction();
         return true;
       }
       default:

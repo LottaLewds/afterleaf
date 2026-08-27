@@ -300,45 +300,56 @@ const parsePosters = (value: unknown): readonly WorldPosterSave[] => {
   });
 };
 
+const parseDigitalArtFrameMeasurements = (frame: Record<string, unknown>, field: string) => {
+  const aspectRatio = finiteCoordinate(frame.aspectRatio, `${field}.aspectRatio`);
+  if (aspectRatio <= 0 || aspectRatio > 100) throw new Error(`${field}.aspectRatio must be between 0 and 100`);
+  const height = finiteCoordinate(frame.height, `${field}.height`);
+  if (height < MIN_POSTER_HEIGHT || height > MAX_POSTER_HEIGHT)
+    throw new Error(`${field}.height must be between ${MIN_POSTER_HEIGHT} and ${MAX_POSTER_HEIGHT}`);
+  if (frame.fit !== "contain" && frame.fit !== "cover") throw new Error(`${field}.fit must be contain or cover`);
+  const intervalSeconds = finiteCoordinate(frame.intervalSeconds, `${field}.intervalSeconds`);
+  if (
+    intervalSeconds !== 0 &&
+    (intervalSeconds < MIN_ART_FRAME_INTERVAL_SECONDS || intervalSeconds > MAX_ART_FRAME_INTERVAL_SECONDS)
+  )
+    throw new Error(
+      `${field}.intervalSeconds must be 0 or between ${MIN_ART_FRAME_INTERVAL_SECONDS} and ${MAX_ART_FRAME_INTERVAL_SECONDS}`,
+    );
+  const rotation = frame.rotation === undefined ? undefined : finiteCoordinate(frame.rotation, `${field}.rotation`);
+  if (rotation !== undefined && Math.abs(rotation) > MAX_POSTER_ROTATION)
+    throw new Error(`${field}.rotation must be between -PI and PI`);
+  return {aspectRatio, fit: frame.fit as "contain" | "cover", height, intervalSeconds, rotation};
+};
+
+const parseDigitalArtFrame = (value: unknown, index: number): WorldDigitalArtFrameSave => {
+  if (!isRecord(value)) throw new Error(`digitalArtFrames[${index}] must be an object`);
+  const field = `digitalArtFrames[${index}]`;
+  const id = requiredString(value.id, `${field}.id`);
+  const {aspectRatio, fit, height, intervalSeconds, rotation} = parseDigitalArtFrameMeasurements(value, field);
+  const currentImageId = optionalString(value.currentImageId, `${field}.currentImageId`);
+  return {
+    aspectRatio,
+    channelId: requiredString(value.channelId, `${field}.channelId`),
+    ...(currentImageId === undefined ? {} : {currentImageId}),
+    fit,
+    height,
+    id,
+    intervalSeconds,
+    pose: parsePose(value.pose, `${field}.pose`),
+    ...(rotation === undefined ? {} : {rotation}),
+  };
+};
+
 const parseDigitalArtFrames = (value: unknown): readonly WorldDigitalArtFrameSave[] => {
   if (!Array.isArray(value) || value.length > MAX_DIGITAL_ART_FRAME_COUNT)
     throw new Error("digitalArtFrames must be a bounded array");
   const ids = new Set<string>();
   return value.map((frame, index) => {
-    if (!isRecord(frame)) throw new Error(`digitalArtFrames[${index}] must be an object`);
-    const field = `digitalArtFrames[${index}]`;
-    const id = requiredString(frame.id, `${field}.id`);
+    const parsed = parseDigitalArtFrame(frame, index);
+    const id = parsed.id;
     if (ids.has(id)) throw new Error("World save contains duplicate digital art frame IDs");
     ids.add(id);
-    const aspectRatio = finiteCoordinate(frame.aspectRatio, `${field}.aspectRatio`);
-    if (aspectRatio <= 0 || aspectRatio > 100) throw new Error(`${field}.aspectRatio must be between 0 and 100`);
-    const height = finiteCoordinate(frame.height, `${field}.height`);
-    if (height < MIN_POSTER_HEIGHT || height > MAX_POSTER_HEIGHT)
-      throw new Error(`${field}.height must be between ${MIN_POSTER_HEIGHT} and ${MAX_POSTER_HEIGHT}`);
-    if (frame.fit !== "contain" && frame.fit !== "cover") throw new Error(`${field}.fit must be contain or cover`);
-    const intervalSeconds = finiteCoordinate(frame.intervalSeconds, `${field}.intervalSeconds`);
-    if (
-      intervalSeconds !== 0 &&
-      (intervalSeconds < MIN_ART_FRAME_INTERVAL_SECONDS || intervalSeconds > MAX_ART_FRAME_INTERVAL_SECONDS)
-    )
-      throw new Error(
-        `${field}.intervalSeconds must be 0 or between ${MIN_ART_FRAME_INTERVAL_SECONDS} and ${MAX_ART_FRAME_INTERVAL_SECONDS}`,
-      );
-    const rotation = frame.rotation === undefined ? undefined : finiteCoordinate(frame.rotation, `${field}.rotation`);
-    if (rotation !== undefined && Math.abs(rotation) > MAX_POSTER_ROTATION)
-      throw new Error(`${field}.rotation must be between -PI and PI`);
-    const currentImageId = optionalString(frame.currentImageId, `${field}.currentImageId`);
-    return {
-      aspectRatio,
-      channelId: requiredString(frame.channelId, `${field}.channelId`),
-      ...(currentImageId === undefined ? {} : {currentImageId}),
-      fit: frame.fit,
-      height,
-      id,
-      intervalSeconds,
-      pose: parsePose(frame.pose, `${field}.pose`),
-      ...(rotation === undefined ? {} : {rotation}),
-    };
+    return parsed;
   });
 };
 

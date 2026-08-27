@@ -916,11 +916,7 @@ export class ShopScene {
     }
   }
 
-  dispose() {
-    if (this.#disposed) return;
-    this.#worldPersistence.stopScheduler();
-    this.#worldPersistence.flush();
-    this.#disposed = true;
+  #disposeInteractionSystems() {
     if (this.#props.carriedProp) this.#props.restoreGhostedObject(this.#props.carriedProp.ghostMaterialSwaps);
     this.#inputController.releasePointerLock();
     this.#abortController.abort();
@@ -938,6 +934,9 @@ export class ShopScene {
     this.#targetedTelevision = undefined;
     this.#props.televisionProps.clear();
     this.#audioManager.dispose();
+  }
+
+  #disposeSceneResources() {
     for (const record of this.#artFrames.records.values()) record.frame.dispose();
     this.#artFrames.clearRecords();
     this.#artFrames.preview?.dispose();
@@ -973,6 +972,15 @@ export class ShopScene {
     if (DEV && performanceDebugWindow.__AFTERLEAF_PERFORMANCE_DEBUG__?.renderer === this.#renderer)
       delete performanceDebugWindow.__AFTERLEAF_PERFORMANCE_DEBUG__;
     this.#canvas.style.cursor = "";
+  }
+
+  dispose() {
+    if (this.#disposed) return;
+    this.#worldPersistence.stopScheduler();
+    this.#worldPersistence.flush();
+    this.#disposed = true;
+    this.#disposeInteractionSystems();
+    this.#disposeSceneResources();
   }
 
   readonly #animate = (time: number) => {

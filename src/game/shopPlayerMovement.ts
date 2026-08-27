@@ -67,16 +67,8 @@ export class ShopPlayerMovement {
     this.#host.inputState().jumpQueued = false;
   }
 
-  update(deltaSeconds: number) {
+  #updateMovementInput(state: ShopInputState, deltaSeconds: number) {
     const host = this.#host;
-    const state = host.inputState();
-    const camera = host.camera();
-    if (!state.pointerLocked || host.inspectionSpread()) {
-      host.playerVelocity().set(0, 0, 0);
-      this.#playerVerticalVelocity = 0;
-      state.jumpQueued = false;
-      return;
-    }
     // Digital keyboard input and analog stick input combine, then clamp.
     const padMovement = host.input().gamepad.movement;
     this.#movementInput.forward = clampUnit(
@@ -96,63 +88,84 @@ export class ShopPlayerMovement {
       (sprinting ? SPRINT_SPEED : WALK_SPEED) * deltaSeconds,
       this.#movementDelta,
     );
+  }
+
+  #updatePhysics(deltaSeconds: number, state: ShopInputState, camera: PerspectiveCamera) {
+    const host = this.#host;
+    const movementTime = performance.now();
+    const canJump =
+      this.#playerGrounded ||
+      movementTime - this.#lastPlayerGroundedAt <= PLAYER_JUMP_COYOTE_MS ||
+      camera.position.y <= SHOP_PHYSICS_PLAYER_EYE_HEIGHT + 0.025;
+    const jumpBuffered = state.jumpQueued && movementTime - state.jumpQueuedAt <= PLAYER_JUMP_BUFFER_MS;
+    if (jumpBuffered && canJump) {
+      this.#playerVerticalVelocity = PLAYER_JUMP_SPEED;
+      this.#playerGrounded = false;
+      this.#lastPlayerGroundedAt = Number.NEGATIVE_INFINITY;
+    } else
+      this.#playerVerticalVelocity = Math.max(
+        PLAYER_TERMINAL_VELOCITY,
+        this.#playerVerticalVelocity + PLAYER_GRAVITY * deltaSeconds,
+      );
+    state.jumpQueued = jumpBuffered && !canJump;
+    this.#playerDesiredDisplacement.set(
+      this.#movementDelta.x,
+      this.#playerVerticalVelocity * deltaSeconds,
+      this.#movementDelta.z,
+    );
+    host.physicsWorld().movePlayer(this.#playerDesiredDisplacement, this.#playerMovement);
+    camera.position.copy(this.#playerMovement.eyePosition);
+    const correctedY = this.#playerMovement.correctedDisplacement.y;
+    const descending = this.#playerVerticalVelocity <= 0;
+    const supportedWhileFalling = descending && correctedY > this.#playerDesiredDisplacement.y + 0.0001;
+    // Rapier can retain a ground contact during the first upward sweep based
+    // on its planar direction. It must not cancel a jump that just launched.
+    const grounded = resolvePlayerGrounded(
+      this.#playerVerticalVelocity,
+      this.#playerMovement.grounded,
+      supportedWhileFalling,
+    );
+    if (grounded || (this.#playerVerticalVelocity > 0 && this.#playerMovement.ceilingHit))
+      this.#playerVerticalVelocity = 0;
+    this.#playerGrounded = grounded;
+    if (grounded) this.#lastPlayerGroundedAt = movementTime;
+  }
+
+  #updateWithoutPhysics(camera: PerspectiveCamera, previousX: number, previousZ: number) {
+    const host = this.#host;
+    const state = host.inputState();
+    state.jumpQueued = false;
+    this.#movementPosition.x = previousX;
+    this.#movementPosition.z = previousZ;
+    resolveShopMovement(
+      this.#movementPosition,
+      this.#movementDelta,
+      PLAYER_RADIUS,
+      host.collisionWorld,
+      this.#movementPosition,
+    );
+    camera.position.set(this.#movementPosition.x, SHOP_PHYSICS_PLAYER_EYE_HEIGHT, this.#movementPosition.z);
+    this.#playerGrounded = true;
+    this.#lastPlayerGroundedAt = performance.now();
+    this.#playerVerticalVelocity = 0;
+  }
+
+  update(deltaSeconds: number) {
+    const host = this.#host;
+    const state = host.inputState();
+    const camera = host.camera();
+    if (!state.pointerLocked || host.inspectionSpread()) {
+      host.playerVelocity().set(0, 0, 0);
+      this.#playerVerticalVelocity = 0;
+      state.jumpQueued = false;
+      return;
+    }
+    this.#updateMovementInput(state, deltaSeconds);
     const previousX = camera.position.x;
     const previousY = camera.position.y;
     const previousZ = camera.position.z;
-    if (host.physicsWorld().isReady) {
-      const movementTime = performance.now();
-      const canJump =
-        this.#playerGrounded ||
-        movementTime - this.#lastPlayerGroundedAt <= PLAYER_JUMP_COYOTE_MS ||
-        camera.position.y <= SHOP_PHYSICS_PLAYER_EYE_HEIGHT + 0.025;
-      const jumpBuffered = state.jumpQueued && movementTime - state.jumpQueuedAt <= PLAYER_JUMP_BUFFER_MS;
-      if (jumpBuffered && canJump) {
-        this.#playerVerticalVelocity = PLAYER_JUMP_SPEED;
-        this.#playerGrounded = false;
-        this.#lastPlayerGroundedAt = Number.NEGATIVE_INFINITY;
-      } else
-        this.#playerVerticalVelocity = Math.max(
-          PLAYER_TERMINAL_VELOCITY,
-          this.#playerVerticalVelocity + PLAYER_GRAVITY * deltaSeconds,
-        );
-      state.jumpQueued = jumpBuffered && !canJump;
-      this.#playerDesiredDisplacement.set(
-        this.#movementDelta.x,
-        this.#playerVerticalVelocity * deltaSeconds,
-        this.#movementDelta.z,
-      );
-      host.physicsWorld().movePlayer(this.#playerDesiredDisplacement, this.#playerMovement);
-      camera.position.copy(this.#playerMovement.eyePosition);
-      const correctedY = this.#playerMovement.correctedDisplacement.y;
-      const descending = this.#playerVerticalVelocity <= 0;
-      const supportedWhileFalling = descending && correctedY > this.#playerDesiredDisplacement.y + 0.0001;
-      // Rapier can retain a ground contact during the first upward sweep based
-      // on its planar direction. It must not cancel a jump that just launched.
-      const grounded = resolvePlayerGrounded(
-        this.#playerVerticalVelocity,
-        this.#playerMovement.grounded,
-        supportedWhileFalling,
-      );
-      if (grounded || (this.#playerVerticalVelocity > 0 && this.#playerMovement.ceilingHit))
-        this.#playerVerticalVelocity = 0;
-      this.#playerGrounded = grounded;
-      if (grounded) this.#lastPlayerGroundedAt = movementTime;
-    } else {
-      state.jumpQueued = false;
-      this.#movementPosition.x = previousX;
-      this.#movementPosition.z = previousZ;
-      resolveShopMovement(
-        this.#movementPosition,
-        this.#movementDelta,
-        PLAYER_RADIUS,
-        host.collisionWorld,
-        this.#movementPosition,
-      );
-      camera.position.set(this.#movementPosition.x, SHOP_PHYSICS_PLAYER_EYE_HEIGHT, this.#movementPosition.z);
-      this.#playerGrounded = true;
-      this.#lastPlayerGroundedAt = performance.now();
-      this.#playerVerticalVelocity = 0;
-    }
+    if (host.physicsWorld().isReady) this.#updatePhysics(deltaSeconds, state, camera);
+    else this.#updateWithoutPhysics(camera, previousX, previousZ);
     host
       .playerVelocity()
       .set(

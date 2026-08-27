@@ -115,19 +115,37 @@ export class ShopBookPresentation {
     return interactionStateChanged;
   }
 
-  #animatePhysicsBook(publicationId: string, record: BookRecord, deltaSeconds: number): boolean {
+  #isEscapedPhysicsBook(publicationId: string, physicsState: string | undefined) {
     const host = this.#host;
-    const physicsState = host.physicsWorld().getBookState(publicationId);
     const trappedUnderShelf =
       physicsState === "dynamic" &&
       host.physicsTransform().position.y < BOOK_UNDER_SHELF_RECOVERY_Y &&
       SHOP_INTERIOR_FOOTPRINTS.some((footprint) =>
         isPointInsideShopObstacle(host.physicsTransform().position, footprint),
       );
-    if (
+    return (
       !host.carriedPublicationIds().includes(publicationId) &&
       (host.physicsTransform().position.y < BOOK_VOID_RECOVERY_Y || trappedUnderShelf)
-    ) {
+    );
+  }
+
+  #syncPhysicsBookPose(record: BookRecord) {
+    const host = this.#host;
+    // Batch-rendered books stay detached; their instance matrix picks
+    // up any real pose change in syncActiveBookAtlasBatches.
+    if (!record.atlasPlacement?.visible && record.mesh.parent !== host.scene()) host.scene().attach(record.mesh);
+    record.mesh.position.copy(host.physicsTransform().position);
+    record.mesh.quaternion.copy(host.physicsTransform().rotation);
+    record.mesh.scale.setScalar(1);
+    record.basePosition.copy(host.physicsTransform().position);
+    host.physicsPoseEuler().setFromQuaternion(record.mesh.quaternion, "XYZ");
+    record.baseRotation.set(host.physicsPoseEuler().x, host.physicsPoseEuler().y, host.physicsPoseEuler().z);
+  }
+
+  #animatePhysicsBook(publicationId: string, record: BookRecord, deltaSeconds: number): boolean {
+    const host = this.#host;
+    const physicsState = host.physicsWorld().getBookState(publicationId);
+    if (this.#isEscapedPhysicsBook(publicationId, physicsState)) {
       const interactionStateChanged = record.state.status !== "floor";
       this.#respawnEscapedBook(publicationId, record);
       return interactionStateChanged;
@@ -143,15 +161,7 @@ export class ShopBookPresentation {
     const rotationChanged =
       !shelfIsStationary &&
       1 - Math.abs(dotWithPhysicsQuaternion(record.mesh.quaternion, host.physicsTransform().rotation)) > 1e-7;
-    // Batch-rendered books stay detached; their instance matrix picks
-    // up any real pose change in syncActiveBookAtlasBatches.
-    if (!record.atlasPlacement?.visible && record.mesh.parent !== host.scene()) host.scene().attach(record.mesh);
-    record.mesh.position.copy(host.physicsTransform().position);
-    record.mesh.quaternion.copy(host.physicsTransform().rotation);
-    record.mesh.scale.setScalar(1);
-    record.basePosition.copy(host.physicsTransform().position);
-    host.physicsPoseEuler().setFromQuaternion(record.mesh.quaternion, "XYZ");
-    record.baseRotation.set(host.physicsPoseEuler().x, host.physicsPoseEuler().y, host.physicsPoseEuler().z);
+    this.#syncPhysicsBookPose(record);
     if (record.state.status === "shelved")
       this.#animateShelfPreview(
         record,

@@ -85,7 +85,7 @@ export type InteractionView = {
   interactions: ShopInteraction[];
 };
 
-export const resolveShopInteractionMode = (state: InteractionUiState): ShopInteractionMode => {
+const resolveActiveInteractionMode = (state: InteractionUiState): ShopInteractionMode | undefined => {
   if (state.inspectionMode === "spread") return "inspection-spread";
   if (state.inspectionMode === "closing") return "inspection-closing";
   if (state.shelveAnimation) return "shelving";
@@ -94,6 +94,9 @@ export const resolveShopInteractionMode = (state: InteractionUiState): ShopInter
   if (state.modelPlacement && !state.carriedProp) return "model-placement";
   if (state.carriedProp) return "carried-prop";
   if (state.carriedRecord) return "carried-book";
+};
+
+const resolveTargetedInteractionMode = (state: InteractionUiState): ShopInteractionMode => {
   if (state.arcadeStatusForUi === "playing") return "arcade-session";
   if (state.targetedArcadeCabinet) return "arcade-target";
   if (state.televisionTargeted) return "television";
@@ -104,6 +107,9 @@ export const resolveShopInteractionMode = (state: InteractionUiState): ShopInter
   if (state.hoveredRecord) return "book";
   return "none";
 };
+
+export const resolveShopInteractionMode = (state: InteractionUiState): ShopInteractionMode =>
+  resolveActiveInteractionMode(state) ?? resolveTargetedInteractionMode(state);
 
 const resolveInspectionPrompt = (state: InteractionUiState) => {
   if (state.inspectionMode === "closing")
@@ -150,11 +156,7 @@ const resolvePosterPlacementPrompt = (state: InteractionUiState) => {
     : `Aim ${asset.label} at a wall or shelf end · Q/E previous/next · Wheel resize · Shift+wheel rotate · Paste image · T exit`;
 };
 
-const resolveCarriedBookPrompt = (state: InteractionUiState) => {
-  const record = state.carriedRecord;
-  if (!record) return undefined;
-  if (state.hoveredRecord && !state.discardBusy && !state.throwChargeActive)
-    return `E pick up ${state.hoveredRecord.publicationTitle} · ${state.carriedPublicationIds.length}/${MAX_CARRIED_BOOKS} carried${state.carriedPublicationIds.length > 1 ? " · Wheel cycle books" : ""}`;
+const resolveCarriedBookActionPrompt = (state: InteractionUiState, record: BookRecord) => {
   if (state.throwChargeActive)
     return `Throw charged ${Math.round(state.throwChargeProgress * 100)}% · Release F to launch upstairs`;
   if (state.discardBusy) return `Discarding ${record.publicationTitle}…`;
@@ -164,6 +166,14 @@ const resolveCarriedBookPrompt = (state: InteractionUiState) => {
   if (state.shelfTargeted)
     return `E shelve ${state.shelfTargetSelection?.presentation ?? state.shelfPresentation}-out · Q switch shelf presentation · Hold F charge throw · G drop · R inspect${state.carriedPublicationIds.length > 1 ? " · Wheel cycle books" : ""}`;
   return `Q ${state.shelfPresentation}-out · Aim at a shelf · Hold F charge throw · G drop · R inspect${state.carriedPublicationIds.length > 1 ? " · Wheel cycle books" : ""}`;
+};
+
+const resolveCarriedBookPrompt = (state: InteractionUiState) => {
+  const record = state.carriedRecord;
+  if (!record) return undefined;
+  if (state.hoveredRecord && !state.discardBusy && !state.throwChargeActive)
+    return `E pick up ${state.hoveredRecord.publicationTitle} · ${state.carriedPublicationIds.length}/${MAX_CARRIED_BOOKS} carried${state.carriedPublicationIds.length > 1 ? " · Wheel cycle books" : ""}`;
+  return resolveCarriedBookActionPrompt(state, record);
 };
 
 const resolveCarriedPropPrompt = (state: InteractionUiState) => {
@@ -500,6 +510,49 @@ const arcadeTargetInteractionsWithContext = (state: InteractionUiState): Interac
   };
 };
 
+const televisionInteractionControls = (
+  television: ShopTelevision | undefined,
+  televisionProp: MovablePropRecord | undefined,
+): ShopInteraction[] => [
+  {
+    key: "E",
+    label: television?.powered() ? "Next channel" : "Turn on",
+    actions: ["interact"] as const,
+  },
+  {key: "T", label: "Move TV", actions: ["pickUpCancel"] as const},
+  {
+    key: "L",
+    label: televisionProp?.locked ? "Unlock TV" : "Lock TV",
+    actions: ["propPinToggle"] as const,
+  },
+  {
+    key: "Q",
+    label: "Previous channel",
+    actions: ["tvPreviousChannel"] as const,
+  },
+  {key: "F", label: "Skip", actions: ["throw"] as const},
+  {key: "N", label: "New channel", actions: ["channelEditorOpen"] as const},
+  {
+    key: "M",
+    label: `Mute (${television?.volumePercent() ?? 0}%)`,
+    actions: ["tvMute"] as const,
+  },
+  {key: "Wheel", label: "Scrub video"},
+  {
+    key: "Ctrl + Wheel",
+    label: `Volume: ${television?.volumePercent() ?? 0}%`,
+  },
+  ...(televisionProp?.spawned
+    ? [
+        {
+          key: "Del",
+          label: "Remove prop",
+          actions: ["removeTargeted"] as const,
+        },
+      ]
+    : []),
+];
+
 const televisionInteractions = (state: InteractionUiState): InteractionResult => {
   const television = state.targetedTelevision;
   const televisionProp = television ? state.televisionProps.get(television) : undefined;
@@ -508,45 +561,7 @@ const televisionInteractions = (state: InteractionUiState): InteractionResult =>
       television?.selectedChannelLabel() ??
       television?.selectedChannelId() ??
       (television ? "Afterleaf TV" : undefined),
-    interactions: [
-      {
-        key: "E",
-        label: television?.powered() ? "Next channel" : "Turn on",
-        actions: ["interact"] as const,
-      },
-      {key: "T", label: "Move TV", actions: ["pickUpCancel"] as const},
-      {
-        key: "L",
-        label: televisionProp?.locked ? "Unlock TV" : "Lock TV",
-        actions: ["propPinToggle"] as const,
-      },
-      {
-        key: "Q",
-        label: "Previous channel",
-        actions: ["tvPreviousChannel"] as const,
-      },
-      {key: "F", label: "Skip", actions: ["throw"] as const},
-      {key: "N", label: "New channel", actions: ["channelEditorOpen"] as const},
-      {
-        key: "M",
-        label: `Mute (${television?.volumePercent() ?? 0}%)`,
-        actions: ["tvMute"] as const,
-      },
-      {key: "Wheel", label: "Scrub video"},
-      {
-        key: "Ctrl + Wheel",
-        label: `Volume: ${television?.volumePercent() ?? 0}%`,
-      },
-      ...(televisionProp?.spawned
-        ? [
-            {
-              key: "Del",
-              label: "Remove prop",
-              actions: ["removeTargeted"] as const,
-            },
-          ]
-        : []),
-    ],
+    interactions: televisionInteractionControls(television, televisionProp),
   };
 };
 

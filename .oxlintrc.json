@@ -53,7 +53,7 @@
         "eslint/complexity": [
           "error",
           {
-            "max": 20,
+            "max": 15,
             "variant": "modified"
           }
         ]

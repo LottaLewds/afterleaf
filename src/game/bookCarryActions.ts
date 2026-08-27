@@ -357,38 +357,19 @@ export class BookCarryActions {
     this.#refreshAfterBookMutation();
   }
 
-  async discardCarriedBook(): Promise<void> {
-    const host = this.#host;
-    const publicationId = host.carriedPublicationId();
-    if (!publicationId || this.discardBusy || !host.trashTargeted()) return;
-    const record = host.booksById().get(publicationId);
-    if (!record) return;
-
-    this.discardBusy = true;
-    this.discardError = undefined;
-    this.pendingDiscardPublicationId = publicationId;
-    host.emitGameState();
-
-    let discarded = false;
+  async #requestDiscard(publicationId: string): Promise<boolean> {
     try {
-      discarded = (await host.onDiscardPublication?.()?.(publicationId)) === true;
+      return (await this.#host.onDiscardPublication?.()?.(publicationId)) === true;
     } catch (error) {
-      if (!host.disposed())
+      if (!this.#host.disposed())
         this.discardError =
           error instanceof Error && error.message ? error.message : "The library rejected the discard.";
+      return false;
     }
-    if (host.disposed()) return;
-    this.discardBusy = false;
-    this.pendingDiscardPublicationId = undefined;
+  }
 
-    if (!discarded) {
-      this.discardError ??= host.onDiscardPublication
-        ? "The library rejected the discard."
-        : "Discard is unavailable in this library.";
-      host.emitGameState();
-      return;
-    }
-
+  #completeDiscard(publicationId: string, record: BookRecord) {
+    const host = this.#host;
     this.discardError = undefined;
     this.discardedPublicationIds.add(publicationId);
     const currentRecord = host.booksById().get(publicationId);
@@ -413,6 +394,34 @@ export class BookCarryActions {
     };
     host.removeCarriedPublication(publicationId);
     this.#refreshAfterBookMutation(true, true);
+  }
+
+  async discardCarriedBook(): Promise<void> {
+    const host = this.#host;
+    const publicationId = host.carriedPublicationId();
+    if (!publicationId || this.discardBusy || !host.trashTargeted()) return;
+    const record = host.booksById().get(publicationId);
+    if (!record) return;
+
+    this.discardBusy = true;
+    this.discardError = undefined;
+    this.pendingDiscardPublicationId = publicationId;
+    host.emitGameState();
+
+    const discarded = await this.#requestDiscard(publicationId);
+    if (host.disposed()) return;
+    this.discardBusy = false;
+    this.pendingDiscardPublicationId = undefined;
+
+    if (!discarded) {
+      this.discardError ??= host.onDiscardPublication
+        ? "The library rejected the discard."
+        : "Discard is unavailable in this library.";
+      host.emitGameState();
+      return;
+    }
+
+    this.#completeDiscard(publicationId, record);
   }
 
   finishShelveAnimation(): void {

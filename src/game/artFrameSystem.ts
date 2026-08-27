@@ -254,19 +254,16 @@ export class ArtFrameSystem {
     });
   }
 
-  startDigitalArtFramePlacement(
-    assetIndex: number,
-    movingFrameId?: string,
-    desiredHeight = DEFAULT_POSTER_HEIGHT,
-    rotation = 0,
-    lockedAspectRatio?: number,
-    fit: ArtFrameFit = "contain",
-    intervalSeconds = DIGITAL_ART_FRAME_DEFAULT_INTERVAL_SECONDS,
+  #setupDigitalArtFramePlacement(
+    asset: ArtFrameImage,
+    normalizedIndex: number,
+    movingFrameId: string | undefined,
+    desiredHeight: number,
+    rotation: number,
+    lockedAspectRatio: number | undefined,
+    fit: ArtFrameFit,
+    intervalSeconds: number,
   ) {
-    if (this.#assets.length === 0) return;
-    const normalizedIndex = (assetIndex + this.#assets.length) % this.#assets.length;
-    const asset = this.#assets[normalizedIndex];
-    if (!asset) return;
     const channelId = asset.id.split("/")[0];
     if (!channelId) return;
     const revision = (this.#placementRevision += 1);
@@ -304,6 +301,31 @@ export class ArtFrameSystem {
     this.#scene.add(preview.object);
     this.updateDigitalArtFramePlacementTarget();
     this.#host.emitGameState();
+  }
+
+  startDigitalArtFramePlacement(
+    assetIndex: number,
+    movingFrameId?: string,
+    desiredHeight = DEFAULT_POSTER_HEIGHT,
+    rotation = 0,
+    lockedAspectRatio?: number,
+    fit: ArtFrameFit = "contain",
+    intervalSeconds = DIGITAL_ART_FRAME_DEFAULT_INTERVAL_SECONDS,
+  ) {
+    if (this.#assets.length === 0) return;
+    const normalizedIndex = (assetIndex + this.#assets.length) % this.#assets.length;
+    const asset = this.#assets[normalizedIndex];
+    if (!asset) return;
+    this.#setupDigitalArtFramePlacement(
+      asset,
+      normalizedIndex,
+      movingFrameId,
+      desiredHeight,
+      rotation,
+      lockedAspectRatio,
+      fit,
+      intervalSeconds,
+    );
   }
 
   startEmptyDigitalArtFramePlacement() {
@@ -587,6 +609,43 @@ export class ArtFrameSystem {
     return this.#assets.findIndex((candidate) => candidate.id === asset.id);
   }
 
+  #applyPastedArtFrameAsset(
+    importChannelId: string,
+    asset: ArtFrameImage,
+    assetIndex: number,
+    target: DigitalArtFramePasteTarget,
+  ) {
+    if (target.kind === "frame") {
+      const record = this.#records.get(target.frameId);
+      if (!record) return false;
+      record.frame.setChannel(importChannelId, asset.id);
+      if (
+        this.#targetImportChannel?.frameId === target.frameId &&
+        this.#targetImportChannel.channelId === importChannelId
+      )
+        this.#targetImportChannel = undefined;
+      this.#host.markWorldStateDirty();
+      this.#host.emitGameState();
+      return true;
+    }
+    const placement = this.#placement;
+    if (!placement) return false;
+    const {desiredHeight, fit, intervalSeconds, movingFrameId, rotation} = placement;
+    const aspectRatio = movingFrameId ? placement.aspectRatio : asset.aspectRatio;
+    this.cancelDigitalArtFramePlacement();
+    if (assetIndex >= 0)
+      this.startDigitalArtFramePlacement(
+        assetIndex,
+        movingFrameId,
+        desiredHeight,
+        rotation,
+        aspectRatio,
+        fit,
+        intervalSeconds,
+      );
+    return true;
+  }
+
   async importPastedArtFrameImage(image: Blob, target: DigitalArtFramePasteTarget) {
     const importImage = this.#host.importArtFrameImage;
     if (!importImage) return false;
@@ -599,39 +658,7 @@ export class ArtFrameSystem {
       if (this.#host.isDisposed()) return false;
       const assetIndex = this.#applyImportedImage(importChannelId, asset);
       if (assetIndex >= 0) this.#assetIndex = assetIndex;
-      if (target.kind === "frame") {
-        const record = this.#records.get(target.frameId);
-        if (!record) return false;
-        record.frame.setChannel(importChannelId, asset.id);
-        if (
-          this.#targetImportChannel?.frameId === target.frameId &&
-          this.#targetImportChannel.channelId === importChannelId
-        )
-          this.#targetImportChannel = undefined;
-        this.#host.markWorldStateDirty();
-        this.#host.emitGameState();
-        return true;
-      }
-      const placement = this.#placement;
-      if (!placement) return false;
-      const desiredHeight = placement.desiredHeight;
-      const fit = placement.fit;
-      const intervalSeconds = placement.intervalSeconds;
-      const movingFrameId = placement.movingFrameId;
-      const rotation = placement.rotation;
-      const aspectRatio = movingFrameId ? placement.aspectRatio : asset.aspectRatio;
-      this.cancelDigitalArtFramePlacement();
-      if (assetIndex >= 0)
-        this.startDigitalArtFramePlacement(
-          assetIndex,
-          movingFrameId,
-          desiredHeight,
-          rotation,
-          aspectRatio,
-          fit,
-          intervalSeconds,
-        );
-      return true;
+      return this.#applyPastedArtFrameAsset(importChannelId, asset, assetIndex, target);
     } catch (error) {
       if (this.#host.abortSignal.aborted) return false;
       this.#importError =

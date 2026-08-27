@@ -1044,20 +1044,15 @@ export class ShopPhysicsWorld {
     return true;
   }
 
-  dropBook(publicationId: string, drop: BookPhysicsDrop) {
-    if (
-      this.#disposed ||
-      !isValidPose(drop.pose) ||
-      (drop.linearVelocity && !isFiniteVector(drop.linearVelocity)) ||
-      (drop.angularVelocity && !isFiniteVector(drop.angularVelocity))
-    )
-      return false;
-    const record = this.#books.get(publicationId);
-    if (!record || record.mode !== "held") return false;
-    record.mode = "dynamic";
-    copyPose(record.pose, drop.pose);
-    copyPose(record.previousPose, drop.pose);
+  #isValidBookDrop(drop: BookPhysicsDrop) {
+    return (
+      isValidPose(drop.pose) &&
+      (!drop.linearVelocity || isFiniteVector(drop.linearVelocity)) &&
+      (!drop.angularVelocity || isFiniteVector(drop.angularVelocity))
+    );
+  }
 
+  #configureDroppedBookBody(record: BookPhysicsRecord, drop: BookPhysicsDrop) {
     const body = record.body;
     if (!body) {
       this.#syncActiveRecord(record);
@@ -1088,6 +1083,16 @@ export class ShopPhysicsWorld {
     }
     this.#syncActiveRecord(record);
     return true;
+  }
+
+  dropBook(publicationId: string, drop: BookPhysicsDrop) {
+    if (this.#disposed || !this.#isValidBookDrop(drop)) return false;
+    const record = this.#books.get(publicationId);
+    if (!record || record.mode !== "held") return false;
+    record.mode = "dynamic";
+    copyPose(record.pose, drop.pose);
+    copyPose(record.previousPose, drop.pose);
+    return this.#configureDroppedBookBody(record, drop);
   }
 
   /** Teleports an escaped book into the world as a stationary dynamic body. */

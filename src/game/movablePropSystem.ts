@@ -1300,15 +1300,7 @@ export class MovablePropLifecycle {
     host.emitGameState();
   }
 
-  /** Drops the discard volume that lived inside a deleted trash can. */
-  removeSpawnedProp(record: MovablePropRecord) {
-    const host = this.#host;
-    if (!record.spawned) return;
-    if (this.carriedProp === record) {
-      this.restoreGhostedObject(record.ghostMaterialSwaps);
-      this.carriedProp = undefined;
-    }
-    if (host.targetedProp() === record) host.setPropTargeted(undefined);
+  #removeSpawnedPropTargets(record: MovablePropRecord) {
     record.object.traverse((object) => {
       if (!(object instanceof Mesh)) return;
       const index = this.targetMeshes.indexOf(object);
@@ -1321,8 +1313,10 @@ export class MovablePropLifecycle {
     });
     const supportIndex = this.#placementSupports.findIndex((support) => support.owner === record);
     if (supportIndex >= 0) this.#placementSupports.splice(supportIndex, 1);
-    record.modelMixer?.stopAllAction();
-    if (record.modelMixer) this.modelMixers.delete(record.modelMixer);
+  }
+
+  #removeSpawnedTelevision(record: MovablePropRecord) {
+    const host = this.#host;
     for (const [television, televisionProp] of this.televisionProps) {
       if (televisionProp !== record) continue;
       if (host.targetedTelevision() === television) host.setTelevisionTargeted(false);
@@ -1335,6 +1329,10 @@ export class MovablePropLifecycle {
       television.dispose();
       break;
     }
+  }
+
+  #removeSpawnedArcadeCabinet(record: MovablePropRecord) {
+    const host = this.#host;
     for (const [cabinet, cabinetProp] of this.arcadeProps) {
       if (cabinetProp !== record) continue;
       if (host.targetedArcadeCabinet() === cabinet) host.setArcadeTargeted(undefined);
@@ -1346,6 +1344,22 @@ export class MovablePropLifecycle {
       cabinet.dispose();
       break;
     }
+  }
+
+  /** Drops the discard volume that lived inside a deleted trash can. */
+  removeSpawnedProp(record: MovablePropRecord) {
+    const host = this.#host;
+    if (!record.spawned) return;
+    if (this.carriedProp === record) {
+      this.restoreGhostedObject(record.ghostMaterialSwaps);
+      this.carriedProp = undefined;
+    }
+    if (host.targetedProp() === record) host.setPropTargeted(undefined);
+    this.#removeSpawnedPropTargets(record);
+    record.modelMixer?.stopAllAction();
+    if (record.modelMixer) this.modelMixers.delete(record.modelMixer);
+    this.#removeSpawnedTelevision(record);
+    this.#removeSpawnedArcadeCabinet(record);
     // The discard volume lives inside the bin; losing a bin loses its volume.
     host.discardBin().detach(record);
     host.physicsWorld().removeProp(record.id);

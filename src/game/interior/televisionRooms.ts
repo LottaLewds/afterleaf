@@ -45,6 +45,47 @@ export type SharedTelevisionOptions = Omit<
   initialVolume?: number;
 };
 
+type TelevisionRoomsDependencies = TelevisionRoomsDeps & {
+  televisionChannels?: Readonly<Record<string, string>> | undefined;
+  televisionVolumes?: Readonly<Record<string, number>> | undefined;
+};
+
+const seedCaveCrtTelevisions = (rowYs: readonly number[], deps: TelevisionRoomsDependencies) => {
+  const crtAsset = BUILTIN_SPAWNABLE_PROP_ASSETS.find((asset) => asset.id === BUILTIN_CRT_TV_ASSET_ID);
+  if (!crtAsset) return;
+  const addCrt = (
+    wall: "east" | "north" | "south" | "west",
+    row: number,
+    column: number,
+    position: readonly [x: number, y: number, z: number],
+    rotationY: number,
+  ) => {
+    const id = `tv-cave-v6-${wall}-${row + 1}-${column + 1}`;
+    const quaternion = new Quaternion().setFromAxisAngle(UP_AXIS, rotationY);
+    deps.createSpawnedCrtTelevision(crtAsset, id, DEFAULT_MODEL_SCALE, {
+      position: {x: position[0], y: position[1], z: position[2]},
+      quaternion: {
+        w: quaternion.w,
+        x: quaternion.x,
+        y: quaternion.y,
+        z: quaternion.z,
+      },
+    });
+  };
+
+  const eastColumnZs = [14.6, 16.3, 18, 19.7, 21.4] as const;
+  const westColumnZs = [14.7, 16.3, 17.9] as const;
+  const crossWallColumnXs = [17.5, 19.5, 21.5] as const;
+  for (const [row, y] of rowYs.entries()) {
+    for (const [column, z] of eastColumnZs.entries()) addCrt("east", row, column, [22.4, y, z], Math.PI / 2);
+    for (const [column, z] of westColumnZs.entries()) addCrt("west", row, column, [17.6, y, z], -Math.PI / 2);
+    for (const [column, x] of crossWallColumnXs.entries()) {
+      addCrt("north", row, column, [x, y, 14.4], Math.PI);
+      addCrt("south", row, column, [x, y, 22.2], 0);
+    }
+  }
+};
+
 /**
  * Builds the moonlight-theatre flat screen and the TV-cave shelf banks
  * (seeding their CRT stock on first pass).
@@ -52,10 +93,7 @@ export type SharedTelevisionOptions = Omit<
 export const createTelevisionRooms = (
   parent: Group,
   woodMaterial: MeshStandardMaterial,
-  deps: TelevisionRoomsDeps & {
-    televisionChannels?: Readonly<Record<string, string>> | undefined;
-    televisionVolumes?: Readonly<Record<string, number>> | undefined;
-  },
+  deps: TelevisionRoomsDependencies,
 ) => {
   const upholsteryTextures = loadUpholsteryTextures(deps.textureLoader as TextureLoader, deps.maxTextureAnisotropy);
   const acousticMaterial = createUpholsteryMaterial(upholsteryTextures);
@@ -124,39 +162,6 @@ export const createTelevisionRooms = (
   // Worlds that already seeded restore them from their saves instead of
   // re-spawning deleted or moved units.
   if (deps.needsSeedPass(INITIAL_WORLD_SEEDING_VERSION)) {
-    const crtAsset = BUILTIN_SPAWNABLE_PROP_ASSETS.find((asset) => asset.id === BUILTIN_CRT_TV_ASSET_ID);
-    if (crtAsset) {
-      const addCrt = (
-        wall: "east" | "north" | "south" | "west",
-        row: number,
-        column: number,
-        position: readonly [x: number, y: number, z: number],
-        rotationY: number,
-      ) => {
-        const id = `tv-cave-v6-${wall}-${row + 1}-${column + 1}`;
-        const quaternion = new Quaternion().setFromAxisAngle(UP_AXIS, rotationY);
-        deps.createSpawnedCrtTelevision(crtAsset, id, DEFAULT_MODEL_SCALE, {
-          position: {x: position[0], y: position[1], z: position[2]},
-          quaternion: {
-            w: quaternion.w,
-            x: quaternion.x,
-            y: quaternion.y,
-            z: quaternion.z,
-          },
-        });
-      };
-
-      const eastColumnZs = [14.6, 16.3, 18, 19.7, 21.4] as const;
-      const westColumnZs = [14.7, 16.3, 17.9] as const;
-      const crossWallColumnXs = [17.5, 19.5, 21.5] as const;
-      for (const [row, y] of rowYs.entries()) {
-        for (const [column, z] of eastColumnZs.entries()) addCrt("east", row, column, [22.4, y, z], Math.PI / 2);
-        for (const [column, z] of westColumnZs.entries()) addCrt("west", row, column, [17.6, y, z], -Math.PI / 2);
-        for (const [column, x] of crossWallColumnXs.entries()) {
-          addCrt("north", row, column, [x, y, 14.4], Math.PI);
-          addCrt("south", row, column, [x, y, 22.2], 0);
-        }
-      }
-    }
+    seedCaveCrtTelevisions(rowYs, deps);
   }
 };

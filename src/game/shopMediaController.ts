@@ -81,9 +81,23 @@ export class ShopMediaController {
       (item) => item.kind === "file" && item.type.startsWith("image/"),
     );
     const image = imageItem?.getAsFile();
-    if (image && this.#handlePastedImage(event, image, artFrameTarget)) return;
+    if (this.#tryHandlePastedImage(event, image, artFrameTarget)) return;
+    this.#handleClipboardText(event);
+  };
+
+  #tryHandlePastedImage(
+    event: ClipboardEvent,
+    image: File | null | undefined,
+    artFrameTarget: DigitalArtFramePasteTarget | undefined,
+  ) {
+    if (!image) return false;
+    return this.#handlePastedImage(event, image, artFrameTarget);
+  }
+
+  #handleClipboardText(event: ClipboardEvent) {
     const clipboardText = event.clipboardData?.getData("text/plain") || event.clipboardData?.getData("text/uri-list");
     if (!clipboardText) return;
+    const host = this.#host;
     const television = host.televisionTargeted() ? host.targetedTelevision() : undefined;
     const channelId = television?.selectedChannelId();
     event.preventDefault();
@@ -93,7 +107,7 @@ export class ShopMediaController {
       channelId ?? (television ? DEFAULT_TV_CHANNEL_ID : undefined),
       television?.selectedChannelLabel() ?? channelId ?? (television ? "Afterleaf TV" : undefined),
     );
-  };
+  }
 
   #handlePastedImage(event: ClipboardEvent, image: File, artFrameTarget: DigitalArtFramePasteTarget | undefined) {
     const host = this.#host;

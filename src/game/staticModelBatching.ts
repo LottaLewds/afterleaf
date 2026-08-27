@@ -185,14 +185,7 @@ export const batchStaticInteriorMeshes = (parent: Group) => {
     return buckets;
   };
 
-  const addMeshToBucket = (object: Object3D, effectiveContainer: Object3D, excludedFromBatch: boolean) => {
-    if (
-      excludedFromBatch ||
-      !(object instanceof Mesh) ||
-      object instanceof BatchedMesh ||
-      INTERIOR_BATCH_HARD.test(object.name)
-    )
-      return;
+  const getMeshBatchInfo = (object: Mesh) => {
     const material = object.material;
     if (
       Array.isArray(material) ||
@@ -243,6 +236,20 @@ export const batchStaticInteriorMeshes = (parent: Group) => {
       // Opaque draws are depth-sorted by the GPU regardless.
       signature = [interiorMaterialSignature(bucketMaterial), indexed].join(":");
     }
+    return {bucketMaterial, signature};
+  };
+
+  const addMeshToBucket = (object: Object3D, effectiveContainer: Object3D, excludedFromBatch: boolean) => {
+    if (
+      excludedFromBatch ||
+      !(object instanceof Mesh) ||
+      object instanceof BatchedMesh ||
+      INTERIOR_BATCH_HARD.test(object.name)
+    )
+      return;
+    const batchInfo = getMeshBatchInfo(object);
+    if (!batchInfo) return;
+    const {bucketMaterial, signature} = batchInfo;
     const buckets = bucketFor(effectiveContainer);
     let bucket = buckets.get(signature);
     if (!bucket) {

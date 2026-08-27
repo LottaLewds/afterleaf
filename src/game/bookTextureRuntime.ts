@@ -436,20 +436,12 @@ export class BookTextureRuntime {
     this.syncBookAtlasBatches();
   }
 
-  #syncBookAtlasBatch(publicationId: string, record: BookRecord) {
-    const placement = record.atlasPlacement;
-    if (!placement) {
-      record.mesh.visible = true;
-      return;
-    }
-    const forcedStandalone = record.state.status === "carried" || this.#host.isBookInFlight(publicationId);
-    // A mesh some other system reparented (carry handoff, restore) cannot
-    // render as a batch instance; fall back to standalone.
-    const externallyOwned =
-      record.mesh.parent !== this.#host.scene && !(record.mesh.parent === null && placement.detached);
-    const readyStandalone = record.standaloneTexturesReady && this.#host.isActiveDetailTarget(publicationId);
-    const standalone = forcedStandalone || readyStandalone || externallyOwned;
-    const batchVisible = record.exteriorMaterial.visible && !standalone;
+  #syncBookAtlasBatchVisibility(
+    record: BookRecord,
+    placement: NonNullable<BookRecord["atlasPlacement"]>,
+    standalone: boolean,
+    batchVisible: boolean,
+  ) {
     if (batchVisible !== placement.visible) {
       placement.batch.mesh.setVisibleAt(placement.instanceId, batchVisible);
       placement.visible = batchVisible;
@@ -468,6 +460,23 @@ export class BookTextureRuntime {
       placement.detached = false;
     }
     record.mesh.visible = standalone;
+  }
+
+  #syncBookAtlasBatch(publicationId: string, record: BookRecord) {
+    const placement = record.atlasPlacement;
+    if (!placement) {
+      record.mesh.visible = true;
+      return;
+    }
+    const forcedStandalone = record.state.status === "carried" || this.#host.isBookInFlight(publicationId);
+    // A mesh some other system reparented (carry handoff, restore) cannot
+    // render as a batch instance; fall back to standalone.
+    const externallyOwned =
+      record.mesh.parent !== this.#host.scene && !(record.mesh.parent === null && placement.detached);
+    const readyStandalone = record.standaloneTexturesReady && this.#host.isActiveDetailTarget(publicationId);
+    const standalone = forcedStandalone || readyStandalone || externallyOwned;
+    const batchVisible = record.exteriorMaterial.visible && !standalone;
+    this.#syncBookAtlasBatchVisibility(record, placement, standalone, batchVisible);
     if (!batchVisible) return;
     record.mesh.updateMatrix();
     if (placement.lastMatrix.equals(record.mesh.matrix)) return;

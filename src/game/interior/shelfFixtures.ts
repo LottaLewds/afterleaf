@@ -133,7 +133,14 @@ const createSpineShelfSignTargets = (
   return signKeys;
 };
 
-const createSpineShelfFace = (
+const getSpineShelfFaceLayout = (normal: -1 | 1, alongX: boolean) => ({
+  axis: new Vector3(alongX ? 1 : 0, 0, alongX ? 0 : 1),
+  face: alongX ? (normal > 0 ? "south" : "north") : normal > 0 ? "east" : "west",
+  normal: new Vector3(alongX ? 0 : normal, 0, alongX ? normal : 0),
+  rotationY: alongX ? (normal > 0 ? 0 : Math.PI) : normal > 0 ? Math.PI / 2 : -Math.PI / 2,
+});
+
+const createSpineShelfRows = (
   parent: Group,
   fixtureId: string,
   x: number,
@@ -146,31 +153,12 @@ const createSpineShelfFace = (
   bayWidth: number,
   backingThickness: number,
   deps: SpineShelfFixtureDeps,
+  layout: ReturnType<typeof getSpineShelfFaceLayout>,
+  signKeys: Map<number, string>,
 ) => {
-  const shelfAxis = new Vector3(alongX ? 1 : 0, 0, alongX ? 0 : 1);
-  const shelfNormal = new Vector3(alongX ? 0 : normal, 0, alongX ? normal : 0);
-  let targetRotationY = normal > 0 ? Math.PI / 2 : -Math.PI / 2;
-  if (alongX) targetRotationY = normal > 0 ? 0 : Math.PI;
-  let face = normal > 0 ? "east" : "west";
-  if (alongX) face = normal > 0 ? "south" : "north";
-  const signKeys = createSpineShelfSignTargets(
-    parent,
-    fixtureId,
-    x,
-    z,
-    length,
-    bayCount,
-    normal,
-    elevation,
-    alongX,
-    bayWidth,
-    targetRotationY,
-    face,
-    deps,
-  );
   for (let row = 0; row < 4; row += 1) {
     for (let bay = 0; bay < bayCount; bay += 1) {
-      const shelfId = `${fixtureId}:${face}:${row}:${bay}`;
+      const shelfId = `${fixtureId}:${layout.face}:${row}:${bay}`;
       const bayCenter = -length / 2 + bayWidth * (bay + 0.5);
       const frontCenter = new Vector3(
         alongX ? x + bayCenter : x + normal * SPINE_SHELF_FRONT_OFFSET,
@@ -178,14 +166,14 @@ const createSpineShelfFace = (
         alongX ? z + normal * SPINE_SHELF_FRONT_OFFSET : z + bayCenter,
       );
       const definition: SpineShelfDefinition = {
-        axis: shelfAxis,
+        axis: layout.axis,
         backInset: SPINE_SHELF_FRONT_OFFSET - backingThickness / 2,
         faceInset: FACE_OUT_SHELF_INSET,
         faceTilt: 0,
         frontCenter,
         halfWidth: (bayWidth - 0.18) / 2,
         id: shelfId,
-        normal: shelfNormal,
+        normal: layout.normal,
       };
       const signKey = signKeys.get(bay);
       if (signKey) definition.signKey = signKey;
@@ -203,12 +191,60 @@ const createSpineShelfFace = (
       // Invisible raycast proxy - see mixed-shelf-target note above.
       target.visible = false;
       target.position.copy(frontCenter);
-      target.rotation.y = targetRotationY;
+      target.rotation.y = layout.rotationY;
       target.userData.shelfId = shelfId;
       parent.add(target);
       deps.shelfTargetMeshes.push(target);
     }
   }
+};
+
+const createSpineShelfFace = (
+  parent: Group,
+  fixtureId: string,
+  x: number,
+  z: number,
+  length: number,
+  bayCount: number,
+  normal: -1 | 1,
+  elevation: number,
+  alongX: boolean,
+  bayWidth: number,
+  backingThickness: number,
+  deps: SpineShelfFixtureDeps,
+) => {
+  const layout = getSpineShelfFaceLayout(normal, alongX);
+  const signKeys = createSpineShelfSignTargets(
+    parent,
+    fixtureId,
+    x,
+    z,
+    length,
+    bayCount,
+    normal,
+    elevation,
+    alongX,
+    bayWidth,
+    layout.rotationY,
+    layout.face,
+    deps,
+  );
+  createSpineShelfRows(
+    parent,
+    fixtureId,
+    x,
+    z,
+    length,
+    bayCount,
+    normal,
+    elevation,
+    alongX,
+    bayWidth,
+    backingThickness,
+    deps,
+    layout,
+    signKeys,
+  );
 };
 
 /**

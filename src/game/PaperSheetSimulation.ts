@@ -160,39 +160,73 @@ export class PaperSheetSimulation {
     }
   }
 
+  #applyDistanceConstraintCorrection(
+    firstOffset: number,
+    secondOffset: number,
+    deltaX: number,
+    deltaY: number,
+    deltaZ: number,
+    firstCorrection: number,
+    secondCorrection: number,
+  ) {
+    addTo(this.#positions, firstOffset, deltaX * firstCorrection);
+    addTo(this.#positions, firstOffset + 1, deltaY * firstCorrection);
+    addTo(this.#positions, firstOffset + 2, deltaZ * firstCorrection);
+    subtractFrom(this.#positions, secondOffset, deltaX * secondCorrection);
+    subtractFrom(this.#positions, secondOffset + 1, deltaY * secondCorrection);
+    subtractFrom(this.#positions, secondOffset + 2, deltaZ * secondCorrection);
+    addTo(this.#previousPositions, firstOffset, deltaX * firstCorrection);
+    addTo(this.#previousPositions, firstOffset + 1, deltaY * firstCorrection);
+    addTo(this.#previousPositions, firstOffset + 2, deltaZ * firstCorrection);
+    subtractFrom(this.#previousPositions, secondOffset, deltaX * secondCorrection);
+    subtractFrom(this.#previousPositions, secondOffset + 1, deltaY * secondCorrection);
+    subtractFrom(this.#previousPositions, secondOffset + 2, deltaZ * secondCorrection);
+  }
+
+  #applyDistanceConstraint(
+    constraintIndex: number,
+    firstOffset: number,
+    secondOffset: number,
+    firstWeight: number,
+    secondWeight: number,
+    totalWeight: number,
+  ) {
+    const deltaX = (this.#positions[secondOffset] ?? 0) - (this.#positions[firstOffset] ?? 0);
+    const deltaY = (this.#positions[secondOffset + 1] ?? 0) - (this.#positions[firstOffset + 1] ?? 0);
+    const deltaZ = (this.#positions[secondOffset + 2] ?? 0) - (this.#positions[firstOffset + 2] ?? 0);
+    const distance = Math.hypot(deltaX, deltaY, deltaZ);
+    if (distance < 1e-7) return;
+    const correction =
+      ((distance - (this.#constraintRestLength[constraintIndex] ?? 0)) / distance) *
+      (this.#constraintStiffness[constraintIndex] ?? 0);
+    const firstCorrection = (correction * firstWeight) / totalWeight;
+    const secondCorrection = (correction * secondWeight) / totalWeight;
+    this.#applyDistanceConstraintCorrection(
+      firstOffset,
+      secondOffset,
+      deltaX,
+      deltaY,
+      deltaZ,
+      firstCorrection,
+      secondCorrection,
+    );
+  }
+
+  #solveDistanceConstraint(constraintIndex: number, grabIndex: number) {
+    const firstIndex = this.#constraintA[constraintIndex] ?? 0;
+    const secondIndex = this.#constraintB[constraintIndex] ?? 0;
+    const firstWeight = this.#spineMask[firstIndex] || firstIndex === grabIndex ? 0 : 1;
+    const secondWeight = this.#spineMask[secondIndex] || secondIndex === grabIndex ? 0 : 1;
+    const totalWeight = firstWeight + secondWeight;
+    if (totalWeight === 0) return;
+    const firstOffset = firstIndex * 3;
+    const secondOffset = secondIndex * 3;
+    this.#applyDistanceConstraint(constraintIndex, firstOffset, secondOffset, firstWeight, secondWeight, totalWeight);
+  }
+
   #solveDistanceConstraints(grabIndex: number) {
-    for (let constraintIndex = 0; constraintIndex < this.#constraintA.length; constraintIndex += 1) {
-      const firstIndex = this.#constraintA[constraintIndex] ?? 0;
-      const secondIndex = this.#constraintB[constraintIndex] ?? 0;
-      const firstWeight = this.#spineMask[firstIndex] || firstIndex === grabIndex ? 0 : 1;
-      const secondWeight = this.#spineMask[secondIndex] || secondIndex === grabIndex ? 0 : 1;
-      const totalWeight = firstWeight + secondWeight;
-      if (totalWeight === 0) continue;
-      const firstOffset = firstIndex * 3;
-      const secondOffset = secondIndex * 3;
-      const deltaX = (this.#positions[secondOffset] ?? 0) - (this.#positions[firstOffset] ?? 0);
-      const deltaY = (this.#positions[secondOffset + 1] ?? 0) - (this.#positions[firstOffset + 1] ?? 0);
-      const deltaZ = (this.#positions[secondOffset + 2] ?? 0) - (this.#positions[firstOffset + 2] ?? 0);
-      const distance = Math.hypot(deltaX, deltaY, deltaZ);
-      if (distance < 1e-7) continue;
-      const correction =
-        ((distance - (this.#constraintRestLength[constraintIndex] ?? 0)) / distance) *
-        (this.#constraintStiffness[constraintIndex] ?? 0);
-      const firstCorrection = (correction * firstWeight) / totalWeight;
-      const secondCorrection = (correction * secondWeight) / totalWeight;
-      addTo(this.#positions, firstOffset, deltaX * firstCorrection);
-      addTo(this.#positions, firstOffset + 1, deltaY * firstCorrection);
-      addTo(this.#positions, firstOffset + 2, deltaZ * firstCorrection);
-      subtractFrom(this.#positions, secondOffset, deltaX * secondCorrection);
-      subtractFrom(this.#positions, secondOffset + 1, deltaY * secondCorrection);
-      subtractFrom(this.#positions, secondOffset + 2, deltaZ * secondCorrection);
-      addTo(this.#previousPositions, firstOffset, deltaX * firstCorrection);
-      addTo(this.#previousPositions, firstOffset + 1, deltaY * firstCorrection);
-      addTo(this.#previousPositions, firstOffset + 2, deltaZ * firstCorrection);
-      subtractFrom(this.#previousPositions, secondOffset, deltaX * secondCorrection);
-      subtractFrom(this.#previousPositions, secondOffset + 1, deltaY * secondCorrection);
-      subtractFrom(this.#previousPositions, secondOffset + 2, deltaZ * secondCorrection);
-    }
+    for (let constraintIndex = 0; constraintIndex < this.#constraintA.length; constraintIndex += 1)
+      this.#solveDistanceConstraint(constraintIndex, grabIndex);
   }
 
   #pinAnchors(targetPositions: Float32Array, grabIndex: number) {
