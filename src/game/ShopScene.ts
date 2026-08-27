@@ -1326,6 +1326,7 @@ export class ShopScene {
       pendingWorldSave: () => this.#worldPersistence.pendingWorldSave(),
       physicsPose: () => this.#physicsPose,
       physicsPosePosition: () => this.#physicsPosePosition,
+      physicsPoseRotation: () => this.#physicsPoseRotation,
       playerVelocity: () => this.#playerVelocity,
       savedTelevisionChannels: () => this.#worldPersistence.savedTelevisionChannels(),
       savedTelevisionVolumes: () => this.#worldPersistence.savedTelevisionVolumes(),
