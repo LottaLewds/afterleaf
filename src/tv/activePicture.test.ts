@@ -7,12 +7,7 @@ import {
   type ActivePictureRect,
 } from "~/tv/activePicture";
 
-const createFrame = (
-  width: number,
-  height: number,
-  activeStart = 0,
-  activeEnd = width,
-) => {
+const createFrame = (width: number, height: number, activeStart = 0, activeEnd = width) => {
   const pixels = new Uint8ClampedArray(width * height * 4);
   for (let y = 0; y < height; y += 1) {
     for (let x = activeStart; x < activeEnd; x += 1) {
@@ -42,9 +37,7 @@ describe("TV active-picture detection", () => {
 
   test("leaves a visible frame without matching pillar bars uncropped", () => {
     const pixels = createFrame(160, 90);
-    expect(detectActivePictureRect(pixels, 160, 90)).toEqual(
-      FULL_ACTIVE_PICTURE_RECT,
-    );
+    expect(detectActivePictureRect(pixels, 160, 90)).toEqual(FULL_ACTIVE_PICTURE_RECT);
   });
 
   test("does not make a crop decision from a black frame", () => {
@@ -54,9 +47,7 @@ describe("TV active-picture detection", () => {
 
   test("rejects dark edges that do not describe a 4:3 picture", () => {
     const pixels = createFrame(160, 90, 8, 152);
-    expect(detectActivePictureRect(pixels, 160, 90)).toEqual(
-      FULL_ACTIVE_PICTURE_RECT,
-    );
+    expect(detectActivePictureRect(pixels, 160, 90)).toEqual(FULL_ACTIVE_PICTURE_RECT);
   });
 
   test("requires a stable crop across multiple frames", () => {
@@ -67,11 +58,7 @@ describe("TV active-picture detection", () => {
       x: 0.125,
       y: 0,
     };
-    expect(
-      getActivePictureConsensus([full, crop, crop, crop], 4),
-    ).toBeUndefined();
-    expect(
-      getActivePictureConsensus([full, crop, crop, crop, crop], 4),
-    ).toEqual(crop);
+    expect(getActivePictureConsensus([full, crop, crop, crop], 4)).toBeUndefined();
+    expect(getActivePictureConsensus([full, crop, crop, crop, crop], 4)).toEqual(crop);
   });
 });

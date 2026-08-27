@@ -14,9 +14,7 @@ export type ShelfAtlasEncodeRequest = {
   png: Uint8Array;
 };
 
-export type ShelfAtlasEncodeResponse =
-  | {id: number; ktx2: Uint8Array}
-  | {id: number; error: string};
+export type ShelfAtlasEncodeResponse = {id: number; ktx2: Uint8Array} | {id: number; error: string};
 
 const port = parentPort;
 if (!port) throw new Error("Shelf atlas encoder must run inside a worker");
@@ -35,18 +33,14 @@ const withSilencedStreams = async <T>(work: () => Promise<T>): Promise<T> => {
   try {
     return await work();
   } finally {
-    for (const [index, stream] of sinks.entries())
-      stream.write = originals[index]!;
+    for (const [index, stream] of sinks.entries()) stream.write = originals[index]!;
   }
 };
 
 port.on("message", async (request: ShelfAtlasEncodeRequest) => {
   try {
     const imageDecoder = async (buffer: Uint8Array) => {
-      const {data, info} = await sharp(Buffer.from(buffer))
-        .ensureAlpha()
-        .raw()
-        .toBuffer({resolveWithObject: true});
+      const {data, info} = await sharp(Buffer.from(buffer)).ensureAlpha().raw().toBuffer({resolveWithObject: true});
       return {
         data: new Uint8Array(data),
         width: info.width,

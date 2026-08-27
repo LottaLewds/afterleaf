@@ -5,10 +5,7 @@ const PAGE_HALF_FRAGMENT = "afterleaf-page-half=";
 const widePageUrls = new Set<string>();
 const listeners = new Set<(url: string) => void>();
 let detectionRevision = 0;
-const pageIndexCache = new WeakMap<
-  readonly string[],
-  {indices: ReadonlySet<number>; revision: number}
->();
+const pageIndexCache = new WeakMap<readonly string[], {indices: ReadonlySet<number>; revision: number}>();
 
 export const readerPageSourceUrl = (url: string) => {
   const fragmentIndex = url.indexOf(`#${PAGE_HALF_FRAGMENT}`);
@@ -22,28 +19,17 @@ export const readerPageHalf = (url: string): ReaderPageHalf | undefined => {
   return half === "left" || half === "right" ? half : undefined;
 };
 
-export const readerPageTextureUrl = (
-  url: string,
-  half: ReaderPageHalf | undefined,
-) =>
-  half
-    ? `${readerPageSourceUrl(url)}#${PAGE_HALF_FRAGMENT}${half}`
-    : readerPageSourceUrl(url);
+export const readerPageTextureUrl = (url: string, half: ReaderPageHalf | undefined) =>
+  half ? `${readerPageSourceUrl(url)}#${PAGE_HALF_FRAGMENT}${half}` : readerPageSourceUrl(url);
 
-export const mirrorReaderPageHorizontalRange = (
-  offset: number,
-  repeat: number,
-) => ({offset: offset + repeat, repeat: -repeat});
+export const mirrorReaderPageHorizontalRange = (offset: number, repeat: number) => ({
+  offset: offset + repeat,
+  repeat: -repeat,
+});
 
-export const isWideReaderPage = (url: string) =>
-  widePageUrls.has(readerPageSourceUrl(url));
+export const isWideReaderPage = (url: string) => widePageUrls.has(readerPageSourceUrl(url));
 
-export const detectWideReaderPage = (
-  url: string,
-  width: number,
-  height: number,
-  singlePageAspectRatio: number,
-) => {
+export const detectWideReaderPage = (url: string, width: number, height: number, singlePageAspectRatio: number) => {
   if (
     !url ||
     !Number.isFinite(width) ||

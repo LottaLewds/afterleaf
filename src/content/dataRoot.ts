@@ -40,9 +40,7 @@ export const DATA_ROOT_ENVIRONMENT_VARIABLE = "AFTERLEAF_DATA_ROOT";
 
 export const resolveDataRoot = (workingDirectory: string) => {
   const override = process.env[DATA_ROOT_ENVIRONMENT_VARIABLE]?.trim();
-  return override
-    ? resolve(override)
-    : resolve(workingDirectory, DATA_ROOT_DIRECTORY_NAME);
+  return override ? resolve(override) : resolve(workingDirectory, DATA_ROOT_DIRECTORY_NAME);
 };
 
 const dataRootChild =
@@ -57,36 +55,15 @@ const dataRootChild =
 export const userContentDirectory = dataRootChild(USER_CONTENT_DIRECTORY_NAME);
 
 /** User-facing book roots. Dropping archives here is the primary workflow. */
-export const comicsDirectory = dataRootChild(
-  USER_CONTENT_DIRECTORY_NAME,
-  COMICS_DIRECTORY_NAME,
-);
-export const mangaDirectory = dataRootChild(
-  USER_CONTENT_DIRECTORY_NAME,
-  MANGA_DIRECTORY_NAME,
-);
+export const comicsDirectory = dataRootChild(USER_CONTENT_DIRECTORY_NAME, COMICS_DIRECTORY_NAME);
+export const mangaDirectory = dataRootChild(USER_CONTENT_DIRECTORY_NAME, MANGA_DIRECTORY_NAME);
 
 /** User-facing media folders (same names as the historic content folder). */
-export const tvChannelsDirectory = dataRootChild(
-  USER_CONTENT_DIRECTORY_NAME,
-  TV_DIRECTORY_NAME,
-);
-export const postersDirectory = dataRootChild(
-  USER_CONTENT_DIRECTORY_NAME,
-  POSTERS_DIRECTORY_NAME,
-);
-export const artFramesDirectory = dataRootChild(
-  USER_CONTENT_DIRECTORY_NAME,
-  ART_FRAMES_DIRECTORY_NAME,
-);
-export const modelsDirectory = dataRootChild(
-  USER_CONTENT_DIRECTORY_NAME,
-  MODELS_DIRECTORY_NAME,
-);
-export const romsDirectory = dataRootChild(
-  USER_CONTENT_DIRECTORY_NAME,
-  ROMS_DIRECTORY_NAME,
-);
+export const tvChannelsDirectory = dataRootChild(USER_CONTENT_DIRECTORY_NAME, TV_DIRECTORY_NAME);
+export const postersDirectory = dataRootChild(USER_CONTENT_DIRECTORY_NAME, POSTERS_DIRECTORY_NAME);
+export const artFramesDirectory = dataRootChild(USER_CONTENT_DIRECTORY_NAME, ART_FRAMES_DIRECTORY_NAME);
+export const modelsDirectory = dataRootChild(USER_CONTENT_DIRECTORY_NAME, MODELS_DIRECTORY_NAME);
+export const romsDirectory = dataRootChild(USER_CONTENT_DIRECTORY_NAME, ROMS_DIRECTORY_NAME);
 
 /** Machine-managed provider download caches. */
 export const providersDirectory = dataRootChild(PROVIDERS_DIRECTORY_NAME);
@@ -106,18 +83,9 @@ export const libraryPackDirectory = dataRootChild(
 );
 
 /** Durable application state (never regenerable). */
-export const worldSavePath = dataRootChild(
-  GAME_DIRECTORY_NAME,
-  WORLD_SAVE_FILE_NAME,
-);
-export const worldSaveBackupsDirectory = dataRootChild(
-  GAME_DIRECTORY_NAME,
-  WORLD_SAVE_BACKUPS_DIRECTORY_NAME,
-);
-export const publicationBlacklistPath = dataRootChild(
-  GAME_DIRECTORY_NAME,
-  PUBLICATION_BLACKLIST_FILE_NAME,
-);
+export const worldSavePath = dataRootChild(GAME_DIRECTORY_NAME, WORLD_SAVE_FILE_NAME);
+export const worldSaveBackupsDirectory = dataRootChild(GAME_DIRECTORY_NAME, WORLD_SAVE_BACKUPS_DIRECTORY_NAME);
+export const publicationBlacklistPath = dataRootChild(GAME_DIRECTORY_NAME, PUBLICATION_BLACKLIST_FILE_NAME);
 
 /** Internal registries and diagnostics. */
 export const libraryRootRegistryPath = dataRootChild(
@@ -125,11 +93,7 @@ export const libraryRootRegistryPath = dataRootChild(
   GAME_CACHE_DIRECTORY_NAME,
   "library-roots.json",
 );
-export const scanFailuresLogPath = dataRootChild(
-  GAME_DIRECTORY_NAME,
-  GAME_CACHE_DIRECTORY_NAME,
-  "scan-failures.log",
-);
+export const scanFailuresLogPath = dataRootChild(GAME_DIRECTORY_NAME, GAME_CACHE_DIRECTORY_NAME, "scan-failures.log");
 
 /**
  * Descriptor of the library operation that may currently be running, so a

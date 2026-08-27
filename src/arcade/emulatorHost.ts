@@ -33,9 +33,7 @@ export type ForwardedKeyEvent = {
   shiftKey: boolean;
 };
 
-export const describeKeyboardEvent = (
-  event: KeyboardEvent,
-): ForwardedKeyEvent => ({
+export const describeKeyboardEvent = (event: KeyboardEvent): ForwardedKeyEvent => ({
   key: event.key,
   code: event.code,
   keyCode: event.keyCode,
@@ -74,10 +72,7 @@ export type ForwardedKeyInit = {
 };
 
 /** Pure builder so the synthetic-event contract stays unit-testable. */
-export const buildForwardedKeyInit = (
-  down: boolean,
-  event: ForwardedKeyEvent,
-): ForwardedKeyInit => ({
+export const buildForwardedKeyInit = (down: boolean, event: ForwardedKeyEvent): ForwardedKeyInit => ({
   type: down ? "keydown" : "keyup",
   bubbles: false,
   cancelable: true,
@@ -134,9 +129,7 @@ export type ArcadeEmulatorOptions = {
  * storage stays disabled: Afterleaf owns all persistence, and stale EJS
  * settings could otherwise override our per-system controller defaults.
  */
-export const buildEmulatorConfig = (
-  options: ArcadeEmulatorOptions,
-): Record<string, unknown> => ({
+export const buildEmulatorConfig = (options: ArcadeEmulatorOptions): Record<string, unknown> => ({
   system: options.core,
   gameUrl: options.romUrl,
   gameName: options.gameName,
@@ -149,9 +142,7 @@ export const buildEmulatorConfig = (
   backgroundColor: "#000000",
   volume: 1,
   buttonOpts: buildEmulatorButtonOptions(),
-  ...(options.defaultControllers
-    ? {defaultControllers: options.defaultControllers}
-    : {}),
+  ...(options.defaultControllers ? {defaultControllers: options.defaultControllers} : {}),
 });
 
 /** The slice of the EmulatorJS surface Afterleaf touches. */
@@ -181,10 +172,7 @@ type EmulatorJsInstance = {
   callEvent: (event: string, data?: unknown) => void;
 };
 
-type EmulatorJsConstructor = new (
-  elementSelector: string,
-  config: Record<string, unknown>,
-) => EmulatorJsInstance;
+type EmulatorJsConstructor = new (elementSelector: string, config: Record<string, unknown>) => EmulatorJsInstance;
 
 const getEmulatorJsConstructor = (): EmulatorJsConstructor | undefined =>
   (window as unknown as {EmulatorJS?: EmulatorJsConstructor}).EmulatorJS;
@@ -282,16 +270,9 @@ let bootChain = Promise.resolve();
 // AudioNode directly, so our own wiring never trips this.
 
 /** Per-context silent sinks created for diverted connections. */
-const divertSinks = new WeakMap<
-  BaseAudioContext,
-  MediaStreamAudioDestinationNode
->();
+const divertSinks = new WeakMap<BaseAudioContext, MediaStreamAudioDestinationNode>();
 
-type AudioConnectFn = (
-  destination: AudioNode | AudioParam,
-  output?: number,
-  input?: number,
-) => AudioNode | AudioParam;
+type AudioConnectFn = (destination: AudioNode | AudioParam, output?: number, input?: number) => AudioNode | AudioParam;
 
 let interceptorInstalled = false;
 
@@ -306,15 +287,11 @@ const installAudioInterceptor = (safeContext: BaseAudioContext) => {
   const prototype = AudioNode.prototype as {connect: AudioConnectFn};
   const originalConnect = prototype.connect;
   prototype.connect = function (destination, output, input) {
-    if (
-      destination instanceof AudioDestinationNode &&
-      destination.context !== safeContext
-    ) {
+    if (destination instanceof AudioDestinationNode && destination.context !== safeContext) {
       const context = destination.context;
       // OfflineAudioContext cannot produce realtime sound; only realtime
       // contexts are worth diverting (and only they have stream sinks).
-      if (!(context instanceof AudioContext))
-        return originalConnect.call(this, destination, output, input);
+      if (!(context instanceof AudioContext)) return originalConnect.call(this, destination, output, input);
       let sink = divertSinks.get(context);
       if (!sink) {
         sink = context.createMediaStreamDestination();
@@ -338,11 +315,8 @@ const CONTAINER_HEIGHT_PX = 240;
  * Boots an EmulatorJS session directly in this document. Callers own the
  * returned session and must call `destroy()` when done.
  */
-export const launchEmulator = (
-  options: EmulatorLaunchOptions,
-): EmulatorSession => {
-  if (options.safeAudioContext)
-    installAudioInterceptor(options.safeAudioContext);
+export const launchEmulator = (options: EmulatorLaunchOptions): EmulatorSession => {
+  if (options.safeAudioContext) installAudioInterceptor(options.safeAudioContext);
   let destroyed = false;
   let bootWatchdogHandle: ReturnType<typeof setTimeout> | undefined;
   let emulator: EmulatorJsInstance | undefined;
@@ -383,8 +357,7 @@ export const launchEmulator = (
     // The GameManager "exit" hook saves SRAM, stops the core main loop,
     // unmounts its filesystems, and aborts the wasm module shortly after.
     try {
-      if (emulator?.started && !emulator.failedToStart)
-        emulator.callEvent("exit");
+      if (emulator?.started && !emulator.failedToStart) emulator.callEvent("exit");
     } catch (error) {
       console.warn("Afterleaf arcade emulator teardown failed.", error);
     }
@@ -398,8 +371,7 @@ export const launchEmulator = (
     disarmBootWatchdog();
     abortController.abort();
     try {
-      if (emulator?.started && !emulator.failedToStart)
-        emulator.callEvent("exit");
+      if (emulator?.started && !emulator.failedToStart) emulator.callEvent("exit");
     } catch {
       // Best-effort cleanup; the session is being torn down regardless.
     }
@@ -488,8 +460,7 @@ export const launchEmulator = (
         // setVolume may have run before OpenAL existed; apply once so a
         // muted or lowered session does not come through at full blast.
         const activeEmulator = emulator;
-        if (activeEmulator && !activeEmulator.muted)
-          activeEmulator.setVolume(activeEmulator.volume);
+        if (activeEmulator && !activeEmulator.muted) activeEmulator.setVolume(activeEmulator.volume);
         else if (activeEmulator) activeEmulator.setVolume(0);
       } else {
         // Whole-context swap (driver restart): same wiring, new stream.
@@ -524,11 +495,7 @@ export const launchEmulator = (
   const audioWatchdog = setInterval(() => {
     ensureTapWiring();
   }, AUDIO_WATCHDOG_INTERVAL_MS);
-  abortController.signal.addEventListener(
-    "abort",
-    () => clearInterval(audioWatchdog),
-    {once: true},
-  );
+  abortController.signal.addEventListener("abort", () => clearInterval(audioWatchdog), {once: true});
 
   /**
    * Sizes the offscreen container so the canvas backing store lands at the
@@ -636,14 +603,9 @@ export const launchEmulator = (
     // startGameError() flips this flag without any callback; poll briefly so
     // download/core failures settle fast instead of waiting out the watchdog.
     const failurePoll = setInterval(() => {
-      if (!destroyed && instance.failedToStart)
-        fail("The emulator reported a startup failure.");
+      if (!destroyed && instance.failedToStart) fail("The emulator reported a startup failure.");
     }, 250);
-    abortController.signal.addEventListener(
-      "abort",
-      () => clearInterval(failurePoll),
-      {once: true},
-    );
+    abortController.signal.addEventListener("abort", () => clearInterval(failurePoll), {once: true});
   };
 
   bootChain = bootChain.then(boot).catch((cause: unknown) => {

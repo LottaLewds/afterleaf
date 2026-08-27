@@ -29,11 +29,7 @@ describe("TV byte ranges", () => {
   });
 
   test("requires a positive safe maximum response length", () => {
-    expect(() => constrainByteRangeLength({end: 19, start: 10}, 0)).toThrow(
-      RangeError,
-    );
-    expect(() =>
-      constrainByteRangeLength({end: 19, start: 10}, Number.POSITIVE_INFINITY),
-    ).toThrow(RangeError);
+    expect(() => constrainByteRangeLength({end: 19, start: 10}, 0)).toThrow(RangeError);
+    expect(() => constrainByteRangeLength({end: 19, start: 10}, Number.POSITIVE_INFINITY)).toThrow(RangeError);
   });
 });

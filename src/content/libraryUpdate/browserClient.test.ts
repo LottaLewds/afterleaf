@@ -39,9 +39,7 @@ import {
 
 const jobId = "123e4567-e89b-42d3-a456-426614174000";
 
-const snapshotResponse = (
-  operation: LibrarySnapshotOperation,
-): LibrarySnapshotHttpSuccess => ({
+const snapshotResponse = (operation: LibrarySnapshotOperation): LibrarySnapshotHttpSuccess => ({
   changes: {
     addedCount: 2,
     removedCount: 1,
@@ -67,19 +65,14 @@ const compactSnapshotResult = {
   updatedCount: 1,
 };
 
-const jobStartResponse = (
-  operation: LibrarySnapshotOperation,
-): LibraryOperationStartHttpSuccess => ({
+const jobStartResponse = (operation: LibrarySnapshotOperation): LibraryOperationStartHttpSuccess => ({
   jobId,
   ok: true,
   operation,
   state: "running",
 });
 
-const response = (
-  body: unknown,
-  status = 200,
-): Pick<Response, "ok" | "status" | "text"> => ({
+const response = (body: unknown, status = 200): Pick<Response, "ok" | "status" | "text"> => ({
   ok: status >= 200 && status < 300,
   status,
   text: async () => JSON.stringify(body),
@@ -102,31 +95,21 @@ describe("browser library operation client", () => {
       });
     };
 
-    await expect(
-      browseLibraryLocation("D:\\Media & Books", fetcher),
-    ).resolves.toMatchObject({
+    await expect(browseLibraryLocation("D:\\Media & Books", fetcher)).resolves.toMatchObject({
       drives: [
         {name: "C:", path: "C:\\"},
         {name: "D:", path: "D:\\"},
       ],
       path: "D:\\Media & Books",
     });
-    expect(requestInput).toBe(
-      "/api/library/browse?path=D%3A%5CMedia%20%26%20Books",
-    );
+    expect(requestInput).toBe("/api/library/browse?path=D%3A%5CMedia%20%26%20Books");
   });
 
   test("supports browse responses from servers without drive metadata", async () => {
-    const fetcher: LibraryOperationFetch = async () =>
-      response({entries: [], ok: true, path: "/media"});
+    const fetcher: LibraryOperationFetch = async () => response({entries: [], ok: true, path: "/media"});
 
     const listing = await browseLibraryLocation("/media", fetcher);
-    expect(Object.keys(listing).toSorted()).toEqual([
-      "drives",
-      "entries",
-      "ok",
-      "path",
-    ]);
+    expect(Object.keys(listing).toSorted()).toEqual(["drives", "entries", "ok", "path"]);
     expect(listing).toMatchObject({
       drives: [],
       entries: [],
@@ -173,9 +156,7 @@ describe("browser library operation client", () => {
       fetcher,
     );
 
-    expect(requestInit?.body).toBe(
-      '{"redownloadProviderAssets":true,"repair":true,"repairProviderMetadata":true}',
-    );
+    expect(requestInit?.body).toBe('{"redownloadProviderAssets":true,"repair":true,"repairProviderMetadata":true}');
   });
 
   test("sends bounded fetch-more requests", async () => {
@@ -221,9 +202,7 @@ describe("browser library operation client", () => {
       });
     };
 
-    await expect(
-      blacklistPublication({publicationId: "nhentai-42"}, fetcher),
-    ).resolves.toEqual({
+    await expect(blacklistPublication({publicationId: "nhentai-42"}, fetcher)).resolves.toEqual({
       added: true,
       blacklistedCount: 3,
       publicationId: "nhentai-42",
@@ -247,10 +226,7 @@ describe("browser library operation client", () => {
       });
     };
 
-    await expect(loadBlacklistedPublications(fetcher)).resolves.toEqual([
-      "nhentai-42",
-      "local-edition-1",
-    ]);
+    await expect(loadBlacklistedPublications(fetcher)).resolves.toEqual(["nhentai-42", "local-edition-1"]);
     expect(requestInput).toBe(LIBRARY_BLACKLIST_ENDPOINT);
     expect(requestInit).toMatchObject({
       cache: "no-store",
@@ -313,9 +289,7 @@ describe("browser library operation client", () => {
       return response({ok: true});
     };
 
-    await expect(
-      reenrollLibraryRoot("/mnt/manga", fetcher),
-    ).resolves.toBeUndefined();
+    await expect(reenrollLibraryRoot("/mnt/manga", fetcher)).resolves.toBeUndefined();
     expect(requestInput).toBe(LIBRARY_ROOT_ENROLL_ENDPOINT);
     expect(requestInit?.method).toBe("POST");
     expect(JSON.parse(String(requestInit?.body))).toEqual({path: "/mnt/manga"});
@@ -387,11 +361,8 @@ describe("browser library operation client", () => {
       status: 409,
     });
 
-    const wrongOperationFetcher: LibraryOperationFetch = async () =>
-      response(jobStartResponse("fetch-more"), 202);
-    await expect(scanLocalLibrary(wrongOperationFetcher)).rejects.toMatchObject(
-      {code: "invalid_response"},
-    );
+    const wrongOperationFetcher: LibraryOperationFetch = async () => response(jobStartResponse("fetch-more"), 202);
+    await expect(scanLocalLibrary(wrongOperationFetcher)).rejects.toMatchObject({code: "invalid_response"});
   });
 
   test("asks providers to resolve pasted text", async () => {
@@ -410,9 +381,7 @@ describe("browser library operation client", () => {
       });
     };
 
-    await expect(
-      resolvePastedLibraryImport("https://example.test/books/42", fetcher),
-    ).resolves.toEqual({
+    await expect(resolvePastedLibraryImport("https://example.test/books/42", fetcher)).resolves.toEqual({
       providerId: "example-provider",
       publicationId: "example-42",
       query: "source:42",
@@ -423,17 +392,12 @@ describe("browser library operation client", () => {
       method: "POST",
     });
 
-    await expect(
-      resolvePastedLibraryImport("unmatched", async () => response({ok: true})),
-    ).resolves.toBeUndefined();
+    await expect(resolvePastedLibraryImport("unmatched", async () => response({ok: true}))).resolves.toBeUndefined();
   });
 
   test("rejects malformed and oversized responses", async () => {
-    const malformedFetcher: LibraryOperationFetch = async () =>
-      response({ok: true, snapshot: {}});
-    await expect(scanLocalLibrary(malformedFetcher)).rejects.toBeInstanceOf(
-      BrowserLibraryOperationError,
-    );
+    const malformedFetcher: LibraryOperationFetch = async () => response({ok: true, snapshot: {}});
+    await expect(scanLocalLibrary(malformedFetcher)).rejects.toBeInstanceOf(BrowserLibraryOperationError);
 
     const oversizedFetcher: LibraryOperationFetch = async () => ({
       ok: true,
@@ -461,15 +425,9 @@ describe("library operation HTTP protocol", () => {
       repair: true,
       repairProviderMetadata: true,
     });
-    expect(() => parseLibraryScanRequest({repair: "yes"})).toThrow(
-      "must be a boolean",
-    );
-    expect(() => parseLibraryScanRequest({fetch: true})).toThrow(
-      "unsupported fields",
-    );
-    expect(() =>
-      parseLibraryScanRequest({repairProviderMetadata: true}),
-    ).toThrow("require a deep repair scan");
+    expect(() => parseLibraryScanRequest({repair: "yes"})).toThrow("must be a boolean");
+    expect(() => parseLibraryScanRequest({fetch: true})).toThrow("unsupported fields");
+    expect(() => parseLibraryScanRequest({repairProviderMetadata: true})).toThrow("require a deep repair scan");
     expect(parseLibraryFetchMoreRequest({})).toEqual({});
     expect(
       parseLibraryFetchMoreRequest({
@@ -509,21 +467,15 @@ describe("library operation HTTP protocol", () => {
         arguments: ["--library", "/tmp/elsewhere"],
       }),
     ).toThrow("unsupported fields");
-    expect(parseLibraryBlacklistRequest({publicationId: "nhentai-42"})).toEqual(
-      {publicationId: "nhentai-42"},
-    );
-    expect(() =>
-      parseLibraryBlacklistRequest({publicationId: "--library"}),
-    ).toThrow("portable publication identifier");
+    expect(parseLibraryBlacklistRequest({publicationId: "nhentai-42"})).toEqual({publicationId: "nhentai-42"});
+    expect(() => parseLibraryBlacklistRequest({publicationId: "--library"})).toThrow("portable publication identifier");
   });
 
   test("validates provider-defined paste import matches", () => {
     expect(parseLibraryPasteResolveRequest({text: "pasted text"})).toEqual({
       text: "pasted text",
     });
-    expect(() => parseLibraryPasteResolveRequest({text: ""})).toThrow(
-      "non-empty bounded string",
-    );
+    expect(() => parseLibraryPasteResolveRequest({text: ""})).toThrow("non-empty bounded string");
     expect(parseLibraryPasteResolveHttpResponse({ok: true})).toEqual({
       ok: true,
     });
@@ -565,9 +517,7 @@ describe("library operation HTTP protocol", () => {
   });
 
   test("validates bounded operation progress", () => {
-    expect(
-      parseLibraryOperationStartHttpResponse(jobStartResponse("scan")),
-    ).toEqual(jobStartResponse("scan"));
+    expect(parseLibraryOperationStartHttpResponse(jobStartResponse("scan"))).toEqual(jobStartResponse("scan"));
     expect(
       parseLibraryOperationStatusHttpResponse({
         completedSteps: 2,
@@ -635,10 +585,7 @@ describe("library operation HTTP protocol", () => {
   });
 
   test("bounds command failures before returning them to the browser", () => {
-    const failure = libraryOperationFailure(
-      "operation_failed",
-      "x".repeat(4_096),
-    );
+    const failure = libraryOperationFailure("operation_failed", "x".repeat(4_096));
     expect(failure.error.message).toHaveLength(2_048);
   });
 });

@@ -1,21 +1,9 @@
 import {randomUUID} from "node:crypto";
-import {
-  lstat,
-  mkdir,
-  readdir,
-  realpath,
-  rename,
-  rm,
-  writeFile,
-} from "node:fs/promises";
+import {lstat, mkdir, readdir, realpath, rename, rm, writeFile} from "node:fs/promises";
 import {basename, extname, relative, resolve, sep} from "node:path";
 import sharp, {type Metadata} from "../media/sharpRuntime";
 
-import {
-  renderCachedWebpImage,
-  renderWebpImage,
-  type WebpDerivativeCreator,
-} from "../media/webp";
+import {renderCachedWebpImage, renderWebpImage, type WebpDerivativeCreator} from "../media/webp";
 import {POSTER_MAX_DIMENSION} from "./image";
 import type {PosterAsset} from "./protocol";
 
@@ -26,8 +14,7 @@ export type DiscoveredPoster = PosterAsset & {
   filePath: string;
 };
 
-const compareNames = (left: string, right: string) =>
-  left < right ? -1 : left > right ? 1 : 0;
+const compareNames = (left: string, right: string) => (left < right ? -1 : left > right ? 1 : 0);
 
 type PosterMetadataCacheEntry = {
   aspectRatio?: number;
@@ -47,17 +34,11 @@ const posterLabel = (id: string) =>
 
 const metadataAspectRatio = (metadata: Metadata) => {
   if (!metadata.width || !metadata.height) return;
-  const rotated =
-    metadata.orientation !== undefined && metadata.orientation >= 5;
-  return rotated
-    ? metadata.height / metadata.width
-    : metadata.width / metadata.height;
+  const rotated = metadata.orientation !== undefined && metadata.orientation >= 5;
+  return rotated ? metadata.height / metadata.width : metadata.width / metadata.height;
 };
 
-const posterFilesIn = async (
-  rootDirectory: string,
-  directory = rootDirectory,
-): Promise<string[]> => {
+const posterFilesIn = async (rootDirectory: string, directory = rootDirectory): Promise<string[]> => {
   let entries;
   try {
     entries = await readdir(directory, {withFileTypes: true});
@@ -67,13 +48,10 @@ const posterFilesIn = async (
     throw error;
   }
   const files: string[] = [];
-  for (const entry of entries.sort((left, right) =>
-    compareNames(left.name, right.name),
-  )) {
+  for (const entry of entries.sort((left, right) => compareNames(left.name, right.name))) {
     if (entry.name.startsWith(".") || entry.isSymbolicLink()) continue;
     const entryPath = resolve(directory, entry.name);
-    if (entry.isDirectory())
-      files.push(...(await posterFilesIn(rootDirectory, entryPath)));
+    if (entry.isDirectory()) files.push(...(await posterFilesIn(rootDirectory, entryPath)));
     else if (entry.isFile()) files.push(entryPath);
   }
   return files;
@@ -94,18 +72,9 @@ export const discoverPosters = async (
           const file = await lstat(filePath);
           const cached = posterMetadataCache.get(filePath);
           let aspectRatio =
-            cached?.modifiedAt === file.mtimeMs && cached.size === file.size
-              ? cached.aspectRatio
-              : undefined;
-          let hasAlpha =
-            cached?.modifiedAt === file.mtimeMs && cached.size === file.size
-              ? cached.hasAlpha
-              : false;
-          if (
-            !cached ||
-            cached.modifiedAt !== file.mtimeMs ||
-            cached.size !== file.size
-          ) {
+            cached?.modifiedAt === file.mtimeMs && cached.size === file.size ? cached.aspectRatio : undefined;
+          let hasAlpha = cached?.modifiedAt === file.mtimeMs && cached.size === file.size ? cached.hasAlpha : false;
+          if (!cached || cached.modifiedAt !== file.mtimeMs || cached.size !== file.size) {
             const metadata = await sharp(filePath, {
               limitInputPixels: 100_000_000,
             }).metadata();
@@ -144,10 +113,7 @@ export const discoverPosters = async (
   return discovered;
 };
 
-export const resolvePosterPath = async (
-  postersDirectories: readonly string[],
-  posterId: string,
-) => {
+export const resolvePosterPath = async (postersDirectories: readonly string[], posterId: string) => {
   for (const postersDirectory of postersDirectories) {
     const root = resolve(postersDirectory);
     const candidate = resolve(root, ...posterId.split("/"));
@@ -159,10 +125,7 @@ export const resolvePosterPath = async (
     )
       continue;
     try {
-      const [realRoot, realCandidate] = await Promise.all([
-        realpath(root),
-        realpath(candidate),
-      ]);
+      const [realRoot, realCandidate] = await Promise.all([realpath(root), realpath(candidate)]);
       const realCandidateRelativePath = relative(realRoot, realCandidate);
       if (
         realCandidateRelativePath.length === 0 ||
@@ -185,13 +148,7 @@ export const renderPoster = async (
   cacheDirectory?: string,
 ) => {
   if (cacheDirectory)
-    return renderCachedWebpImage(
-      filePath,
-      createDerivative,
-      POSTER_MAX_DIMENSION,
-      cacheDirectory,
-      "poster-v1",
-    );
+    return renderCachedWebpImage(filePath, createDerivative, POSTER_MAX_DIMENSION, cacheDirectory, "poster-v1");
   return renderWebpImage(filePath, createDerivative, POSTER_MAX_DIMENSION);
 };
 
@@ -202,11 +159,7 @@ export const importPosterImage = async (
   mediaUrl: PosterMediaUrlBuilder,
 ) => {
   const derivative = await createDerivative(source);
-  const timestamp = new Date()
-    .toISOString()
-    .replaceAll(":", "-")
-    .replace("T", "-")
-    .replace("Z", "");
+  const timestamp = new Date().toISOString().replaceAll(":", "-").replace("T", "-").replace("Z", "");
   const id = `pasted-${timestamp}-${randomUUID().slice(0, 8)}.webp`;
   const destination = resolve(postersDirectory, id);
   const staging = `${destination}.staging-${process.pid}`;
@@ -218,9 +171,7 @@ export const importPosterImage = async (
     await rm(staging, {force: true}).catch(() => {});
     throw error;
   }
-  const poster = (await discoverPosters([postersDirectory], mediaUrl)).find(
-    (candidate) => candidate.id === id,
-  );
+  const poster = (await discoverPosters([postersDirectory], mediaUrl)).find((candidate) => candidate.id === id);
   if (!poster) throw new Error("Converted poster could not be catalogued");
   return poster;
 };

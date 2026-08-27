@@ -9,9 +9,7 @@ import {modelMediaUrl} from "~/models/protocol";
 const temporaryDirectories: string[] = [];
 
 afterAll(async () => {
-  await Promise.all(
-    temporaryDirectories.map((directory) => rm(directory, {recursive: true})),
-  );
+  await Promise.all(temporaryDirectories.map((directory) => rm(directory, {recursive: true})));
 });
 
 describe("model catalog", () => {
@@ -32,9 +30,7 @@ describe("model catalog", () => {
         url: modelMediaUrl("figures/small_spider.GLB"),
       },
     ]);
-    expect(
-      await resolveModelPath([directory], "figures/small_spider.GLB"),
-    ).toBe(modelPath);
+    expect(await resolveModelPath([directory], "figures/small_spider.GLB")).toBe(modelPath);
     expect(await resolveModelPath([directory], "../notes.txt")).toBeUndefined();
   });
 });

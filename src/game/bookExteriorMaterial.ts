@@ -1,10 +1,4 @@
-import {
-  BatchedMesh,
-  Color,
-  type Matrix4,
-  MeshStandardMaterial,
-  Texture,
-} from "three";
+import {BatchedMesh, Color, type Matrix4, MeshStandardMaterial, Texture} from "three";
 
 export type BookExteriorUniforms = {
   backMap: {value: Texture | null};
@@ -49,9 +43,7 @@ export const createBookExteriorMaterial = (
   vertexDriven = false,
 ) => {
   const tint = (multiplier: number) =>
-    vertexDriven
-      ? new Color("#ffffff")
-      : accent.clone().multiplyScalar(multiplier);
+    vertexDriven ? new Color("#ffffff") : accent.clone().multiplyScalar(multiplier);
   const uniforms: BookExteriorUniforms = {
     backMap: {value: null},
     backMapEnabled: {value: false},
@@ -70,9 +62,7 @@ export const createBookExteriorMaterial = (
     roughness: 0.68,
   });
   material.customProgramCacheKey = () =>
-    `afterleaf-book-exterior-${
-      vertexDriven ? "v5-merged" : atlasUvs ? "v4-atlas" : "v4-standalone"
-    }`;
+    `afterleaf-book-exterior-${vertexDriven ? "v5-merged" : atlasUvs ? "v4-atlas" : "v4-standalone"}`;
   material.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, uniforms);
     shader.vertexShader = shader.vertexShader
@@ -80,9 +70,7 @@ export const createBookExteriorMaterial = (
         "#include <common>",
         `#include <common>
 ${vertexDriven ? "" : "uniform float spineNormalSign;\n"}${
-          atlasUvs
-            ? "attribute vec2 bookSpineUv;\nvarying vec2 vBookSpineUv;\n"
-            : ""
+          atlasUvs ? "attribute vec2 bookSpineUv;\nvarying vec2 vBookSpineUv;\n" : ""
         }${
           vertexDriven
             ? "attribute vec3 bookAccent;\nattribute float bookSpineSign;\nvarying vec3 vBookAccent;\nvarying float vBookSign;\n"
@@ -97,9 +85,7 @@ vBookUv = uv;
 ${atlasUvs ? "vBookSpineUv = bookSpineUv;" : ""}
 if (objectNormal.z > 0.5) vBookFace = 1.0;
 else if (objectNormal.z < -0.5) vBookFace = 2.0;
-else if (objectNormal.x * ${
-          vertexDriven ? "bookSpineSign" : "spineNormalSign"
-        } > 0.5) vBookFace = 3.0;
+else if (objectNormal.x * ${vertexDriven ? "bookSpineSign" : "spineNormalSign"} > 0.5) vBookFace = 3.0;
 else if (abs(objectNormal.y) > 0.5) vBookFace = 4.0;
 else vBookFace = 5.0;
 ${vertexDriven ? "vBookAccent = bookAccent;\nvBookSign = bookSpineSign;" : ""}`,
@@ -125,18 +111,12 @@ varying float vBookFace;`,
 if (vBookFace < 1.5) bookSurface = texture2D(coverMap, vBookUv);
 else if (vBookFace < 2.5 && backMapEnabled)
   bookSurface = texture2D(backMap, vBookUv);
-else if (vBookFace < 2.5) bookSurface = vec4(${
-          vertexDriven ? "vBookAccent * 0.76" : "backTint"
-        }, 1.0);
+else if (vBookFace < 2.5) bookSurface = vec4(${vertexDriven ? "vBookAccent * 0.76" : "backTint"}, 1.0);
 else if (vBookFace < 3.5 && spineMapEnabled)
   bookSurface = texture2D(spineMap, ${atlasUvs ? "vBookSpineUv" : "vBookUv"});
-else if (vBookFace < 3.5) bookSurface = vec4(${
-          vertexDriven ? "vBookAccent * 0.62" : "spineTint"
-        }, 1.0);
+else if (vBookFace < 3.5) bookSurface = vec4(${vertexDriven ? "vBookAccent * 0.62" : "spineTint"}, 1.0);
 else if (vBookFace < 4.5) bookSurface = vec4(pageTint, 1.0);
-else bookSurface = vec4(${
-          vertexDriven ? "vBookAccent * 0.62" : "edgeTint"
-        }, 1.0);
+else bookSurface = vec4(${vertexDriven ? "vBookAccent * 0.62" : "edgeTint"}, 1.0);
 diffuseColor *= bookSurface;`,
       )
       .replace(

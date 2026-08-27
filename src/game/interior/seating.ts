@@ -61,29 +61,13 @@ export const createTheatreSeating = (parent: Group, addBox: AddBox) => {
       addBox(
         parent,
         [0.08, 0.04, 5.8],
-        [
-          row.platformCenterX - row.platformWidth / 2 + 0.05,
-          SHOP_UPPER_FLOOR_Y + row.height + 0.025,
-          bankZ,
-        ],
+        [row.platformCenterX - row.platformWidth / 2 + 0.05, SHOP_UPPER_FLOOR_Y + row.height + 0.025, bankZ],
         aisleLightMaterial,
       );
     }
     for (const z of [12.5, 14.25, 16, 21, 22.75, 24.5]) {
-      addBox(
-        parent,
-        [0.72, 0.12, 1.1],
-        [row.x, SHOP_UPPER_FLOOR_Y + row.height + 0.43, z],
-        seatMaterial,
-        true,
-      );
-      addBox(
-        parent,
-        [0.12, 0.9, 1.1],
-        [row.x + 0.33, SHOP_UPPER_FLOOR_Y + row.height + 0.82, z],
-        seatMaterial,
-        true,
-      );
+      addBox(parent, [0.72, 0.12, 1.1], [row.x, SHOP_UPPER_FLOOR_Y + row.height + 0.43, z], seatMaterial, true);
+      addBox(parent, [0.12, 0.9, 1.1], [row.x + 0.33, SHOP_UPPER_FLOOR_Y + row.height + 0.82, z], seatMaterial, true);
       for (const legZ of [-0.42, 0.42])
         addBox(
           parent,

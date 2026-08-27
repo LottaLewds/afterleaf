@@ -4,8 +4,7 @@ import {pathToFileURL} from "node:url";
 
 const [operation, entryPath, requestPath, payloadPath] = process.argv.slice(2);
 
-const writePluginLog = (level, values) =>
-  process.stderr.write(`[provider:${level}] ${format(...values)}\n`);
+const writePluginLog = (level, values) => process.stderr.write(`[provider:${level}] ${format(...values)}\n`);
 
 console.debug = (...values) => writePluginLog("debug", values);
 console.error = (...values) => writePluginLog("error", values);
@@ -30,21 +29,18 @@ const serializedError = (error) => {
 };
 
 const loadProvider = async (context) => {
-  if (!entryPath)
-    throw new Error("Content provider runtime entry path is missing");
+  if (!entryPath) throw new Error("Content provider runtime entry path is missing");
   const imported = await import(pathToFileURL(entryPath).href);
   if (typeof imported.createProvider !== "function")
     throw new Error("entry module must export createProvider(context)");
   const provider = await imported.createProvider(context);
-  if (typeof provider !== "object" || provider === null)
-    throw new Error("createProvider() must return an object");
+  if (typeof provider !== "object" || provider === null) throw new Error("createProvider() must return an object");
   return provider;
 };
 
 const run = async (request) => {
   try {
-    if (typeof request !== "object" || request === null)
-      throw new Error("Content provider runtime request is invalid");
+    if (typeof request !== "object" || request === null) throw new Error("Content provider runtime request is invalid");
     const provider = await loadProvider(request.context);
     if (operation === "inspect") {
       send({
@@ -52,28 +48,21 @@ const run = async (request) => {
         result: {
           descriptor: provider.descriptor,
           materializesPages: typeof provider.materializePage === "function",
-          resolvesPastedImports:
-            typeof provider.resolvePastedImport === "function",
+          resolvesPastedImports: typeof provider.resolvePastedImport === "function",
         },
       });
       shutdown(0);
       return;
     }
     if (operation === "sync") {
-      if (typeof provider.sync !== "function")
-        throw new Error("createProvider() must return a sync function");
+      if (typeof provider.sync !== "function") throw new Error("createProvider() must return a sync function");
       const result = await provider.sync({
         ...request.value,
         onProgress: (message) => {
           if (typeof message === "string") send({kind: "progress", message});
         },
         onStep: (completed, total) => {
-          if (
-            Number.isSafeInteger(completed) &&
-            Number.isSafeInteger(total) &&
-            completed >= 0 &&
-            total > 0
-          )
+          if (Number.isSafeInteger(completed) && Number.isSafeInteger(total) && completed >= 0 && total > 0)
             send({completed, kind: "step", total});
         },
       });
@@ -92,11 +81,9 @@ const run = async (request) => {
     if (operation === "materialize-page") {
       if (typeof provider.materializePage !== "function")
         throw new Error("Content provider does not support sparse pages");
-      if (!payloadPath)
-        throw new Error("Content provider runtime payload path is missing");
+      if (!payloadPath) throw new Error("Content provider runtime payload path is missing");
       const result = await provider.materializePage(request.value);
-      if (!(result instanceof Uint8Array))
-        throw new Error("materializePage() must return a Buffer");
+      if (!(result instanceof Uint8Array)) throw new Error("materializePage() must return a Buffer");
       writeFileSync(payloadPath, result);
       send({kind: "result", result: null});
       shutdown(0);
@@ -113,8 +100,7 @@ const run = async (request) => {
 
 let request;
 try {
-  if (!requestPath)
-    throw new Error("Content provider runtime request path is missing");
+  if (!requestPath) throw new Error("Content provider runtime request path is missing");
   request = JSON.parse(readFileSync(requestPath, "utf8"));
 } catch (error) {
   send({error: serializedError(error), kind: "error"});

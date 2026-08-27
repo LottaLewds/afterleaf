@@ -1,21 +1,8 @@
 import {FiHardDrive, FiPlay, FiTrash2, FiX} from "solid-icons/fi";
-import {
-  For,
-  Show,
-  createResource,
-  createSignal,
-  onCleanup,
-  onMount,
-} from "solid-js";
+import {For, Show, createResource, createSignal, onCleanup, onMount} from "solid-js";
 
 import {arcadeFolderRomUrl, listArcadeFolderRoms} from "~/arcade/romFolders";
-import {
-  deleteSavedRom,
-  getSavedRomUrl,
-  listSavedRoms,
-  saveRomBlob,
-  type ArcadeRomSummary,
-} from "~/arcade/romLibrary";
+import {deleteSavedRom, getSavedRomUrl, listSavedRoms, saveRomBlob, type ArcadeRomSummary} from "~/arcade/romLibrary";
 import {ARCADE_SYSTEMS, findArcadeSystem} from "~/arcade/systems";
 import type {ShopArcadePlayRequest} from "~/game/ShopArcadeCabinet";
 
@@ -31,8 +18,7 @@ const formatBytes = (bytes: number) => {
 
 const stripExtension = (fileName: string) => fileName.replace(/\.[^.]+$/u, "");
 
-const extensionOf = (fileName: string) =>
-  fileName.split(".").pop()?.toUpperCase() ?? "";
+const extensionOf = (fileName: string) => fileName.split(".").pop()?.toUpperCase() ?? "";
 
 type ArcadeRomRow = {
   key: string;
@@ -56,9 +42,7 @@ export type ArcadeBrowserProps = {
  */
 export const ArcadeBrowser = (props: ArcadeBrowserProps) => {
   const defaultSystem = ARCADE_SYSTEMS[0]!;
-  const [selectedSystemId, setSelectedSystemId] = createSignal(
-    defaultSystem.id,
-  );
+  const [selectedSystemId, setSelectedSystemId] = createSignal(defaultSystem.id);
   const [query, setQuery] = createSignal("");
   const [savedRoms, setSavedRoms] = createSignal<ArcadeRomSummary[]>([]);
   const [error, setError] = createSignal<string>();
@@ -67,10 +51,7 @@ export const ArcadeBrowser = (props: ArcadeBrowserProps) => {
     .then(setSavedRoms)
     .catch(() => {});
 
-  const [folder, {refetch, mutate}] = createResource(
-    selectedSystemId,
-    (systemId) => listArcadeFolderRoms(systemId),
-  );
+  const [folder, {refetch, mutate}] = createResource(selectedSystemId, (systemId) => listArcadeFolderRoms(systemId));
 
   // Quietly re-reads the listing so ROMs dropped into a folder appear without
   // reopening the picker. Mutates the resource in place: no spinner flash and
@@ -81,8 +62,7 @@ export const ArcadeBrowser = (props: ArcadeBrowserProps) => {
     const systemId = selectedSystemId();
     try {
       const result = await listArcadeFolderRoms(systemId);
-      if (request !== quietRefreshRequest || selectedSystemId() !== systemId)
-        return;
+      if (request !== quietRefreshRequest || selectedSystemId() !== systemId) return;
       mutate(result);
     } catch {
       return;
@@ -91,8 +71,7 @@ export const ArcadeBrowser = (props: ArcadeBrowserProps) => {
 
   onMount(() => {
     const timer = window.setInterval(() => {
-      if (document.visibilityState !== "visible" || !document.hasFocus())
-        return;
+      if (document.visibilityState !== "visible" || !document.hasFocus()) return;
       void quietRefresh();
     }, ROM_LISTING_REFRESH_INTERVAL_MS);
     onCleanup(() => window.clearInterval(timer));
@@ -125,11 +104,7 @@ export const ArcadeBrowser = (props: ArcadeBrowserProps) => {
         sizeBytes: rom.sizeBytes,
       })),
     ...savedRoms()
-      .filter(
-        (rom) =>
-          rom.systemId === selectedSystemId() &&
-          matchesQuery(stripExtension(rom.name), rom.name),
-      )
+      .filter((rom) => rom.systemId === selectedSystemId() && matchesQuery(stripExtension(rom.name), rom.name))
       .map((rom) => ({
         key: rom.id,
         kind: "sideloaded" as const,
@@ -154,9 +129,7 @@ export const ArcadeBrowser = (props: ArcadeBrowserProps) => {
       if (!romUrl) throw new Error("The saved ROM could not be opened.");
       props.onPlay({name: row.name, romUrl, systemId: selectedSystemId()});
     } catch (cause) {
-      setError(
-        cause instanceof Error ? cause.message : "The ROM could not be opened.",
-      );
+      setError(cause instanceof Error ? cause.message : "The ROM could not be opened.");
     }
   };
 
@@ -202,14 +175,11 @@ export const ArcadeBrowser = (props: ArcadeBrowserProps) => {
       <div class="flex max-h-[92dvh] w-full max-w-3xl flex-col border border-white/12 bg-[#101716] shadow-[0_30px_100px_#000]">
         <header class="flex items-start gap-4 border-b border-white/8 px-5 py-4">
           <div class="min-w-0">
-            <p class="text-[9px] font-bold tracking-[0.2em] text-[#d05b50] uppercase">
-              Arcade cabinet
-            </p>
+            <p class="text-[9px] font-bold tracking-[0.2em] text-[#d05b50] uppercase">Arcade cabinet</p>
             <h2 class="mt-1 font-serif text-xl text-[#eee8dc]">Pick a game</h2>
             <p class="mt-1 text-[10px] leading-4 text-[#8f9b96]">
-              Games stream from each system's cartridge folder in content/roms,
-              plus any extra folders registered in Options. Nothing ships inside
-              the shop.
+              Games stream from each system's cartridge folder in content/roms, plus any extra folders registered in
+              Options. Nothing ships inside the shop.
             </p>
           </div>
           <button
@@ -232,10 +202,8 @@ export const ArcadeBrowser = (props: ArcadeBrowserProps) => {
                 <button
                   classList={{
                     "flex shrink-0 items-center justify-between gap-2 px-3 py-2 text-left text-[11px] font-semibold transition": true,
-                    "bg-white/8 text-[#f1eadc]":
-                      selectedSystemId() === system.id,
-                    "text-[#98a39e] hover:bg-white/4 hover:text-[#e5e0d5]":
-                      selectedSystemId() !== system.id,
+                    "bg-white/8 text-[#f1eadc]": selectedSystemId() === system.id,
+                    "text-[#98a39e] hover:bg-white/4 hover:text-[#e5e0d5]": selectedSystemId() !== system.id,
                   }}
                   type="button"
                   onClick={() => setSelectedSystemId(system.id)}
@@ -252,9 +220,7 @@ export const ArcadeBrowser = (props: ArcadeBrowserProps) => {
                 class="h-9 w-full border border-white/12 bg-[#0a1110] px-3 text-sm text-[#f0ebdf] outline-none placeholder:text-[#4f5b57] focus:border-[#c7554b]"
                 maxLength={64}
                 onInput={(event) => setQuery(event.currentTarget.value)}
-                placeholder={`Search ${
-                  findArcadeSystem(selectedSystemId())?.shortLabel ?? "system"
-                }…`}
+                placeholder={`Search ${findArcadeSystem(selectedSystemId())?.shortLabel ?? "system"}…`}
                 value={query()}
               />
               <label class="flex h-9 shrink-0 cursor-pointer items-center gap-2 border border-white/12 px-3 text-[9px] font-bold tracking-[0.1em] text-[#98a39e] uppercase transition hover:bg-white/5 hover:text-white">
@@ -279,12 +245,8 @@ export const ArcadeBrowser = (props: ArcadeBrowserProps) => {
               <Show
                 when={!folder.error}
                 fallback={
-                  <p
-                    class="p-6 text-center text-xs leading-5 text-[#dc7167]"
-                    role="alert"
-                  >
-                    The ROM folder could not be read. Check that Afterleaf's
-                    server is still running, then retry.
+                  <p class="p-6 text-center text-xs leading-5 text-[#dc7167]" role="alert">
+                    The ROM folder could not be read. Check that Afterleaf's server is still running, then retry.
                     <button
                       class="mt-3 block w-full border border-white/12 py-2 text-[9px] font-bold tracking-[0.14em] text-[#98a39e] uppercase transition hover:bg-white/5 hover:text-white"
                       type="button"
@@ -311,11 +273,9 @@ export const ArcadeBrowser = (props: ArcadeBrowserProps) => {
                     fallback={
                       <p class="p-6 text-center text-xs leading-5 text-[#8f9b96]">
                         No cartridge folders are available for{" "}
-                        {findArcadeSystem(selectedSystemId())?.label ??
-                          "this system"}{" "}
-                        yet. Drop games into content/roms/
-                        {selectedSystemId()} or add folders in the Options menu,
-                        then reopen this picker.
+                        {findArcadeSystem(selectedSystemId())?.label ?? "this system"} yet. Drop games into
+                        content/roms/
+                        {selectedSystemId()} or add folders in the Options menu, then reopen this picker.
                       </p>
                     }
                   >
@@ -324,25 +284,19 @@ export const ArcadeBrowser = (props: ArcadeBrowserProps) => {
                         each={visibleRows()}
                         fallback={
                           <p class="p-6 text-center text-xs text-[#8f9b96]">
-                            {query().trim()
-                              ? "No games match that search."
-                              : "No supported game files found yet."}
+                            {query().trim() ? "No games match that search." : "No supported game files found yet."}
                           </p>
                         }
                       >
                         {(row) => (
                           <article class="group flex items-center gap-3 border border-transparent px-3 py-2 transition hover:border-white/10 hover:bg-white/4">
                             <div class="min-w-0 flex-1">
-                              <p class="truncate text-sm text-[#eee8dc]">
-                                {stripExtension(row.name)}
-                              </p>
+                              <p class="truncate text-sm text-[#eee8dc]">{stripExtension(row.name)}</p>
                               <p class="text-[9px] tracking-[0.08em] text-[#77857f] uppercase tabular-nums">
                                 {formatBytes(row.sizeBytes)}
                                 {" · "}
                                 {extensionOf(row.name)}
-                                <Show when={row.savedId}>
-                                  {" · sideloaded"}
-                                </Show>
+                                <Show when={row.savedId}>{" · sideloaded"}</Show>
                               </p>
                             </div>
                             <Show when={row.savedId}>
@@ -358,11 +312,7 @@ export const ArcadeBrowser = (props: ArcadeBrowserProps) => {
                             </Show>
                             <button
                               class="flex h-8 items-center gap-1.5 bg-[#ece6d8] px-3 text-[9px] font-bold tracking-[0.08em] text-[#17201e] uppercase transition hover:bg-white"
-                              title={
-                                row.savedId
-                                  ? "Play from this machine's library"
-                                  : "Stream from your ROM folder"
-                              }
+                              title={row.savedId ? "Play from this machine's library" : "Stream from your ROM folder"}
                               type="button"
                               onClick={() => void playRow(row)}
                             >
@@ -387,9 +337,8 @@ export const ArcadeBrowser = (props: ArcadeBrowserProps) => {
                 )}
               </Show>
               <p class="text-[9px] leading-4 tracking-[0.06em] text-[#657a72] uppercase">
-                Esc backs out of the arcade · Games run through EmulatorJS right
-                on this page · Sideloading your own ROMs is fine where you own
-                them
+                Esc backs out of the arcade · Games run through EmulatorJS right on this page · Sideloading your own
+                ROMs is fine where you own them
               </p>
             </footer>
           </section>

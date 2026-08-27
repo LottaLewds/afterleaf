@@ -75,10 +75,7 @@ test("WeebCentral parsers normalize HTML fragments", async () => {
       publishedAt: "2026-01-01T00:00:00.000Z",
     },
   ]);
-  expect(pages).toEqual([
-    "https://images.test/001.png",
-    "https://weebcentral.test/002.webp",
-  ]);
+  expect(pages).toEqual(["https://images.test/001.png", "https://weebcentral.test/002.webp"]);
 });
 
 test("WeebCentral client sends safe search filters and retries Cloudflare failures", async () => {
@@ -93,10 +90,9 @@ test("WeebCentral client sends safe search filters and retries Cloudflare failur
       });
       responseCount += 1;
       if (responseCount === 1) return new Response("blocked", {status: 403});
-      return new Response(
-        `<a href="/series/series-id/Test-Manga">Test Manga</a>`,
-        {headers: {"content-type": "text/html"}},
-      );
+      return new Response(`<a href="/series/series-id/Test-Manga">Test Manga</a>`, {
+        headers: {"content-type": "text/html"},
+      });
     }),
     origin: "https://weebcentral.test",
     requestIntervalMilliseconds: 0,
@@ -106,37 +102,26 @@ test("WeebCentral client sends safe search filters and retries Cloudflare failur
     },
   });
 
-  const result = await client.searchSeries(
-    " Test Manga ",
-    2,
-    ["english"],
-    ["horror", "unknown-tag"],
-  );
+  const result = await client.searchSeries(" Test Manga ", 2, ["english"], ["horror", "unknown-tag"]);
 
   expect(result.series).toEqual([reference]);
   expect(requests).toHaveLength(2);
   expect(requests[0]?.url.searchParams.get("adult")).toBe("False");
   expect(requests[0]?.url.searchParams.get("text")).toBe("Test Manga");
   expect(requests[0]?.url.searchParams.get("offset")).toBe("32");
-  expect(requests[0]?.url.searchParams.getAll("excluded_tag")).toEqual([
-    "Horror",
-  ]);
+  expect(requests[0]?.url.searchParams.getAll("excluded_tag")).toEqual(["Horror"]);
   expect(requests[0]?.headers.get("user-agent")).toContain("Afterleaf");
   expect(sleeps).toEqual([1_000]);
 });
 
 test("WeebCentral parsers reject incomplete remote markup", async () => {
-  await expect(
-    parseWeebCentralSeriesHtml("<h1>Missing safety marker</h1>", reference),
-  ).rejects.toThrow("adult-content marker");
-  await expect(
-    parseWeebCentralChapterListHtml(
-      '<a href="/chapters/chapter-id">No chapter label</a>',
-    ),
-  ).rejects.toThrow("has no number");
-  await expect(
-    parseWeebCentralPageListHtml("<section></section>"),
-  ).rejects.toThrow("returned no pages");
+  await expect(parseWeebCentralSeriesHtml("<h1>Missing safety marker</h1>", reference)).rejects.toThrow(
+    "adult-content marker",
+  );
+  await expect(parseWeebCentralChapterListHtml('<a href="/chapters/chapter-id">No chapter label</a>')).rejects.toThrow(
+    "has no number",
+  );
+  await expect(parseWeebCentralPageListHtml("<section></section>")).rejects.toThrow("returned no pages");
 });
 
 test("WeebCentral client rejects non-image page responses", async () => {
@@ -152,7 +137,5 @@ test("WeebCentral client rejects non-image page responses", async () => {
     retryCount: 0,
   });
 
-  await expect(
-    client.downloadPage("https://images.test/001.png"),
-  ).rejects.toThrow("was not an image");
+  await expect(client.downloadPage("https://images.test/001.png")).rejects.toThrow("was not an image");
 });

@@ -7,10 +7,7 @@
 import {availableParallelism} from "node:os";
 import {Worker} from "node:worker_threads";
 
-import type {
-  ShelfAtlasEncodeRequest,
-  ShelfAtlasEncodeResponse,
-} from "~/content/shelfAtlasKtx2Worker";
+import type {ShelfAtlasEncodeRequest, ShelfAtlasEncodeResponse} from "~/content/shelfAtlasKtx2Worker";
 
 const MAX_WORKERS = Math.max(1, Math.min(8, availableParallelism() - 1));
 
@@ -37,15 +34,11 @@ const runNext = () => {
   }
   poolWorker.idle = false;
   pendingById.set(task.request.id, task.pending);
-  poolWorker.worker.postMessage(task.request, [
-    task.request.png.buffer as ArrayBuffer,
-  ]);
+  poolWorker.worker.postMessage(task.request, [task.request.png.buffer as ArrayBuffer]);
 };
 
 const spawnWorker = (): PoolWorker => {
-  const worker = new Worker(
-    new URL("./shelfAtlasKtx2Worker.ts", import.meta.url),
-  );
+  const worker = new Worker(new URL("./shelfAtlasKtx2Worker.ts", import.meta.url));
   const poolWorker: PoolWorker = {worker, idle: true};
   worker.on("message", (response: ShelfAtlasEncodeResponse) => {
     poolWorker.idle = true;
@@ -69,10 +62,7 @@ const spawnWorker = (): PoolWorker => {
   return poolWorker;
 };
 
-export const encodeShelfAtlasPng = (
-  png: Uint8Array,
-  isUASTC: boolean,
-): Promise<Uint8Array> =>
+export const encodeShelfAtlasPng = (png: Uint8Array, isUASTC: boolean): Promise<Uint8Array> =>
   new Promise<Uint8Array>((resolve, reject) => {
     let poolWorker = workers.find((candidate) => candidate.idle);
     if (!poolWorker && workers.length < MAX_WORKERS) poolWorker = spawnWorker();
@@ -80,10 +70,7 @@ export const encodeShelfAtlasPng = (
     if (poolWorker && !queue.length) {
       poolWorker.idle = false;
       pendingById.set(id, {resolve, reject});
-      poolWorker.worker.postMessage(
-        {id, isUASTC, png} satisfies ShelfAtlasEncodeRequest,
-        [png.buffer as ArrayBuffer],
-      );
+      poolWorker.worker.postMessage({id, isUASTC, png} satisfies ShelfAtlasEncodeRequest, [png.buffer as ArrayBuffer]);
       return;
     }
     queue.push({request: {id, isUASTC, png}, pending: {resolve, reject}});

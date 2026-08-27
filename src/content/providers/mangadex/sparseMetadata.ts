@@ -20,11 +20,8 @@ export const createMangaDexSparseMetadata = (
   server,
 });
 
-export const parseMangaDexSparseMetadata = (
-  value: unknown,
-): MangaDexSparseMetadata => {
-  if (typeof value !== "object" || value === null)
-    throw new Error("MangaDex sparse metadata must be an object");
+export const parseMangaDexSparseMetadata = (value: unknown): MangaDexSparseMetadata => {
+  if (typeof value !== "object" || value === null) throw new Error("MangaDex sparse metadata must be an object");
   const metadata = value as Partial<MangaDexSparseMetadata>;
   const server = metadata.server;
   if (

@@ -8,24 +8,17 @@ import {
   type TvVideo,
 } from "~/tv/protocol";
 
-export const loadTvChannels = async (
-  signal: AbortSignal,
-): Promise<readonly TvChannel[]> => {
+export const loadTvChannels = async (signal: AbortSignal): Promise<readonly TvChannel[]> => {
   const response = await fetch(TV_CHANNELS_ENDPOINT, {
     cache: "no-store",
     credentials: "same-origin",
     signal,
   });
-  if (!response.ok)
-    throw new Error(`TV channel discovery failed (${response.status})`);
+  if (!response.ok) throw new Error(`TV channel discovery failed (${response.status})`);
   return parseTvChannelManifest(await response.json()).channels;
 };
 
-export const importTvVideo = async (
-  url: string,
-  channelId: string,
-  signal: AbortSignal,
-): Promise<TvVideo> => {
+export const importTvVideo = async (url: string, channelId: string, signal: AbortSignal): Promise<TvVideo> => {
   const request = parseTvVideoImportRequest({channelId, url});
   const response = await fetch(TV_IMPORT_ENDPOINT, {
     body: JSON.stringify(request),

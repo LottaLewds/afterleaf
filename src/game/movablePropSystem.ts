@@ -19,21 +19,12 @@ import {clone as cloneWithSkeleton} from "three/examples/jsm/utils/SkeletonUtils
 import {DEV} from "solid-js";
 import crtTvModelUrl from "~/assets/models/crt-tv.glb?url";
 import trashCanModelUrl from "~/assets/models/trash_can.glb?url";
-import {
-  createCeilingLightRig,
-  playModelAnimations,
-} from "~/game/interior/lightingProps";
-import {
-  findModelTelevisionScreen,
-  getInitialModelAnimationIndex,
-} from "~/game/modelTelevision";
+import {createCeilingLightRig, playModelAnimations} from "~/game/interior/lightingProps";
+import {findModelTelevisionScreen, getInitialModelAnimationIndex} from "~/game/modelTelevision";
 import {normalizePosterRotation} from "~/game/wallDecorTuning";
 import {ARCADE_CABINET_HEIGHT} from "~/game/ShopArcadeCabinet";
 import {RARE_ROOM_CENTER_X, RARE_ROOM_CENTER_Z} from "~/game/shopLayout";
-import {
-  SHOP_MODEL_TELEVISION_SCALE,
-  SHOP_MODEL_TELEVISION_SIZE,
-} from "~/game/shopLayout";
+import {SHOP_MODEL_TELEVISION_SCALE, SHOP_MODEL_TELEVISION_SIZE} from "~/game/shopLayout";
 import {
   BUILTIN_ARCADE_CABINET_ASSET_ID,
   BUILTIN_CEILING_LIGHT_ASSET_ID,
@@ -47,10 +38,7 @@ import {
   PROP_MAX_PROJECTION_DISTANCE,
   PROP_MIN_PROJECTION_DISTANCE,
 } from "~/game/propTuning";
-import type {
-  MovablePropRegistration,
-  PropMaterialSwap,
-} from "~/game/propRegistration";
+import type {MovablePropRegistration, PropMaterialSwap} from "~/game/propRegistration";
 import {
   BUILTIN_SPAWNABLE_PROP_ASSETS,
   placeClonedTemplateObject,
@@ -60,15 +48,12 @@ import {
   type SpawnablePropAsset,
 } from "~/game/propTemplates";
 import {buildMergedStaticParts} from "~/game/staticModelBatching";
+import {createMovablePropRecord} from "~/game/movablePropRegistry";
 import {ShopArcadeCabinet} from "~/game/ShopArcadeCabinet";
 import {ShopAudioManager} from "~/game/ShopAudioManager";
 import type {BookPhysicsPose, ShopPhysicsWorld} from "~/game/ShopPhysicsWorld";
 import {CRT_TV_SAFE_AREA, ShopTelevision} from "~/game/ShopTelevision";
-import type {
-  ModelPlacementSession,
-  ModelTemplate,
-  MovablePropRecord,
-} from "~/game/ShopScene";
+import type {ModelPlacementSession, ModelTemplate, MovablePropRecord} from "~/game/shopTypes";
 import {disposeObject} from "~/game/threeDisposal";
 import type {ModelAsset} from "~/models/protocol";
 import {
@@ -86,7 +71,6 @@ import type {DiscardBin} from "~/game/discardBin";
 import type {TvChannel} from "~/tv/protocol";
 
 const CARRIED_PROP_OPACITY = 0.32;
-const PROP_ROTATION_SNAP_STEP = MathUtils.degToRad(15);
 const PROP_SUPPORT_SNAP_DISTANCE = 0.65;
 const MIN_MODEL_COLLIDER_DIMENSION = 0.02;
 const MAX_USER_MODEL_PROP_COUNT = 512;
@@ -179,7 +163,7 @@ export type MovablePropLifecycleHost = {
   televisions: () => ShopTelevision[];
   throwVelocity: () => Vector3;
   tvChannels: () => readonly TvChannel[];
-  tvScreenLighting: () => () => boolean;
+  tvScreenLighting: () => boolean;
   updateHeldPhysicsTarget: () => void;
   upAxis: () => Vector3;
   viewDirection: () => Vector3;
@@ -199,8 +183,7 @@ export class MovablePropLifecycle {
   modelPlacementRevision = 0;
   modelPlacement: ModelPlacementSession | undefined;
   modelImportError: string | undefined;
-  spawnablePropAssets: readonly SpawnablePropAsset[] =
-    BUILTIN_SPAWNABLE_PROP_ASSETS;
+  spawnablePropAssets: readonly SpawnablePropAsset[] = BUILTIN_SPAWNABLE_PROP_ASSETS;
   spawnablePropAssetIndex = 0;
   pendingPropSaves = new Map<string, WorldPropSave>();
   pendingModelPropSaves: readonly WorldModelPropSave[] = [];
@@ -231,49 +214,12 @@ export class MovablePropLifecycle {
     this.#host = host;
   }
 
-  /** Drops the discard volume that lived inside a deleted trash can. */
-
   registerMovableProp(registration: MovablePropRegistration) {
     const host = this.#host;
     registration.object.updateWorldMatrix(true, false);
     const currentPosition = registration.object.getWorldPosition(new Vector3());
-    const currentRotation = registration.object.getWorldQuaternion(
-      new Quaternion(),
-    );
-    const record: MovablePropRecord = {
-      currentPosition,
-      currentRotation,
-      ghostMaterialSwaps: [],
-      halfDepth: registration.depth / 2,
-      halfHeight: registration.height / 2,
-      halfWidth: registration.width / 2,
-      heldLocalPosition: registration.heldLocalPosition,
-      id: registration.id,
-      label: registration.label,
-      locked: registration.locked ?? false,
-      ...(registration.modelAnimationIndex === undefined
-        ? {}
-        : {modelAnimationIndex: registration.modelAnimationIndex}),
-      ...(registration.modelAnimations
-        ? {modelAnimations: registration.modelAnimations}
-        : {}),
-      ...(registration.modelAsset ? {modelAsset: registration.modelAsset} : {}),
-      ...(registration.modelBaseSize
-        ? {modelBaseSize: registration.modelBaseSize}
-        : {}),
-      ...(registration.modelMixer ? {modelMixer: registration.modelMixer} : {}),
-      ...(registration.modelScale === undefined
-        ? {}
-        : {modelScale: registration.modelScale}),
-      object: registration.object,
-      placementSupport: registration.placementSupport ?? registration.object,
-      rotationSnapStep:
-        registration.rotationSnapStep ?? PROP_ROTATION_SNAP_STEP,
-      ...(registration.spawnAssetId
-        ? {spawnAssetId: registration.spawnAssetId}
-        : {}),
-      spawned: registration.spawned ?? false,
-    };
+    const currentRotation = registration.object.getWorldQuaternion(new Quaternion());
+    const record = createMovablePropRecord(registration, currentPosition, currentRotation);
     if (registration.targetable !== false)
       (registration.targetObject ?? registration.object).traverse((object) => {
         if (!(object instanceof Mesh)) return;
@@ -286,16 +232,10 @@ export class MovablePropLifecycle {
       owner: record,
     });
     host.physicsWorld().addProp({
-      ...(registration.colliderParts
-        ? {colliderParts: registration.colliderParts}
-        : {}),
-      ...(registration.density !== undefined
-        ? {density: registration.density}
-        : {}),
+      ...(registration.colliderParts ? {colliderParts: registration.colliderParts} : {}),
+      ...(registration.density !== undefined ? {density: registration.density} : {}),
       depth: registration.depth,
-      ...(registration.staticWhenPlaced !== undefined
-        ? {staticWhenPlaced: registration.staticWhenPlaced}
-        : {}),
+      ...(registration.staticWhenPlaced !== undefined ? {staticWhenPlaced: registration.staticWhenPlaced} : {}),
       height: registration.height,
       id: registration.id,
       pose: {position: currentPosition, rotation: currentRotation},
@@ -309,10 +249,8 @@ export class MovablePropLifecycle {
     if (record.locked) host.physicsWorld().setPropLocked(record.id, true);
     // Cache the spawn template before the discard volume joins the object
     // so cloned trash can templates stay volume-free.
-    if (registration.templateForSpawning)
-      this.cacheBuiltinPropTemplate(registration);
-    if (registration.spawnAssetId === BUILTIN_TRASH_CAN_ASSET_ID)
-      host.discardBin().attach(record);
+    if (registration.templateForSpawning) this.cacheBuiltinPropTemplate(registration);
+    if (registration.spawnAssetId === BUILTIN_TRASH_CAN_ASSET_ID) host.discardBin().attach(record);
     return record;
   }
 
@@ -323,8 +261,7 @@ export class MovablePropLifecycle {
    * runs even on worlds whose live defaults come from their saves.
    */
   cacheBuiltinPropTemplate(registration: MovablePropRegistration) {
-    const cached =
-      this.#builtinPropTemplates.cacheFromRegistration(registration);
+    const cached = this.#builtinPropTemplates.cacheFromRegistration(registration);
     if (!cached) return;
     // Async builtin templates (the desk lamp GLB, for example) can land
     // after a restore pass already gave up on their saved props. Retry
@@ -357,11 +294,7 @@ export class MovablePropLifecycle {
   ghostObject(object: Object3D) {
     const swaps: PropMaterialSwap[] = [];
     object.traverse((child) => {
-      if (
-        !(child instanceof Mesh) ||
-        child.userData.movablePropTargetProxy === true
-      )
-        return;
+      if (!(child instanceof Mesh) || child.userData.movablePropTargetProxy === true) return;
       const material = child.material;
       const createGhostMaterial = (source: Material) => {
         const ghost = source.clone();
@@ -371,9 +304,7 @@ export class MovablePropLifecycle {
         ghost.transparent = true;
         return ghost;
       };
-      const ghostMaterial = Array.isArray(material)
-        ? material.map(createGhostMaterial)
-        : createGhostMaterial(material);
+      const ghostMaterial = Array.isArray(material) ? material.map(createGhostMaterial) : createGhostMaterial(material);
       swaps.push({material, mesh: child, renderOrder: child.renderOrder});
       child.material = ghostMaterial;
       child.renderOrder = 10;
@@ -383,9 +314,7 @@ export class MovablePropLifecycle {
 
   restoreGhostedObject(swaps: PropMaterialSwap[]) {
     for (const swap of swaps) {
-      const ghostMaterials = Array.isArray(swap.mesh.material)
-        ? swap.mesh.material
-        : [swap.mesh.material];
+      const ghostMaterials = Array.isArray(swap.mesh.material) ? swap.mesh.material : [swap.mesh.material];
       swap.mesh.material = swap.material;
       swap.mesh.renderOrder = swap.renderOrder;
       for (const material of ghostMaterials) material.dispose();
@@ -393,11 +322,7 @@ export class MovablePropLifecycle {
     swaps.length = 0;
   }
 
-  beginPropPlacement(
-    object: Object3D,
-    projectionDistance: number,
-    rotationSnapStep: number,
-  ) {
+  beginPropPlacement(object: Object3D, projectionDistance: number, rotationSnapStep: number) {
     object.updateWorldMatrix(true, false);
     object.getWorldQuaternion(this.#placementQuaternion);
     this.#placementEuler.setFromQuaternion(this.#placementQuaternion, "YXZ");
@@ -416,11 +341,7 @@ export class MovablePropLifecycle {
     if (!this.propPlacementSnapping) return this.propPlacementYaw;
     return (
       this.propPlacementRotationSnapOrigin +
-      Math.round(
-        (this.propPlacementYaw - this.propPlacementRotationSnapOrigin) /
-          rotationSnapStep,
-      ) *
-        rotationSnapStep
+      Math.round((this.propPlacementYaw - this.propPlacementRotationSnapOrigin) / rotationSnapStep) * rotationSnapStep
     );
   }
 
@@ -443,10 +364,7 @@ export class MovablePropLifecycle {
     for (const candidate of this.#placementSupports) {
       if (candidate.owner === heldProp) continue;
       const resolvedBounds =
-        candidate.bounds ??
-        (candidate.object
-          ? this.#supportBounds.setFromObject(candidate.object)
-          : undefined);
+        candidate.bounds ?? (candidate.object ? this.#supportBounds.setFromObject(candidate.object) : undefined);
       if (!resolvedBounds) continue;
       const supportWidth = resolvedBounds.max.x - resolvedBounds.min.x;
       const supportDepth = resolvedBounds.max.z - resolvedBounds.min.z;
@@ -481,21 +399,13 @@ export class MovablePropLifecycle {
     const host = this.#host;
     if (host.carriedPublicationId() || this.carriedProp) return;
     record.object.updateMatrixWorld(true);
-    const placementStartPosition = record.object.getWorldPosition(
-      new Vector3(),
-    );
-    const placementStartRotation = record.object.getWorldQuaternion(
-      new Quaternion(),
-    );
+    const placementStartPosition = record.object.getWorldPosition(new Vector3());
+    const placementStartRotation = record.object.getWorldQuaternion(new Quaternion());
     if (!host.physicsWorld().holdProp(record.id)) return;
     record.placementStartPosition = placementStartPosition;
     record.placementStartRotation = placementStartRotation;
     record.placementStartScale = record.modelScale;
-    this.beginPropPlacement(
-      record.object,
-      Math.abs(record.heldLocalPosition.z),
-      record.rotationSnapStep,
-    );
+    this.beginPropPlacement(record.object, Math.abs(record.heldLocalPosition.z), record.rotationSnapStep);
     this.carriedProp = record;
     host.setPropTargeted(undefined);
     host.setHoveredPublicationId(undefined);
@@ -557,8 +467,7 @@ export class MovablePropLifecycle {
     });
     record.placementStartPosition = undefined;
     record.placementStartRotation = undefined;
-    if (record.placementStartScale !== undefined)
-      this.setModelPropScale(record, record.placementStartScale);
+    if (record.placementStartScale !== undefined) this.setModelPropScale(record, record.placementStartScale);
     record.placementStartScale = undefined;
     host.markWorldStateDirty();
     host.emitGameState();
@@ -573,8 +482,7 @@ export class MovablePropLifecycle {
   ) {
     const host = this.#host;
     const template = this.#builtinPropTemplates.get(asset.id);
-    if (!template)
-      throw new Error(`${asset.label} is not ready to be spawned.`);
+    if (!template) throw new Error(`${asset.label} is not ready to be spawned.`);
     const object = placeClonedTemplateObject({
       assetId: asset.id,
       camera: host.camera(),
@@ -592,16 +500,10 @@ export class MovablePropLifecycle {
       heldLocalPosition: template.heldLocalPosition.clone(),
       id,
       label: asset.label,
-      modelBaseSize: new Vector3(
-        template.width,
-        template.height,
-        template.depth,
-      ),
+      modelBaseSize: new Vector3(template.width, template.height, template.depth),
       modelScale: scale,
       object,
-      ...(template.rotationSnapStep === undefined
-        ? {}
-        : {rotationSnapStep: template.rotationSnapStep}),
+      ...(template.rotationSnapStep === undefined ? {} : {rotationSnapStep: template.rotationSnapStep}),
       spawnAssetId: asset.id,
       spawned: true,
       width: template.width * scale,
@@ -619,17 +521,14 @@ export class MovablePropLifecycle {
   // Shared ShopTelevision options for every set; saved tuning slots are only
   // spread when present so exactOptionalPropertyTypes stays honest.
 
-  sharedTelevisionOptions(
-    initialChannelId: string | undefined,
-    initialVolume: number | undefined,
-  ) {
+  sharedTelevisionOptions(initialChannelId: string | undefined, initialVolume: number | undefined) {
     const host = this.#host;
     return {
       audioManager: host.audioManager(),
       onChannelChange: host.markTelevisionSettingChanged,
       onStateChange: () => host.emitGameState(),
       onVolumeChange: host.markTelevisionSettingChanged,
-      tvScreenLighting: host.tvScreenLighting(),
+      tvScreenLighting: host.tvScreenLighting,
       ...(initialChannelId === undefined ? {} : {initialChannelId}),
       ...(initialVolume === undefined ? {} : {initialVolume}),
     };
@@ -640,11 +539,7 @@ export class MovablePropLifecycle {
       assets.length === this.#customModelAssets.length &&
       assets.every((asset, index) => {
         const current = this.#customModelAssets[index];
-        return (
-          current?.id === asset.id &&
-          current.label === asset.label &&
-          current.url === asset.url
-        );
+        return current?.id === asset.id && current.label === asset.label && current.url === asset.url;
       })
     );
   }
@@ -652,8 +547,7 @@ export class MovablePropLifecycle {
   applyModelCatalog(assets: readonly ModelAsset[]) {
     const host = this.#host;
     if (this.modelCatalogMatches(assets)) return;
-    const selectedAssetId =
-      this.spawnablePropAssets[this.spawnablePropAssetIndex]?.id;
+    const selectedAssetId = this.spawnablePropAssets[this.spawnablePropAssetIndex]?.id;
     const activeAssetId = this.modelPlacement
       ? this.spawnablePropAssets[this.modelPlacement.assetIndex]?.id
       : undefined;
@@ -670,15 +564,11 @@ export class MovablePropLifecycle {
       ),
     ];
     const selectedIndex = selectedAssetId
-      ? this.spawnablePropAssets.findIndex(
-          (asset) => asset.id === selectedAssetId,
-        )
+      ? this.spawnablePropAssets.findIndex((asset) => asset.id === selectedAssetId)
       : -1;
     this.spawnablePropAssetIndex = Math.max(0, selectedIndex);
     if (this.modelPlacement && activeAssetId) {
-      const activeIndex = this.spawnablePropAssets.findIndex(
-        (asset) => asset.id === activeAssetId,
-      );
+      const activeIndex = this.spawnablePropAssets.findIndex((asset) => asset.id === activeAssetId);
       if (activeIndex < 0) this.cancelModelPlacement();
       else {
         this.modelPlacement.assetIndex = activeIndex;
@@ -692,45 +582,32 @@ export class MovablePropLifecycle {
     const host = this.#host;
     const cached = this.#modelTemplatePromises.get(asset.id);
     if (cached) return cached;
-    const pending = MovablePropLifecycle.#modelLoader
-      .loadAsync(asset.url)
-      .then((gltf) => {
-        if (host.disposed()) {
-          disposeObject(gltf.scene);
-          throw new Error("The shop scene was disposed.");
-        }
-        gltf.scene.updateMatrixWorld(true);
-        const bounds = new Box3().setFromObject(gltf.scene);
-        const size = bounds.getSize(new Vector3());
-        const maximumDimension = Math.max(size.x, size.y, size.z);
-        if (
-          bounds.isEmpty() ||
-          !Number.isFinite(maximumDimension) ||
-          maximumDimension <= 0
-        ) {
-          disposeObject(gltf.scene);
-          throw new Error("The model has no measurable bounds.");
-        }
-        return {
-          animations: gltf.animations,
-          center: bounds.getCenter(new Vector3()),
-          normalizationScale: 1 / maximumDimension,
-          scene: gltf.scene,
-          size: size
-            .multiplyScalar(1 / maximumDimension)
-            .max(
-              new Vector3(
-                MIN_MODEL_COLLIDER_DIMENSION,
-                MIN_MODEL_COLLIDER_DIMENSION,
-                MIN_MODEL_COLLIDER_DIMENSION,
-              ),
-            ),
-        } satisfies ModelTemplate;
-      });
+    const pending = MovablePropLifecycle.#modelLoader.loadAsync(asset.url).then((gltf) => {
+      if (host.disposed()) {
+        disposeObject(gltf.scene);
+        throw new Error("The shop scene was disposed.");
+      }
+      gltf.scene.updateMatrixWorld(true);
+      const bounds = new Box3().setFromObject(gltf.scene);
+      const size = bounds.getSize(new Vector3());
+      const maximumDimension = Math.max(size.x, size.y, size.z);
+      if (bounds.isEmpty() || !Number.isFinite(maximumDimension) || maximumDimension <= 0) {
+        disposeObject(gltf.scene);
+        throw new Error("The model has no measurable bounds.");
+      }
+      return {
+        animations: gltf.animations,
+        center: bounds.getCenter(new Vector3()),
+        normalizationScale: 1 / maximumDimension,
+        scene: gltf.scene,
+        size: size
+          .multiplyScalar(1 / maximumDimension)
+          .max(new Vector3(MIN_MODEL_COLLIDER_DIMENSION, MIN_MODEL_COLLIDER_DIMENSION, MIN_MODEL_COLLIDER_DIMENSION)),
+      } satisfies ModelTemplate;
+    });
     this.#modelTemplatePromises.set(asset.id, pending);
     void pending.catch(() => {
-      if (this.#modelTemplatePromises.get(asset.id) === pending)
-        this.#modelTemplatePromises.delete(asset.id);
+      if (this.#modelTemplatePromises.get(asset.id) === pending) this.#modelTemplatePromises.delete(asset.id);
     });
     return pending;
   }
@@ -768,9 +645,7 @@ export class MovablePropLifecycle {
       }
     }
     const normalizedModel = new Group();
-    normalizedModel.position
-      .copy(template.center)
-      .multiplyScalar(-template.normalizationScale);
+    normalizedModel.position.copy(template.center).multiplyScalar(-template.normalizationScale);
     normalizedModel.scale.setScalar(template.normalizationScale);
     normalizedModel.add(model);
     const root = new Group();
@@ -796,21 +671,11 @@ export class MovablePropLifecycle {
       root.quaternion.copy(pose.quaternion);
     } else {
       host.camera().getWorldDirection(host.viewDirection());
-      root.position
-        .copy(host.camera().position)
-        .addScaledVector(host.viewDirection(), 2);
+      root.position.copy(host.camera().position).addScaledVector(host.viewDirection(), 2);
     }
     host.scene().add(root);
-    const modelAnimationIndex = getInitialModelAnimationIndex(
-      template.animations,
-      animationClip,
-    );
-    const mixer = playModelAnimations(
-      this.modelMixers,
-      model,
-      template.animations,
-      modelAnimationIndex,
-    );
+    const modelAnimationIndex = getInitialModelAnimationIndex(template.animations, animationClip);
+    const mixer = playModelAnimations(this.modelMixers, model, template.animations, modelAnimationIndex);
     return this.registerMovableProp({
       depth: template.size.z * scale,
       height: template.size.y * scale,
@@ -843,8 +708,7 @@ export class MovablePropLifecycle {
   ) {
     const host = this.#host;
     const template = this.#builtinPropTemplates.get(asset.id);
-    if (!template)
-      throw new Error(`${asset.label} is not ready to be spawned.`);
+    if (!template) throw new Error(`${asset.label} is not ready to be spawned.`);
     const object = placeClonedTemplateObject({
       assetId: asset.id,
       camera: host.camera(),
@@ -879,21 +743,13 @@ export class MovablePropLifecycle {
       heldLocalPosition: template.heldLocalPosition.clone(),
       id,
       label: asset.label,
-      modelBaseSize: new Vector3(
-        template.width,
-        template.height,
-        template.depth,
-      ),
+      modelBaseSize: new Vector3(template.width, template.height, template.depth),
       modelScale: scale,
       object,
-      ...(template.rotationSnapStep === undefined
-        ? {}
-        : {rotationSnapStep: template.rotationSnapStep}),
+      ...(template.rotationSnapStep === undefined ? {} : {rotationSnapStep: template.rotationSnapStep}),
       spawnAssetId: asset.id,
       spawned: true,
-      ...(template.staticWhenPlaced === undefined
-        ? {}
-        : {staticWhenPlaced: template.staticWhenPlaced}),
+      ...(template.staticWhenPlaced === undefined ? {} : {staticWhenPlaced: template.staticWhenPlaced}),
       width: template.width * scale,
     });
   }
@@ -916,8 +772,7 @@ export class MovablePropLifecycle {
    * as-is.
    */
   seedDefaultProps() {
-    if (this.needsSeedPass(INITIAL_WORLD_SEEDING_VERSION))
-      this.seedInitialDefaults();
+    if (this.needsSeedPass(INITIAL_WORLD_SEEDING_VERSION)) this.seedInitialDefaults();
     if (this.needsSeedPass(WORLD_SEEDING_VERSION)) this.seedCeilingLights();
     else this.restoreSavedCeilingLights();
   }
@@ -930,63 +785,41 @@ export class MovablePropLifecycle {
   seedInitialDefaults() {
     const host = this.#host;
     try {
-      const crtAsset = BUILTIN_SPAWNABLE_PROP_ASSETS.find(
-        (asset) => asset.id === BUILTIN_CRT_TV_ASSET_ID,
-      );
+      const crtAsset = BUILTIN_SPAWNABLE_PROP_ASSETS.find((asset) => asset.id === BUILTIN_CRT_TV_ASSET_ID);
       if (crtAsset) {
         // Menu-spawned CRTs default to 1x; the old hard-wired fixture was
         // 2x. Seed at player scale, resting on the television shelf.
         const seededScale = DEFAULT_MODEL_SCALE;
-        const unitHalfHeight =
-          SHOP_MODEL_TELEVISION_SIZE.height / (2 * SHOP_MODEL_TELEVISION_SCALE);
-        this.createSpawnedCrtTelevision(
-          crtAsset,
-          MODEL_TELEVISION_PHYSICS_ID,
-          seededScale,
-          {
-            position: {
-              x: -0.72,
-              y: 0.91 + unitHalfHeight * seededScale,
-              z: 13.82 + 0.183 * seededScale,
-            },
-            quaternion: IDENTITY_WORLD_QUATERNION,
+        const unitHalfHeight = SHOP_MODEL_TELEVISION_SIZE.height / (2 * SHOP_MODEL_TELEVISION_SCALE);
+        this.createSpawnedCrtTelevision(crtAsset, MODEL_TELEVISION_PHYSICS_ID, seededScale, {
+          position: {
+            x: -0.72,
+            y: 0.91 + unitHalfHeight * seededScale,
+            z: 13.82 + 0.183 * seededScale,
           },
-        );
+          quaternion: IDENTITY_WORLD_QUATERNION,
+        });
       }
-      const cabinetAsset = BUILTIN_SPAWNABLE_PROP_ASSETS.find(
-        (asset) => asset.id === BUILTIN_ARCADE_CABINET_ASSET_ID,
-      );
+      const cabinetAsset = BUILTIN_SPAWNABLE_PROP_ASSETS.find((asset) => asset.id === BUILTIN_ARCADE_CABINET_ASSET_ID);
       if (cabinetAsset)
-        for (const [
-          laneIndex,
-          placement,
-        ] of ARCADE_CABINET_PLACEMENTS.entries()) {
-          const quaternion = new Quaternion().setFromAxisAngle(
-            host.upAxis(),
-            placement.rotationY,
-          );
-          this.createSpawnedArcadeCabinet(
-            cabinetAsset,
-            `arcade-cabinet-${laneIndex + 1}`,
-            DEFAULT_MODEL_SCALE,
-            {
-              position: {
-                x: placement.position[0],
-                y: placement.position[1],
-                z: placement.position[2],
-              },
-              quaternion: {
-                w: quaternion.w,
-                x: quaternion.x,
-                y: quaternion.y,
-                z: quaternion.z,
-              },
+        for (const [laneIndex, placement] of ARCADE_CABINET_PLACEMENTS.entries()) {
+          const quaternion = new Quaternion().setFromAxisAngle(host.upAxis(), placement.rotationY);
+          this.createSpawnedArcadeCabinet(cabinetAsset, `arcade-cabinet-${laneIndex + 1}`, DEFAULT_MODEL_SCALE, {
+            position: {
+              x: placement.position[0],
+              y: placement.position[1],
+              z: placement.position[2],
             },
-          );
+            quaternion: {
+              w: quaternion.w,
+              x: quaternion.x,
+              y: quaternion.y,
+              z: quaternion.z,
+            },
+          });
         }
     } catch (error) {
-      if (DEV && !host.disposed())
-        console.warn("Afterleaf could not seed its default props.", error);
+      if (DEV && !host.disposed()) console.warn("Afterleaf could not seed its default props.", error);
     }
     // Persist promptly so legacy worlds migrate past pass 1 and later
     // deletions of the defaults stick across reloads.
@@ -999,38 +832,27 @@ export class MovablePropLifecycle {
    */
   seedCeilingLights() {
     const host = this.#host;
-    const asset = BUILTIN_SPAWNABLE_PROP_ASSETS.find(
-      (candidate) => candidate.id === BUILTIN_CEILING_LIGHT_ASSET_ID,
-    );
+    const asset = BUILTIN_SPAWNABLE_PROP_ASSETS.find((candidate) => candidate.id === BUILTIN_CEILING_LIGHT_ASSET_ID);
     if (!asset) return;
     try {
       for (const [index, placement] of CEILING_LIGHT_PLACEMENTS.entries()) {
-        const quaternion = new Quaternion().setFromAxisAngle(
-          host.upAxis(),
-          placement.rotationY,
-        );
-        this.createSpawnedCeilingLight(
-          asset,
-          `ceiling-light-${index + 1}`,
-          DEFAULT_MODEL_SCALE,
-          {
-            position: {
-              x: placement.x,
-              y: CEILING_LIGHT_ORIGIN_Y,
-              z: placement.z,
-            },
-            quaternion: {
-              w: quaternion.w,
-              x: quaternion.x,
-              y: quaternion.y,
-              z: quaternion.z,
-            },
+        const quaternion = new Quaternion().setFromAxisAngle(host.upAxis(), placement.rotationY);
+        this.createSpawnedCeilingLight(asset, `ceiling-light-${index + 1}`, DEFAULT_MODEL_SCALE, {
+          position: {
+            x: placement.x,
+            y: CEILING_LIGHT_ORIGIN_Y,
+            z: placement.z,
           },
-        );
+          quaternion: {
+            w: quaternion.w,
+            x: quaternion.x,
+            y: quaternion.y,
+            z: quaternion.z,
+          },
+        });
       }
     } catch (error) {
-      if (DEV && !host.disposed())
-        console.warn("Afterleaf could not seed the ceiling lights.", error);
+      if (DEV && !host.disposed()) console.warn("Afterleaf could not seed the ceiling lights.", error);
     }
     // Persist promptly so worlds migrate past pass 2 and light deletions
     // stay gone across reloads.
@@ -1047,30 +869,14 @@ export class MovablePropLifecycle {
     const host = this.#host;
     const save = host.pendingWorldSave();
     if (!save) return;
-    const asset = BUILTIN_SPAWNABLE_PROP_ASSETS.find(
-      (candidate) => candidate.id === BUILTIN_CEILING_LIGHT_ASSET_ID,
-    );
+    const asset = BUILTIN_SPAWNABLE_PROP_ASSETS.find((candidate) => candidate.id === BUILTIN_CEILING_LIGHT_ASSET_ID);
     if (!asset) return;
     for (const savedProp of save.modelProps ?? []) {
-      if (
-        savedProp.assetId !== BUILTIN_CEILING_LIGHT_ASSET_ID ||
-        this.records.has(savedProp.id)
-      )
-        continue;
+      if (savedProp.assetId !== BUILTIN_CEILING_LIGHT_ASSET_ID || this.records.has(savedProp.id)) continue;
       try {
-        this.createSpawnedCeilingLight(
-          asset,
-          savedProp.id,
-          savedProp.scale,
-          savedProp.pose,
-          savedProp.locked === true,
-        );
+        this.createSpawnedCeilingLight(asset, savedProp.id, savedProp.scale, savedProp.pose, savedProp.locked === true);
       } catch (error) {
-        if (DEV && !host.disposed())
-          console.warn(
-            `Afterleaf could not restore ceiling light ${savedProp.id}.`,
-            error,
-          );
+        if (DEV && !host.disposed()) console.warn(`Afterleaf could not restore ceiling light ${savedProp.id}.`, error);
       }
     }
   }
@@ -1083,13 +889,9 @@ export class MovablePropLifecycle {
   ) {
     const host = this.#host;
     const tableMaterial = host.televisionTableMaterial();
-    if (!tableMaterial)
-      throw new Error("CRT television materials are not ready.");
+    if (!tableMaterial) throw new Error("CRT television materials are not ready.");
     const television = new ShopTelevision({
-      ...this.sharedTelevisionOptions(
-        host.savedTelevisionChannels()[id],
-        host.savedTelevisionVolumes()[id],
-      ),
+      ...this.sharedTelevisionOptions(host.savedTelevisionChannels()[id], host.savedTelevisionVolumes()[id]),
       model: {
         // The CRT GLB predates the control strip; invisible knob targets
         // would only cost draw calls, and screen clicks already drive power.
@@ -1111,9 +913,7 @@ export class MovablePropLifecycle {
       television.object.quaternion.copy(pose.quaternion);
     } else {
       host.camera().getWorldDirection(host.viewDirection());
-      television.object.position
-        .copy(host.camera().position)
-        .addScaledVector(host.viewDirection(), 2);
+      television.object.position.copy(host.camera().position).addScaledVector(host.viewDirection(), 2);
     }
     this.registerTelevision(id, television);
     const prop = this.registerMovableProp({
@@ -1169,9 +969,7 @@ export class MovablePropLifecycle {
       modelBaseSize: new Vector3(size.width, size.height, size.depth),
       modelScale: scale,
       object: cabinet.object,
-      ...(registration.spawnAssetId
-        ? {spawnAssetId: registration.spawnAssetId}
-        : {}),
+      ...(registration.spawnAssetId ? {spawnAssetId: registration.spawnAssetId} : {}),
       spawned: registration.spawned,
       // Cabinets simulate like the CRT televisions once released: gravity
       // applies and the player can bump them unless they are locked.
@@ -1202,9 +1000,7 @@ export class MovablePropLifecycle {
       cabinet.object.quaternion.copy(pose.quaternion);
     } else {
       host.camera().getWorldDirection(host.viewDirection());
-      cabinet.object.position
-        .copy(host.camera().position)
-        .addScaledVector(host.viewDirection(), 2);
+      cabinet.object.position.copy(host.camera().position).addScaledVector(host.viewDirection(), 2);
     }
     cabinet.object.scale.setScalar(scale);
     // Spawned cabinets persist through modelProps (asset id + scale + pose).
@@ -1236,10 +1032,7 @@ export class MovablePropLifecycle {
     normalizedModel.scale.setScalar(normalizationScale);
     normalizedModel.add(model);
     const television = new ShopTelevision({
-      ...this.sharedTelevisionOptions(
-        host.savedTelevisionChannels()[id],
-        host.savedTelevisionVolumes()[id],
-      ),
+      ...this.sharedTelevisionOptions(host.savedTelevisionChannels()[id], host.savedTelevisionVolumes()[id]),
       model: {
         audioPosition: [0, 0, 0],
         center: [0, 0, 0],
@@ -1261,21 +1054,11 @@ export class MovablePropLifecycle {
       television.object.quaternion.copy(pose.quaternion);
     } else {
       host.camera().getWorldDirection(host.viewDirection());
-      television.object.position
-        .copy(host.camera().position)
-        .addScaledVector(host.viewDirection(), 2);
+      television.object.position.copy(host.camera().position).addScaledVector(host.viewDirection(), 2);
     }
     this.registerTelevision(id, television);
-    const modelAnimationIndex = getInitialModelAnimationIndex(
-      template.animations,
-      animationClip,
-    );
-    const mixer = playModelAnimations(
-      this.modelMixers,
-      model,
-      template.animations,
-      modelAnimationIndex,
-    );
+    const modelAnimationIndex = getInitialModelAnimationIndex(template.animations, animationClip);
+    const mixer = playModelAnimations(this.modelMixers, model, template.animations, modelAnimationIndex);
     const prop = this.registerMovableProp({
       density: MODEL_TELEVISION_DENSITY,
       depth: size.z * scale,
@@ -1312,35 +1095,13 @@ export class MovablePropLifecycle {
   ) {
     if (asset.kind === "model") {
       const template = await this.loadModelTemplate(asset.model);
-      if (
-        findModelTelevisionScreen(
-          template.scene,
-          MODEL_TELEVISION_SCREEN_NODE_NAME,
-        )
-      )
-        return this.createModelTelevisionProp(
-          asset.model,
-          template,
-          id,
-          scale,
-          pose,
-          animationClip,
-        );
-      return this.createModelPropFromTemplate(
-        asset.model,
-        template,
-        id,
-        scale,
-        pose,
-        animationClip,
-      );
+      if (findModelTelevisionScreen(template.scene, MODEL_TELEVISION_SCREEN_NODE_NAME))
+        return this.createModelTelevisionProp(asset.model, template, id, scale, pose, animationClip);
+      return this.createModelPropFromTemplate(asset.model, template, id, scale, pose, animationClip);
     }
-    if (asset.id === BUILTIN_CRT_TV_ASSET_ID)
-      return this.createSpawnedCrtTelevision(asset, id, scale, pose);
-    if (asset.id === BUILTIN_ARCADE_CABINET_ASSET_ID)
-      return this.createSpawnedArcadeCabinet(asset, id, scale, pose);
-    if (asset.id === BUILTIN_CEILING_LIGHT_ASSET_ID)
-      return this.createSpawnedCeilingLight(asset, id, scale, pose);
+    if (asset.id === BUILTIN_CRT_TV_ASSET_ID) return this.createSpawnedCrtTelevision(asset, id, scale, pose);
+    if (asset.id === BUILTIN_ARCADE_CABINET_ASSET_ID) return this.createSpawnedArcadeCabinet(asset, id, scale, pose);
+    if (asset.id === BUILTIN_CEILING_LIGHT_ASSET_ID) return this.createSpawnedCeilingLight(asset, id, scale, pose);
     if (asset.id === BUILTIN_TRASH_CAN_ASSET_ID) {
       const modelAsset: ModelAsset = {
         id: asset.id,
@@ -1348,78 +1109,73 @@ export class MovablePropLifecycle {
         url: trashCanModelUrl,
       };
       const template = await this.loadModelTemplate(modelAsset);
-      return this.createModelPropFromTemplate(
-        modelAsset,
-        template,
-        id,
-        scale,
-        pose,
-        animationClip,
-      );
+      return this.createModelPropFromTemplate(modelAsset, template, id, scale, pose, animationClip);
     }
     return this.createPropFromBuiltinTemplate(asset, id, scale, pose);
+  }
+
+  async #restoreSavedModelProp(
+    savedProp: WorldModelPropSave,
+    assetsById: ReadonlyMap<string, SpawnablePropAsset>,
+    unresolved: WorldModelPropSave[],
+  ) {
+    const host = this.#host;
+    if (this.records.has(savedProp.id)) return true;
+    const asset = assetsById.get(savedProp.assetId);
+    if (!asset) {
+      // The content pack renamed or dropped this asset; the saved prop
+      // cannot come back, but it must not block anything else either.
+      if (DEV && !this.#missingPropAssetIds.has(savedProp.assetId)) {
+        this.#missingPropAssetIds.add(savedProp.assetId);
+        console.warn(
+          `Afterleaf cannot restore prop ${savedProp.id}: its asset "${savedProp.assetId}" is no longer in the spawnable catalog.`,
+        );
+      }
+      unresolved.push(savedProp);
+      return true;
+    }
+    // A template-spawned builtin may still be loading its template;
+    // defer quietly, #cacheBuiltinPropTemplate retries once it lands.
+    if (
+      TEMPLATE_SPAWNED_BUILTIN_ASSET_IDS.has(savedProp.assetId) &&
+      !this.#builtinPropTemplates.has(savedProp.assetId)
+    ) {
+      unresolved.push(savedProp);
+      return true;
+    }
+    try {
+      const record = await this.createSpawnableProp(
+        asset,
+        savedProp.id,
+        savedProp.scale,
+        savedProp.pose,
+        savedProp.animationClip,
+      );
+      if (host.disposed()) return false;
+      if (this.records.get(savedProp.id) !== record) this.removeSpawnedProp(record);
+      else if (savedProp.locked && !record.locked) {
+        record.locked = true;
+        host.physicsWorld().setPropLocked(record.id, true);
+      }
+    } catch (error) {
+      if (host.disposed()) return false;
+      unresolved.push(savedProp);
+      if (DEV) console.warn(`Afterleaf could not restore prop ${asset.id}.`, error);
+    }
+    return true;
   }
 
   async restoreSavedModelProps() {
     const host = this.#host;
     if (this.#restoreActive || this.pendingModelPropSaves.length === 0) return;
     this.#restoreActive = true;
-    const assetsById = new Map(
-      this.spawnablePropAssets.map((asset) => [asset.id, asset]),
-    );
+    const assetsById = new Map(this.spawnablePropAssets.map((asset) => [asset.id, asset]));
     const unresolved: WorldModelPropSave[] = [];
     const pending = this.pendingModelPropSaves;
     let restoreAgain = false;
     try {
-      for (const savedProp of pending) {
-        if (this.records.has(savedProp.id)) continue;
-        const asset = assetsById.get(savedProp.assetId);
-        if (!asset) {
-          // The content pack renamed or dropped this asset; the saved prop
-          // cannot come back, but it must not block anything else either.
-          if (DEV && !this.#missingPropAssetIds.has(savedProp.assetId)) {
-            this.#missingPropAssetIds.add(savedProp.assetId);
-            console.warn(
-              `Afterleaf cannot restore prop ${savedProp.id}: its asset "${savedProp.assetId}" is no longer in the spawnable catalog.`,
-            );
-          }
-          unresolved.push(savedProp);
-          continue;
-        }
-        // A template-spawned builtin may still be loading its template;
-        // defer quietly, #cacheBuiltinPropTemplate retries once it lands.
-        if (
-          TEMPLATE_SPAWNED_BUILTIN_ASSET_IDS.has(savedProp.assetId) &&
-          !this.#builtinPropTemplates.has(savedProp.assetId)
-        ) {
-          unresolved.push(savedProp);
-          continue;
-        }
-        try {
-          const record = await this.createSpawnableProp(
-            asset,
-            savedProp.id,
-            savedProp.scale,
-            savedProp.pose,
-            savedProp.animationClip,
-          );
-          if (host.disposed()) return;
-          if (this.records.get(savedProp.id) !== record) {
-            this.removeSpawnedProp(record);
-          } else if (savedProp.locked && !record.locked) {
-            record.locked = true;
-            host.physicsWorld().setPropLocked(record.id, true);
-          }
-        } catch (error) {
-          if (host.disposed()) return;
-          unresolved.push(savedProp);
-          if (DEV)
-            console.warn(
-              `Afterleaf could not restore prop ${asset.id}.`,
-              error,
-            );
-        }
-      }
+      for (const savedProp of pending)
+        if (!(await this.#restoreSavedModelProp(savedProp, assetsById, unresolved))) return;
       restoreAgain = this.pendingModelPropSaves !== pending;
       if (!restoreAgain) this.pendingModelPropSaves = unresolved;
       host.emitGameState();
@@ -1427,8 +1183,7 @@ export class MovablePropLifecycle {
       this.#restoreActive = false;
       const retryRequested = this.#restoreRetry;
       this.#restoreRetry = false;
-      if (!host.disposed() && (retryRequested || restoreAgain))
-        void this.restoreSavedModelProps();
+      if (!host.disposed() && (retryRequested || restoreAgain)) void this.restoreSavedModelProps();
     }
   }
 
@@ -1440,18 +1195,14 @@ export class MovablePropLifecycle {
       return;
     }
     const modelPropCount =
-      this.pendingModelPropSaves.length +
-      [...this.records.values()].filter((record) => record.spawned).length;
+      this.pendingModelPropSaves.length + [...this.records.values()].filter((record) => record.spawned).length;
     if (modelPropCount >= MAX_USER_MODEL_PROP_COUNT) {
       this.modelImportError = `The shop can contain at most ${MAX_USER_MODEL_PROP_COUNT} model props.`;
       host.emitGameState();
       return;
     }
-    if (this.modelPlacement || host.carriedPublicationId() || this.carriedProp)
-      return;
-    const normalizedIndex =
-      (assetIndex + this.spawnablePropAssets.length) %
-      this.spawnablePropAssets.length;
+    if (this.modelPlacement || host.carriedPublicationId() || this.carriedProp) return;
+    const normalizedIndex = (assetIndex + this.spawnablePropAssets.length) % this.spawnablePropAssets.length;
     const asset = this.spawnablePropAssets[normalizedIndex];
     if (!asset) return;
     const revision = (this.modelPlacementRevision += 1);
@@ -1465,16 +1216,8 @@ export class MovablePropLifecycle {
     this.modelImportError = undefined;
     host.emitGameState();
     try {
-      const record = await this.createSpawnableProp(
-        asset,
-        placement.id,
-        DEFAULT_MODEL_SCALE,
-      );
-      if (
-        host.disposed() ||
-        this.modelPlacement !== placement ||
-        placement.revision !== revision
-      ) {
+      const record = await this.createSpawnableProp(asset, placement.id, DEFAULT_MODEL_SCALE);
+      if (host.disposed() || this.modelPlacement !== placement || placement.revision !== revision) {
         this.removeSpawnedProp(record);
         return;
       }
@@ -1483,10 +1226,7 @@ export class MovablePropLifecycle {
       if (host.disposed()) return;
       if (this.modelPlacement !== placement) return;
       this.modelPlacement = undefined;
-      this.modelImportError =
-        error instanceof Error
-          ? error.message
-          : "The prop could not be loaded.";
+      this.modelImportError = error instanceof Error ? error.message : "The prop could not be loaded.";
       host.emitGameState();
     }
   }
@@ -1506,8 +1246,7 @@ export class MovablePropLifecycle {
     const placement = this.modelPlacement;
     if (!placement || this.spawnablePropAssets.length < 2) return;
     const nextIndex =
-      (placement.assetIndex + direction + this.spawnablePropAssets.length) %
-      this.spawnablePropAssets.length;
+      (placement.assetIndex + direction + this.spawnablePropAssets.length) % this.spawnablePropAssets.length;
     this.cancelModelPlacement();
     void this.startModelPlacement(nextIndex);
   }
@@ -1560,6 +1299,7 @@ export class MovablePropLifecycle {
     host.emitGameState();
   }
 
+  /** Drops the discard volume that lived inside a deleted trash can. */
   removeSpawnedProp(record: MovablePropRecord) {
     const host = this.#host;
     if (!record.spawned) return;
@@ -1575,37 +1315,29 @@ export class MovablePropLifecycle {
       delete object.userData.movablePropId;
       if (object.userData.movablePropTargetProxy !== true) return;
       object.geometry.dispose();
-      const materials = Array.isArray(object.material)
-        ? object.material
-        : [object.material];
+      const materials = Array.isArray(object.material) ? object.material : [object.material];
       for (const material of materials) material.dispose();
     });
-    const supportIndex = this.#placementSupports.findIndex(
-      (support) => support.owner === record,
-    );
+    const supportIndex = this.#placementSupports.findIndex((support) => support.owner === record);
     if (supportIndex >= 0) this.#placementSupports.splice(supportIndex, 1);
     record.modelMixer?.stopAllAction();
     if (record.modelMixer) this.modelMixers.delete(record.modelMixer);
     for (const [television, televisionProp] of this.televisionProps) {
       if (televisionProp !== record) continue;
-      if (host.targetedTelevision() === television)
-        host.setTelevisionTargeted(false);
+      if (host.targetedTelevision() === television) host.setTelevisionTargeted(false);
       this.televisionProps.delete(television);
       const televisionIndex = host.televisions().indexOf(television);
       if (televisionIndex >= 0) host.televisions().splice(televisionIndex, 1);
       for (const [saveId, savedTelevision] of this.televisionsBySaveId) {
-        if (savedTelevision === television)
-          this.televisionsBySaveId.delete(saveId);
+        if (savedTelevision === television) this.televisionsBySaveId.delete(saveId);
       }
       television.dispose();
       break;
     }
     for (const [cabinet, cabinetProp] of this.arcadeProps) {
       if (cabinetProp !== record) continue;
-      if (host.targetedArcadeCabinet() === cabinet)
-        host.setArcadeTargeted(undefined);
-      if (host.activeArcadeCabinet() === cabinet)
-        host.setActiveArcadeCabinet(undefined);
+      if (host.targetedArcadeCabinet() === cabinet) host.setArcadeTargeted(undefined);
+      if (host.activeArcadeCabinet() === cabinet) host.setActiveArcadeCabinet(undefined);
       this.arcadeProps.delete(cabinet);
       const cabinetIndex = host.arcadeCabinets().indexOf(cabinet);
       if (cabinetIndex >= 0) host.arcadeCabinets().splice(cabinetIndex, 1);

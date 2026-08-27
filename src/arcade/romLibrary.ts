@@ -43,22 +43,17 @@ export const createMemoryRomRecordStore = (): RomRecordStore => {
 const requestToPromise = <T>(request: IDBRequest<T>) =>
   new Promise<T>((resolve, reject) => {
     request.onsuccess = () => resolve(request.result);
-    request.onerror = () =>
-      reject(request.error ?? new Error("IndexedDB failed"));
+    request.onerror = () => reject(request.error ?? new Error("IndexedDB failed"));
   });
 
 const transactionDone = (transaction: IDBTransaction) =>
   new Promise<void>((resolve, reject) => {
     transaction.oncomplete = () => resolve();
-    transaction.onerror = () =>
-      reject(transaction.error ?? new Error("IndexedDB failed"));
-    transaction.onabort = () =>
-      reject(transaction.error ?? new Error("IndexedDB aborted"));
+    transaction.onerror = () => reject(transaction.error ?? new Error("IndexedDB failed"));
+    transaction.onabort = () => reject(transaction.error ?? new Error("IndexedDB aborted"));
   });
 
-export const createIndexedDbRomRecordStore = (
-  databaseName = "afterleaf-arcade",
-): RomRecordStore | undefined => {
+export const createIndexedDbRomRecordStore = (databaseName = "afterleaf-arcade"): RomRecordStore | undefined => {
   const indexedDb = globalThis.indexedDB;
   if (!indexedDb) return;
   let opening: Promise<IDBDatabase> | undefined;
@@ -72,8 +67,7 @@ export const createIndexedDbRomRecordStore = (
             database.createObjectStore(ROM_STORE_NAME, {keyPath: "id"});
         };
         request.onsuccess = () => resolve(request.result);
-        request.onerror = () =>
-          reject(request.error ?? new Error("IndexedDB open failed"));
+        request.onerror = () => reject(request.error ?? new Error("IndexedDB open failed"));
       });
     return opening;
   };
@@ -81,12 +75,7 @@ export const createIndexedDbRomRecordStore = (
   return {
     async get(id) {
       const database = await open();
-      return requestToPromise(
-        database
-          .transaction(ROM_STORE_NAME, "readonly")
-          .objectStore(ROM_STORE_NAME)
-          .get(id),
-      );
+      return requestToPromise(database.transaction(ROM_STORE_NAME, "readonly").objectStore(ROM_STORE_NAME).get(id));
     },
     async put(record) {
       const database = await open();
@@ -103,10 +92,7 @@ export const createIndexedDbRomRecordStore = (
     async getAll() {
       const database = await open();
       const records = await requestToPromise<ArcadeRomRecord[]>(
-        database
-          .transaction(ROM_STORE_NAME, "readonly")
-          .objectStore(ROM_STORE_NAME)
-          .getAll(),
+        database.transaction(ROM_STORE_NAME, "readonly").objectStore(ROM_STORE_NAME).getAll(),
       );
       return records.sort((a, b) => a.name.localeCompare(b.name));
     },
@@ -117,9 +103,7 @@ let sharedStore: RomRecordStore | undefined;
 
 /** Process-wide store; prefers IndexedDB and degrades to memory. */
 export const getRomRecordStore = (): RomRecordStore => {
-  if (!sharedStore)
-    sharedStore =
-      createIndexedDbRomRecordStore() ?? createMemoryRomRecordStore();
+  if (!sharedStore) sharedStore = createIndexedDbRomRecordStore() ?? createMemoryRomRecordStore();
   return sharedStore;
 };
 
@@ -135,18 +119,14 @@ export const listSavedRoms = async (): Promise<ArcadeRomSummary[]> => {
   return records.map(({blob: _blob, ...summary}) => summary);
 };
 
-export const saveRomBlob = async (
-  record: Omit<ArcadeRomRecord, "addedAt">,
-): Promise<ArcadeRomSummary> => {
+export const saveRomBlob = async (record: Omit<ArcadeRomRecord, "addedAt">): Promise<ArcadeRomSummary> => {
   const stored: ArcadeRomRecord = {...record, addedAt: Date.now()};
   await getRomRecordStore().put(stored);
   const {blob: _blob, ...summary} = stored;
   return summary;
 };
 
-export const getSavedRomUrl = async (
-  id: string,
-): Promise<string | undefined> => {
+export const getSavedRomUrl = async (id: string): Promise<string | undefined> => {
   const record = await getRomRecordStore().get(id);
   if (!record) return;
   // Name the file after the original ROM so EmulatorJS can read its

@@ -49,10 +49,7 @@ export type BookInteractionAction =
       readonly type: "shelve";
     };
 
-export type BookTransitionError =
-  | "book-not-pickable"
-  | "book-not-carried"
-  | "invalid-shelf-slot";
+export type BookTransitionError = "book-not-pickable" | "book-not-carried" | "invalid-shelf-slot";
 
 export type BookTransitionResult =
   | {ok: true; state: BookInteractionState}
@@ -67,18 +64,14 @@ const CARRIED_BOOK_STATE: BookInteractionState = Object.freeze({
   status: "carried",
 });
 
-const clamp = (value: number, min: number, max: number) =>
-  Math.min(Math.max(value, min), max);
+const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
 
 /**
  * Classifies pointer-lock discontinuities without changing ordinary mouse input.
  * A single event above this threshold would rotate the camera by more than 31
  * degrees at the default sensitivity.
  */
-export const isPlausiblePointerMovement = (
-  movementX: number,
-  movementY: number,
-) =>
+export const isPlausiblePointerMovement = (movementX: number, movementY: number) =>
   Number.isFinite(movementX) &&
   Number.isFinite(movementY) &&
   Math.abs(movementX) <= MAX_POINTER_MOVEMENT_DELTA &&
@@ -119,12 +112,7 @@ export const isPointInsideShopObstacle = (
   point.z >= obstacle.minZ - padding &&
   point.z <= obstacle.maxZ + padding;
 
-const clampPlayerAxis = (
-  value: number,
-  min: number,
-  max: number,
-  radius: number,
-) => {
+const clampPlayerAxis = (value: number, min: number, max: number, radius: number) => {
   const centerMin = min + radius;
   const centerMax = max - radius;
   if (centerMin > centerMax) return (min + max) * 0.5;
@@ -150,11 +138,7 @@ export const updateLookAngles = (
 ) => {
   const safePitchLimit = clamp(Math.abs(pitchLimit), 0, Math.PI * 0.5);
   output.yaw = wrapYaw(current.yaw + deltaYaw);
-  output.pitch = clamp(
-    current.pitch + deltaPitch,
-    -safePitchLimit,
-    safePitchLimit,
-  );
+  output.pitch = clamp(current.pitch + deltaPitch, -safePitchLimit, safePitchLimit);
   return output;
 };
 
@@ -191,10 +175,8 @@ export const getPlanarMovement = (
   distance: number,
   output: PlanarPoint,
 ) => {
-  const inputLengthSquared =
-    input.forward * input.forward + input.right * input.right;
-  const inputScale =
-    inputLengthSquared > 1 ? 1 / Math.sqrt(inputLengthSquared) : 1;
+  const inputLengthSquared = input.forward * input.forward + input.right * input.right;
+  const inputScale = inputLengthSquared > 1 ? 1 / Math.sqrt(inputLengthSquared) : 1;
   const forward = input.forward * inputScale * distance;
   const right = input.right * inputScale * distance;
   const sinYaw = Math.sin(yaw);
@@ -205,23 +187,12 @@ export const getPlanarMovement = (
   return output;
 };
 
-const resolveX = (
-  startX: number,
-  targetX: number,
-  z: number,
-  radius: number,
-  obstacles: readonly ShopObstacle[],
-) => {
+const resolveX = (startX: number, targetX: number, z: number, radius: number, obstacles: readonly ShopObstacle[]) => {
   if (targetX === startX) return targetX;
   const movingPositive = targetX > startX;
 
   for (const obstacle of obstacles) {
-    const zDistance =
-      z < obstacle.minZ
-        ? obstacle.minZ - z
-        : z > obstacle.maxZ
-          ? z - obstacle.maxZ
-          : 0;
+    const zDistance = z < obstacle.minZ ? obstacle.minZ - z : z > obstacle.maxZ ? z - obstacle.maxZ : 0;
     if (zDistance >= radius) continue;
 
     const clearance = Math.sqrt(radius * radius - zDistance * zDistance);
@@ -232,30 +203,18 @@ const resolveX = (
       targetX = obstacleMin;
       continue;
     }
-    if (!movingPositive && startX >= obstacleMax && targetX < obstacleMax)
-      targetX = obstacleMax;
+    if (!movingPositive && startX >= obstacleMax && targetX < obstacleMax) targetX = obstacleMax;
   }
 
   return targetX;
 };
 
-const resolveZ = (
-  x: number,
-  startZ: number,
-  targetZ: number,
-  radius: number,
-  obstacles: readonly ShopObstacle[],
-) => {
+const resolveZ = (x: number, startZ: number, targetZ: number, radius: number, obstacles: readonly ShopObstacle[]) => {
   if (targetZ === startZ) return targetZ;
   const movingPositive = targetZ > startZ;
 
   for (const obstacle of obstacles) {
-    const xDistance =
-      x < obstacle.minX
-        ? obstacle.minX - x
-        : x > obstacle.maxX
-          ? x - obstacle.maxX
-          : 0;
+    const xDistance = x < obstacle.minX ? obstacle.minX - x : x > obstacle.maxX ? x - obstacle.maxX : 0;
     if (xDistance >= radius) continue;
 
     const clearance = Math.sqrt(radius * radius - xDistance * xDistance);
@@ -266,8 +225,7 @@ const resolveZ = (
       targetZ = obstacleMin;
       continue;
     }
-    if (!movingPositive && startZ >= obstacleMax && targetZ < obstacleMax)
-      targetZ = obstacleMax;
+    if (!movingPositive && startZ >= obstacleMax && targetZ < obstacleMax) targetZ = obstacleMax;
   }
 
   return targetZ;
@@ -286,35 +244,20 @@ export const resolveShopMovement = (
   output: PlanarPoint,
 ) => {
   const radius = Math.max(0, playerRadius);
-  const boundedTargetX = clampPlayerAxis(
-    current.x + displacement.x,
-    world.bounds.minX,
-    world.bounds.maxX,
-    radius,
-  );
-  const x = resolveX(
-    current.x,
-    boundedTargetX,
-    current.z,
-    radius,
-    world.obstacles,
-  );
-  const boundedTargetZ = clampPlayerAxis(
-    current.z + displacement.z,
-    world.bounds.minZ,
-    world.bounds.maxZ,
-    radius,
-  );
+  const boundedTargetX = clampPlayerAxis(current.x + displacement.x, world.bounds.minX, world.bounds.maxX, radius);
+  const x = resolveX(current.x, boundedTargetX, current.z, radius, world.obstacles);
+  const boundedTargetZ = clampPlayerAxis(current.z + displacement.z, world.bounds.minZ, world.bounds.maxZ, radius);
 
   output.x = x;
   output.z = resolveZ(x, current.z, boundedTargetZ, radius, world.obstacles);
   return output;
 };
 
-const rejectBookTransition = (
-  state: BookInteractionState,
-  error: BookTransitionError,
-): BookTransitionResult => ({error, ok: false, state});
+const rejectBookTransition = (state: BookInteractionState, error: BookTransitionError): BookTransitionResult => ({
+  error,
+  ok: false,
+  state,
+});
 
 /** Advances a book interaction while retaining the old state on errors. */
 export const transitionBookInteraction = (
@@ -322,18 +265,15 @@ export const transitionBookInteraction = (
   action: BookInteractionAction,
 ): BookTransitionResult => {
   if (action.type === "pick-up") {
-    if (state.status === "carried")
-      return rejectBookTransition(state, "book-not-pickable");
+    if (state.status === "carried") return rejectBookTransition(state, "book-not-pickable");
     return {ok: true, state: CARRIED_BOOK_STATE};
   }
 
-  if (state.status !== "carried")
-    return rejectBookTransition(state, "book-not-carried");
+  if (state.status !== "carried") return rejectBookTransition(state, "book-not-carried");
   if (action.type === "drop") return {ok: true, state: FLOOR_BOOK_STATE};
   if (!action.shelfId.trim() || !Number.isSafeInteger(action.slotIndex))
     return rejectBookTransition(state, "invalid-shelf-slot");
-  if (action.slotIndex < 0)
-    return rejectBookTransition(state, "invalid-shelf-slot");
+  if (action.slotIndex < 0) return rejectBookTransition(state, "invalid-shelf-slot");
 
   return {
     ok: true,

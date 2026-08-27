@@ -1,15 +1,5 @@
 import {createHash, randomUUID} from "node:crypto";
-import {
-  access,
-  cp,
-  lstat,
-  mkdir,
-  readFile,
-  readdir,
-  rename,
-  rm,
-  writeFile,
-} from "node:fs/promises";
+import {access, cp, lstat, mkdir, readFile, readdir, rename, rm, writeFile} from "node:fs/promises";
 import {basename, dirname, extname, resolve} from "node:path";
 import {fileURLToPath, pathToFileURL} from "node:url";
 import {
@@ -42,11 +32,7 @@ import {
 import {parseLocalPublicationDocument} from "~/content/validation";
 import sharp from "~/media/sharpRuntime";
 
-export {
-  ARCHIVE_SOURCE_PROVIDER,
-  inspectContentArchive,
-  readContentArchiveImage,
-};
+export {ARCHIVE_SOURCE_PROVIDER, inspectContentArchive, readContentArchiveImage};
 export type {ArchiveInspection};
 const VALID_ID_PATTERN = /^[a-z0-9][a-z0-9._-]*$/u;
 const NATURAL_COLLATOR = new Intl.Collator("en-US", {
@@ -164,11 +150,7 @@ const findArchives = async (
   configuredReadingDirection?: "ltr" | "rtl",
 ) => {
   const archives: DiscoveredArchive[] = [];
-  const scanDirectory = async (
-    directory: string,
-    prefix: string,
-    readingDirection: "ltr" | "rtl" | undefined,
-  ) => {
+  const scanDirectory = async (directory: string, prefix: string, readingDirection: "ltr" | "rtl" | undefined) => {
     const entries = await readdir(directory, {withFileTypes: true});
     for (const entry of entries) {
       if (entry.name.startsWith(".")) continue;
@@ -192,10 +174,7 @@ const findArchives = async (
       }
       if (!entry.isDirectory()) continue;
       const direction =
-        readingDirection ??
-        DIRECTION_DIRECTORIES[
-          entry.name.toLowerCase() as keyof typeof DIRECTION_DIRECTORIES
-        ];
+        readingDirection ?? DIRECTION_DIRECTORIES[entry.name.toLowerCase() as keyof typeof DIRECTION_DIRECTORIES];
       await scanDirectory(path, archiveName, direction);
     }
   };
@@ -211,9 +190,7 @@ const findArchives = async (
       archives.push({
         archiveName: basename(archivesDirectory),
         archivePath: archivesDirectory,
-        ...(configuredReadingDirection === undefined
-          ? {}
-          : {readingDirection: configuredReadingDirection}),
+        ...(configuredReadingDirection === undefined ? {} : {readingDirection: configuredReadingDirection}),
       });
     } else if (sourceStat.isDirectory()) {
       await scanDirectory(archivesDirectory, "", configuredReadingDirection);
@@ -222,15 +199,10 @@ const findArchives = async (
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
     throw error;
   }
-  return archives.sort((left, right) =>
-    NATURAL_COLLATOR.compare(left.archiveName, right.archiveName),
-  );
+  return archives.sort((left, right) => NATURAL_COLLATOR.compare(left.archiveName, right.archiveName));
 };
 
-const createArchiveDocument = (
-  plan: ArchivePlan,
-  inferredAspectRatio: number,
-): LocalPublicationDocument => {
+const createArchiveDocument = (plan: ArchivePlan, inferredAspectRatio: number): LocalPublicationDocument => {
   if (plan.document) {
     if (!archiveNeedsAspectRatioInference(plan.document)) return plan.document;
     return {
@@ -244,10 +216,7 @@ const createArchiveDocument = (
   }
   let id = normalizeTag(plan.title);
   if (!id || !VALID_ID_PATTERN.test(id)) {
-    const fallbackHash = createHash("sha256")
-      .update(plan.archivePath)
-      .digest("hex")
-      .slice(0, 10);
+    const fallbackHash = createHash("sha256").update(plan.archivePath).digest("hex").slice(0, 10);
     id = `untitled-${fallbackHash}`;
   }
   if (plan.idSuffix) id = `${id}-${plan.idSuffix}`;
@@ -265,10 +234,7 @@ const createArchiveDocument = (
     assets: {
       pages: [],
       front: FRONT_SOURCE_FILE,
-      back:
-        plan.inspection.imageEntries.length === 1
-          ? FRONT_SOURCE_FILE
-          : BACK_SOURCE_FILE,
+      back: plan.inspection.imageEntries.length === 1 ? FRONT_SOURCE_FILE : BACK_SOURCE_FILE,
     },
     source: {
       provider: ARCHIVE_SOURCE_PROVIDER,
@@ -279,9 +245,7 @@ const createArchiveDocument = (
     },
     physical: {
       aspectRatio: inferredAspectRatio,
-      ...(plan.readingDirection === undefined
-        ? {}
-        : {readingDirection: plan.readingDirection}),
+      ...(plan.readingDirection === undefined ? {} : {readingDirection: plan.readingDirection}),
     },
   };
 };
@@ -289,8 +253,7 @@ const createArchiveDocument = (
 const archiveNeedsAspectRatioInference = (document: LocalPublicationDocument) =>
   document.physical?.aspectRatio === undefined ||
   (document.source?.provider === ARCHIVE_SOURCE_PROVIDER &&
-    document.aspectRatioInferenceVersion !==
-      BOOK_ASPECT_RATIO_INFERENCE_VERSION);
+    document.aspectRatioInferenceVersion !== BOOK_ASPECT_RATIO_INFERENCE_VERSION);
 
 const readArchiveAspectSamples = async (plan: ArchivePlan) => {
   const lastPageIndex = plan.inspection.imageEntries.length - 1;
@@ -300,26 +263,16 @@ const readArchiveAspectSamples = async (plan: ArchivePlan) => {
     plan.inspection.imageEntries.length,
     EARLY_INTERIOR_ASPECT_SAMPLE_COUNT,
   );
-  const sourceIndices = [
-    ...new Set([0, lastPageIndex, ...aspectSampleIndices]),
-  ];
+  const sourceIndices = [...new Set([0, lastPageIndex, ...aspectSampleIndices])];
   const sources = new Map(
     await Promise.all(
       sourceIndices.map(
         async (index) =>
-          [
-            index,
-            await readContentArchiveImage(
-              plan.archivePath,
-              index,
-              plan.inspection.metadataHash,
-            ),
-          ] as const,
+          [index, await readContentArchiveImage(plan.archivePath, index, plan.inspection.metadataHash)] as const,
       ),
     ),
   );
-  const representativeIndices =
-    aspectSampleIndices.length > 0 ? aspectSampleIndices : sourceIndices;
+  const representativeIndices = aspectSampleIndices.length > 0 ? aspectSampleIndices : sourceIndices;
   const dimensions = (
     await Promise.all(
       representativeIndices.flatMap((index) => {
@@ -340,9 +293,7 @@ const readArchiveAspectSamples = async (plan: ArchivePlan) => {
           ? [
               {
                 height: metadata.height,
-                ...(metadata.orientation === undefined
-                  ? {}
-                  : {orientation: metadata.orientation}),
+                ...(metadata.orientation === undefined ? {} : {orientation: metadata.orientation}),
                 width: metadata.width,
               },
             ]
@@ -354,51 +305,33 @@ const readArchiveAspectSamples = async (plan: ArchivePlan) => {
   };
 };
 
-const materializeArchivePlan = async (
-  plan: ArchivePlan,
-  publicationDirectory: string,
-) => {
+const materializeArchivePlan = async (plan: ArchivePlan, publicationDirectory: string) => {
   if (plan.document && !archiveNeedsAspectRatioInference(plan.document)) {
     await cp(plan.destinationPath, publicationDirectory, {recursive: true});
-    await writeFile(
-      resolve(publicationDirectory, "publication.json"),
-      `${JSON.stringify(plan.document, null, 2)}\n`,
-    );
+    await writeFile(resolve(publicationDirectory, "publication.json"), `${JSON.stringify(plan.document, null, 2)}\n`);
     return plan.document;
   }
   const {aspectRatio, sources} = await readArchiveAspectSamples(plan);
   const document = createArchiveDocument(plan, aspectRatio);
   if (plan.document) {
     await cp(plan.destinationPath, publicationDirectory, {recursive: true});
-    await writeFile(
-      resolve(publicationDirectory, "publication.json"),
-      `${JSON.stringify(document, null, 2)}\n`,
-    );
+    await writeFile(resolve(publicationDirectory, "publication.json"), `${JSON.stringify(document, null, 2)}\n`);
     return document;
   }
   await mkdir(publicationDirectory, {recursive: true});
   const lastPageIndex = plan.inspection.imageEntries.length - 1;
   const frontSource = sources.get(0);
   if (!frontSource) throw new Error("Archive has no front image sample");
-  const backSource =
-    lastPageIndex === 0 ? undefined : sources.get(lastPageIndex);
-  if (lastPageIndex > 0 && !backSource)
-    throw new Error("Archive has no back image sample");
+  const backSource = lastPageIndex === 0 ? undefined : sources.get(lastPageIndex);
+  if (lastPageIndex > 0 && !backSource) throw new Error("Archive has no back image sample");
   const [front, back] = await Promise.all([
     createReaderPageDerivative(frontSource),
-    backSource === undefined
-      ? undefined
-      : createReaderPageDerivative(backSource),
+    backSource === undefined ? undefined : createReaderPageDerivative(backSource),
   ]);
   await Promise.all([
     writeFile(resolve(publicationDirectory, FRONT_SOURCE_FILE), front),
-    ...(back === undefined
-      ? []
-      : [writeFile(resolve(publicationDirectory, BACK_SOURCE_FILE), back)]),
-    writeFile(
-      resolve(publicationDirectory, "publication.json"),
-      `${JSON.stringify(document, null, 2)}\n`,
-    ),
+    ...(back === undefined ? [] : [writeFile(resolve(publicationDirectory, BACK_SOURCE_FILE), back)]),
+    writeFile(resolve(publicationDirectory, "publication.json"), `${JSON.stringify(document, null, 2)}\n`),
   ]);
   return document;
 };
@@ -416,10 +349,7 @@ const commitImportedDirectories = async (moves: CommitMove[]) => {
   try {
     for (const move of moves) {
       if (!(await fileExists(move.destinationPath))) continue;
-      if (!move.replaceExisting)
-        throw new Error(
-          `Import destination already exists: ${move.destinationPath}`,
-        );
+      if (!move.replaceExisting) throw new Error(`Import destination already exists: ${move.destinationPath}`);
       const backupPath = `${move.destinationPath}.backup-${randomUUID()}`;
       await rename(move.destinationPath, backupPath);
       move.backupPath = backupPath;
@@ -431,24 +361,18 @@ const commitImportedDirectories = async (moves: CommitMove[]) => {
     }
   } catch (error) {
     for (const move of committed.reverse())
-      if (await fileExists(move.destinationPath))
-        await rename(move.destinationPath, move.sourcePath);
+      if (await fileExists(move.destinationPath)) await rename(move.destinationPath, move.sourcePath);
     for (const move of backedUp.reverse())
-      if (move.backupPath && (await fileExists(move.backupPath)))
-        await rename(move.backupPath, move.destinationPath);
+      if (move.backupPath && (await fileExists(move.backupPath))) await rename(move.backupPath, move.destinationPath);
     throw error;
   }
-  for (const move of backedUp)
-    if (move.backupPath)
-      await rm(move.backupPath, {recursive: true, force: true});
+  for (const move of backedUp) if (move.backupPath) await rm(move.backupPath, {recursive: true, force: true});
 };
 
 const readExistingArchiveDocument = async (destinationPath: string) => {
   try {
     return parseLocalPublicationDocument(
-      JSON.parse(
-        await readFile(resolve(destinationPath, "publication.json"), "utf8"),
-      ) as unknown,
+      JSON.parse(await readFile(resolve(destinationPath, "publication.json"), "utf8")) as unknown,
       "publication.json",
     );
   } catch {
@@ -472,20 +396,14 @@ const existingArchiveDestinations = async (outputDirectory: string) => {
   for (const entry of entries) {
     if (!entry.isDirectory() || entry.isSymbolicLink()) continue;
     names.add(entry.name.toLocaleLowerCase("en-US"));
-    const document = await readExistingArchiveDocument(
-      resolve(outputDirectory, entry.name),
-    );
+    const document = await readExistingArchiveDocument(resolve(outputDirectory, entry.name));
     if (document?.source?.provider !== ARCHIVE_SOURCE_PROVIDER) continue;
     bySourceUrl.set(document.source.sourceUrl, entry.name);
     try {
       const sourceUrl = new URL(document.source.sourceUrl);
-      if (
-        sourceUrl.protocol === "file:" &&
-        !(await fileExists(fileURLToPath(sourceUrl)))
-      ) {
+      if (sourceUrl.protocol === "file:" && !(await fileExists(fileURLToPath(sourceUrl)))) {
         staleNames.add(entry.name.toLocaleLowerCase("en-US"));
-        const candidates =
-          staleNamesByMetadataHash.get(document.source.metadataHash) ?? [];
+        const candidates = staleNamesByMetadataHash.get(document.source.metadataHash) ?? [];
         candidates.push(entry.name);
         staleNamesByMetadataHash.set(document.source.metadataHash, candidates);
       }
@@ -496,10 +414,7 @@ const existingArchiveDestinations = async (outputDirectory: string) => {
   return {bySourceUrl, names, staleNames, staleNamesByMetadataHash};
 };
 
-const refreshArchiveMetadata = (
-  document: LocalPublicationDocument,
-  plan: ArchivePlan,
-) => {
+const refreshArchiveMetadata = (document: LocalPublicationDocument, plan: ArchivePlan) => {
   if (document.source?.provider !== ARCHIVE_SOURCE_PROVIDER) return undefined;
   const physical: PublicationPhysical = {...(document.physical ?? {})};
   delete physical.readingDirection;
@@ -520,9 +435,7 @@ const refreshArchiveMetadata = (
     assets: {
       pages: [],
       front: FRONT_SOURCE_FILE,
-      ...(plan.inspection.imageEntries.length < 2
-        ? {}
-        : {back: BACK_SOURCE_FILE}),
+      ...(plan.inspection.imageEntries.length < 2 ? {} : {back: BACK_SOURCE_FILE}),
     },
     source: {
       ...document.source,
@@ -534,10 +447,7 @@ const refreshArchiveMetadata = (
   } satisfies LocalPublicationDocument;
 };
 
-const toReportPublication = (
-  plan: ArchivePlan,
-  document?: LocalPublicationDocument,
-): ArchiveImportPublication => ({
+const toReportPublication = (plan: ArchivePlan, document?: LocalPublicationDocument): ArchiveImportPublication => ({
   archive: plan.archiveName,
   destination: plan.destinationPath,
   ...(plan.groupId === undefined ? {} : {groupId: plan.groupId}),
@@ -550,42 +460,26 @@ const toReportPublication = (
   ...(document === undefined ? {} : {document}),
 });
 
-export const importContentArchives = async (
-  options: ArchiveImportOptions,
-): Promise<ArchiveImportReport> => {
+export const importContentArchives = async (options: ArchiveImportOptions): Promise<ArchiveImportReport> => {
   const archivesDirectory = resolve(options.archivesDirectory);
   const outputDirectory = resolve(options.outputDirectory);
   const diagnostics: ArchiveImportDiagnostic[] = [];
   const archivePaths = options.archivePaths ?? [archivesDirectory];
   const archives: DiscoveredArchive[] = [];
   for (const archiveEntry of archivePaths) {
-    const archivePath =
-      typeof archiveEntry === "string" ? {path: archiveEntry} : archiveEntry;
-    archives.push(
-      ...(await findArchives(
-        resolve(archivePath.path),
-        diagnostics,
-        archivePath.readingDirection,
-      )),
-    );
+    const archivePath = typeof archiveEntry === "string" ? {path: archiveEntry} : archiveEntry;
+    archives.push(...(await findArchives(resolve(archivePath.path), diagnostics, archivePath.readingDirection)));
   }
   const uniqueArchives = new Map<string, DiscoveredArchive>();
   for (const archive of archives) {
     const existing = uniqueArchives.get(archive.archivePath);
-    if (
-      !existing ||
-      (existing.readingDirection === undefined &&
-        archive.readingDirection !== undefined)
-    )
+    if (!existing || (existing.readingDirection === undefined && archive.readingDirection !== undefined))
       uniqueArchives.set(archive.archivePath, archive);
   }
   archives.splice(0, archives.length, ...uniqueArchives.values());
-  archives.sort((left, right) =>
-    NATURAL_COLLATOR.compare(left.archiveName, right.archiveName),
-  );
+  archives.sort((left, right) => NATURAL_COLLATOR.compare(left.archiveName, right.archiveName));
   const plans: ArchivePlan[] = [];
-  const existingDestinations =
-    await existingArchiveDestinations(outputDirectory);
+  const existingDestinations = await existingArchiveDestinations(outputDirectory);
   const destinationKeys = new Set(existingDestinations.names);
   const claimedExistingDestinations = new Set<string>();
 
@@ -593,16 +487,9 @@ export const importContentArchives = async (
     const {archiveName, archivePath} = archive;
     const fileName = basename(archivePath);
     const stem = basename(fileName, extname(fileName));
-    const detectedLanguage = detectPreparedPublicationLanguage(
-      stem,
-      options.defaultLanguage,
-    );
+    const detectedLanguage = detectPreparedPublicationLanguage(stem, options.defaultLanguage);
     const filenameDirection = detectPreparedPublicationReadingDirection(stem);
-    if (
-      archive.readingDirection &&
-      filenameDirection &&
-      archive.readingDirection !== filenameDirection
-    ) {
+    if (archive.readingDirection && filenameDirection && archive.readingDirection !== filenameDirection) {
       diagnostics.push({
         archive: archiveName,
         code: "invalid-archive",
@@ -630,32 +517,19 @@ export const importContentArchives = async (
     }
     try {
       const inspection = await inspectContentArchive(archivePath);
-      const directDestinationName = existingDestinations.bySourceUrl.get(
-        pathToFileURL(archivePath).href,
-      );
-      const renameCandidates =
-        existingDestinations.staleNamesByMetadataHash.get(
-          inspection.metadataHash,
-        ) ?? [];
+      const directDestinationName = existingDestinations.bySourceUrl.get(pathToFileURL(archivePath).href);
+      const renameCandidates = existingDestinations.staleNamesByMetadataHash.get(inspection.metadataHash) ?? [];
       const renamedDestinationName =
-        renameCandidates.length === 1 &&
-        !claimedExistingDestinations.has(renameCandidates[0] ?? "")
+        renameCandidates.length === 1 && !claimedExistingDestinations.has(renameCandidates[0] ?? "")
           ? renameCandidates[0]
           : undefined;
-      const existingDestinationName =
-        directDestinationName ?? renamedDestinationName;
-      if (existingDestinationName)
-        claimedExistingDestinations.add(existingDestinationName);
+      const existingDestinationName = directDestinationName ?? renamedDestinationName;
+      if (existingDestinationName) claimedExistingDestinations.add(existingDestinationName);
       const baseDestinationKey = baseDestinationName.toLocaleLowerCase("en-US");
-      const generatedSuffix = createHash("sha256")
-        .update(archivePath)
-        .digest("hex")
-        .slice(0, 10);
+      const generatedSuffix = createHash("sha256").update(archivePath).digest("hex").slice(0, 10);
       let idSuffix: string | undefined;
       if (existingDestinationName?.startsWith(`${baseDestinationName}--`))
-        idSuffix = existingDestinationName.slice(
-          baseDestinationName.length + 2,
-        );
+        idSuffix = existingDestinationName.slice(baseDestinationName.length + 2);
       else if (
         !existingDestinationName &&
         destinationKeys.has(baseDestinationKey) &&
@@ -663,10 +537,7 @@ export const importContentArchives = async (
       )
         idSuffix = generatedSuffix;
       const destinationName =
-        existingDestinationName ??
-        (idSuffix
-          ? `${baseDestinationName}--${idSuffix}`
-          : baseDestinationName);
+        existingDestinationName ?? (idSuffix ? `${baseDestinationName}--${idSuffix}` : baseDestinationName);
       const destinationKey = destinationName.toLocaleLowerCase("en-US");
       const destinationPath = resolve(outputDirectory, destinationName);
       const destinationExists = await fileExists(destinationPath);
@@ -689,18 +560,10 @@ export const importContentArchives = async (
         title: identity.title,
       };
       if (destinationExists && !options.force) {
-        const existingDocument =
-          await readExistingArchiveDocument(destinationPath);
-        const refreshedDocument = existingDocument
-          ? refreshArchiveMetadata(existingDocument, plan)
-          : undefined;
-        const needsAspectRatio =
-          refreshedDocument !== undefined &&
-          archiveNeedsAspectRatioInference(refreshedDocument);
-        if (
-          !refreshedDocument ||
-          (refreshedDocument === existingDocument && !needsAspectRatio)
-        ) {
+        const existingDocument = await readExistingArchiveDocument(destinationPath);
+        const refreshedDocument = existingDocument ? refreshArchiveMetadata(existingDocument, plan) : undefined;
+        const needsAspectRatio = refreshedDocument !== undefined && archiveNeedsAspectRatioInference(refreshedDocument);
+        if (!refreshedDocument || (refreshedDocument === existingDocument && !needsAspectRatio)) {
           diagnostics.push({
             archive: archiveName,
             code: "existing-destination",
@@ -745,18 +608,13 @@ export const importContentArchives = async (
     for (const plan of plans) {
       const publicationDirectory = resolve(stagingRoot, plan.destinationName);
       try {
-        documentsByDirectory.set(
-          plan.destinationName,
-          await materializeArchivePlan(plan, publicationDirectory),
-        );
+        documentsByDirectory.set(plan.destinationName, await materializeArchivePlan(plan, publicationDirectory));
       } catch (error) {
         failedPlans.add(plan);
         diagnostics.push({
           archive: plan.archiveName,
           code: "processing-failed",
-          message: `Failed to process ${plan.archiveName}: ${
-            error instanceof Error ? error.message : String(error)
-          }`,
+          message: `Failed to process ${plan.archiveName}: ${error instanceof Error ? error.message : String(error)}`,
         });
         await rm(publicationDirectory, {recursive: true, force: true});
       }
@@ -777,10 +635,7 @@ export const importContentArchives = async (
       preparedCount: survivingPlans.length,
       skippedCount: archives.length - survivingPlans.length,
       publications: survivingPlans.map((plan) =>
-        toReportPublication(
-          plan,
-          documentsByDirectory.get(plan.destinationName),
-        ),
+        toReportPublication(plan, documentsByDirectory.get(plan.destinationName)),
       ),
       diagnostics,
     };

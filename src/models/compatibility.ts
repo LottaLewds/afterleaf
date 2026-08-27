@@ -2,15 +2,7 @@ import {NodeIO} from "@gltf-transform/core";
 import {ALL_EXTENSIONS} from "@gltf-transform/extensions";
 import {metalRough} from "@gltf-transform/functions";
 import {createHash, randomUUID} from "node:crypto";
-import {
-  mkdir,
-  open,
-  readFile,
-  rename,
-  stat,
-  unlink,
-  writeFile,
-} from "node:fs/promises";
+import {mkdir, open, readFile, rename, stat, unlink, writeFile} from "node:fs/promises";
 import {resolve} from "node:path";
 
 const GLB_MAGIC = 0x46546c67;
@@ -58,23 +50,16 @@ const readGlbJson = async (filePath: string) => {
   }
 };
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null;
+const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null;
 
 export const modelNeedsSpecGlossConversion = async (filePath: string) => {
   const document = await readGlbJson(filePath);
   if (!isRecord(document)) return false;
-  return (
-    Array.isArray(document.extensionsUsed) &&
-    document.extensionsUsed.includes(LEGACY_SPEC_GLOSS_EXTENSION)
-  );
+  return Array.isArray(document.extensionsUsed) && document.extensionsUsed.includes(LEGACY_SPEC_GLOSS_EXTENSION);
 };
 
 const cachedModelName = (filePath: string, byteLength: number) => {
-  const pathHash = createHash("sha256")
-    .update(resolve(filePath))
-    .digest("hex")
-    .slice(0, 24);
+  const pathHash = createHash("sha256").update(resolve(filePath)).digest("hex").slice(0, 24);
   return `compat-v${MODEL_COMPATIBILITY_CACHE_VERSION}-${pathHash}-${byteLength}.glb`;
 };
 
@@ -87,19 +72,12 @@ const preparedFile = async (filePath: string): Promise<PreparedModel> => {
   };
 };
 
-const convertModel = async (
-  sourcePath: string,
-  cacheDirectory: string,
-): Promise<PreparedModel> => {
+const convertModel = async (sourcePath: string, cacheDirectory: string): Promise<PreparedModel> => {
   const source = await stat(sourcePath);
-  const cachePath = resolve(
-    cacheDirectory,
-    cachedModelName(sourcePath, source.size),
-  );
+  const cachePath = resolve(cacheDirectory, cachedModelName(sourcePath, source.size));
   try {
     const cached = await stat(cachePath);
-    if (cached.isFile() && cached.size > 0 && cached.mtimeMs >= source.mtimeMs)
-      return preparedFile(cachePath);
+    if (cached.isFile() && cached.size > 0 && cached.mtimeMs >= source.mtimeMs) return preparedFile(cachePath);
   } catch {
     // The derivative will be generated below.
   }
@@ -120,12 +98,8 @@ const convertModel = async (
   return preparedFile(cachePath);
 };
 
-export const prepareModelForThree = async (
-  filePath: string,
-  cacheDirectory: string,
-) => {
-  if (!(await modelNeedsSpecGlossConversion(filePath)))
-    return preparedFile(filePath);
+export const prepareModelForThree = async (filePath: string, cacheDirectory: string) => {
+  if (!(await modelNeedsSpecGlossConversion(filePath))) return preparedFile(filePath);
   const key = `${resolve(filePath)}\0${resolve(cacheDirectory)}`;
   const current = pendingConversions.get(key);
   if (current) return current;

@@ -2,10 +2,7 @@ import {afterEach, describe, expect, test} from "bun:test";
 import {mkdtemp, readFile, rm, writeFile} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {resolve} from "node:path";
-import {
-  assertStablePublicationId,
-  PublicationBlacklistStore,
-} from "~/content/libraryUpdate/publicationBlacklist";
+import {assertStablePublicationId, PublicationBlacklistStore} from "~/content/libraryUpdate/publicationBlacklist";
 
 const temporaryDirectories: string[] = [];
 
@@ -16,20 +13,14 @@ const createTemporaryDirectory = async () => {
 };
 
 afterEach(async () => {
-  await Promise.all(
-    temporaryDirectories
-      .splice(0)
-      .map((directory) => rm(directory, {force: true, recursive: true})),
-  );
+  await Promise.all(temporaryDirectories.splice(0).map((directory) => rm(directory, {force: true, recursive: true})));
 });
 
 describe("PublicationBlacklistStore", () => {
   test("strictly validates stable publication IDs", () => {
     expect(assertStablePublicationId("nhentai-12345")).toBe("nhentai-12345");
     for (const invalid of ["", "../escape", "UPPER", "space here", ".dot"])
-      expect(() => assertStablePublicationId(invalid)).toThrow(
-        "Publication ID must start",
-      );
+      expect(() => assertStablePublicationId(invalid)).toThrow("Publication ID must start");
   });
 
   test("atomically adds sorted IDs while preserving existing entries", async () => {
@@ -65,24 +56,15 @@ describe("PublicationBlacklistStore", () => {
   test("serializes concurrent additions without losing entries", async () => {
     const root = await createTemporaryDirectory();
     const store = new PublicationBlacklistStore(resolve(root, "library"));
-    await Promise.all([
-      store.add("nhentai-1"),
-      store.add("nhentai-2"),
-      store.add("nhentai-3"),
-    ]);
+    await Promise.all([store.add("nhentai-1"), store.add("nhentai-2"), store.add("nhentai-3")]);
     expect(await store.list()).toEqual(["nhentai-1", "nhentai-2", "nhentai-3"]);
   });
 
   test("rejects unsafe roots and malformed persisted documents", async () => {
-    expect(() => new PublicationBlacklistStore(resolve("/"))).toThrow(
-      "cannot be a filesystem root",
-    );
+    expect(() => new PublicationBlacklistStore(resolve("/"))).toThrow("cannot be a filesystem root");
     const root = await createTemporaryDirectory();
     const store = new PublicationBlacklistStore(root);
-    await writeFile(
-      store.path,
-      JSON.stringify({publicationIds: ["../escape"], schemaVersion: 1}),
-    );
+    await writeFile(store.path, JSON.stringify({publicationIds: ["../escape"], schemaVersion: 1}));
     await expect(store.list()).rejects.toThrow("Publication ID must start");
   });
 });

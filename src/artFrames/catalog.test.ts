@@ -16,9 +16,7 @@ import {createArtFrameImageDerivative} from "~/artFrames/image";
 const temporaryDirectories: string[] = [];
 
 afterAll(async () => {
-  await Promise.all(
-    temporaryDirectories.map((directory) => rm(directory, {recursive: true})),
-  );
+  await Promise.all(temporaryDirectories.map((directory) => rm(directory, {recursive: true})));
 });
 
 describe("art frame catalog", () => {
@@ -39,10 +37,7 @@ describe("art frame catalog", () => {
     await writeFile(resolve(channelDirectory, "notes.txt"), "not an image");
     await mkdir(resolve(channelDirectory, "nested"));
 
-    const channels = await discoverArtFrameChannels(
-      [directory],
-      artFrameMediaUrl,
-    );
+    const channels = await discoverArtFrameChannels([directory], artFrameMediaUrl);
 
     expect(channels).toHaveLength(1);
     expect(channels[0]).toMatchObject({
@@ -58,17 +53,13 @@ describe("art frame catalog", () => {
         },
       ],
     });
-    expect(
-      await resolveArtFrameImagePath([directory], "../outside.png"),
-    ).toBeUndefined();
-    expect(
-      await resolveArtFrameImagePath([directory], "night-scenes/rain.art"),
-    ).toBe(imagePath);
-    expect(
-      await sharp(
-        await renderArtFrameImage(imagePath, createArtFrameImageDerivative),
-      ).metadata(),
-    ).toMatchObject({format: "webp", height: 80, width: 120});
+    expect(await resolveArtFrameImagePath([directory], "../outside.png")).toBeUndefined();
+    expect(await resolveArtFrameImagePath([directory], "night-scenes/rain.art")).toBe(imagePath);
+    expect(await sharp(await renderArtFrameImage(imagePath, createArtFrameImageDerivative)).metadata()).toMatchObject({
+      format: "webp",
+      height: 80,
+      width: 120,
+    });
 
     const imported = await importArtFrameImage(
       directory,
@@ -88,9 +79,11 @@ describe("art frame catalog", () => {
     );
     expect(imported.image.id).toMatch(/^after-hours\/pasted-.*\.webp$/u);
     expect(imported.image.url).toBe(artFrameMediaUrl(imported.image.id));
-    expect(
-      await sharp(resolve(directory, imported.image.id)).metadata(),
-    ).toMatchObject({format: "webp", height: 2_048, width: 1_024});
+    expect(await sharp(resolve(directory, imported.image.id)).metadata()).toMatchObject({
+      format: "webp",
+      height: 2_048,
+      width: 1_024,
+    });
     expect(await sharp(imported.derivative).metadata()).toMatchObject({
       format: "webp",
       height: 2_048,
@@ -112,9 +105,7 @@ describe("art frame catalog", () => {
     temporaryDirectories.push(directory);
     const mountedDirectory = resolve(directory, "mounted-later");
 
-    expect(
-      await discoverArtFrameChannels([mountedDirectory], artFrameMediaUrl),
-    ).toEqual([]);
+    expect(await discoverArtFrameChannels([mountedDirectory], artFrameMediaUrl)).toEqual([]);
 
     const imageDirectory = resolve(mountedDirectory, "external-channel");
     await mkdir(imageDirectory, {recursive: true});
@@ -125,16 +116,8 @@ describe("art frame catalog", () => {
       .png()
       .toFile(imagePath);
     expect(
-      await discoverArtFrameChannels(
-        [resolve(directory, "missing"), mountedDirectory],
-        artFrameMediaUrl,
-      ),
+      await discoverArtFrameChannels([resolve(directory, "missing"), mountedDirectory], artFrameMediaUrl),
     ).toMatchObject([{id: "external-channel"}]);
-    expect(
-      await resolveArtFrameImagePath(
-        [mountedDirectory],
-        "external-channel/external.png",
-      ),
-    ).toBe(imagePath);
+    expect(await resolveArtFrameImagePath([mountedDirectory], "external-channel/external.png")).toBe(imagePath);
   });
 });

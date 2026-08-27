@@ -3,13 +3,10 @@ import type {BookTextureRuntime} from "~/game/bookTextureRuntime";
 import type {InteractionScanner} from "~/game/interactionScanner";
 import type {ShopBookLifecycle} from "~/game/shopBookLifecycle";
 import type {ShopArcadeCabinet} from "~/game/ShopArcadeCabinet";
-import type {MovablePropRecord} from "~/game/ShopScene";
-import type {
-  ShopTelevision,
-  ShopTelevisionInteraction,
-} from "~/game/ShopTelevision";
+import type {MovablePropRecord} from "~/game/shopTypes";
+import type {ShopTelevision, ShopTelevisionInteraction} from "~/game/ShopTelevision";
 
-export type ShopTargetingControllerHost = {
+export type ShopTargetStateHost = {
   bookLifecycle: () => ShopBookLifecycle;
   bookTextures: () => BookTextureRuntime;
   booksById: () => ReadonlyMap<string, BookRecord>;
@@ -31,75 +28,76 @@ export type ShopTargetingControllerHost = {
   resetTelevisionWheel: () => void;
 };
 
-/** Centralizes reticle target transitions and the visual state they trigger. */
-export class ShopTargetingController {
-  readonly #host: ShopTargetingControllerHost;
-
-  constructor(host: ShopTargetingControllerHost) {
-    this.#host = host;
-  }
-
-  setTelevisionTargeted(
+export type ShopTargetState = {
+  setArcadeTargeted: (cabinet: ShopArcadeCabinet | undefined) => void;
+  setHoveredPublicationId: (publicationId: string | undefined) => void;
+  setPropTargeted: (record: MovablePropRecord | undefined) => void;
+  setTelevisionTargeted: (
     targeted: boolean,
     interaction?: ShopTelevisionInteraction,
     television?: ShopTelevision,
-  ) {
-    const host = this.#host;
+  ) => void;
+  setTrashTargeted: (targeted: boolean) => void;
+};
+
+/** Centralizes reticle target transitions and the visual state they trigger. */
+export const createShopTargetState = (targetHost: ShopTargetStateHost): ShopTargetState => {
+  const setTelevisionTargeted = (
+    targeted: boolean,
+    interaction?: ShopTelevisionInteraction,
+    television?: ShopTelevision,
+  ) => {
+    const host = targetHost;
     const nextTelevision = targeted ? television : undefined;
     const nextInteraction = targeted ? (interaction ?? "screen") : undefined;
-    if (
-      nextInteraction === host.currentTelevisionInteraction() &&
-      nextTelevision === host.currentTelevision()
-    )
-      return;
-    if (nextTelevision !== host.currentTelevision())
-      host.resetTelevisionWheel();
+    if (nextInteraction === host.currentTelevisionInteraction() && nextTelevision === host.currentTelevision()) return;
+    if (nextTelevision !== host.currentTelevision()) host.resetTelevisionWheel();
     host.currentTelevision()?.setTargeted(undefined);
-    host.setTelevisionState(
-      nextInteraction !== undefined,
-      nextInteraction,
-      nextTelevision,
-    );
+    host.setTelevisionState(nextInteraction !== undefined, nextInteraction, nextTelevision);
     nextTelevision?.setTargeted(nextInteraction);
     host.emitGameState();
-  }
+  };
 
-  setArcadeTargeted(cabinet: ShopArcadeCabinet | undefined) {
-    const host = this.#host;
+  const setArcadeTargeted = (cabinet: ShopArcadeCabinet | undefined) => {
+    const host = targetHost;
     if (cabinet === host.currentArcadeCabinet()) return;
     host.currentArcadeCabinet()?.setTargeted(false);
     host.setArcadeCabinet(cabinet);
     cabinet?.setTargeted(true);
     host.emitGameState();
-  }
+  };
 
-  setTrashTargeted(targeted: boolean) {
-    const host = this.#host;
+  const setTrashTargeted = (targeted: boolean) => {
+    const host = targetHost;
     if (targeted === host.scanner().trashTargeted) return;
     host.scanner().trashTargeted = targeted;
     host.bookLifecycle().applyBookStates();
     host.emitGameState();
-  }
+  };
 
-  setPropTargeted(record: MovablePropRecord | undefined) {
-    const host = this.#host;
+  const setPropTargeted = (record: MovablePropRecord | undefined) => {
+    const host = targetHost;
     if (record === host.currentProp()) return;
     host.setProp(record);
     host.emitGameState();
-  }
+  };
 
-  setHoveredPublicationId(publicationId: string | undefined) {
-    const host = this.#host;
-    if (publicationId === undefined)
-      host.scanner().shelfBrowsePublicationId = undefined;
+  const setHoveredPublicationId = (publicationId: string | undefined) => {
+    const host = targetHost;
+    if (publicationId === undefined) host.scanner().shelfBrowsePublicationId = undefined;
     if (publicationId === host.hoveredPublicationId()) return;
     host.setHoveredPublicationId(publicationId);
-    const record = publicationId
-      ? host.booksById().get(publicationId)
-      : undefined;
-    if (record && publicationId !== undefined)
-      host.bookTextures().ensureStandaloneBookTextures(publicationId, record);
+    const record = publicationId ? host.booksById().get(publicationId) : undefined;
+    if (record && publicationId !== undefined) host.bookTextures().ensureStandaloneBookTextures(publicationId, record);
     host.bookLifecycle().applyBookStates();
     host.emitGameState();
-  }
-}
+  };
+
+  return {
+    setArcadeTargeted,
+    setHoveredPublicationId,
+    setPropTargeted,
+    setTelevisionTargeted,
+    setTrashTargeted,
+  };
+};

@@ -1,17 +1,12 @@
 import {FiTv} from "solid-icons/fi";
 
-export const TvScreenLightingControl = (props: {
-  enabled: boolean;
-  onChange: (enabled: boolean) => void;
-}) => (
+export const TvScreenLightingControl = (props: {enabled: boolean; onChange: (enabled: boolean) => void}) => (
   <div class="flex flex-col gap-4 border border-white/8 bg-[#151e1c] px-4 py-4 sm:flex-row sm:items-center sm:px-5">
     <span class="grid size-9 shrink-0 place-items-center bg-[#d94c3f]/10 text-[#dc6156]">
       <FiTv size={15} />
     </span>
     <div class="min-w-0 flex-1">
-      <p class="text-[10px] font-semibold tracking-[0.12em] text-[#c5cec9] uppercase">
-        TV screen lighting
-      </p>
+      <p class="text-[10px] font-semibold tracking-[0.12em] text-[#c5cec9] uppercase">TV screen lighting</p>
       <p class="mt-1 text-[9px] leading-4 text-[#65716c]">
         Let active screens cast sampled color light onto nearby surfaces.
       </p>

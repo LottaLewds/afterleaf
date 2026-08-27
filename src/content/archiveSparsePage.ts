@@ -1,10 +1,6 @@
 import {basename, posix} from "node:path";
 import {fileURLToPath} from "node:url";
-import {
-  ARCHIVE_SOURCE_PROVIDER,
-  isContentArchivePath,
-  readContentArchiveImage,
-} from "./archiveReader";
+import {ARCHIVE_SOURCE_PROVIDER, isContentArchivePath, readContentArchiveImage} from "./archiveReader";
 import {cacheReaderPage, cachedReaderPage} from "./readerPageCache";
 import {createReaderPageDerivative} from "./readerImage";
 
@@ -20,15 +16,12 @@ interface ArchiveBackedPublication {
 
 const archiveSourcePath = (publication: ArchiveBackedPublication) => {
   const source = publication.source;
-  if (source?.provider !== ARCHIVE_SOURCE_PROVIDER)
-    throw new Error("Publication is not backed by a content archive");
-  if (!/^[a-f0-9]{64}$/u.test(source.metadataHash))
-    throw new Error("Publication has an invalid archive fingerprint");
+  if (source?.provider !== ARCHIVE_SOURCE_PROVIDER) throw new Error("Publication is not backed by a content archive");
+  if (!/^[a-f0-9]{64}$/u.test(source.metadataHash)) throw new Error("Publication has an invalid archive fingerprint");
   let archivePath: string;
   try {
     const sourceUrl = new URL(source.sourceUrl);
-    if (sourceUrl.protocol !== "file:")
-      throw new Error("Archive source must use a local file URL");
+    if (sourceUrl.protocol !== "file:") throw new Error("Archive source must use a local file URL");
     archivePath = fileURLToPath(sourceUrl);
   } catch (error) {
     throw new Error(
@@ -37,9 +30,7 @@ const archiveSourcePath = (publication: ArchiveBackedPublication) => {
   }
   const remoteIdSegments = source.remoteId.split("/");
   if (
-    remoteIdSegments.some(
-      (segment) => !segment || segment === "." || segment === "..",
-    ) ||
+    remoteIdSegments.some((segment) => !segment || segment === "." || segment === "..") ||
     basename(archivePath) !== posix.basename(source.remoteId) ||
     !isContentArchivePath(archivePath)
   )
@@ -47,10 +38,7 @@ const archiveSourcePath = (publication: ArchiveBackedPublication) => {
   return {archivePath, metadataHash: source.metadataHash};
 };
 
-export const materializeArchiveReaderPage = async (
-  publication: ArchiveBackedPublication,
-  pageNumber: number,
-) => {
+export const materializeArchiveReaderPage = async (publication: ArchiveBackedPublication, pageNumber: number) => {
   if (
     !Number.isSafeInteger(pageNumber) ||
     pageNumber < 1 ||
@@ -63,11 +51,7 @@ export const materializeArchiveReaderPage = async (
   const cached = cachedReaderPage(cacheKey);
   if (cached) return cached;
 
-  const source = await readContentArchiveImage(
-    archivePath,
-    pageNumber - 1,
-    metadataHash,
-  );
+  const source = await readContentArchiveImage(archivePath, pageNumber - 1, metadataHash);
   const page = await createReaderPageDerivative(source);
   cacheReaderPage(cacheKey, page);
   return page;

@@ -76,17 +76,14 @@ const parseUrl = (value: string, base: string, field: string) => {
   } catch {
     throw new Error(`${field} must be a valid URL`);
   }
-  if (url.protocol !== "https:" && url.protocol !== "http:")
-    throw new Error(`${field} must use HTTP or HTTPS`);
+  if (url.protocol !== "https:" && url.protocol !== "http:") throw new Error(`${field} must use HTTP or HTTPS`);
   return url;
 };
 
 const assertSafeRemoteAssetUrl = (url: URL, field: string) => {
   const hostname = url.hostname.toLowerCase();
   const unbracketedHostname = hostname.replace(/^\[|\]$/gu, "");
-  const privateIpv4 = hostname.match(
-    /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/u,
-  );
+  const privateIpv4 = hostname.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/u);
   if (url.protocol !== "https:") throw new Error(`${field} must use HTTPS`);
   if (
     hostname === "localhost" ||
@@ -115,32 +112,20 @@ const assertSafeRemoteAssetUrl = (url: URL, field: string) => {
   return url;
 };
 
-const responseBytes = async (
-  response: Response,
-  maximumBytes: number,
-  label: string,
-) => {
+const responseBytes = async (response: Response, maximumBytes: number, label: string) => {
   const contentLength = Number(response.headers.get("content-length"));
   if (Number.isFinite(contentLength) && contentLength > maximumBytes)
     throw new Error(`${label} response was too large`);
   const bytes = await response.arrayBuffer();
-  if (bytes.byteLength > maximumBytes)
-    throw new Error(`${label} response was too large`);
+  if (bytes.byteLength > maximumBytes) throw new Error(`${label} response was too large`);
   return bytes;
 };
 
-const parseHtml = async (
-  html: string,
-  configure: (rewriter: HTMLRewriter) => HTMLRewriter,
-) => {
+const parseHtml = async (html: string, configure: (rewriter: HTMLRewriter) => HTMLRewriter) => {
   await configure(new HTMLRewriter()).transform(new Response(html)).text();
 };
 
-const collectText = (
-  rewriter: HTMLRewriter,
-  selector: string,
-  values: string[],
-) =>
+const collectText = (rewriter: HTMLRewriter, selector: string, values: string[]) =>
   rewriter.on(selector, {
     element() {
       values.push("");
@@ -151,16 +136,12 @@ const collectText = (
     },
   });
 
-const seriesReferenceFromHref = (
-  href: string,
-  origin: string,
-): WeebCentralSeriesReference | undefined => {
+const seriesReferenceFromHref = (href: string, origin: string): WeebCentralSeriesReference | undefined => {
   const url = parseUrl(href, origin, "WeebCentral series URL");
   if (url.origin !== origin) return undefined;
   const [root, id, slug] = url.pathname.split("/").filter(Boolean);
   if (root !== "series" || !id || !slug) return undefined;
-  if (!/^[a-z\d_-]+$/iu.test(id))
-    throw new Error("WeebCentral series ID contains unsupported characters");
+  if (!/^[a-z\d_-]+$/iu.test(id)) throw new Error("WeebCentral series ID contains unsupported characters");
   return {id, path: `/series/${id}/${slug}`, slug};
 };
 
@@ -274,53 +255,28 @@ export const parseWeebCentralSeriesHtml = async (
       },
     });
   });
-  const title = requiredString(
-    titles.map(optionalString).find(Boolean),
-    "WeebCentral series title",
-  );
-  const adultText = requiredString(
-    adultValues.map(optionalString).find(Boolean),
-    "WeebCentral adult-content marker",
-  );
+  const title = requiredString(titles.map(optionalString).find(Boolean), "WeebCentral series title");
+  const adultText = requiredString(adultValues.map(optionalString).find(Boolean), "WeebCentral adult-content marker");
   const adult = adultText.toLowerCase() === "yes";
-  if (!adult && adultText.toLowerCase() !== "no")
-    throw new Error("WeebCentral adult-content marker is invalid");
+  if (!adult && adultText.toLowerCase() !== "no") throw new Error("WeebCentral adult-content marker is invalid");
   const officialText = officialValues.map(optionalString).find(Boolean);
   const description = descriptions.map(optionalString).find(Boolean);
   const status = statuses.map(optionalString).find(Boolean);
   const seriesType = types.map(optionalString).find(Boolean);
   const coverUrl = coverUrls[0]
-    ? parseUrl(
-        coverUrls[0],
-        normalizedOrigin,
-        "WeebCentral cover URL",
-      ).toString()
+    ? parseUrl(coverUrls[0], normalizedOrigin, "WeebCentral cover URL").toString()
     : undefined;
-  const yearText = html.match(
-    /<strong>\s*Released:\s*<\/strong>\s*<span>\s*(\d{4})\s*<\/span>/iu,
-  )?.[1];
+  const yearText = html.match(/<strong>\s*Released:\s*<\/strong>\s*<span>\s*(\d{4})\s*<\/span>/iu)?.[1];
   const year = yearText ? Number(yearText) : undefined;
   return {
     ...reference,
     adult,
-    authors: [
-      ...new Set(
-        authors
-          .map(optionalString)
-          .filter((author): author is string => author !== undefined),
-      ),
-    ],
+    authors: [...new Set(authors.map(optionalString).filter((author): author is string => author !== undefined))],
     ...(coverUrl ? {coverUrl} : {}),
     ...(description === undefined ? {} : {description}),
     officialTranslation: officialText?.toLowerCase() === "yes",
     ...(status === undefined ? {} : {status}),
-    tags: [
-      ...new Set(
-        tags
-          .map(optionalString)
-          .filter((tag): tag is string => tag !== undefined),
-      ),
-    ],
+    tags: [...new Set(tags.map(optionalString).filter((tag): tag is string => tag !== undefined))],
     title,
     ...(seriesType === undefined ? {} : {type: seriesType}),
     ...(year === undefined ? {} : {year}),
@@ -337,10 +293,7 @@ export const parseWeebCentralChapterListHtml = async (
   await parseHtml(html, (rewriter) => {
     rewriter.on('a[href*="/chapters/"]', {
       element(element) {
-        const href = requiredString(
-          element.getAttribute("href"),
-          "WeebCentral chapter URL",
-        );
+        const href = requiredString(element.getAttribute("href"), "WeebCentral chapter URL");
         rows.push({href, text: ""});
       },
       text(text) {
@@ -356,16 +309,14 @@ export const parseWeebCentralChapterListHtml = async (
   });
   return rows.map((row, index) => {
     const url = parseUrl(row.href, normalizedOrigin, "WeebCentral chapter URL");
-    if (url.origin !== normalizedOrigin)
-      throw new Error("WeebCentral chapter URL changed origin");
+    if (url.origin !== normalizedOrigin) throw new Error("WeebCentral chapter URL changed origin");
     const [root, id] = url.pathname.split("/").filter(Boolean);
     if (root !== "chapters" || !id || !/^[a-z\d_-]+$/iu.test(id))
       throw new Error("WeebCentral chapter URL is malformed");
     const match = row.text.match(/Chapter\s+(\d+(?:\.\d+)?)/iu);
     if (!match?.[1]) throw new Error(`WeebCentral chapter ${id} has no number`);
     const number = Number(match[1]);
-    if (!Number.isFinite(number) || number <= 0)
-      throw new Error(`WeebCentral chapter ${id} has an invalid number`);
+    if (!Number.isFinite(number) || number <= 0) throw new Error(`WeebCentral chapter ${id} has an invalid number`);
     const publishedAt = optionalString(dates[index]);
     if (publishedAt && Number.isNaN(Date.parse(publishedAt)))
       throw new Error(`WeebCentral chapter ${id} has an invalid date`);
@@ -379,29 +330,19 @@ export const parseWeebCentralChapterListHtml = async (
   });
 };
 
-export const parseWeebCentralPageListHtml = async (
-  html: string,
-  origin = DEFAULT_ORIGIN,
-) => {
+export const parseWeebCentralPageListHtml = async (html: string, origin = DEFAULT_ORIGIN) => {
   const pageUrls: string[] = [];
   await parseHtml(html, (rewriter) =>
     rewriter.on('img[alt^="Page "]', {
       element(element) {
-        const src = requiredString(
-          element.getAttribute("src"),
-          "WeebCentral page URL",
-        );
+        const src = requiredString(element.getAttribute("src"), "WeebCentral page URL");
         pageUrls.push(
-          assertSafeRemoteAssetUrl(
-            parseUrl(src, origin, "WeebCentral page URL"),
-            "WeebCentral page URL",
-          ).toString(),
+          assertSafeRemoteAssetUrl(parseUrl(src, origin, "WeebCentral page URL"), "WeebCentral page URL").toString(),
         );
       },
     }),
   );
-  if (pageUrls.length === 0)
-    throw new Error("WeebCentral chapter returned no pages");
+  if (pageUrls.length === 0) throw new Error("WeebCentral chapter returned no pages");
   return pageUrls;
 };
 
@@ -409,20 +350,15 @@ const retryAfterMilliseconds = (response: Response) => {
   const value = response.headers.get("retry-after")?.trim();
   if (!value) return undefined;
   const seconds = Number(value);
-  return Number.isFinite(seconds) && seconds >= 0
-    ? Math.min(seconds * 1_000, 60_000)
-    : undefined;
+  return Number.isFinite(seconds) && seconds >= 0 ? Math.min(seconds * 1_000, 60_000) : undefined;
 };
 
-const isRetryableStatus = (status: number) =>
-  status === 403 || status === 408 || status === 429 || status >= 500;
+const isRetryableStatus = (status: number) => status === 403 || status === 408 || status === 429 || status >= 500;
 
 export class WeebCentralClient {
   readonly #fetcher: typeof fetch;
   readonly #now: () => number;
-  readonly #onRetry:
-    | ((event: WeebCentralRequestRetryEvent) => void)
-    | undefined;
+  readonly #onRetry: ((event: WeebCentralRequestRetryEvent) => void) | undefined;
   readonly #origin: string;
   readonly #requestIntervalMilliseconds: number;
   readonly #retryCount: number;
@@ -437,8 +373,7 @@ export class WeebCentralClient {
     this.#origin = normalizeOrigin(options.origin ?? DEFAULT_ORIGIN);
     this.#requestIntervalMilliseconds = Math.max(
       0,
-      options.requestIntervalMilliseconds ??
-        DEFAULT_REQUEST_INTERVAL_MILLISECONDS,
+      options.requestIntervalMilliseconds ?? DEFAULT_REQUEST_INTERVAL_MILLISECONDS,
     );
     this.#retryCount = Math.max(0, Math.min(5, options.retryCount ?? 2));
     this.#sleep = options.sleep ?? ((milliseconds) => Bun.sleep(milliseconds));
@@ -454,10 +389,8 @@ export class WeebCentralClient {
     languages: readonly SupportedLanguage[],
     blockedTags: readonly string[],
   ) {
-    if (!Number.isSafeInteger(page) || page <= 0)
-      throw new Error("WeebCentral search page must be a positive integer");
-    if (!languages.includes("english"))
-      throw new Error("WeebCentral only supports English publications");
+    if (!Number.isSafeInteger(page) || page <= 0) throw new Error("WeebCentral search page must be a positive integer");
+    if (!languages.includes("english")) throw new Error("WeebCentral only supports English publications");
     const params = new URLSearchParams({
       adult: "False",
       anime: "Any",
@@ -483,9 +416,7 @@ export class WeebCentralClient {
   }
 
   async getChapterList(seriesId: string) {
-    const html = await this.#requestHtml(
-      `/series/${encodeURIComponent(seriesId)}/full-chapter-list`,
-    );
+    const html = await this.#requestHtml(`/series/${encodeURIComponent(seriesId)}/full-chapter-list`);
     return parseWeebCentralChapterListHtml(html, this.#origin);
   }
 
@@ -494,9 +425,7 @@ export class WeebCentralClient {
       is_prev: "False",
       reading_style: "long_strip",
     });
-    const html = await this.#requestHtml(
-      `/chapters/${encodeURIComponent(chapterId)}/images?${params.toString()}`,
-    );
+    const html = await this.#requestHtml(`/chapters/${encodeURIComponent(chapterId)}/images?${params.toString()}`);
     return parseWeebCentralPageListHtml(html, this.#origin);
   }
 
@@ -517,15 +446,8 @@ export class WeebCentralClient {
         parseUrl(response.url, this.#origin, "WeebCentral image redirect URL"),
         "WeebCentral image redirect URL",
       );
-    const bytes = Buffer.from(
-      await responseBytes(
-        response,
-        MAX_IMAGE_RESPONSE_BYTES,
-        "WeebCentral image",
-      ),
-    );
-    if (bytes.length === 0)
-      throw new Error("WeebCentral page response was empty");
+    const bytes = Buffer.from(await responseBytes(response, MAX_IMAGE_RESPONSE_BYTES, "WeebCentral image"));
+    if (bytes.length === 0) throw new Error("WeebCentral page response was empty");
     return bytes;
   }
 
@@ -539,22 +461,13 @@ export class WeebCentralClient {
     const contentType = response.headers.get("content-type");
     if (contentType && !contentType.toLowerCase().includes("text/html"))
       throw new Error("WeebCentral returned a non-HTML response");
-    const bytes = await responseBytes(
-      response,
-      MAX_HTML_RESPONSE_BYTES,
-      "WeebCentral HTML",
-    );
+    const bytes = await responseBytes(response, MAX_HTML_RESPONSE_BYTES, "WeebCentral HTML");
     return new TextDecoder().decode(bytes);
   }
 
   #siteRequest(url: string, headers: Record<string, string>) {
     const run = this.#siteRequestQueue.then(async () => {
-      const delay = Math.max(
-        0,
-        this.#lastSiteRequestAt +
-          this.#requestIntervalMilliseconds -
-          this.#now(),
-      );
+      const delay = Math.max(0, this.#lastSiteRequestAt + this.#requestIntervalMilliseconds - this.#now());
       if (delay > 0) await this.#sleep(delay);
       this.#lastSiteRequestAt = this.#now();
       return this.#request(url, headers, this.#requestIntervalMilliseconds);
@@ -566,11 +479,7 @@ export class WeebCentralClient {
     return run;
   }
 
-  async #request(
-    url: string,
-    headers: Record<string, string>,
-    minimumRetryDelayMilliseconds = 0,
-  ) {
+  async #request(url: string, headers: Record<string, string>, minimumRetryDelayMilliseconds = 0) {
     for (let attempt = 0; ; attempt += 1) {
       const response = await this.#fetcher(url, {
         headers: {...headers, "User-Agent": USER_AGENT},
@@ -578,9 +487,7 @@ export class WeebCentralClient {
       });
       if (response.ok) return response;
       if (attempt >= this.#retryCount || !isRetryableStatus(response.status))
-        throw new Error(
-          `WeebCentral request failed with HTTP ${response.status}: ${url}`,
-        );
+        throw new Error(`WeebCentral request failed with HTTP ${response.status}: ${url}`);
       await response.body?.cancel();
       const delayMilliseconds = Math.max(
         minimumRetryDelayMilliseconds,

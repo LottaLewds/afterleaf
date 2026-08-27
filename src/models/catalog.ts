@@ -9,8 +9,7 @@ export type DiscoveredModel = ModelAsset & {
   filePath: string;
 };
 
-const compareNames = (left: string, right: string) =>
-  left < right ? -1 : left > right ? 1 : 0;
+const compareNames = (left: string, right: string) => (left < right ? -1 : left > right ? 1 : 0);
 
 const modelLabel = (id: string) =>
   basename(id, extname(id))
@@ -19,10 +18,7 @@ const modelLabel = (id: string) =>
     .map((word) => `${word[0]?.toUpperCase() ?? ""}${word.slice(1)}`)
     .join(" ");
 
-const modelFilesIn = async (
-  rootDirectory: string,
-  directory = rootDirectory,
-): Promise<string[]> => {
+const modelFilesIn = async (rootDirectory: string, directory = rootDirectory): Promise<string[]> => {
   let entries;
   try {
     entries = await readdir(directory, {withFileTypes: true});
@@ -32,15 +28,11 @@ const modelFilesIn = async (
     throw error;
   }
   const files: string[] = [];
-  for (const entry of entries.sort((left, right) =>
-    compareNames(left.name, right.name),
-  )) {
+  for (const entry of entries.sort((left, right) => compareNames(left.name, right.name))) {
     if (entry.name.startsWith(".") || entry.isSymbolicLink()) continue;
     const entryPath = resolve(directory, entry.name);
-    if (entry.isDirectory())
-      files.push(...(await modelFilesIn(rootDirectory, entryPath)));
-    else if (entry.isFile() && extname(entry.name).toLowerCase() === ".glb")
-      files.push(entryPath);
+    if (entry.isDirectory()) files.push(...(await modelFilesIn(rootDirectory, entryPath)));
+    else if (entry.isFile() && extname(entry.name).toLowerCase() === ".glb") files.push(entryPath);
   }
   return files;
 };
@@ -71,10 +63,7 @@ export const discoverModels = async (
   return discovered;
 };
 
-export const resolveModelPath = async (
-  modelDirectories: readonly string[],
-  modelId: string,
-) => {
+export const resolveModelPath = async (modelDirectories: readonly string[], modelId: string) => {
   if (extname(modelId).toLowerCase() !== ".glb") return;
   for (const modelDirectory of modelDirectories) {
     const root = resolve(modelDirectory);
@@ -87,10 +76,7 @@ export const resolveModelPath = async (
     )
       continue;
     try {
-      const [realRoot, realCandidate] = await Promise.all([
-        realpath(root),
-        realpath(candidate),
-      ]);
+      const [realRoot, realCandidate] = await Promise.all([realpath(root), realpath(candidate)]);
       const realCandidateRelativePath = relative(realRoot, realCandidate);
       if (
         realCandidateRelativePath.length === 0 ||

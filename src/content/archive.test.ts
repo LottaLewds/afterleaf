@@ -1,13 +1,5 @@
 import {afterEach, describe, expect, test} from "bun:test";
-import {
-  mkdtemp,
-  mkdir,
-  readFile,
-  readdir,
-  rename,
-  rm,
-  writeFile,
-} from "node:fs/promises";
+import {mkdtemp, mkdir, readFile, readdir, rename, rm, writeFile} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {join, resolve} from "node:path";
 import {pathToFileURL} from "node:url";
@@ -32,27 +24,17 @@ const RAR_IMAGE_ARCHIVE = Buffer.from(
 );
 
 afterEach(async () => {
-  await Promise.all(
-    temporaryDirectories
-      .splice(0)
-      .map((directory) => rm(directory, {recursive: true, force: true})),
-  );
+  await Promise.all(temporaryDirectories.splice(0).map((directory) => rm(directory, {recursive: true, force: true})));
 });
 
-const createPng = (
-  color: string,
-  dimensions: {height: number; width: number} = {height: 96, width: 64},
-) =>
+const createPng = (color: string, dimensions: {height: number; width: number} = {height: 96, width: 64}) =>
   sharp({
     create: {...dimensions, channels: 3, background: color},
   })
     .png()
     .toBuffer();
 
-const writeArchive = async (
-  path: string,
-  entries: Record<string, Uint8Array>,
-) => {
+const writeArchive = async (path: string, entries: Record<string, Uint8Array>) => {
   await mkdir(resolve(path, ".."), {recursive: true});
   await writeFile(path, zipSync(entries));
 };
@@ -60,19 +42,10 @@ const writeArchive = async (
 const markFirstEntryEncrypted = (archive: Uint8Array) => {
   const result = Buffer.from(archive);
   const localSignature = result.indexOf(Buffer.from([0x50, 0x4b, 0x03, 0x04]));
-  const centralSignature = result.indexOf(
-    Buffer.from([0x50, 0x4b, 0x01, 0x02]),
-  );
-  if (localSignature < 0 || centralSignature < 0)
-    throw new Error("Test ZIP lacks required headers");
-  result.writeUInt16LE(
-    result.readUInt16LE(localSignature + 6) | 1,
-    localSignature + 6,
-  );
-  result.writeUInt16LE(
-    result.readUInt16LE(centralSignature + 8) | 1,
-    centralSignature + 8,
-  );
+  const centralSignature = result.indexOf(Buffer.from([0x50, 0x4b, 0x01, 0x02]));
+  if (localSignature < 0 || centralSignature < 0) throw new Error("Test ZIP lacks required headers");
+  result.writeUInt16LE(result.readUInt16LE(localSignature + 6) | 1, localSignature + 6);
+  result.writeUInt16LE(result.readUInt16LE(centralSignature + 8) | 1, centralSignature + 8);
   return result;
 };
 
@@ -106,15 +79,9 @@ describe("content archive inspection", () => {
     await writeFile(encryptedPath, markFirstEntryEncrypted(plainArchive));
     await writeArchive(bombPath, {"001.png": new Uint8Array(1024 * 1024)});
 
-    await expect(inspectContentArchive(traversalPath)).rejects.toThrow(
-      /invalid relative path|escapes|contained/u,
-    );
-    await expect(inspectContentArchive(encryptedPath)).rejects.toThrow(
-      "Encrypted archive entry",
-    );
-    await expect(inspectContentArchive(bombPath)).rejects.toThrow(
-      "compression-ratio limit",
-    );
+    await expect(inspectContentArchive(traversalPath)).rejects.toThrow(/invalid relative path|escapes|contained/u);
+    await expect(inspectContentArchive(encryptedPath)).rejects.toThrow("Encrypted archive entry");
+    await expect(inspectContentArchive(bombPath)).rejects.toThrow("compression-ratio limit");
   });
 
   test("reads stored ZIP entries without stalling", async () => {
@@ -133,12 +100,8 @@ describe("content archive inspection", () => {
 
     const inspection = await inspectContentArchive(archivePath);
 
-    expect(
-      await readContentArchiveImage(archivePath, 0, inspection.metadataHash),
-    ).toEqual(first);
-    expect(
-      await readContentArchiveImage(archivePath, 1, inspection.metadataHash),
-    ).toEqual(last);
+    expect(await readContentArchiveImage(archivePath, 0, inspection.metadataHash)).toEqual(first);
+    expect(await readContentArchiveImage(archivePath, 1, inspection.metadataHash)).toEqual(last);
   });
 
   test("inspects and reads RAR5 images", async () => {
@@ -153,11 +116,7 @@ describe("content archive inspection", () => {
       imageEntries: ["001.png"],
       ignoredEntryCount: 0,
     });
-    const image = await readContentArchiveImage(
-      archivePath,
-      0,
-      inspection.metadataHash,
-    );
+    const image = await readContentArchiveImage(archivePath, 0, inspection.metadataHash);
     await expect(sharp(image).metadata()).resolves.toMatchObject({
       format: "png",
       height: 2,
@@ -171,10 +130,7 @@ test("archive import accepts CBR publications", async () => {
   temporaryDirectories.push(root);
   const archivesDirectory = resolve(root, "archives");
   await mkdir(archivesDirectory, {recursive: true});
-  await writeFile(
-    resolve(archivesDirectory, "RAR Comic [English].cbr"),
-    RAR_IMAGE_ARCHIVE,
-  );
+  await writeFile(resolve(archivesDirectory, "RAR Comic [English].cbr"), RAR_IMAGE_ARCHIVE);
 
   const report = await importContentArchives({
     archivesDirectory,
@@ -187,12 +143,7 @@ test("archive import accepts CBR publications", async () => {
 
   expect(report.preparedCount).toBe(1);
   const document = parseLocalPublicationDocument(
-    JSON.parse(
-      await readFile(
-        resolve(root, "catalog/RAR Comic [English]/publication.json"),
-        "utf8",
-      ),
-    ) as unknown,
+    JSON.parse(await readFile(resolve(root, "catalog/RAR Comic [English]/publication.json"), "utf8")) as unknown,
     "publication.json",
   );
   expect(document).toMatchObject({
@@ -228,9 +179,7 @@ test("archive import keeps same-named books from separate media paths", async ()
   expect(report.discoveredCount).toBe(2);
   expect(report.preparedCount).toBe(2);
   expect(report.diagnostics).toEqual([]);
-  expect(
-    new Set(report.publications.map(({document}) => document?.id)).size,
-  ).toBe(2);
+  expect(new Set(report.publications.map(({document}) => document?.id)).size).toBe(2);
   expect(report.publications.map(({destination}) => destination)).toEqual([
     resolve(root, "catalog/Same Book"),
     expect.stringMatching(/Same Book--[0-9a-f]{10}$/u),
@@ -247,9 +196,7 @@ test("archive import keeps same-named books from separate media paths", async ()
     write: true,
   });
   expect(repeated.discoveredCount).toBe(1);
-  expect((await readdir(resolve(root, "catalog"))).toSorted()).toEqual(
-    catalogEntries,
-  );
+  expect((await readdir(resolve(root, "catalog"))).toSorted()).toEqual(catalogEntries);
 });
 
 test("archive processing failure removes only staging and preserves an existing import", async () => {
@@ -269,12 +216,8 @@ test("archive processing failure removes only staging and preserves an existing 
   };
   await importContentArchives(options);
   const existingDirectory = resolve(outputDirectory, "Existing Book");
-  const originalManifest = await readFile(
-    resolve(existingDirectory, "publication.json"),
-  );
-  const originalFront = await readFile(
-    resolve(existingDirectory, "front.webp"),
-  );
+  const originalManifest = await readFile(resolve(existingDirectory, "publication.json"));
+  const originalFront = await readFile(resolve(existingDirectory, "front.webp"));
   await writeArchive(archivePath, {
     "001.jpg": Buffer.from("corrupt JPEG payload"),
   });
@@ -288,12 +231,8 @@ test("archive processing failure removes only staging and preserves an existing 
       code: "processing-failed",
     }),
   ]);
-  expect(
-    await readFile(resolve(existingDirectory, "publication.json")),
-  ).toEqual(originalManifest);
-  expect(await readFile(resolve(existingDirectory, "front.webp"))).toEqual(
-    originalFront,
-  );
+  expect(await readFile(resolve(existingDirectory, "publication.json"))).toEqual(originalManifest);
+  expect(await readFile(resolve(existingDirectory, "front.webp"))).toEqual(originalFront);
   expect(await Bun.file(archivePath).exists()).toBe(true);
 });
 
@@ -324,18 +263,9 @@ test("archive import creates sparse English/Japanese catalogs and skips Chinese"
   temporaryDirectories.push(root);
   const archivesDirectory = resolve(root, "archives");
   const outputDirectory = resolve(root, "catalog");
-  const englishArchive = resolve(
-    archivesDirectory,
-    "Comic Aurora 2026-07 [English].cbz",
-  );
-  const japaneseArchive = resolve(
-    archivesDirectory,
-    "Night Office 01 [Japanese].cbz",
-  );
-  const chineseArchive = resolve(
-    archivesDirectory,
-    "Skipped Issue [Chinese].cbz",
-  );
+  const englishArchive = resolve(archivesDirectory, "Comic Aurora 2026-07 [English].cbz");
+  const japaneseArchive = resolve(archivesDirectory, "Night Office 01 [Japanese].cbz");
+  const chineseArchive = resolve(archivesDirectory, "Skipped Issue [Chinese].cbz");
   await Promise.all([
     writeArchive(englishArchive, {
       "cover.png": await createPng("#502030"),
@@ -365,18 +295,12 @@ test("archive import creates sparse English/Japanese catalogs and skips Chinese"
     {
       archive: "Skipped Issue [Chinese].cbz",
       code: "skipped-language",
-      message:
-        "Skipped Skipped Issue [Chinese].cbz because its name indicates Chinese",
+      message: "Skipped Skipped Issue [Chinese].cbz because its name indicates Chinese",
     },
   ]);
-  const englishDirectory = resolve(
-    outputDirectory,
-    "Comic Aurora 2026-07 [English]",
-  );
+  const englishDirectory = resolve(outputDirectory, "Comic Aurora 2026-07 [English]");
   const englishDocument = parseLocalPublicationDocument(
-    JSON.parse(
-      await readFile(resolve(englishDirectory, "publication.json"), "utf8"),
-    ) as unknown,
+    JSON.parse(await readFile(resolve(englishDirectory, "publication.json"), "utf8")) as unknown,
     "publication.json",
   );
   expect(englishDocument).toMatchObject({
@@ -397,31 +321,21 @@ test("archive import creates sparse English/Japanese catalogs and skips Chinese"
     pages: [],
   });
   expect(englishDocument.physical?.readingDirection).toBeUndefined();
-  expect((await readdir(englishDirectory)).toSorted()).toEqual([
-    "back.webp",
-    "front.webp",
-    "publication.json",
-  ]);
+  expect((await readdir(englishDirectory)).toSorted()).toEqual(["back.webp", "front.webp", "publication.json"]);
 
-  const seeded = await seedContentPack(
-    new LocalCatalogSource(outputDirectory),
-    {
-      tags: ["big-breasts"],
-      excludedTags: [],
-      languages: ["english", "japanese"],
-      limit: 20,
-      match: "all",
-      seed: "archive-test",
-      dryRun: false,
-      outputDirectory: resolve(root, "revision"),
-      packId: "archive-test",
-      persistentAssetDirectory: root,
-    },
-  );
-  expect(seeded.report.selectedPublicationIds).toEqual([
-    "comic-aurora-2026-07",
-    "night-office-01",
-  ]);
+  const seeded = await seedContentPack(new LocalCatalogSource(outputDirectory), {
+    tags: ["big-breasts"],
+    excludedTags: [],
+    languages: ["english", "japanese"],
+    limit: 20,
+    match: "all",
+    seed: "archive-test",
+    dryRun: false,
+    outputDirectory: resolve(root, "revision"),
+    packId: "archive-test",
+    persistentAssetDirectory: root,
+  });
+  expect(seeded.report.selectedPublicationIds).toEqual(["comic-aurora-2026-07", "night-office-01"]);
   const englishPublication = seeded.catalog?.publications.find(
     (publication) => publication.id === "comic-aurora-2026-07",
   );
@@ -434,14 +348,8 @@ test("archive import creates sparse English/Japanese catalogs and skips Chinese"
     width: 64,
     height: 96,
   });
-  expect(await materializeArchiveReaderPage(englishPublication, 2)).toBe(
-    sparsePage,
-  );
-  expect((await readdir(englishDirectory)).toSorted()).toEqual([
-    "back.webp",
-    "front.webp",
-    "publication.json",
-  ]);
+  expect(await materializeArchiveReaderPage(englishPublication, 2)).toBe(sparsePage);
+  expect((await readdir(englishDirectory)).toSorted()).toEqual(["back.webp", "front.webp", "publication.json"]);
 });
 
 test("archive import infers aspect ratio from early and midpoint interior pages", async () => {
@@ -496,33 +404,26 @@ test("archive import infers aspect ratio from early and midpoint interior pages"
   );
   expect(upgradedDocument.physical?.aspectRatio).toBeCloseTo(2 / 3);
 
-  const seeded = await seedContentPack(
-    new LocalCatalogSource(outputDirectory),
-    {
-      tags: [],
-      excludedTags: [],
-      languages: ["english"],
-      limit: 1,
-      match: "all",
-      seed: "archive-aspect",
-      dryRun: false,
-      outputDirectory: resolve(root, "revision"),
-      packId: "archive-aspect",
-      persistentAssetDirectory: root,
-    },
-  );
-  expect(seeded.catalog?.publications[0]?.physical.aspectRatio).toBeCloseTo(
-    2 / 3,
-  );
+  const seeded = await seedContentPack(new LocalCatalogSource(outputDirectory), {
+    tags: [],
+    excludedTags: [],
+    languages: ["english"],
+    limit: 1,
+    match: "all",
+    seed: "archive-aspect",
+    dryRun: false,
+    outputDirectory: resolve(root, "revision"),
+    packId: "archive-aspect",
+    persistentAssetDirectory: root,
+  });
+  expect(seeded.catalog?.publications[0]?.physical.aspectRatio).toBeCloseTo(2 / 3);
 });
 
 test("archive CLI parses preview defaults", () => {
   const defaults = parseArchiveImportCliOptions([], "/workspace/afterleaf");
   expect(defaults.importOptions).toMatchObject({
     archivesDirectory: resolve("/workspace/afterleaf/afterleaf-data/content"),
-    outputDirectory: resolve(
-      "/workspace/afterleaf/afterleaf-data/game/.cache/prepared",
-    ),
+    outputDirectory: resolve("/workspace/afterleaf/afterleaf-data/game/.cache/prepared"),
     tags: [],
     write: false,
   });
@@ -555,12 +456,7 @@ test("archive import leaves reading direction unspecified without an explicit di
   });
 
   const document = parseLocalPublicationDocument(
-    JSON.parse(
-      await readFile(
-        resolve(root, "catalog/Unhinted Book/publication.json"),
-        "utf8",
-      ),
-    ) as unknown,
+    JSON.parse(await readFile(resolve(root, "catalog/Unhinted Book/publication.json"), "utf8")) as unknown,
     "publication.json",
   );
   expect(document.language).toBe("english");
@@ -579,12 +475,9 @@ test("archive import applies comics and manga directory directives recursively",
     writeArchive(resolve(archivesDirectory, "manga/nested/Manga Book.cbz"), {
       "001.png": page,
     }),
-    writeArchive(
-      resolve(archivesDirectory, "manga/Conflicting Book [LTR].cbz"),
-      {
-        "001.png": page,
-      },
-    ),
+    writeArchive(resolve(archivesDirectory, "manga/Conflicting Book [LTR].cbz"), {
+      "001.png": page,
+    }),
     writeArchive(resolve(archivesDirectory, "ignored/Ignored Book.cbz"), {
       "001.png": page,
     }),
@@ -611,12 +504,7 @@ test("archive import applies comics and manga directory directives recursively",
   ]);
   const readDirection = async (directory: string) => {
     const document = parseLocalPublicationDocument(
-      JSON.parse(
-        await readFile(
-          resolve(root, "catalog", directory, "publication.json"),
-          "utf8",
-        ),
-      ) as unknown,
+      JSON.parse(await readFile(resolve(root, "catalog", directory, "publication.json"), "utf8")) as unknown,
       "publication.json",
     );
     return {
@@ -637,17 +525,14 @@ test("archive import applies comics and manga directory directives recursively",
     remoteId: "ignored/Ignored Book.cbz",
   });
   const nestedDocument = parseLocalPublicationDocument(
-    JSON.parse(
-      await readFile(
-        resolve(root, "catalog/Manga Book/publication.json"),
-        "utf8",
-      ),
-    ) as unknown,
+    JSON.parse(await readFile(resolve(root, "catalog/Manga Book/publication.json"), "utf8")) as unknown,
     "publication.json",
   );
-  await expect(
-    sharp(await materializeArchiveReaderPage(nestedDocument, 1)).metadata(),
-  ).resolves.toMatchObject({format: "webp", height: 96, width: 64});
+  await expect(sharp(await materializeArchiveReaderPage(nestedDocument, 1)).metadata()).resolves.toMatchObject({
+    format: "webp",
+    height: 96,
+    width: 64,
+  });
 });
 
 test("archive import refreshes an existing publication after a directive move", async () => {
@@ -668,10 +553,7 @@ test("archive import refreshes an existing publication after a directive move", 
     write: true,
   };
   await importContentArchives(options);
-  const publicationPath = resolve(
-    outputDirectory,
-    "Existing Book/publication.json",
-  );
+  const publicationPath = resolve(outputDirectory, "Existing Book/publication.json");
   const originalDocument = parseLocalPublicationDocument(
     JSON.parse(await readFile(publicationPath, "utf8")) as unknown,
     "publication.json",
@@ -680,10 +562,7 @@ test("archive import refreshes an existing publication after a directive move", 
     publicationPath,
     `${JSON.stringify({...originalDocument, title: "Custom title", tags: ["custom-tag"]}, null, 2)}\n`,
   );
-  const directedArchivePath = resolve(
-    archivesDirectory,
-    "manga/Existing Book.cbz",
-  );
+  const directedArchivePath = resolve(archivesDirectory, "manga/Existing Book.cbz");
   await mkdir(resolve(archivesDirectory, "manga"), {recursive: true});
   await rename(originalArchivePath, directedArchivePath);
 
@@ -724,18 +603,12 @@ test("archive import refreshes replaced archive content while preserving metadat
     write: true,
   };
   await importContentArchives(options);
-  const manifestPath = resolve(
-    outputDirectory,
-    "Changing Book/publication.json",
-  );
+  const manifestPath = resolve(outputDirectory, "Changing Book/publication.json");
   const original = parseLocalPublicationDocument(
     JSON.parse(await readFile(manifestPath, "utf8")) as unknown,
     "publication.json",
   );
-  await writeFile(
-    manifestPath,
-    `${JSON.stringify({...original, title: "Edited title"}, null, 2)}\n`,
-  );
+  await writeFile(manifestPath, `${JSON.stringify({...original, title: "Edited title"}, null, 2)}\n`);
   await writeArchive(archivePath, {
     "001.png": await createPng("#302010"),
     "002.png": await createPng("#102030"),
@@ -745,10 +618,7 @@ test("archive import refreshes replaced archive content while preserving metadat
 
   expect(report.preparedCount).toBe(1);
   expect(
-    parseLocalPublicationDocument(
-      JSON.parse(await readFile(manifestPath, "utf8")) as unknown,
-      "publication.json",
-    ),
+    parseLocalPublicationDocument(JSON.parse(await readFile(manifestPath, "utf8")) as unknown, "publication.json"),
   ).toMatchObject({
     pageCount: 2,
     title: "Edited title",

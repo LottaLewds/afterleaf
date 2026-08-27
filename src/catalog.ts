@@ -89,9 +89,7 @@ export const emptyLibrary: RuntimeLibrary = Object.freeze({
   publications: [],
 });
 
-export const isRuntimeLibraryAvailable = (
-  library: RuntimeLibrary | undefined,
-): library is RuntimeLibrary =>
+export const isRuntimeLibraryAvailable = (library: RuntimeLibrary | undefined): library is RuntimeLibrary =>
   library !== undefined && library !== emptyLibrary;
 
 interface RuntimePublication {
@@ -150,10 +148,7 @@ const accents = ["#b72f25", "#e3584d", "#377c98", "#755194", "#d0527e"];
 const runtimeReadingDirections = {
   ltr: "LTR",
   rtl: "RTL",
-} as const satisfies Record<
-  NonNullable<RuntimePublication["physical"]["readingDirection"]>,
-  CatalogItem["direction"]
->;
+} as const satisfies Record<NonNullable<RuntimePublication["physical"]["readingDirection"]>, CatalogItem["direction"]>;
 
 const runtimeReadingDirection = (
   publication: RuntimePublication,
@@ -173,10 +168,7 @@ const accentForId = (id: string) => {
 };
 
 const issueNumber = (publication: RuntimePublication) =>
-  publication.issue?.number ??
-  publication.issue?.month ??
-  publication.issue?.year ??
-  1;
+  publication.issue?.number ?? publication.issue?.month ?? publication.issue?.year ?? 1;
 
 const addedLabel = (publication: RuntimePublication) => {
   const retrievedAt = publication.source?.retrievedAt;
@@ -187,16 +179,12 @@ const addedLabel = (publication: RuntimePublication) => {
 };
 
 const isSafePackAssetPath = (value: unknown): value is string =>
-  typeof value === "string" &&
-  value.length > 0 &&
-  !value.split(/[\\/]/u).some((segment) => segment === "..");
+  typeof value === "string" && value.length > 0 && !value.split(/[\\/]/u).some((segment) => segment === "..");
 
 const isStringArray = (value: unknown): value is string[] =>
   Array.isArray(value) && value.every((entry) => typeof entry === "string");
 
-const isRuntimePublicationAlternate = (
-  value: unknown,
-): value is RuntimePublicationAlternate => {
+const isRuntimePublicationAlternate = (value: unknown): value is RuntimePublicationAlternate => {
   if (typeof value !== "object" || value === null) return false;
   const alternate = value as Partial<RuntimePublicationAlternate>;
   return (
@@ -208,18 +196,12 @@ const isRuntimePublicationAlternate = (
 };
 
 const packAssetUrl = (path: string, identity: CatalogIdentity) => {
-  const assetRevision =
-    identity.snapshotId ?? `${identity.packId}:${identity.catalogContentHash}`;
+  const assetRevision = identity.snapshotId ?? `${identity.packId}:${identity.catalogContentHash}`;
   return `${activeLibraryAssetUrl(path)}?afterleaf=${encodeURIComponent(assetRevision)}`;
 };
 
-const sparsePageUrl = (
-  publicationId: string,
-  pageIndex: number,
-  identity: CatalogIdentity,
-) => {
-  const assetRevision =
-    identity.snapshotId ?? `${identity.packId}:${identity.catalogContentHash}`;
+const sparsePageUrl = (publicationId: string, pageIndex: number, identity: CatalogIdentity) => {
+  const assetRevision = identity.snapshotId ?? `${identity.packId}:${identity.catalogContentHash}`;
   return `${SPARSE_LIBRARY_PAGE_ROUTE_PREFIX}/${encodeURIComponent(publicationId)}/${pageIndex + 1}?afterleaf=${encodeURIComponent(assetRevision)}`;
 };
 
@@ -229,35 +211,26 @@ const isRuntimePublication = (value: unknown): value is RuntimePublication => {
   return (
     typeof publication.id === "string" &&
     typeof publication.title === "string" &&
-    (publication.language === "english" ||
-      publication.language === "japanese") &&
+    (publication.language === "english" || publication.language === "japanese") &&
     isStringArray(publication.tags) &&
-    (publication.originalTags === undefined ||
-      isStringArray(publication.originalTags)) &&
+    (publication.originalTags === undefined || isStringArray(publication.originalTags)) &&
     (publication.alternates === undefined ||
-      (Array.isArray(publication.alternates) &&
-        publication.alternates.every(isRuntimePublicationAlternate))) &&
+      (Array.isArray(publication.alternates) && publication.alternates.every(isRuntimePublicationAlternate))) &&
     isSafePackAssetPath(publication.assets?.front) &&
-    (publication.assets.frontDetail === undefined ||
-      isSafePackAssetPath(publication.assets.frontDetail)) &&
-    (publication.assets.back === undefined ||
-      isSafePackAssetPath(publication.assets.back)) &&
-    (publication.assets.backDetail === undefined ||
-      isSafePackAssetPath(publication.assets.backDetail)) &&
-    (publication.assets.spine === undefined ||
-      isSafePackAssetPath(publication.assets.spine)) &&
+    (publication.assets.frontDetail === undefined || isSafePackAssetPath(publication.assets.frontDetail)) &&
+    (publication.assets.back === undefined || isSafePackAssetPath(publication.assets.back)) &&
+    (publication.assets.backDetail === undefined || isSafePackAssetPath(publication.assets.backDetail)) &&
+    (publication.assets.spine === undefined || isSafePackAssetPath(publication.assets.spine)) &&
     Array.isArray(publication.assets.pages) &&
     publication.assets.pages.every(isSafePackAssetPath) &&
     (publication.assets.pages.length > 0 ||
-      (Number.isSafeInteger(publication.pageCount) &&
-        Number(publication.pageCount) >= 1)) &&
+      (Number.isSafeInteger(publication.pageCount) && Number(publication.pageCount) >= 1)) &&
     (publication.pageCount === undefined ||
       (Number.isSafeInteger(publication.pageCount) &&
         publication.pageCount >= 1 &&
         publication.pageCount >= publication.assets.pages.length)) &&
     (publication.shelfAtlasIndex === undefined ||
-      (Number.isSafeInteger(publication.shelfAtlasIndex) &&
-        publication.shelfAtlasIndex >= 0)) &&
+      (Number.isSafeInteger(publication.shelfAtlasIndex) && publication.shelfAtlasIndex >= 0)) &&
     publication.physical !== undefined &&
     (publication.physical.readingDirection === undefined ||
       publication.physical.readingDirection === "ltr" ||
@@ -321,19 +294,11 @@ const isCatalogIdentity = <T extends {contentHash?: unknown; id?: unknown}>(
  * Minimal network surface the catalog loaders need. Accepting a structural
  * subset of `fetch` keeps dependency injection simple for callers and tests.
  */
-type CatalogFetcher = (
-  input: string,
-  init?: {cache?: RequestCache},
-) => Promise<Response>;
+type CatalogFetcher = (input: string, init?: {cache?: RequestCache}) => Promise<Response>;
 
-export const loadRuntimeLibraryWithFetcher = async (
-  fetcher: CatalogFetcher,
-): Promise<RuntimeLibrary> => {
+export const loadRuntimeLibraryWithFetcher = async (fetcher: CatalogFetcher): Promise<RuntimeLibrary> => {
   try {
-    const response = await fetcher(
-      `${ACTIVE_LIBRARY_CATALOG_ENDPOINT}?afterleaf=${Date.now()}`,
-      {cache: "no-store"},
-    );
+    const response = await fetcher(`${ACTIVE_LIBRARY_CATALOG_ENDPOINT}?afterleaf=${Date.now()}`, {cache: "no-store"});
     if (!response.ok) return emptyLibrary;
     const value = (await response.json()) as {
       atlases?: {back?: unknown; front?: unknown; spine?: unknown};
@@ -341,8 +306,7 @@ export const loadRuntimeLibraryWithFetcher = async (
       id?: unknown;
       publications?: unknown;
     };
-    if (!Array.isArray(value.publications) || !isCatalogIdentity(value))
-      return emptyLibrary;
+    if (!Array.isArray(value.publications) || !isCatalogIdentity(value)) return emptyLibrary;
     const publications = value.publications.filter(isRuntimePublication);
     // A partially understood catalog is unavailable, not a smaller catalog.
     // Treating rejected entries as removals can destructively rewrite the world save.
@@ -377,8 +341,7 @@ export const loadRuntimeLibraryWithFetcher = async (
       atlases,
       identity,
       publications: publications.map((publication) => {
-        const backAsset =
-          publication.assets.backDetail ?? publication.assets.back;
+        const backAsset = publication.assets.backDetail ?? publication.assets.back;
         return {
           id: publication.id,
           title: publication.title,
@@ -398,32 +361,18 @@ export const loadRuntimeLibraryWithFetcher = async (
           ...(publication.assets.frontDetail === undefined
             ? {}
             : {
-                detailCover: packAssetUrl(
-                  publication.assets.frontDetail,
-                  identity,
-                ),
+                detailCover: packAssetUrl(publication.assets.frontDetail, identity),
               }),
-          ...(backAsset === undefined
-            ? {}
-            : {back: packAssetUrl(backAsset, identity)}),
-          ...(publication.assets.spine === undefined
-            ? {}
-            : {spine: packAssetUrl(publication.assets.spine, identity)}),
-          pages: Array.from(
-            {length: publication.pageCount ?? publication.assets.pages.length},
-            (_, pageIndex) => {
-              const page = publication.assets.pages[pageIndex];
-              return page
-                ? packAssetUrl(page, identity)
-                : sparsePageUrl(publication.id, pageIndex, identity);
-            },
-          ),
+          ...(backAsset === undefined ? {} : {back: packAssetUrl(backAsset, identity)}),
+          ...(publication.assets.spine === undefined ? {} : {spine: packAssetUrl(publication.assets.spine, identity)}),
+          pages: Array.from({length: publication.pageCount ?? publication.assets.pages.length}, (_, pageIndex) => {
+            const page = publication.assets.pages[pageIndex];
+            return page ? packAssetUrl(page, identity) : sparsePageUrl(publication.id, pageIndex, identity);
+          }),
           added: addedLabel(publication),
           trim: publication.physical.trim ?? "B5",
           thicknessMm: publication.physical.thicknessMm ?? 10,
-          ...(publication.physical.aspectRatio === undefined
-            ? {}
-            : {aspectRatio: publication.physical.aspectRatio}),
+          ...(publication.physical.aspectRatio === undefined ? {} : {aspectRatio: publication.physical.aspectRatio}),
           ...runtimeReadingDirection(publication),
           ...(publication.shelfAtlasIndex === undefined
             ? {}
@@ -432,17 +381,12 @@ export const loadRuntimeLibraryWithFetcher = async (
                   const atlasIndex = atlases.front.findIndex(
                     (atlas) =>
                       publication.shelfAtlasIndex !== undefined &&
-                      publication.shelfAtlasIndex >=
-                        atlas.firstPublicationIndex &&
-                      publication.shelfAtlasIndex <
-                        atlas.firstPublicationIndex + atlas.publicationCount,
+                      publication.shelfAtlasIndex >= atlas.firstPublicationIndex &&
+                      publication.shelfAtlasIndex < atlas.firstPublicationIndex + atlas.publicationCount,
                   );
                   const atlas = atlases.front[atlasIndex];
                   return {
-                    cellIndex: atlas
-                      ? publication.shelfAtlasIndex -
-                        atlas.firstPublicationIndex
-                      : -1,
+                    cellIndex: atlas ? publication.shelfAtlasIndex - atlas.firstPublicationIndex : -1,
                     index: atlasIndex,
                   };
                 })(),

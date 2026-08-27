@@ -23,17 +23,11 @@ const SUPPORTED_COMPRESSION_METHODS = new Set([0, 8]);
 const MAX_CACHED_ARCHIVE_INSPECTIONS = 128;
 
 export const ARCHIVE_SOURCE_PROVIDER = "afterleaf-cbz";
-export const CONTENT_ARCHIVE_EXTENSIONS = new Set([
-  ".cbr",
-  ".cbz",
-  ".rar",
-  ".zip",
-]);
+export const CONTENT_ARCHIVE_EXTENSIONS = new Set([".cbr", ".cbz", ".rar", ".zip"]);
 
 const RAR_ARCHIVE_EXTENSIONS = new Set([".cbr", ".rar"]);
 
-export const isContentArchivePath = (path: string) =>
-  CONTENT_ARCHIVE_EXTENSIONS.has(extname(path).toLowerCase());
+export const isContentArchivePath = (path: string) => CONTENT_ARCHIVE_EXTENSIONS.has(extname(path).toLowerCase());
 
 export interface ArchiveInspection {
   imageEntries: string[];
@@ -64,8 +58,7 @@ const cachedInspection = async (archivePath: string) => {
   const resolvedArchivePath = resolve(archivePath);
   const archiveStat = await stat(resolvedArchivePath);
   if (!archiveStat.isFile()) throw new Error("Archive path is not a file");
-  if (archiveStat.size > MAX_ARCHIVE_BYTES)
-    throw new Error("Archive exceeds the 2 GiB compressed-size limit");
+  if (archiveStat.size > MAX_ARCHIVE_BYTES) throw new Error("Archive exceeds the 2 GiB compressed-size limit");
   const cached = archiveInspectionCache.get(resolvedArchivePath);
   if (
     cached?.size === archiveStat.size &&
@@ -132,18 +125,10 @@ const normalizeArchiveEntryPath = (fileName: string) => {
   const directory = normalized.endsWith("/");
   const path = directory ? normalized.slice(0, -1) : normalized;
   if (!path || posix.isAbsolute(path) || isAbsolute(path))
-    throw new Error(
-      `Archive entry must use a contained relative path: ${fileName}`,
-    );
+    throw new Error(`Archive entry must use a contained relative path: ${fileName}`);
   const segments = path.split("/");
-  if (
-    segments.some(
-      (segment) => segment === "" || segment === "." || segment === "..",
-    )
-  )
-    throw new Error(
-      `Archive entry escapes or aliases its destination: ${fileName}`,
-    );
+  if (segments.some((segment) => segment === "" || segment === "." || segment === ".."))
+    throw new Error(`Archive entry escapes or aliases its destination: ${fileName}`);
   return {directory, path: segments.join("/")};
 };
 
@@ -163,48 +148,28 @@ const validateArchiveEntrySizes = (entry: Entry) => {
   )
     throw new Error(`Archive entry has invalid sizes: ${entry.fileName}`);
   if (entry.uncompressedSize > MAX_ENTRY_BYTES)
-    throw new Error(
-      `Archive entry exceeds the 128 MiB limit: ${entry.fileName}`,
-    );
+    throw new Error(`Archive entry exceeds the 128 MiB limit: ${entry.fileName}`);
   if (entry.uncompressedSize === 0) return;
-  if (entry.compressedSize === 0)
-    throw new Error(
-      `Archive entry has an infinite compression ratio: ${entry.fileName}`,
-    );
+  if (entry.compressedSize === 0) throw new Error(`Archive entry has an infinite compression ratio: ${entry.fileName}`);
   if (entry.uncompressedSize / entry.compressedSize > MAX_COMPRESSION_RATIO)
-    throw new Error(
-      `Archive entry exceeds the ${MAX_COMPRESSION_RATIO}:1 compression-ratio limit: ${entry.fileName}`,
-    );
+    throw new Error(`Archive entry exceeds the ${MAX_COMPRESSION_RATIO}:1 compression-ratio limit: ${entry.fileName}`);
 };
 
 const validateArchiveEntry = (entry: Entry, normalizedPaths: Set<string>) => {
-  if (entry.isEncrypted())
-    throw new Error(
-      `Encrypted archive entry is not allowed: ${entry.fileName}`,
-    );
-  if (isSymlinkEntry(entry))
-    throw new Error(
-      `Symbolic-link archive entry is not allowed: ${entry.fileName}`,
-    );
+  if (entry.isEncrypted()) throw new Error(`Encrypted archive entry is not allowed: ${entry.fileName}`);
+  if (isSymlinkEntry(entry)) throw new Error(`Symbolic-link archive entry is not allowed: ${entry.fileName}`);
   if (!SUPPORTED_COMPRESSION_METHODS.has(entry.compressionMethod))
-    throw new Error(
-      `Unsupported ZIP compression method ${entry.compressionMethod}: ${entry.fileName}`,
-    );
+    throw new Error(`Unsupported ZIP compression method ${entry.compressionMethod}: ${entry.fileName}`);
   validateArchiveEntrySizes(entry);
   const normalized = normalizeArchiveEntryPath(entry.fileName);
   const collisionKey = normalized.path.toLocaleLowerCase("en-US");
   if (normalizedPaths.has(collisionKey))
-    throw new Error(
-      `Archive contains a duplicate or case-colliding path: ${entry.fileName}`,
-    );
+    throw new Error(`Archive contains a duplicate or case-colliding path: ${entry.fileName}`);
   normalizedPaths.add(collisionKey);
   return normalized;
 };
 
-const inspectZipArchive = async (
-  resolvedArchivePath: string,
-  archiveStat: Stats,
-): Promise<ArchiveInspection> => {
+const inspectZipArchive = async (resolvedArchivePath: string, archiveStat: Stats): Promise<ArchiveInspection> => {
   const zipFile = await openZip(resolvedArchivePath);
   if (zipFile.entryCount > MAX_ARCHIVE_ENTRIES) {
     zipFile.close();
@@ -241,16 +206,11 @@ const inspectZipArchive = async (
         if (totalUncompressedBytes > MAX_TOTAL_UNCOMPRESSED_BYTES)
           throw new Error("Archive exceeds the 2 GiB uncompressed-size limit");
         if (!normalized.directory) {
-          if (
-            IMAGE_EXTENSIONS.has(posix.extname(normalized.path).toLowerCase())
-          )
-            imageEntries.push(normalized.path);
+          if (IMAGE_EXTENSIONS.has(posix.extname(normalized.path).toLowerCase())) imageEntries.push(normalized.path);
           else ignoredEntryCount += 1;
         }
         if (imageEntries.length > MAX_ARCHIVE_IMAGES)
-          throw new Error(
-            `Archive exceeds the ${MAX_ARCHIVE_IMAGES}-image limit`,
-          );
+          throw new Error(`Archive exceeds the ${MAX_ARCHIVE_IMAGES}-image limit`);
         zipFile.readEntry();
       } catch (error) {
         fail(error);
@@ -264,9 +224,7 @@ const inspectZipArchive = async (
         return;
       }
       imageEntries.sort((left, right) => NATURAL_COLLATOR.compare(left, right));
-      entryFingerprints.sort((left, right) =>
-        left.path.localeCompare(right.path),
-      );
+      entryFingerprints.sort((left, right) => left.path.localeCompare(right.path));
       const metadataHash = createHash("sha256")
         .update(
           JSON.stringify({
@@ -282,17 +240,14 @@ const inspectZipArchive = async (
         modifiedAt: archiveStat.mtime.toISOString(),
         totalUncompressedBytes,
       };
-      resolvePromise(
-        cacheInspection(resolvedArchivePath, archiveStat, inspection),
-      );
+      resolvePromise(cacheInspection(resolvedArchivePath, archiveStat, inspection));
     });
     zipFile.readEntry();
   });
 };
 
 const validateRarEntry = (entry: FileHeader, normalizedPaths: Set<string>) => {
-  if (entry.flags.encrypted)
-    throw new Error(`Encrypted archive entry is not allowed: ${entry.name}`);
+  if (entry.flags.encrypted) throw new Error(`Encrypted archive entry is not allowed: ${entry.name}`);
   if (
     !Number.isSafeInteger(entry.packSize) ||
     !Number.isSafeInteger(entry.unpSize) ||
@@ -300,48 +255,30 @@ const validateRarEntry = (entry: FileHeader, normalizedPaths: Set<string>) => {
     entry.unpSize < 0
   )
     throw new Error(`Archive entry has invalid sizes: ${entry.name}`);
-  if (entry.unpSize > MAX_ENTRY_BYTES)
-    throw new Error(`Archive entry exceeds the 128 MiB limit: ${entry.name}`);
+  if (entry.unpSize > MAX_ENTRY_BYTES) throw new Error(`Archive entry exceeds the 128 MiB limit: ${entry.name}`);
   if (entry.unpSize > 0 && entry.packSize === 0)
-    throw new Error(
-      `Archive entry has an infinite compression ratio: ${entry.name}`,
-    );
-  if (
-    entry.unpSize > 0 &&
-    entry.unpSize / entry.packSize > MAX_COMPRESSION_RATIO
-  )
-    throw new Error(
-      `Archive entry exceeds the ${MAX_COMPRESSION_RATIO}:1 compression-ratio limit: ${entry.name}`,
-    );
+    throw new Error(`Archive entry has an infinite compression ratio: ${entry.name}`);
+  if (entry.unpSize > 0 && entry.unpSize / entry.packSize > MAX_COMPRESSION_RATIO)
+    throw new Error(`Archive entry exceeds the ${MAX_COMPRESSION_RATIO}:1 compression-ratio limit: ${entry.name}`);
   const normalized = normalizeArchiveEntryPath(
-    entry.flags.directory && !entry.name.endsWith("/")
-      ? `${entry.name}/`
-      : entry.name,
+    entry.flags.directory && !entry.name.endsWith("/") ? `${entry.name}/` : entry.name,
   );
   const collisionKey = normalized.path.toLocaleLowerCase("en-US");
   if (normalizedPaths.has(collisionKey))
-    throw new Error(
-      `Archive contains a duplicate or case-colliding path: ${entry.name}`,
-    );
+    throw new Error(`Archive contains a duplicate or case-colliding path: ${entry.name}`);
   normalizedPaths.add(collisionKey);
   return normalized;
 };
 
-const inspectRarArchive = async (
-  resolvedArchivePath: string,
-  archiveStat: Stats,
-): Promise<ArchiveInspection> => {
+const inspectRarArchive = async (resolvedArchivePath: string, archiveStat: Stats): Promise<ArchiveInspection> => {
   const extractor = await createExtractorFromFile({
     filepath: resolvedArchivePath,
   });
   const list = extractor.getFileList();
-  if (list.arcHeader.flags.headerEncrypted)
-    throw new Error("Encrypted archive headers are not allowed");
-  if (list.arcHeader.flags.volume)
-    throw new Error("Multi-volume RAR archives are not supported");
+  if (list.arcHeader.flags.headerEncrypted) throw new Error("Encrypted archive headers are not allowed");
+  if (list.arcHeader.flags.volume) throw new Error("Multi-volume RAR archives are not supported");
   const entries = [...list.fileHeaders];
-  if (entries.length > MAX_ARCHIVE_ENTRIES)
-    throw new Error(`Archive exceeds the ${MAX_ARCHIVE_ENTRIES}-entry limit`);
+  if (entries.length > MAX_ARCHIVE_ENTRIES) throw new Error(`Archive exceeds the ${MAX_ARCHIVE_ENTRIES}-entry limit`);
 
   const entryFingerprints: ArchiveEntryFingerprint[] = [];
   const imageEntries: string[] = [];
@@ -362,14 +299,12 @@ const inspectRarArchive = async (
     if (totalUncompressedBytes > MAX_TOTAL_UNCOMPRESSED_BYTES)
       throw new Error("Archive exceeds the 2 GiB uncompressed-size limit");
     if (normalized.directory) continue;
-    if (IMAGE_EXTENSIONS.has(posix.extname(normalized.path).toLowerCase()))
-      imageEntries.push(normalized.path);
+    if (IMAGE_EXTENSIONS.has(posix.extname(normalized.path).toLowerCase())) imageEntries.push(normalized.path);
     else ignoredEntryCount += 1;
     if (imageEntries.length > MAX_ARCHIVE_IMAGES)
       throw new Error(`Archive exceeds the ${MAX_ARCHIVE_IMAGES}-image limit`);
   }
-  if (imageEntries.length === 0)
-    throw new Error("Archive contains no supported images");
+  if (imageEntries.length === 0) throw new Error("Archive contains no supported images");
   imageEntries.sort((left, right) => NATURAL_COLLATOR.compare(left, right));
   entryFingerprints.sort((left, right) => left.path.localeCompare(right.path));
   const metadataHash = createHash("sha256")
@@ -390,11 +325,8 @@ const inspectRarArchive = async (
   });
 };
 
-export const inspectContentArchive = async (
-  archivePath: string,
-): Promise<ArchiveInspection> => {
-  const {archiveStat, cached, resolvedArchivePath} =
-    await cachedInspection(archivePath);
+export const inspectContentArchive = async (archivePath: string): Promise<ArchiveInspection> => {
+  const {archiveStat, cached, resolvedArchivePath} = await cachedInspection(archivePath);
   if (cached) return cached;
   if (RAR_ARCHIVE_EXTENSIONS.has(extname(resolvedArchivePath).toLowerCase()))
     return inspectRarArchive(resolvedArchivePath, archiveStat);
@@ -423,9 +355,7 @@ const collectArchiveEntry = (stream: Readable, entryPath: string) =>
         chunks.push(buffer);
         return;
       }
-      stream.destroy(
-        new Error(`Archive entry exceeds the 128 MiB limit: ${entryPath}`),
-      );
+      stream.destroy(new Error(`Archive entry exceeds the 128 MiB limit: ${entryPath}`));
     });
     stream.once("error", reject);
     stream.once("end", () => resolvePromise(Buffer.concat(chunks, bytesRead)));
@@ -453,9 +383,7 @@ const readArchiveEntry = async (archivePath: string, entryPath: string) => {
         const stream = await openEntryStream(zipFile, entry);
         const content = await collectArchiveEntry(stream, entryPath);
         if (content.byteLength !== entry.uncompressedSize)
-          throw new Error(
-            `Archive entry size changed while reading: ${entryPath}`,
-          );
+          throw new Error(`Archive entry size changed while reading: ${entryPath}`);
         settled = true;
         zipFile.close();
         resolvePromise(content);
@@ -471,9 +399,7 @@ const readArchiveEntry = async (archivePath: string, entryPath: string) => {
 };
 
 const readRarEntry = async (archivePath: string, entryPath: string) => {
-  const temporaryDirectory = await mkdtemp(
-    join(tmpdir(), "afterleaf-rar-page-"),
-  );
+  const temporaryDirectory = await mkdtemp(join(tmpdir(), "afterleaf-rar-page-"));
   const outputPath = join(temporaryDirectory, "page");
   try {
     const extractor = await createExtractorFromFile({
@@ -482,16 +408,12 @@ const readRarEntry = async (archivePath: string, entryPath: string) => {
       targetPath: temporaryDirectory,
     });
     const extractedFiles = [...extractor.extract({files: [entryPath]}).files];
-    if (
-      extractedFiles.length !== 1 ||
-      extractedFiles[0]?.fileHeader.name !== entryPath
-    )
+    if (extractedFiles.length !== 1 || extractedFiles[0]?.fileHeader.name !== entryPath)
       throw new Error(`Archive entry was not found: ${entryPath}`);
     const outputStat = await lstat(outputPath);
     if (!outputStat.isFile() || outputStat.isSymbolicLink())
       throw new Error(`Archive entry is not a regular file: ${entryPath}`);
-    if (outputStat.size > MAX_ENTRY_BYTES)
-      throw new Error(`Archive entry exceeds the 128 MiB limit: ${entryPath}`);
+    if (outputStat.size > MAX_ENTRY_BYTES) throw new Error(`Archive entry exceeds the 128 MiB limit: ${entryPath}`);
     return await readFile(outputPath);
   } finally {
     await rm(temporaryDirectory, {force: true, recursive: true});
@@ -506,16 +428,10 @@ export const readContentArchiveImage = async (
   if (!Number.isSafeInteger(pageIndex) || pageIndex < 0)
     throw new Error("Archive page index must be a non-negative integer");
   const inspection = await inspectContentArchive(archivePath);
-  if (
-    expectedMetadataHash !== undefined &&
-    inspection.metadataHash !== expectedMetadataHash
-  )
-    throw new Error(
-      "Archive contents changed after the library snapshot was built",
-    );
+  if (expectedMetadataHash !== undefined && inspection.metadataHash !== expectedMetadataHash)
+    throw new Error("Archive contents changed after the library snapshot was built");
   const entryPath = inspection.imageEntries[pageIndex];
   if (!entryPath) throw new Error("Archive does not contain that page");
-  if (RAR_ARCHIVE_EXTENSIONS.has(extname(archivePath).toLowerCase()))
-    return readRarEntry(archivePath, entryPath);
+  if (RAR_ARCHIVE_EXTENSIONS.has(extname(archivePath).toLowerCase())) return readRarEntry(archivePath, entryPath);
   return readArchiveEntry(archivePath, entryPath);
 };

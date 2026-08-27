@@ -1,9 +1,6 @@
 import {describe, expect, test} from "bun:test";
 
-import {
-  ART_FRAME_CROSSFADE_SECONDS,
-  artFrameCrossfadeOpacity,
-} from "~/artFrames/transition";
+import {ART_FRAME_CROSSFADE_SECONDS, artFrameCrossfadeOpacity} from "~/artFrames/transition";
 
 describe("digital art frame transition", () => {
   test("smoothly blends between images within the duration", () => {

@@ -105,9 +105,7 @@ export class ShopPlayerMovement {
         this.#playerGrounded ||
         movementTime - this.#lastPlayerGroundedAt <= PLAYER_JUMP_COYOTE_MS ||
         camera.position.y <= SHOP_PHYSICS_PLAYER_EYE_HEIGHT + 0.025;
-      const jumpBuffered =
-        state.jumpQueued &&
-        movementTime - state.jumpQueuedAt <= PLAYER_JUMP_BUFFER_MS;
+      const jumpBuffered = state.jumpQueued && movementTime - state.jumpQueuedAt <= PLAYER_JUMP_BUFFER_MS;
       if (jumpBuffered && canJump) {
         this.#playerVerticalVelocity = PLAYER_JUMP_SPEED;
         this.#playerGrounded = false;
@@ -123,14 +121,11 @@ export class ShopPlayerMovement {
         this.#playerVerticalVelocity * deltaSeconds,
         this.#movementDelta.z,
       );
-      host
-        .physicsWorld()
-        .movePlayer(this.#playerDesiredDisplacement, this.#playerMovement);
+      host.physicsWorld().movePlayer(this.#playerDesiredDisplacement, this.#playerMovement);
       camera.position.copy(this.#playerMovement.eyePosition);
       const correctedY = this.#playerMovement.correctedDisplacement.y;
       const descending = this.#playerVerticalVelocity <= 0;
-      const supportedWhileFalling =
-        descending && correctedY > this.#playerDesiredDisplacement.y + 0.0001;
+      const supportedWhileFalling = descending && correctedY > this.#playerDesiredDisplacement.y + 0.0001;
       // Rapier can retain a ground contact during the first upward sweep based
       // on its planar direction. It must not cancel a jump that just launched.
       const grounded = resolvePlayerGrounded(
@@ -138,10 +133,7 @@ export class ShopPlayerMovement {
         this.#playerMovement.grounded,
         supportedWhileFalling,
       );
-      if (
-        grounded ||
-        (this.#playerVerticalVelocity > 0 && this.#playerMovement.ceilingHit)
-      )
+      if (grounded || (this.#playerVerticalVelocity > 0 && this.#playerMovement.ceilingHit))
         this.#playerVerticalVelocity = 0;
       this.#playerGrounded = grounded;
       if (grounded) this.#lastPlayerGroundedAt = movementTime;
@@ -156,11 +148,7 @@ export class ShopPlayerMovement {
         host.collisionWorld,
         this.#movementPosition,
       );
-      camera.position.set(
-        this.#movementPosition.x,
-        SHOP_PHYSICS_PLAYER_EYE_HEIGHT,
-        this.#movementPosition.z,
-      );
+      camera.position.set(this.#movementPosition.x, SHOP_PHYSICS_PLAYER_EYE_HEIGHT, this.#movementPosition.z);
       this.#playerGrounded = true;
       this.#lastPlayerGroundedAt = performance.now();
       this.#playerVerticalVelocity = 0;
@@ -172,11 +160,7 @@ export class ShopPlayerMovement {
         (camera.position.y - previousY) / deltaSeconds,
         (camera.position.z - previousZ) / deltaSeconds,
       );
-    if (
-      camera.position.x !== previousX ||
-      camera.position.y !== previousY ||
-      camera.position.z !== previousZ
-    )
+    if (camera.position.x !== previousX || camera.position.y !== previousY || camera.position.z !== previousZ)
       host.markWorldStateDirty();
   }
 }

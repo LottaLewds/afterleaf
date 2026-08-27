@@ -2,8 +2,7 @@ import {describe, expect, test} from "bun:test";
 import type {ReplaceDirectoryOperations} from "~/content/replaceDirectory";
 import {replaceDirectory} from "~/content/replaceDirectory";
 
-const filesystemError = (code: string) =>
-  Object.assign(new Error(code), {code});
+const filesystemError = (code: string) => Object.assign(new Error(code), {code});
 
 describe("replaceDirectory", () => {
   test("retries the cross-platform copy fallback after transient failures", async () => {
@@ -25,9 +24,7 @@ describe("replaceDirectory", () => {
       wait: async () => {},
     };
 
-    await expect(
-      replaceDirectory("staging", "revision", operations),
-    ).resolves.toBeUndefined();
+    await expect(replaceDirectory("staging", "revision", operations)).resolves.toBeUndefined();
     expect(renameAttempts).toBe(6);
     expect(copyAttempts).toBe(2);
     expect(removed).toEqual(["revision", "revision", "revision", "staging"]);
@@ -45,9 +42,7 @@ describe("replaceDirectory", () => {
       wait: async () => {},
     };
 
-    await expect(
-      replaceDirectory("staging", "revision", operations),
-    ).rejects.toThrow(
+    await expect(replaceDirectory("staging", "revision", operations)).rejects.toThrow(
       "rename failed (EPERM: EPERM), then copy fallback failed (EIO: EIO)",
     );
   });

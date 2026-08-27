@@ -19,17 +19,9 @@ interface ProviderAspectRatioMigrationOptions {
   providerIds: ReadonlySet<string>;
 }
 
-const publicationNeedsAspectRatioMigration = (
-  document: LocalPublicationDocument,
-) => {
-  if (
-    document.aspectRatioInferenceVersion === BOOK_ASPECT_RATIO_INFERENCE_VERSION
-  )
-    return false;
-  return (
-    document.aspectRatioInferenceVersion !== undefined ||
-    document.physical?.aspectRatio === undefined
-  );
+const publicationNeedsAspectRatioMigration = (document: LocalPublicationDocument) => {
+  if (document.aspectRatioInferenceVersion === BOOK_ASPECT_RATIO_INFERENCE_VERSION) return false;
+  return document.aspectRatioInferenceVersion !== undefined || document.physical?.aspectRatio === undefined;
 };
 
 const localPageDimensions = async (
@@ -41,16 +33,9 @@ const localPageDimensions = async (
   const assetPath = document.assets.pages[pageIndex];
   if (!assetPath) return;
   try {
-    const resolvedPage = await realpath(
-      resolveContainedPath(publicationDirectory, assetPath),
-    );
+    const resolvedPage = await realpath(resolveContainedPath(publicationDirectory, assetPath));
     const relativePage = relative(resolvedPublicationDirectory, resolvedPage);
-    if (
-      relativePage === "" ||
-      relativePage === ".." ||
-      relativePage.startsWith(`..${sep}`) ||
-      isAbsolute(relativePage)
-    )
+    if (relativePage === "" || relativePage === ".." || relativePage.startsWith(`..${sep}`) || isAbsolute(relativePage))
       return;
     return await readImageDimensions(await readFile(resolvedPage));
   } catch {
@@ -66,10 +51,8 @@ const remotePageDimensions = async (
   pageIndex: number,
 ) => {
   const metadataHash = document.source?.metadataHash;
-  if (!metadataHash)
-    throw new Error("the publication has no source metadata hash");
-  if (!provider.materializePage)
-    throw new Error("the provider does not support exact-page acquisition");
+  if (!metadataHash) throw new Error("the publication has no source metadata hash");
+  if (!provider.materializePage) throw new Error("the provider does not support exact-page acquisition");
   const dimensions = await readImageDimensions(
     await provider.materializePage({
       metadataHash,
@@ -79,8 +62,7 @@ const remotePageDimensions = async (
       sourceDirectory: publicationDirectory,
     }),
   );
-  if (!dimensions)
-    throw new Error(`page ${pageIndex + 1} dimensions could not be decoded`);
+  if (!dimensions) throw new Error(`page ${pageIndex + 1} dimensions could not be decoded`);
   return dimensions;
 };
 
@@ -101,14 +83,10 @@ export const createProviderAspectRatioMigration = (
     label: "aspect-ratio inference",
     migrate: async ({document, publicationDirectory}) => {
       const providerId = document.source?.provider;
-      if (!providerId)
-        throw new Error("the publication has no source provider");
+      if (!providerId) throw new Error("the publication has no source provider");
       const pageCount = document.pageCount ?? document.assets.pages.length;
       const interiorSampleIndices = bookAspectRatioSamplePageIndices(pageCount);
-      const sampleIndices =
-        interiorSampleIndices.length > 0
-          ? interiorSampleIndices
-          : [...new Set([0, pageCount - 1])];
+      const sampleIndices = interiorSampleIndices.length > 0 ? interiorSampleIndices : [...new Set([0, pageCount - 1])];
       const dimensions: ImageDimensions[] = [];
       const resolvedPublicationDirectory = await realpath(publicationDirectory);
       for (const pageIndex of sampleIndices) {
@@ -128,19 +106,10 @@ export const createProviderAspectRatioMigration = (
           providerPromises.set(providerId, providerPromise);
         }
         dimensions.push(
-          await remotePageDimensions(
-            await providerPromise,
-            document,
-            publicationDirectory,
-            pageCount,
-            pageIndex,
-          ),
+          await remotePageDimensions(await providerPromise, document, publicationDirectory, pageCount, pageIndex),
         );
       }
-      const aspectRatio = inferRepresentativeBookAspectRatio(
-        dimensions,
-        DEFAULT_BOOK_ASPECT_RATIO,
-      );
+      const aspectRatio = inferRepresentativeBookAspectRatio(dimensions, DEFAULT_BOOK_ASPECT_RATIO);
       return {
         ...document,
         aspectRatioInferenceVersion: BOOK_ASPECT_RATIO_INFERENCE_VERSION,

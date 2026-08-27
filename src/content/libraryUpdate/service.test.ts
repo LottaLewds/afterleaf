@@ -12,11 +12,7 @@ import {
   type LibraryUpdateServiceDependencies,
   type SnapshotCatalogSummary,
 } from "~/content/libraryUpdate/service";
-import type {
-  ContentPackCatalog,
-  PackedPublication,
-  SeedContentPackResult,
-} from "~/content/schema";
+import type {ContentPackCatalog, PackedPublication, SeedContentPackResult} from "~/content/schema";
 import type {LibraryProviderDescriptor} from "~/content/providers/types";
 
 const request: LibraryFetchMoreRequest = {};
@@ -198,9 +194,7 @@ describe("LibraryUpdateService", () => {
         expect(options.excludedTags).toEqual([]);
         expect(options.persistentAssetDirectory).toBe(resolve("/library"));
         expect(options.languages).toEqual(["english", "japanese"]);
-        expect([...excludedPublicationIds]).toEqual([
-          "blacklisted-publication",
-        ]);
+        expect([...excludedPublicationIds]).toEqual(["blacklisted-publication"]);
         seededOutputDirectory = options.outputDirectory;
         return seedResult;
       },
@@ -208,19 +202,14 @@ describe("LibraryUpdateService", () => {
         calls.push("sync");
         expect(options.write).toBe(true);
         expect(options.languages).toEqual(["english"]);
-        expect(options.excludedPublicationIds).toEqual([
-          "blacklisted-publication",
-        ]);
+        expect(options.excludedPublicationIds).toEqual(["blacklisted-publication"]);
         expect(options.blockedTags).toEqual([]);
         expect(options.selectionMode).toBe("unseen");
         options.onProgress?.("Fetching publication 1 of 20");
         return syncReport;
       },
     });
-    const service = new LibraryUpdateService(
-      {libraryDirectory: "/library", sourceDirectory: "/source"},
-      dependencies,
-    );
+    const service = new LibraryUpdateService({libraryDirectory: "/library", sourceDirectory: "/source"}, dependencies);
     const phases: LibraryUpdatePhase[] = [];
     const messages: string[] = [];
     service.subscribe((state) => {
@@ -236,9 +225,7 @@ describe("LibraryUpdateService", () => {
     expect(calls).toEqual(["sync", "seed", "activate:next"]);
     expect(seededOutputDirectory).toBe(resolve("/library/revisions/next"));
     expect(result.previousSnapshot).toEqual(previousSnapshot);
-    expect(result.blacklistedPublicationIds).toEqual([
-      "blacklisted-publication",
-    ]);
+    expect(result.blacklistedPublicationIds).toEqual(["blacklisted-publication"]);
     expect(result.diff).toEqual({
       addedPublicationIds: ["added"],
       removedPublicationIds: ["removed"],
@@ -263,21 +250,13 @@ describe("LibraryUpdateService", () => {
       "weebcentral import pipeline: provider materialized 4 (2 added, 1 updated, 1 unchanged); derived catalog has 2 publications (1 newly visible, 1 updated)",
     );
     expect(messages).not.toContainEqual(
-      expect.stringContaining(
-        "alternate was materialized by weebcentral but did not enter the derived catalog",
-      ),
+      expect.stringContaining("alternate was materialized by weebcentral but did not enter the derived catalog"),
     );
     expect(messages).toContainEqual(
-      expect.stringContaining(
-        "missing was materialized by weebcentral but did not enter the derived catalog",
-      ),
+      expect.stringContaining("missing was materialized by weebcentral but did not enter the derived catalog"),
     );
-    expect(messages).toContain(
-      "Activating the completed library catalog revision",
-    );
-    expect(messages).toContain(
-      "Scheduling unreferenced pooled assets for cleanup",
-    );
+    expect(messages).toContain("Activating the completed library catalog revision");
+    expect(messages).toContain("Scheduling unreferenced pooled assets for cleanup");
     expect(service.getState()).toMatchObject({
       activeSnapshot: {snapshotId: "next"},
       phase: "complete",
@@ -444,14 +423,9 @@ describe("LibraryUpdateService", () => {
         discarded.push(directory);
       },
     });
-    const service = new LibraryUpdateService(
-      {libraryDirectory: "/library", sourceDirectory: "/source"},
-      dependencies,
-    );
+    const service = new LibraryUpdateService({libraryDirectory: "/library", sourceDirectory: "/source"}, dependencies);
 
-    await expect(service.fetchMore(request)).rejects.toThrow(
-      "index write failed",
-    );
+    await expect(service.fetchMore(request)).rejects.toThrow("index write failed");
 
     expect(discarded).toEqual([resolve("/library/revisions/next")]);
     expect(service.getState()).toMatchObject({
@@ -497,9 +471,7 @@ describe("LibraryUpdateService", () => {
 
     const firstFetch = service.fetchMore(request);
     await Promise.resolve();
-    await expect(service.fetchMore(request)).rejects.toBeInstanceOf(
-      LibraryUpdateInProgressError,
-    );
+    await expect(service.fetchMore(request)).rejects.toBeInstanceOf(LibraryUpdateInProgressError);
     releaseSync?.(syncReport);
     await expect(firstFetch).resolves.toMatchObject({requestId: "request-1"});
   });
@@ -529,12 +501,7 @@ describe("LibraryUpdateService", () => {
         runMigrations: async () => {
           throw new Error("scan must not run provider migrations");
         },
-        runSeed: async (
-          catalogDirectory,
-          options,
-          excludedIds,
-          reusableSnapshot,
-        ) => {
+        runSeed: async (catalogDirectory, options, excludedIds, reusableSnapshot) => {
           calls.push("seed");
           expect(catalogDirectory).toBe(resolve("/catalog"));
           expect(options.limit).toBe(Number.MAX_SAFE_INTEGER);
@@ -564,13 +531,9 @@ describe("LibraryUpdateService", () => {
   test("keeps the active snapshot when a scan produces an identical catalog", async () => {
     const calls: string[] = [];
     const unchangedSeedResult = structuredClone(seedResult);
-    if (!unchangedSeedResult.catalog)
-      throw new Error("Test seed result must contain a catalog");
+    if (!unchangedSeedResult.catalog) throw new Error("Test seed result must contain a catalog");
     unchangedSeedResult.catalog.contentHash = previousCatalog.contentHash;
-    unchangedSeedResult.catalog.publications = [
-      publication("kept", "kept-v1"),
-      publication("removed", "removed-v1"),
-    ];
+    unchangedSeedResult.catalog.publications = [publication("kept", "kept-v1"), publication("removed", "removed-v1")];
     const service = new LibraryUpdateService(
       {libraryDirectory: "/library", sourceDirectory: "/source"},
       createDependencies({
@@ -612,14 +575,10 @@ describe("LibraryUpdateService", () => {
       {libraryDirectory: "/library", sourceDirectory: "/source"},
       createDependencies({
         runMigrations: async () => {
-          throw new Error(
-            "local-only repair must not update provider metadata",
-          );
+          throw new Error("local-only repair must not update provider metadata");
         },
         runProviderRepairs: async () => {
-          throw new Error(
-            "local-only repair must not redownload provider assets",
-          );
+          throw new Error("local-only repair must not redownload provider assets");
         },
         runSeed: async (_catalogDirectory, options) => {
           expect(options.forceRebuild).toBe(true);
@@ -634,8 +593,7 @@ describe("LibraryUpdateService", () => {
   test("keeps the active catalog when scan errors would remove publications", async () => {
     const calls: string[] = [];
     const unsafeSeedResult = structuredClone(seedResult);
-    if (!unsafeSeedResult.catalog)
-      throw new Error("Test seed result must contain a catalog");
+    if (!unsafeSeedResult.catalog) throw new Error("Test seed result must contain a catalog");
     unsafeSeedResult.catalog.publications = [publication("kept", "kept-v2")];
     unsafeSeedResult.report.diagnostics = [
       {
@@ -668,11 +626,8 @@ describe("LibraryUpdateService", () => {
 
   test("allows a verified deletion when a scan error belongs to another source", async () => {
     const isolatedSeedResult = structuredClone(seedResult);
-    if (!isolatedSeedResult.catalog)
-      throw new Error("Test seed result must contain a catalog");
-    isolatedSeedResult.catalog.publications = [
-      {...publication("kept", "kept-v2"), localSourceId: "books/kept"},
-    ];
+    if (!isolatedSeedResult.catalog) throw new Error("Test seed result must contain a catalog");
+    isolatedSeedResult.catalog.publications = [{...publication("kept", "kept-v2"), localSourceId: "books/kept"}];
     isolatedSeedResult.report.diagnostics = [
       {
         code: "invalid-manifest",

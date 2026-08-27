@@ -1,9 +1,5 @@
 import {normalizeTags} from "~/content/normalize";
-import type {
-  ContentSeedDiagnostic,
-  PublicationCandidate,
-  PublicationMaterial,
-} from "~/content/schema";
+import type {ContentSeedDiagnostic, PublicationCandidate, PublicationMaterial} from "~/content/schema";
 
 interface AlternateEntry {
   candidate: PublicationCandidate;
@@ -28,9 +24,7 @@ const hasUncensoredEditionMarker = (title: string) => {
 };
 
 export const alternateTitleKey = (title: string) => {
-  const withoutEditionMarkers = removeBracketedEditionMarkers(
-    title.normalize("NFKC").toLocaleLowerCase("en-US"),
-  );
+  const withoutEditionMarkers = removeBracketedEditionMarkers(title.normalize("NFKC").toLocaleLowerCase("en-US"));
   return withoutEditionMarkers
     .replace(/\p{Number}+/gu, (digits) => digits.replace(/^0+(?=\d)/u, ""))
     .replace(/[^\p{Letter}\p{Number}]+/gu, " ")
@@ -39,22 +33,17 @@ export const alternateTitleKey = (title: string) => {
 };
 
 const isUncensored = (candidate: PublicationCandidate) =>
-  candidate.normalizedTags.includes("uncensored") ||
-  hasUncensoredEditionMarker(candidate.document.title);
+  candidate.normalizedTags.includes("uncensored") || hasUncensoredEditionMarker(candidate.document.title);
 
 const canonicalOrder = (left: AlternateEntry, right: AlternateEntry) => {
-  const uncensoredDifference =
-    Number(isUncensored(right.candidate)) -
-    Number(isUncensored(left.candidate));
+  const uncensoredDifference = Number(isUncensored(right.candidate)) - Number(isUncensored(left.candidate));
   if (uncensoredDifference !== 0) return uncensoredDifference;
   return left.candidate.document.id.localeCompare(right.candidate.document.id);
 };
 
 const groupKey = (candidate: PublicationCandidate) => {
   const titleKey = alternateTitleKey(candidate.document.title);
-  return titleKey
-    ? `${candidate.language}\0${titleKey}`
-    : `${candidate.language}\0id:${candidate.document.id}`;
+  return titleKey ? `${candidate.language}\0${titleKey}` : `${candidate.language}\0id:${candidate.document.id}`;
 };
 
 export const associatePublicationAlternates = <Entry extends AlternateEntry>(
@@ -81,23 +70,16 @@ export const associatePublicationAlternates = <Entry extends AlternateEntry>(
         alternates: alternates.map(({candidate}) => ({
           id: candidate.document.id,
           originalTags: normalizeTags(candidate.document.tags),
-          ...(candidate.document.source === undefined
-            ? {}
-            : {source: candidate.document.source}),
+          ...(candidate.document.source === undefined ? {} : {source: candidate.document.source}),
           title: candidate.document.title,
         })),
-        normalizedTags: normalizeTags(
-          ordered.flatMap(({candidate}) => candidate.normalizedTags),
-        ),
+        normalizedTags: normalizeTags(ordered.flatMap(({candidate}) => candidate.normalizedTags)),
       },
       material: {
         ...canonical.material,
         alternates: alternates.map(({candidate, material}) => {
           const page0 = material.pages[0] ?? material.front;
-          if (!page0)
-            throw new Error(
-              `Alternate publication ${candidate.document.id} has no page zero`,
-            );
+          if (!page0) throw new Error(`Alternate publication ${candidate.document.id} has no page zero`);
           return {
             id: candidate.document.id,
             page0,

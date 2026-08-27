@@ -79,11 +79,9 @@ const CROSS_END = 0.76;
 const CURL_ENVELOPE_SCALE = 256 / 27;
 const DEFAULT_DEFORMATION_OPTIONS: ActiveLeafDeformationOptions = {};
 
-const nonNegativeFinite = (value: number) =>
-  Number.isFinite(value) ? Math.max(0, value) : 0;
+const nonNegativeFinite = (value: number) => (Number.isFinite(value) ? Math.max(0, value) : 0);
 
-const normalizedInteger = (value: number) =>
-  Number.isFinite(value) ? Math.max(0, Math.trunc(value)) : 0;
+const normalizedInteger = (value: number) => (Number.isFinite(value) ? Math.max(0, Math.trunc(value)) : 0);
 
 export const normalizeTurnProgress = (progress: number) => {
   if (Number.isNaN(progress) || progress <= 0) return 0;
@@ -94,12 +92,7 @@ export const normalizeTurnProgress = (progress: number) => {
 /** Quintic smootherstep: continuous velocity and acceleration at both rests. */
 export const easeTurnProgress = (progress: number) => {
   const normalized = normalizeTurnProgress(progress);
-  return (
-    normalized *
-    normalized *
-    normalized *
-    (normalized * (normalized * 6 - 15) + 10)
-  );
+  return normalized * normalized * normalized * (normalized * (normalized * 6 - 15) + 10);
 };
 
 const writePageTurnProgress = <Target extends PageTurnProgress>(
@@ -132,16 +125,9 @@ const writePageTurnProgress = <Target extends PageTurnProgress>(
 };
 
 export const getPageTurnProgress = (progress: number): PageTurnProgress =>
-  writePageTurnProgress(
-    {normalized: 0, eased: 0, phase: "peel", phaseProgress: 0},
-    progress,
-  );
+  writePageTurnProgress({normalized: 0, eased: 0, phase: "peel", phaseProgress: 0}, progress);
 
-const createPageBlock = (
-  pageCount: number,
-  totalPages: number,
-  totalDepth: number,
-): PageBlock => {
+const createPageBlock = (pageCount: number, totalPages: number, totalDepth: number): PageBlock => {
   const fraction = totalPages === 0 ? 0 : pageCount / totalPages;
   const depth = totalDepth * fraction;
   return {
@@ -158,14 +144,9 @@ const createPageBlock = (
  * Offsets are unsigned because each block is positioned along its own local
  * cover normal. Zero-depth blocks should be hidden rather than epsilon-scaled.
  */
-export const getPageBlockSplit = (
-  options: PageBlockSplitOptions,
-): PageBlockSplit => {
+export const getPageBlockSplit = (options: PageBlockSplitOptions): PageBlockSplit => {
   const totalPages = normalizedInteger(options.totalPages);
-  const committedPageIndex = Math.min(
-    totalPages,
-    normalizedInteger(options.committedPageIndex),
-  );
+  const committedPageIndex = Math.min(totalPages, normalizedInteger(options.committedPageIndex));
   const totalDepth = nonNegativeFinite(options.totalDepth);
   const turnedPages = committedPageIndex;
   const remainingPages = totalPages - committedPageIndex;
@@ -258,16 +239,12 @@ export const deformActiveLeafVertex = (
   // Paper bends most visibly near the unsupported fore-edge. Keeping the
   // spine-side majority nearly planar makes the leaf read as one stiff sheet
   // instead of a uniformly sagging textile.
-  const curlEnvelope =
-    CURL_ENVELOPE_SCALE * normalizedU ** 3 * (1 - normalizedU);
+  const curlEnvelope = CURL_ENVELOPE_SCALE * normalizedU ** 3 * (1 - normalizedU);
   const torsionEnvelope = normalizedU * normalizedU * (3 - 2 * normalizedU);
   const normalOffset =
-    pageWidth *
-    (deformation.curl * curlEnvelope +
-      deformation.torsion * centeredV * torsionEnvelope);
+    pageWidth * (deformation.curl * curlEnvelope + deformation.torsion * centeredV * torsionEnvelope);
 
-  target.x =
-    deformation.sourceSide * (edgeDistance * turnCos - normalOffset * turnSin);
+  target.x = deformation.sourceSide * (edgeDistance * turnCos - normalOffset * turnSin);
   target.y = centeredV * pageHeight;
   target.z = edgeDistance * turnSin + normalOffset * turnCos;
   return target;
@@ -286,21 +263,11 @@ export const writeActiveLeafPositions = (
   deformation: ActiveLeafDeformation,
   vertex: ActiveLeafVertex = {x: 0, y: 0, z: 0},
 ) => {
-  const vertexCount = Math.min(
-    Math.floor(uvs.length / 2),
-    Math.floor(positions.length / 3),
-  );
+  const vertexCount = Math.min(Math.floor(uvs.length / 2), Math.floor(positions.length / 3));
   for (let index = 0; index < vertexCount; index += 1) {
     const uvOffset = index * 2;
     const positionOffset = index * 3;
-    deformActiveLeafVertex(
-      uvs[uvOffset] ?? 0,
-      uvs[uvOffset + 1] ?? 0,
-      width,
-      height,
-      deformation,
-      vertex,
-    );
+    deformActiveLeafVertex(uvs[uvOffset] ?? 0, uvs[uvOffset + 1] ?? 0, width, height, deformation, vertex);
     positions[positionOffset] = vertex.x;
     positions[positionOffset + 1] = vertex.y;
     positions[positionOffset + 2] = vertex.z;

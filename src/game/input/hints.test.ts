@@ -1,15 +1,11 @@
 import {describe, expect, test} from "bun:test";
 
 import {DEFAULT_SHORTCUTS, type ShortcutsConfig} from "~/game/input/bindings";
-import {
-  buildInteractionPrompts,
-  formatInteractionRowKey,
-} from "~/game/input/hints";
+import {buildInteractionPrompts, formatInteractionRowKey} from "~/game/input/hints";
 
 const style = "xbox" as const;
 /** Mirrors the scene's resolver: physical codes to display labels. */
-const resolveLabel = (code: string) =>
-  code.startsWith("Key") ? code.slice(3) : code;
+const resolveLabel = (code: string) => (code.startsWith("Key") ? code.slice(3) : code);
 
 describe("interaction prompt translation", () => {
   test("translates alternatives via their declared actions", () => {
@@ -28,109 +24,52 @@ describe("interaction prompt translation", () => {
 
   test("resolves the same letter differently per row action", () => {
     // E means interact here...
-    const interact = buildInteractionPrompts(
-      "E",
-      ["interact"],
-      DEFAULT_SHORTCUTS,
-      style,
-    );
+    const interact = buildInteractionPrompts("E", ["interact"], DEFAULT_SHORTCUTS, style);
     expect(interact).toEqual([{type: "button", icon: "xbox-a", alt: "A"}]);
     // ...and cycle-next here.
-    const cycle = buildInteractionPrompts(
-      "E",
-      ["propCycleAnimationRight"],
-      DEFAULT_SHORTCUTS,
-      style,
-    );
+    const cycle = buildInteractionPrompts("E", ["propCycleAnimationRight"], DEFAULT_SHORTCUTS, style);
     expect(cycle).toEqual([{type: "button", icon: "xbox-rb", alt: "RB"}]);
   });
 
   test("collapses duplicate actions like Click / E into one prompt", () => {
-    const prompts = buildInteractionPrompts(
-      "Click / E",
-      ["interact", "interact"],
-      DEFAULT_SHORTCUTS,
-      style,
-    );
+    const prompts = buildInteractionPrompts("Click / E", ["interact", "interact"], DEFAULT_SHORTCUTS, style);
     expect(prompts).toEqual([{type: "button", icon: "xbox-a", alt: "A"}]);
   });
 
   test("leaves mouse-only rows untouched", () => {
-    for (const key of [
-      "Wheel",
-      "Shift + Wheel",
-      "Ctrl + Wheel",
-      "Hold F + Wheel",
-    ]) {
-      expect(
-        buildInteractionPrompts(key, undefined, DEFAULT_SHORTCUTS, style),
-      ).toBeUndefined();
+    for (const key of ["Wheel", "Shift + Wheel", "Ctrl + Wheel", "Hold F + Wheel"]) {
+      expect(buildInteractionPrompts(key, undefined, DEFAULT_SHORTCUTS, style)).toBeUndefined();
     }
   });
 
   test("rows without pad bindings fall back to keycaps", () => {
     // toggleModelPlacement has no default pad binding.
-    const prompts = buildInteractionPrompts(
-      "M",
-      ["toggleModelPlacement"],
-      DEFAULT_SHORTCUTS,
-      style,
-    );
+    const prompts = buildInteractionPrompts("M", ["toggleModelPlacement"], DEFAULT_SHORTCUTS, style);
     expect(prompts).toBeUndefined();
   });
 
   test("switches iconography per controller style", () => {
-    const xbox = buildInteractionPrompts(
-      "T",
-      ["pickUpCancel"],
-      DEFAULT_SHORTCUTS,
-      "xbox",
-    );
-    const playstation = buildInteractionPrompts(
-      "T",
-      ["pickUpCancel"],
-      DEFAULT_SHORTCUTS,
-      "playstation",
-    );
+    const xbox = buildInteractionPrompts("T", ["pickUpCancel"], DEFAULT_SHORTCUTS, "xbox");
+    const playstation = buildInteractionPrompts("T", ["pickUpCancel"], DEFAULT_SHORTCUTS, "playstation");
     expect(xbox).toEqual([{type: "button", icon: "xbox-b", alt: "B"}]);
-    expect(playstation).toEqual([
-      {type: "button", icon: "playstation-circle", alt: "Circle"},
-    ]);
+    expect(playstation).toEqual([{type: "button", icon: "playstation-circle", alt: "Circle"}]);
   });
 });
 
 describe("interaction row keyboard labels", () => {
   test("derives labels from live bindings", () => {
     expect(
-      formatInteractionRowKey(
-        ["propCycleAnimationLeft", "propCycleAnimationRight"],
-        DEFAULT_SHORTCUTS,
-        resolveLabel,
-      ),
+      formatInteractionRowKey(["propCycleAnimationLeft", "propCycleAnimationRight"], DEFAULT_SHORTCUTS, resolveLabel),
     ).toBe("Q / E");
   });
 
   test("collapses repeated actions into a single alternative", () => {
-    expect(
-      formatInteractionRowKey(
-        ["interact", "interact"],
-        DEFAULT_SHORTCUTS,
-        resolveLabel,
-      ),
-    ).toBe("E");
+    expect(formatInteractionRowKey(["interact", "interact"], DEFAULT_SHORTCUTS, resolveLabel)).toBe("E");
   });
 
   test("returns undefined when any alternative lacks an action ref", () => {
-    expect(
-      formatInteractionRowKey(undefined, DEFAULT_SHORTCUTS, resolveLabel),
-    ).toBeUndefined();
-    expect(
-      formatInteractionRowKey(
-        ["interact", undefined],
-        DEFAULT_SHORTCUTS,
-        resolveLabel,
-      ),
-    ).toBeUndefined();
+    expect(formatInteractionRowKey(undefined, DEFAULT_SHORTCUTS, resolveLabel)).toBeUndefined();
+    expect(formatInteractionRowKey(["interact", undefined], DEFAULT_SHORTCUTS, resolveLabel)).toBeUndefined();
   });
 
   test("tracks rebinds - the binding table is the source of truth", () => {
@@ -138,8 +77,6 @@ describe("interaction row keyboard labels", () => {
       ...DEFAULT_SHORTCUTS,
       interact: [{device: "keyboard", code: "KeyH"}],
     };
-    expect(formatInteractionRowKey(["interact"], rebound, resolveLabel)).toBe(
-      "H",
-    );
+    expect(formatInteractionRowKey(["interact"], rebound, resolveLabel)).toBe("H");
   });
 });

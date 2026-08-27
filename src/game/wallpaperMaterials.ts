@@ -24,24 +24,12 @@ const configureTexture = (texture: Texture, anisotropy: number) => {
   return texture;
 };
 
-export const createWallpaperMaterial = (
-  textureLoader: TextureLoader,
-  maxAnisotropy: number,
-) => {
+export const createWallpaperMaterial = (textureLoader: TextureLoader, maxAnisotropy: number) => {
   const anisotropy = Math.min(8, maxAnisotropy);
-  const albedo = configureTexture(
-    textureLoader.load(wallpaperAlbedoUrl),
-    anisotropy,
-  );
+  const albedo = configureTexture(textureLoader.load(wallpaperAlbedoUrl), anisotropy);
   albedo.colorSpace = SRGBColorSpace;
-  const normal = configureTexture(
-    textureLoader.load(wallpaperNormalUrl),
-    anisotropy,
-  );
-  const surface = configureTexture(
-    textureLoader.load(wallpaperSurfaceUrl),
-    anisotropy,
-  );
+  const normal = configureTexture(textureLoader.load(wallpaperNormalUrl), anisotropy);
+  const surface = configureTexture(textureLoader.load(wallpaperSurfaceUrl), anisotropy);
   surface.channel = 0;
   const material = new MeshStandardMaterial({
     aoMap: surface,
@@ -59,10 +47,7 @@ export const createWallpaperMaterial = (
 };
 
 /** Keeps the pattern upright and at one physical scale across every wall. */
-export const createWallpaperBoxGeometry = (
-  size: BoxSize,
-  position: BoxPosition,
-) => {
+export const createWallpaperBoxGeometry = (size: BoxSize, position: BoxPosition) => {
   const [width, height, depth] = size;
   const [x, y, z] = position;
   const geometry = new BoxGeometry(width, height, depth);
@@ -78,10 +63,7 @@ export const createWallpaperBoxGeometry = (
     [width, height, -x - width / 2, y - height / 2],
   ] as const;
 
-  for (const [
-    faceIndex,
-    [faceWidth, faceHeight, offsetU, offsetV],
-  ] of faceMappings.entries()) {
+  for (const [faceIndex, [faceWidth, faceHeight, offsetU, offsetV]] of faceMappings.entries()) {
     const vertexOffset = faceIndex * 4;
     for (let vertex = 0; vertex < 4; vertex += 1) {
       const index = vertexOffset + vertex;

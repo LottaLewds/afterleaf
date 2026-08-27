@@ -27,9 +27,7 @@ describe("library fetch preferences", () => {
   test("persists the selected acquisition and search limits", () => {
     const storage = memoryStorage();
 
-    expect(
-      saveLibraryFetchPreferences({limit: 35, maxSearchPages: 24}, storage),
-    ).toEqual({
+    expect(saveLibraryFetchPreferences({limit: 35, maxSearchPages: 24}, storage)).toEqual({
       limit: 35,
       maxSearchPages: 24,
     });
@@ -52,9 +50,7 @@ describe("library fetch preferences", () => {
       maxSearchPages: DEFAULT_LIBRARY_SEARCH_PAGE_LIMIT,
     });
 
-    expect(
-      saveLibraryFetchPreferences({limit: 12.6, maxSearchPages: 23.7}, storage),
-    ).toEqual({
+    expect(saveLibraryFetchPreferences({limit: 12.6, maxSearchPages: 23.7}, storage)).toEqual({
       limit: 13,
       maxSearchPages: 24,
     });
@@ -70,26 +66,16 @@ describe("library fetch preferences", () => {
       limit: DEFAULT_LIBRARY_FETCH_LIMIT,
       maxSearchPages: DEFAULT_LIBRARY_SEARCH_PAGE_LIMIT,
     });
-    expect(
-      saveLibraryFetchPreferences({limit: -5, maxSearchPages: -5}, storage),
-    ).toEqual({
+    expect(saveLibraryFetchPreferences({limit: -5, maxSearchPages: -5}, storage)).toEqual({
       limit: MIN_LIBRARY_FETCH_LIMIT,
       maxSearchPages: MIN_LIBRARY_SEARCH_PAGE_LIMIT,
     });
-    expect(
-      saveLibraryFetchPreferences(
-        {limit: 1_000, maxSearchPages: 1_000},
-        storage,
-      ),
-    ).toEqual({
+    expect(saveLibraryFetchPreferences({limit: 1_000, maxSearchPages: 1_000}, storage)).toEqual({
       limit: MAX_LIBRARY_FETCH_LIMIT,
       maxSearchPages: MAX_LIBRARY_SEARCH_PAGE_LIMIT,
     });
 
-    storage.values.set(
-      LIBRARY_FETCH_PREFERENCES_STORAGE_KEY,
-      JSON.stringify({limit: 17}),
-    );
+    storage.values.set(LIBRARY_FETCH_PREFERENCES_STORAGE_KEY, JSON.stringify({limit: 17}));
     expect(loadLibraryFetchPreferences(storage)).toEqual({
       limit: 17,
       maxSearchPages: DEFAULT_LIBRARY_SEARCH_PAGE_LIMIT,

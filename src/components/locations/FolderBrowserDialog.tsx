@@ -31,21 +31,12 @@ export const FolderBrowserDialog = (props: {
             <select
               aria-label="Drive"
               class="h-8 bg-[#1b2422] px-2 text-[10px] text-[#c5cec9] [color-scheme:dark]"
-              value={
-                current().drives.find((drive) =>
-                  current().path.startsWith(drive.path),
-                )?.path
-              }
-              onChange={(event) =>
-                void props.browser.openBrowser(event.currentTarget.value)
-              }
+              value={current().drives.find((drive) => current().path.startsWith(drive.path))?.path}
+              onChange={(event) => void props.browser.openBrowser(event.currentTarget.value)}
             >
               <For each={current().drives}>
                 {(drive) => (
-                  <option
-                    class="bg-[#1b2422] text-[#f0ecdf]"
-                    value={drive.path}
-                  >
+                  <option class="bg-[#1b2422] text-[#f0ecdf]" value={drive.path}>
                     {drive.name}
                   </option>
                 )}

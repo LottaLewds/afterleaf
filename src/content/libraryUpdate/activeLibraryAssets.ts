@@ -2,14 +2,9 @@ import path from "node:path";
 
 import {ACTIVE_LIBRARY_ROUTE_PREFIX} from "./activeLibraryRoutes";
 
-export type ActiveLibraryAssetRequest =
-  | {kind: "invalid"}
-  | {kind: "scoped"; pathname: string}
-  | {kind: "unscoped"};
+export type ActiveLibraryAssetRequest = {kind: "invalid"} | {kind: "scoped"; pathname: string} | {kind: "unscoped"};
 
-export type ActiveLibraryAssetResolution =
-  | {kind: "invalid"}
-  | {kind: "resolved"; assetPath: string};
+export type ActiveLibraryAssetResolution = {kind: "invalid"} | {kind: "resolved"; assetPath: string};
 
 export interface ActiveLibraryStorageLocation {
   assetDirectory: string;
@@ -26,19 +21,10 @@ export const resolveActiveLibraryStorage = (
 ): ActiveLibraryStorageLocation | undefined => {
   if (!isRecord(index) || !Array.isArray(index.snapshots)) return undefined;
   const revisionId = index.activeSnapshotId;
-  if (
-    typeof revisionId !== "string" ||
-    !/^[a-z0-9][a-z0-9._-]*$/u.test(revisionId)
-  )
-    return undefined;
-  const descriptor = index.snapshots.find(
-    (value) => isRecord(value) && value.snapshotId === revisionId,
-  );
+  if (typeof revisionId !== "string" || !/^[a-z0-9][a-z0-9._-]*$/u.test(revisionId)) return undefined;
+  const descriptor = index.snapshots.find((value) => isRecord(value) && value.snapshotId === revisionId);
   if (!descriptor) return undefined;
-  const expectedDirectories = [
-    `revisions/${revisionId}`,
-    `snapshots/${revisionId}`,
-  ];
+  const expectedDirectories = [`revisions/${revisionId}`, `snapshots/${revisionId}`];
   const directory = descriptor.directory;
   if (
     typeof directory !== "string" ||
@@ -48,9 +34,7 @@ export const resolveActiveLibraryStorage = (
     return undefined;
   const catalogDirectory = path.resolve(libraryDirectory, directory);
   return {
-    assetDirectory: directory.startsWith("revisions/")
-      ? path.resolve(libraryDirectory)
-      : catalogDirectory,
+    assetDirectory: directory.startsWith("revisions/") ? path.resolve(libraryDirectory) : catalogDirectory,
     catalogDirectory,
     revisionId,
   };
@@ -67,9 +51,7 @@ const unprefixActiveLibraryPath = (pathname: string) => {
   return pathname.slice(ACTIVE_LIBRARY_ROUTE_PREFIX.length);
 };
 
-export const parseActiveLibraryAssetRequest = (
-  requestUrl: string,
-): ActiveLibraryAssetRequest => {
+export const parseActiveLibraryAssetRequest = (requestUrl: string): ActiveLibraryAssetRequest => {
   let encodedPathname: string;
   try {
     encodedPathname = new URL(requestUrl, "http://afterleaf.local").pathname;
@@ -87,8 +69,7 @@ export const parseActiveLibraryAssetRequest = (
     return {kind: "invalid"};
   }
   if (!isActiveLibraryPath(pathname)) return {kind: "invalid"};
-  if (pathname.split(/[\\/]/u).some((segment) => segment === ".."))
-    return {kind: "invalid"};
+  if (pathname.split(/[\\/]/u).some((segment) => segment === "..")) return {kind: "invalid"};
 
   return {kind: "scoped", pathname};
 };

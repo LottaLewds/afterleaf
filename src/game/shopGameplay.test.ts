@@ -54,9 +54,7 @@ describe("first-person shop movement", () => {
   test("maps local movement through camera yaw", () => {
     const output = {x: 0, z: 0};
 
-    expect(getPlanarMovement({forward: 1, right: 0}, 0, 3, output)).toBe(
-      output,
-    );
+    expect(getPlanarMovement({forward: 1, right: 0}, 0, 3, output)).toBe(output);
     expectPointClose(output, {x: 0, z: -3});
 
     getPlanarMovement({forward: 1, right: 0}, Math.PI / 2, 3, output);
@@ -80,9 +78,7 @@ describe("first-person shop movement", () => {
     expect(wrapYaw(-Math.PI * 3)).toBeCloseTo(-Math.PI);
 
     const output = {pitch: 0, yaw: 0};
-    expect(
-      updateLookAngles({pitch: 0.2, yaw: Math.PI - 0.1}, 0.2, 2, output, 1.2),
-    ).toBe(output);
+    expect(updateLookAngles({pitch: 0.2, yaw: Math.PI - 0.1}, 0.2, 2, output, 1.2)).toBe(output);
     expect(output.yaw).toBeCloseTo(-Math.PI + 0.1);
     expect(output.pitch).toBe(1.2);
   });
@@ -90,13 +86,7 @@ describe("first-person shop movement", () => {
   test("smooths look angles at render cadence across the yaw seam", () => {
     const output = {pitch: 0, yaw: 0};
     expect(
-      dampLookAngles(
-        {pitch: 0, yaw: Math.PI - 0.1},
-        {pitch: 1, yaw: -Math.PI + 0.1},
-        Math.log(2),
-        1,
-        output,
-      ),
+      dampLookAngles({pitch: 0, yaw: Math.PI - 0.1}, {pitch: 1, yaw: -Math.PI + 0.1}, Math.log(2), 1, output),
     ).toBe(output);
     expect(output.pitch).toBeCloseTo(0.5);
     expect(Math.abs(output.yaw)).toBeCloseTo(Math.PI);
@@ -111,9 +101,7 @@ describe("shop collision", () => {
 
   test("keeps the player circle inside the shop walls", () => {
     const output = {x: 0, z: 0};
-    expect(
-      resolveShopMovement({x: 4, z: 7}, {x: 10, z: 10}, 0.4, world, output),
-    ).toBe(output);
+    expect(resolveShopMovement({x: 4, z: 7}, {x: 10, z: 10}, 0.4, world, output)).toBe(output);
     expectPointClose(output, {x: 4.6, z: 7.6});
   });
 
@@ -164,17 +152,15 @@ describe("book interaction state", () => {
   });
 
   test("returns carried books to the floor", () => {
-    expect(
-      transitionBookInteraction({status: "carried"}, {type: "drop"}),
-    ).toEqual({ok: true, state: {status: "floor"}});
+    expect(transitionBookInteraction({status: "carried"}, {type: "drop"})).toEqual({
+      ok: true,
+      state: {status: "floor"},
+    });
   });
 
   test("picks up a book from a shelf", () => {
     expect(
-      transitionBookInteraction(
-        {shelfId: "east-display", slotIndex: 4, status: "shelved"},
-        {type: "pick-up"},
-      ),
+      transitionBookInteraction({shelfId: "east-display", slotIndex: 4, status: "shelved"}, {type: "pick-up"}),
     ).toEqual({ok: true, state: {status: "carried"}});
   });
 
@@ -209,9 +195,7 @@ describe("book interaction state", () => {
     const pickedUp = transitionBookInteraction(shelved, {type: "pick-up"});
     expect(pickedUp).toEqual({ok: true, state: {status: "carried"}});
     if (!pickedUp.ok) throw new Error("Expected shelf pick-up to succeed");
-    expect(
-      transitionBookInteraction(pickedUp.state, {type: "pick-up"}),
-    ).toEqual({
+    expect(transitionBookInteraction(pickedUp.state, {type: "pick-up"})).toEqual({
       error: "book-not-pickable",
       ok: false,
       state: pickedUp.state,

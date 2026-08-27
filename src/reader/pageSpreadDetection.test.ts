@@ -17,17 +17,13 @@ describe("reader page spread detection", () => {
   test("detects an image shaped like two ordinary pages", () => {
     expect(detectWideReaderPage("page-2.webp", 2_484, 1_805, 0.688)).toBe(true);
     expect(isWideReaderPage("page-2.webp")).toBe(true);
-    expect(getWideReaderPageIndices(["cover.webp", "page-2.webp"])).toEqual(
-      new Set([1]),
-    );
+    expect(getWideReaderPageIndices(["cover.webp", "page-2.webp"])).toEqual(new Set([1]));
   });
 
   test("does not classify ordinary portrait pages or the cover", () => {
     expect(detectWideReaderPage("page.webp", 1_242, 1_805, 0.688)).toBe(false);
     detectWideReaderPage("cover.webp", 2_484, 1_805, 0.688);
-    expect(getWideReaderPageIndices(["cover.webp", "page.webp"])).toEqual(
-      new Set(),
-    );
+    expect(getWideReaderPageIndices(["cover.webp", "page.webp"])).toEqual(new Set());
   });
 
   test("creates stable texture variants for the two image halves", () => {

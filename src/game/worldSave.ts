@@ -151,33 +151,17 @@ export type WorldSaveV1 = {
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
-const requiredString = (
-  value: unknown,
-  field: string,
-  maximumLength = MAX_IDENTIFIER_LENGTH,
-) => {
-  if (
-    typeof value !== "string" ||
-    value.trim().length === 0 ||
-    value.length > maximumLength
-  )
+const requiredString = (value: unknown, field: string, maximumLength = MAX_IDENTIFIER_LENGTH) => {
+  if (typeof value !== "string" || value.trim().length === 0 || value.length > maximumLength)
     throw new Error(`${field} must be a non-empty bounded string`);
   return value;
 };
 
-const optionalString = (
-  value: unknown,
-  field: string,
-  maximumLength = MAX_IDENTIFIER_LENGTH,
-) =>
+const optionalString = (value: unknown, field: string, maximumLength = MAX_IDENTIFIER_LENGTH) =>
   value === undefined ? undefined : requiredString(value, field, maximumLength);
 
 const finiteCoordinate = (value: unknown, field: string) => {
-  if (
-    typeof value !== "number" ||
-    !Number.isFinite(value) ||
-    Math.abs(value) > MAX_WORLD_COORDINATE
-  )
+  if (typeof value !== "number" || !Number.isFinite(value) || Math.abs(value) > MAX_WORLD_COORDINATE)
     throw new Error(`${field} must be a finite world coordinate`);
   return value;
 };
@@ -198,10 +182,7 @@ const parseQuaternion = (value: unknown, field: string): WorldQuaternion => {
   const z = finiteCoordinate(value.z, `${field}.z`);
   const w = finiteCoordinate(value.w, `${field}.w`);
   const lengthSquared = x * x + y * y + z * z + w * w;
-  if (
-    !Number.isFinite(lengthSquared) ||
-    lengthSquared < MIN_QUATERNION_LENGTH_SQUARED
-  )
+  if (!Number.isFinite(lengthSquared) || lengthSquared < MIN_QUATERNION_LENGTH_SQUARED)
     throw new Error(`${field} must describe a non-zero finite rotation`);
   const inverseLength = 1 / Math.sqrt(lengthSquared);
   return {
@@ -223,8 +204,7 @@ const parsePose = (value: unknown, field: string): WorldPose => {
 const parseTelevisionChannels = (value: unknown): WorldTelevisionChannels => {
   if (!isRecord(value)) throw new Error("televisionChannels must be an object");
   const entries = Object.entries(value);
-  if (entries.length > MAX_TELEVISION_COUNT)
-    throw new Error("televisionChannels must be a bounded object");
+  if (entries.length > MAX_TELEVISION_COUNT) throw new Error("televisionChannels must be a bounded object");
   return Object.fromEntries(
     entries.map(([televisionId, channelId]) => [
       requiredString(televisionId, "televisionChannels television ID"),
@@ -236,52 +216,26 @@ const parseTelevisionChannels = (value: unknown): WorldTelevisionChannels => {
 const parseTelevisionVolumes = (value: unknown): WorldTelevisionVolumes => {
   if (!isRecord(value)) throw new Error("televisionVolumes must be an object");
   const entries = Object.entries(value);
-  if (entries.length > MAX_TELEVISION_COUNT)
-    throw new Error("televisionVolumes must be a bounded object");
+  if (entries.length > MAX_TELEVISION_COUNT) throw new Error("televisionVolumes must be a bounded object");
   return Object.fromEntries(
     entries.map(([televisionId, rawVolume]) => {
-      const id = requiredString(
-        televisionId,
-        "televisionVolumes television ID",
-      );
-      if (
-        typeof rawVolume !== "number" ||
-        !Number.isFinite(rawVolume) ||
-        rawVolume < 0 ||
-        rawVolume > 1
-      )
-        throw new Error(
-          `televisionVolumes.${televisionId} must be between 0 and 1`,
-        );
+      const id = requiredString(televisionId, "televisionVolumes television ID");
+      if (typeof rawVolume !== "number" || !Number.isFinite(rawVolume) || rawVolume < 0 || rawVolume > 1)
+        throw new Error(`televisionVolumes.${televisionId} must be between 0 and 1`);
       return [id, rawVolume];
     }),
   );
 };
 
-const parseShelfPlacement = (
-  value: unknown,
-  field: string,
-): WorldShelfPlacement => {
+const parseShelfPlacement = (value: unknown, field: string): WorldShelfPlacement => {
   if (!isRecord(value)) throw new Error(`${field} must be an object`);
   if (!Number.isSafeInteger(value.slotIndex) || Number(value.slotIndex) < 0)
     throw new Error(`${field}.slotIndex must be a non-negative safe integer`);
   const bayId = optionalString(value.bayId, `${field}.bayId`);
-  const displayText = optionalString(
-    value.displayText,
-    `${field}.displayText`,
-    MAX_TEXT_LENGTH,
-  );
-  const facetLabel = optionalString(
-    value.facetLabel,
-    `${field}.facetLabel`,
-    MAX_TEXT_LENGTH,
-  );
+  const displayText = optionalString(value.displayText, `${field}.displayText`, MAX_TEXT_LENGTH);
+  const facetLabel = optionalString(value.facetLabel, `${field}.facetLabel`, MAX_TEXT_LENGTH);
   const presentation = value.presentation;
-  if (
-    presentation !== undefined &&
-    presentation !== "face" &&
-    presentation !== "spine"
-  )
+  if (presentation !== undefined && presentation !== "face" && presentation !== "spine")
     throw new Error(`${field}.presentation must be face or spine`);
   return {
     ...(bayId === undefined ? {} : {bayId}),
@@ -298,10 +252,7 @@ const parseBook = (value: unknown, field: string): WorldBookSave => {
   const base = {
     copyId: requiredString(value.copyId, `${field}.copyId`),
     pose: parsePose(value.pose, `${field}.pose`),
-    publicationId: requiredString(
-      value.publicationId,
-      `${field}.publicationId`,
-    ),
+    publicationId: requiredString(value.publicationId, `${field}.publicationId`),
   };
   if (value.state === "shelved")
     return {
@@ -309,49 +260,34 @@ const parseBook = (value: unknown, field: string): WorldBookSave => {
       shelf: parseShelfPlacement(value.shelf, `${field}.shelf`),
       state: "shelved",
     };
-  if (value.state !== "floor" && value.state !== "carried")
-    throw new Error(`${field}.state is unsupported`);
-  if (value.shelf !== undefined)
-    throw new Error(`${field}.shelf is only valid for shelved books`);
+  if (value.state !== "floor" && value.state !== "carried") throw new Error(`${field}.state is unsupported`);
+  if (value.shelf !== undefined) throw new Error(`${field}.shelf is only valid for shelved books`);
   return {...base, state: value.state};
 };
 
-const parseCatalogIdentity = (
-  value: unknown,
-  field: string,
-): WorldCatalogIdentity => {
+const parseCatalogIdentity = (value: unknown, field: string): WorldCatalogIdentity => {
   if (!isRecord(value)) throw new Error(`${field} must be an object`);
   const snapshotId = optionalString(value.snapshotId, `${field}.snapshotId`);
   return {
-    catalogContentHash: requiredString(
-      value.catalogContentHash,
-      `${field}.catalogContentHash`,
-    ),
+    catalogContentHash: requiredString(value.catalogContentHash, `${field}.catalogContentHash`),
     packId: requiredString(value.packId, `${field}.packId`),
     ...(snapshotId === undefined ? {} : {snapshotId}),
   };
 };
 
 const parsePosters = (value: unknown): readonly WorldPosterSave[] => {
-  if (!Array.isArray(value) || value.length > MAX_POSTER_COUNT)
-    throw new Error("posters must be a bounded array");
+  if (!Array.isArray(value) || value.length > MAX_POSTER_COUNT) throw new Error("posters must be a bounded array");
   const ids = new Set<string>();
   return value.map((poster, index) => {
-    if (!isRecord(poster))
-      throw new Error(`posters[${index}] must be an object`);
+    if (!isRecord(poster)) throw new Error(`posters[${index}] must be an object`);
     const id = requiredString(poster.id, `posters[${index}].id`);
-    if (ids.has(id))
-      throw new Error("World save contains duplicate poster IDs");
+    if (ids.has(id)) throw new Error("World save contains duplicate poster IDs");
     ids.add(id);
     const height = finiteCoordinate(poster.height, `posters[${index}].height`);
     if (height < MIN_POSTER_HEIGHT || height > MAX_POSTER_HEIGHT)
-      throw new Error(
-        `posters[${index}].height must be between ${MIN_POSTER_HEIGHT} and ${MAX_POSTER_HEIGHT}`,
-      );
+      throw new Error(`posters[${index}].height must be between ${MIN_POSTER_HEIGHT} and ${MAX_POSTER_HEIGHT}`);
     const rotation =
-      poster.rotation === undefined
-        ? undefined
-        : finiteCoordinate(poster.rotation, `posters[${index}].rotation`);
+      poster.rotation === undefined ? undefined : finiteCoordinate(poster.rotation, `posters[${index}].rotation`);
     if (rotation !== undefined && Math.abs(rotation) > MAX_POSTER_ROTATION)
       throw new Error(`posters[${index}].rotation must be between -PI and PI`);
     return {
@@ -364,55 +300,34 @@ const parsePosters = (value: unknown): readonly WorldPosterSave[] => {
   });
 };
 
-const parseDigitalArtFrames = (
-  value: unknown,
-): readonly WorldDigitalArtFrameSave[] => {
+const parseDigitalArtFrames = (value: unknown): readonly WorldDigitalArtFrameSave[] => {
   if (!Array.isArray(value) || value.length > MAX_DIGITAL_ART_FRAME_COUNT)
     throw new Error("digitalArtFrames must be a bounded array");
   const ids = new Set<string>();
   return value.map((frame, index) => {
-    if (!isRecord(frame))
-      throw new Error(`digitalArtFrames[${index}] must be an object`);
+    if (!isRecord(frame)) throw new Error(`digitalArtFrames[${index}] must be an object`);
     const field = `digitalArtFrames[${index}]`;
     const id = requiredString(frame.id, `${field}.id`);
-    if (ids.has(id))
-      throw new Error("World save contains duplicate digital art frame IDs");
+    if (ids.has(id)) throw new Error("World save contains duplicate digital art frame IDs");
     ids.add(id);
-    const aspectRatio = finiteCoordinate(
-      frame.aspectRatio,
-      `${field}.aspectRatio`,
-    );
-    if (aspectRatio <= 0 || aspectRatio > 100)
-      throw new Error(`${field}.aspectRatio must be between 0 and 100`);
+    const aspectRatio = finiteCoordinate(frame.aspectRatio, `${field}.aspectRatio`);
+    if (aspectRatio <= 0 || aspectRatio > 100) throw new Error(`${field}.aspectRatio must be between 0 and 100`);
     const height = finiteCoordinate(frame.height, `${field}.height`);
     if (height < MIN_POSTER_HEIGHT || height > MAX_POSTER_HEIGHT)
-      throw new Error(
-        `${field}.height must be between ${MIN_POSTER_HEIGHT} and ${MAX_POSTER_HEIGHT}`,
-      );
-    if (frame.fit !== "contain" && frame.fit !== "cover")
-      throw new Error(`${field}.fit must be contain or cover`);
-    const intervalSeconds = finiteCoordinate(
-      frame.intervalSeconds,
-      `${field}.intervalSeconds`,
-    );
+      throw new Error(`${field}.height must be between ${MIN_POSTER_HEIGHT} and ${MAX_POSTER_HEIGHT}`);
+    if (frame.fit !== "contain" && frame.fit !== "cover") throw new Error(`${field}.fit must be contain or cover`);
+    const intervalSeconds = finiteCoordinate(frame.intervalSeconds, `${field}.intervalSeconds`);
     if (
       intervalSeconds !== 0 &&
-      (intervalSeconds < MIN_ART_FRAME_INTERVAL_SECONDS ||
-        intervalSeconds > MAX_ART_FRAME_INTERVAL_SECONDS)
+      (intervalSeconds < MIN_ART_FRAME_INTERVAL_SECONDS || intervalSeconds > MAX_ART_FRAME_INTERVAL_SECONDS)
     )
       throw new Error(
         `${field}.intervalSeconds must be 0 or between ${MIN_ART_FRAME_INTERVAL_SECONDS} and ${MAX_ART_FRAME_INTERVAL_SECONDS}`,
       );
-    const rotation =
-      frame.rotation === undefined
-        ? undefined
-        : finiteCoordinate(frame.rotation, `${field}.rotation`);
+    const rotation = frame.rotation === undefined ? undefined : finiteCoordinate(frame.rotation, `${field}.rotation`);
     if (rotation !== undefined && Math.abs(rotation) > MAX_POSTER_ROTATION)
       throw new Error(`${field}.rotation must be between -PI and PI`);
-    const currentImageId = optionalString(
-      frame.currentImageId,
-      `${field}.currentImageId`,
-    );
+    const currentImageId = optionalString(frame.currentImageId, `${field}.currentImageId`);
     return {
       aspectRatio,
       channelId: requiredString(frame.channelId, `${field}.channelId`),
@@ -429,14 +344,12 @@ const parseDigitalArtFrames = (
 
 const parseLockedFlag = (value: unknown, field: string) => {
   if (value === undefined) return undefined;
-  if (typeof value !== "boolean")
-    throw new Error(`${field} must be a boolean when present`);
+  if (typeof value !== "boolean") throw new Error(`${field} must be a boolean when present`);
   return value;
 };
 
 const parseProps = (value: unknown): readonly WorldPropSave[] => {
-  if (!Array.isArray(value) || value.length > MAX_PROP_COUNT)
-    throw new Error("props must be a bounded array");
+  if (!Array.isArray(value) || value.length > MAX_PROP_COUNT) throw new Error("props must be a bounded array");
   const ids = new Set<string>();
   return value.map((prop, index) => {
     if (!isRecord(prop)) throw new Error(`props[${index}] must be an object`);
@@ -457,24 +370,14 @@ const parseModelProps = (value: unknown): readonly WorldModelPropSave[] => {
     throw new Error("modelProps must be a bounded array");
   const ids = new Set<string>();
   return value.map((prop, index) => {
-    if (!isRecord(prop))
-      throw new Error(`modelProps[${index}] must be an object`);
+    if (!isRecord(prop)) throw new Error(`modelProps[${index}] must be an object`);
     const id = requiredString(prop.id, `modelProps[${index}].id`);
-    if (ids.has(id))
-      throw new Error("World save contains duplicate model prop IDs");
+    if (ids.has(id)) throw new Error("World save contains duplicate model prop IDs");
     ids.add(id);
     const scale = finiteCoordinate(prop.scale, `modelProps[${index}].scale`);
-    if (scale < 0.01 || scale > 100)
-      throw new Error(
-        `modelProps[${index}].scale must be between 0.01 and 100`,
-      );
+    if (scale < 0.01 || scale > 100) throw new Error(`modelProps[${index}].scale must be between 0.01 and 100`);
     const animationClip =
-      prop.animationClip === null
-        ? null
-        : optionalString(
-            prop.animationClip,
-            `modelProps[${index}].animationClip`,
-          );
+      prop.animationClip === null ? null : optionalString(prop.animationClip, `modelProps[${index}].animationClip`);
     const locked = parseLockedFlag(prop.locked, `modelProps[${index}].locked`);
     return {
       ...(animationClip === undefined ? {} : {animationClip}),
@@ -492,29 +395,17 @@ const parseShelfSigns = (value: unknown): readonly WorldShelfSign[] => {
     throw new Error("shelfSigns must be a bounded array");
   const columns = new Set<number>();
   return value.map((sign, index) => {
-    if (!isRecord(sign))
-      throw new Error(`shelfSigns[${index}] must be an object`);
+    if (!isRecord(sign)) throw new Error(`shelfSigns[${index}] must be an object`);
     if (!Number.isSafeInteger(sign.column) || Number(sign.column) < 0)
-      throw new Error(
-        `shelfSigns[${index}].column must be a non-negative integer`,
-      );
+      throw new Error(`shelfSigns[${index}].column must be a non-negative integer`);
     const column = Number(sign.column);
-    if (columns.has(column))
-      throw new Error("World save contains duplicate shelf sign columns");
+    if (columns.has(column)) throw new Error("World save contains duplicate shelf sign columns");
     columns.add(column);
-    const subtitle = optionalString(
-      sign.subtitle,
-      `shelfSigns[${index}].subtitle`,
-      MAX_TEXT_LENGTH,
-    );
+    const subtitle = optionalString(sign.subtitle, `shelfSigns[${index}].subtitle`, MAX_TEXT_LENGTH);
     return {
       column,
       ...(subtitle === undefined ? {} : {subtitle}),
-      text: requiredString(
-        sign.text,
-        `shelfSigns[${index}].text`,
-        MAX_TEXT_LENGTH,
-      ),
+      text: requiredString(sign.text, `shelfSigns[${index}].text`, MAX_TEXT_LENGTH),
     };
   });
 };
@@ -524,28 +415,134 @@ const parseAisleSigns = (value: unknown): readonly WorldAisleSign[] => {
     throw new Error("aisleSigns must be a bounded array");
   const ids = new Set<string>();
   return value.map((sign, index) => {
-    if (!isRecord(sign))
-      throw new Error(`aisleSigns[${index}] must be an object`);
+    if (!isRecord(sign)) throw new Error(`aisleSigns[${index}] must be an object`);
     const id = requiredString(sign.id, `aisleSigns[${index}].id`);
-    if (ids.has(id))
-      throw new Error("World save contains duplicate aisle sign IDs");
+    if (ids.has(id)) throw new Error("World save contains duplicate aisle sign IDs");
     ids.add(id);
-    const subtitle = optionalString(
-      sign.subtitle,
-      `aisleSigns[${index}].subtitle`,
-      MAX_TEXT_LENGTH,
-    );
+    const subtitle = optionalString(sign.subtitle, `aisleSigns[${index}].subtitle`, MAX_TEXT_LENGTH);
     return {
       id,
       ...(subtitle === undefined ? {} : {subtitle}),
-      title: requiredString(
-        sign.title,
-        `aisleSigns[${index}].title`,
-        MAX_TEXT_LENGTH,
-      ),
+      title: requiredString(sign.title, `aisleSigns[${index}].title`, MAX_TEXT_LENGTH),
     };
   });
 };
+
+type ParsedWorldOptionalFields = {
+  aisleSigns: readonly WorldAisleSign[] | undefined;
+  digitalArtFrames: readonly WorldDigitalArtFrameSave[] | undefined;
+  modelProps: readonly WorldModelPropSave[] | undefined;
+  posters: readonly WorldPosterSave[] | undefined;
+  props: readonly WorldPropSave[] | undefined;
+  shelfSigns: readonly WorldShelfSign[] | undefined;
+  television: WorldPose | undefined;
+  televisionChannels: WorldTelevisionChannels | undefined;
+  televisionModelVersion: 2 | undefined;
+  televisionVolumes: WorldTelevisionVolumes | undefined;
+  trashcan: WorldVector3 | undefined;
+};
+
+const parseOptionalWorldFields = (value: Record<string, unknown>): ParsedWorldOptionalFields => {
+  if (value.televisionModelVersion !== undefined && value.televisionModelVersion !== 2)
+    throw new Error("televisionModelVersion is unsupported");
+  return {
+    aisleSigns: value.aisleSigns === undefined ? undefined : parseAisleSigns(value.aisleSigns),
+    digitalArtFrames: value.digitalArtFrames === undefined ? undefined : parseDigitalArtFrames(value.digitalArtFrames),
+    modelProps: value.modelProps === undefined ? undefined : parseModelProps(value.modelProps),
+    posters: value.posters === undefined ? undefined : parsePosters(value.posters),
+    props: value.props === undefined ? undefined : parseProps(value.props),
+    shelfSigns: value.shelfSigns === undefined ? undefined : parseShelfSigns(value.shelfSigns),
+    television: value.television === undefined ? undefined : parsePose(value.television, "television"),
+    televisionChannels:
+      value.televisionChannels === undefined ? undefined : parseTelevisionChannels(value.televisionChannels),
+    televisionModelVersion: value.televisionModelVersion as 2 | undefined,
+    televisionVolumes:
+      value.televisionVolumes === undefined ? undefined : parseTelevisionVolumes(value.televisionVolumes),
+    trashcan: value.trashcan === undefined ? undefined : parseVector3(value.trashcan, "trashcan"),
+  };
+};
+
+const parseSeedingVersion = (value: Record<string, unknown>) => {
+  if (value.defaultsSeeded !== undefined && value.defaultsSeeded !== true)
+    throw new Error("defaultsSeeded must be true when present");
+  // Legacy saves recorded only the first seeding pass, as a boolean flag;
+  // current saves record the pass number explicitly.
+  const rawSeedingVersion = value.seedingVersion;
+  if (rawSeedingVersion === undefined) return value.defaultsSeeded === true ? INITIAL_WORLD_SEEDING_VERSION : undefined;
+  if (
+    typeof rawSeedingVersion !== "number" ||
+    !Number.isInteger(rawSeedingVersion) ||
+    rawSeedingVersion < INITIAL_WORLD_SEEDING_VERSION ||
+    rawSeedingVersion > WORLD_SEEDING_VERSION
+  )
+    throw new Error(
+      `seedingVersion must be an integer between ${INITIAL_WORLD_SEEDING_VERSION} and ${WORLD_SEEDING_VERSION}`,
+    );
+  return rawSeedingVersion;
+};
+
+const validateBooks = (books: readonly WorldBookSave[]) => {
+  const copyIds = new Set(books.map((book) => book.copyId));
+  if (copyIds.size !== books.length) throw new Error("World save contains duplicate copy IDs");
+  const carriedBookCount = books.filter((book) => book.state === "carried").length;
+  if (carriedBookCount > MAX_CARRIED_BOOKS)
+    throw new Error(`World save cannot contain more than ${MAX_CARRIED_BOOKS} carried books`);
+};
+
+const parsePendingArrivalIds = (value: Record<string, unknown>) => {
+  if (
+    value.pendingArrivalIds !== undefined &&
+    (!Array.isArray(value.pendingArrivalIds) || value.pendingArrivalIds.length > MAX_BOOK_COUNT)
+  )
+    throw new Error("World save pending arrivals must be a bounded array");
+  const pendingArrivalIds = (value.pendingArrivalIds ?? []).map((publicationId, index) =>
+    requiredString(publicationId, `pendingArrivalIds[${index}]`),
+  );
+  if (new Set(pendingArrivalIds).size !== pendingArrivalIds.length)
+    throw new Error("World save contains duplicate pending arrival IDs");
+  return pendingArrivalIds;
+};
+
+const optionalObjectField = <T>(value: T | undefined, create: (value: T) => object) =>
+  value === undefined ? {} : create(value);
+
+const createNormalizedWorldSave = (
+  value: Record<string, unknown>,
+  books: readonly WorldBookSave[],
+  catalog: WorldCatalogIdentity | undefined,
+  seedingVersion: number | undefined,
+  pendingArrivalIds: readonly string[],
+  fields: ParsedWorldOptionalFields,
+): WorldSaveV1 => ({
+  ...optionalObjectField(fields.aisleSigns, (aisleSigns) => ({aisleSigns})),
+  books,
+  ...optionalObjectField(catalog, (catalog) => ({catalog})),
+  ...optionalObjectField(seedingVersion, (seedingVersion) => ({
+    seedingVersion,
+  })),
+  ...optionalObjectField(fields.digitalArtFrames, (digitalArtFrames) => ({
+    digitalArtFrames,
+  })),
+  ...optionalObjectField(fields.modelProps, (modelProps) => ({modelProps})),
+  ...optionalObjectField(pendingArrivalIds.length > 0 ? pendingArrivalIds : undefined, (pendingArrivalIds) => ({
+    pendingArrivalIds,
+  })),
+  player: parsePose(value.player, "player"),
+  ...optionalObjectField(fields.posters, (posters) => ({posters})),
+  ...optionalObjectField(fields.props, (props) => ({props})),
+  savedAt: value.savedAt as string,
+  schemaVersion: WORLD_SAVE_SCHEMA_VERSION,
+  ...optionalObjectField(fields.shelfSigns, (shelfSigns) => ({shelfSigns})),
+  ...optionalObjectField(fields.television, (television) => ({television})),
+  ...optionalObjectField(fields.televisionChannels, (televisionChannels) => ({
+    televisionChannels,
+  })),
+  ...optionalObjectField(fields.televisionModelVersion, (televisionModelVersion) => ({televisionModelVersion})),
+  ...optionalObjectField(fields.televisionVolumes, (televisionVolumes) => ({
+    televisionVolumes,
+  })),
+  ...optionalObjectField(fields.trashcan, (trashcan) => ({trashcan})),
+});
 
 /**
  * Every field this parser understands, including legacy inputs it
@@ -586,144 +583,31 @@ export const parseWorldSave = (value: unknown): WorldSaveV1 => {
     throw new Error(
       `Unknown world save field(s): ${unknownFields.join(", ")}. This reader predates the writer's save format; update or restart the server.`,
     );
-  if (value.schemaVersion !== WORLD_SAVE_SCHEMA_VERSION)
-    throw new Error("Unsupported world save schema version");
+  if (value.schemaVersion !== WORLD_SAVE_SCHEMA_VERSION) throw new Error("Unsupported world save schema version");
   if (!Array.isArray(value.books) || value.books.length > MAX_BOOK_COUNT)
     throw new Error("World save books must be a bounded array");
-  if (
-    typeof value.savedAt !== "string" ||
-    !Number.isFinite(Date.parse(value.savedAt))
-  )
+  if (typeof value.savedAt !== "string" || !Number.isFinite(Date.parse(value.savedAt)))
     throw new Error("World save savedAt must be a valid date string");
 
-  const books = value.books.map((book, index) =>
-    parseBook(book, `books[${index}]`),
-  );
-  const shelfSigns =
-    value.shelfSigns === undefined
-      ? undefined
-      : parseShelfSigns(value.shelfSigns);
-  const aisleSigns =
-    value.aisleSigns === undefined
-      ? undefined
-      : parseAisleSigns(value.aisleSigns);
-  const trashcan =
-    value.trashcan === undefined
-      ? undefined
-      : parseVector3(value.trashcan, "trashcan");
-  const posters =
-    value.posters === undefined ? undefined : parsePosters(value.posters);
-  const digitalArtFrames =
-    value.digitalArtFrames === undefined
-      ? undefined
-      : parseDigitalArtFrames(value.digitalArtFrames);
-  const props = value.props === undefined ? undefined : parseProps(value.props);
-  const modelProps =
-    value.modelProps === undefined
-      ? undefined
-      : parseModelProps(value.modelProps);
-  if (value.defaultsSeeded !== undefined && value.defaultsSeeded !== true)
-    throw new Error("defaultsSeeded must be true when present");
-  // Legacy saves recorded only the first seeding pass, as a boolean flag;
-  // current saves record the pass number explicitly.
-  const rawSeedingVersion = value.seedingVersion;
-  let seedingVersion: number | undefined;
-  if (rawSeedingVersion === undefined) {
-    if (value.defaultsSeeded === true)
-      seedingVersion = INITIAL_WORLD_SEEDING_VERSION;
-  } else if (
-    typeof rawSeedingVersion !== "number" ||
-    !Number.isInteger(rawSeedingVersion) ||
-    rawSeedingVersion < INITIAL_WORLD_SEEDING_VERSION ||
-    rawSeedingVersion > WORLD_SEEDING_VERSION
-  ) {
-    throw new Error(
-      `seedingVersion must be an integer between ${INITIAL_WORLD_SEEDING_VERSION} and ${WORLD_SEEDING_VERSION}`,
-    );
-  } else seedingVersion = rawSeedingVersion;
-  const television =
-    value.television === undefined
-      ? undefined
-      : parsePose(value.television, "television");
-  const televisionChannels =
-    value.televisionChannels === undefined
-      ? undefined
-      : parseTelevisionChannels(value.televisionChannels);
-  const televisionVolumes =
-    value.televisionVolumes === undefined
-      ? undefined
-      : parseTelevisionVolumes(value.televisionVolumes);
-  if (
-    value.televisionModelVersion !== undefined &&
-    value.televisionModelVersion !== 2
-  )
-    throw new Error("televisionModelVersion is unsupported");
-  const televisionModelVersion = value.televisionModelVersion as 2 | undefined;
-  const copyIds = new Set(books.map((book) => book.copyId));
-  if (copyIds.size !== books.length)
-    throw new Error("World save contains duplicate copy IDs");
-  const carriedBookCount = books.filter(
-    (book) => book.state === "carried",
-  ).length;
-  if (carriedBookCount > MAX_CARRIED_BOOKS)
-    throw new Error(
-      `World save cannot contain more than ${MAX_CARRIED_BOOKS} carried books`,
-    );
-  if (
-    value.pendingArrivalIds !== undefined &&
-    (!Array.isArray(value.pendingArrivalIds) ||
-      value.pendingArrivalIds.length > MAX_BOOK_COUNT)
-  )
-    throw new Error("World save pending arrivals must be a bounded array");
-  const pendingArrivalIds = (value.pendingArrivalIds ?? []).map(
-    (publicationId, index) =>
-      requiredString(publicationId, `pendingArrivalIds[${index}]`),
-  );
-  if (new Set(pendingArrivalIds).size !== pendingArrivalIds.length)
-    throw new Error("World save contains duplicate pending arrival IDs");
+  const books = value.books.map((book, index) => parseBook(book, `books[${index}]`));
+  const fields = parseOptionalWorldFields(value);
+  const seedingVersion = parseSeedingVersion(value);
+  validateBooks(books);
+  const pendingArrivalIds = parsePendingArrivalIds(value);
 
-  const catalog =
-    value.catalog === undefined
-      ? undefined
-      : parseCatalogIdentity(value.catalog, "catalog");
-  return {
-    ...(aisleSigns === undefined ? {} : {aisleSigns}),
-    books,
-    ...(catalog === undefined ? {} : {catalog}),
-    ...(seedingVersion === undefined ? {} : {seedingVersion}),
-    ...(digitalArtFrames === undefined ? {} : {digitalArtFrames}),
-    ...(modelProps === undefined ? {} : {modelProps}),
-    ...(pendingArrivalIds.length === 0 ? {} : {pendingArrivalIds}),
-    player: parsePose(value.player, "player"),
-    ...(posters === undefined ? {} : {posters}),
-    ...(props === undefined ? {} : {props}),
-    savedAt: value.savedAt,
-    schemaVersion: WORLD_SAVE_SCHEMA_VERSION,
-    ...(shelfSigns === undefined ? {} : {shelfSigns}),
-    ...(television === undefined ? {} : {television}),
-    ...(televisionChannels === undefined ? {} : {televisionChannels}),
-    ...(televisionModelVersion === undefined ? {} : {televisionModelVersion}),
-    ...(televisionVolumes === undefined ? {} : {televisionVolumes}),
-    ...(trashcan === undefined ? {} : {trashcan}),
-  };
+  const catalog = value.catalog === undefined ? undefined : parseCatalogIdentity(value.catalog, "catalog");
+  return createNormalizedWorldSave(value, books, catalog, seedingVersion, pendingArrivalIds, fields);
 };
 
 /** Effective highest completed seeding pass of a save; 0 before any pass. */
-export const worldSaveSeedingVersion = (
-  save: Pick<WorldSaveV1, "seedingVersion"> | undefined,
-): number => save?.seedingVersion ?? 0;
+export const worldSaveSeedingVersion = (save: Pick<WorldSaveV1, "seedingVersion"> | undefined): number =>
+  save?.seedingVersion ?? 0;
 
 /** Exact identity matching prevents stale placements from loading silently. */
-export const worldSaveMatchesCatalog = (
-  save: Pick<WorldSaveV1, "catalog">,
-  catalog: WorldCatalogIdentity,
-) => {
+export const worldSaveMatchesCatalog = (save: Pick<WorldSaveV1, "catalog">, catalog: WorldCatalogIdentity) => {
   const savedCatalog = save.catalog;
   if (!savedCatalog) return false;
-  if (
-    savedCatalog.packId !== catalog.packId ||
-    savedCatalog.catalogContentHash !== catalog.catalogContentHash
-  )
+  if (savedCatalog.packId !== catalog.packId || savedCatalog.catalogContentHash !== catalog.catalogContentHash)
     return false;
   return savedCatalog.snapshotId === catalog.snapshotId;
 };
@@ -732,7 +616,5 @@ export const worldSaveMatchesCatalog = (
  * Stable publication IDs can be reconciled when one immutable snapshot of the
  * same logical library supersedes another.
  */
-export const worldSaveCanReconcileCatalog = (
-  save: Pick<WorldSaveV1, "catalog">,
-  catalog: WorldCatalogIdentity,
-) => save.catalog?.packId === catalog.packId;
+export const worldSaveCanReconcileCatalog = (save: Pick<WorldSaveV1, "catalog">, catalog: WorldCatalogIdentity) =>
+  save.catalog?.packId === catalog.packId;

@@ -6,21 +6,14 @@ import sharp from "sharp";
 import {BOOK_ASPECT_RATIO_INFERENCE_VERSION} from "~/content/bookAspectRatio";
 import {runLibrarySourceMigrations} from "~/content/librarySourceMigrations";
 import {createProviderAspectRatioMigration} from "~/content/providerAspectRatioMigrations";
-import type {
-  LibraryProvider,
-  LibraryProviderDescriptor,
-} from "~/content/providers/types";
+import type {LibraryProvider, LibraryProviderDescriptor} from "~/content/providers/types";
 import type {LocalPublicationDocument} from "~/content/schema";
 import {parseLocalPublicationDocument} from "~/content/validation";
 
 const temporaryDirectories: string[] = [];
 
 afterEach(async () => {
-  await Promise.all(
-    temporaryDirectories
-      .splice(0)
-      .map((directory) => rm(directory, {force: true, recursive: true})),
-  );
+  await Promise.all(temporaryDirectories.splice(0).map((directory) => rm(directory, {force: true, recursive: true})));
 });
 
 const descriptor: LibraryProviderDescriptor = {
@@ -56,10 +49,7 @@ const createPublication = async (
   const publicationDirectory = resolve(root, descriptor.id, id);
   const pagesDirectory = resolve(publicationDirectory, "pages");
   await mkdir(pagesDirectory, {recursive: true});
-  const [wide, spread] = await Promise.all([
-    image(1_600, 1_000, "#333333"),
-    image(1_400, 1_000, "#777777"),
-  ]);
+  const [wide, spread] = await Promise.all([image(1_600, 1_000, "#333333"), image(1_400, 1_000, "#777777")]);
   await Promise.all([
     writeFile(resolve(pagesDirectory, "001.png"), wide),
     writeFile(resolve(pagesDirectory, "002.png"), spread),
@@ -81,9 +71,7 @@ const createPublication = async (
     language: "english",
     pageCount: 10,
     physical: {
-      ...(options.aspectRatio === undefined
-        ? {}
-        : {aspectRatio: options.aspectRatio}),
+      ...(options.aspectRatio === undefined ? {} : {aspectRatio: options.aspectRatio}),
       readingDirection: "rtl",
     },
     source: {
@@ -101,9 +89,7 @@ const createPublication = async (
   return {manifestPath, publicationDirectory};
 };
 
-const provider = (
-  materializePage: NonNullable<LibraryProvider["materializePage"]>,
-): LibraryProvider => ({
+const provider = (materializePage: NonNullable<LibraryProvider["materializePage"]>): LibraryProvider => ({
   descriptor,
   materializePage,
   sync: async () => {
@@ -151,9 +137,7 @@ test("host migration samples exact remote pages and marks the manifest once", as
   });
   expect(requestedPages).toEqual([5, 6]);
   expect(document.physical?.aspectRatio).toBeCloseTo(2 / 3);
-  expect(document.aspectRatioInferenceVersion).toBe(
-    BOOK_ASPECT_RATIO_INFERENCE_VERSION,
-  );
+  expect(document.aspectRatioInferenceVersion).toBe(BOOK_ASPECT_RATIO_INFERENCE_VERSION);
   expect(progress).toEqual([
     "Updating older cached publications: 0/1 complete (0%); 0 updated, 0 failed",
     "Updating older cached publications: 0/1 complete (0%); running aspect-ratio inference for test-provider/book",
@@ -206,9 +190,7 @@ test("failed host migration preserves stale metadata and retries later", async (
 
   const portrait = await image(800, 1_200, "#eeeeee");
   const retried = await runLibrarySourceMigrations({
-    migrations: [
-      aspectRatioMigration(async () => provider(async () => portrait)),
-    ],
+    migrations: [aspectRatioMigration(async () => provider(async () => portrait))],
     sourceDirectory: root,
   });
   const migrated = parseLocalPublicationDocument(
@@ -216,8 +198,6 @@ test("failed host migration preserves stale metadata and retries later", async (
     manifestPath,
   );
   expect(retried).toMatchObject({failedCount: 0, migratedCount: 1});
-  expect(migrated.aspectRatioInferenceVersion).toBe(
-    BOOK_ASPECT_RATIO_INFERENCE_VERSION,
-  );
+  expect(migrated.aspectRatioInferenceVersion).toBe(BOOK_ASPECT_RATIO_INFERENCE_VERSION);
   expect(migrated.physical?.aspectRatio).toBeCloseTo(2 / 3);
 });

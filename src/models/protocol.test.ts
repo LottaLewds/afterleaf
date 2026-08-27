@@ -1,10 +1,6 @@
 import {describe, expect, test} from "bun:test";
 
-import {
-  modelMediaUrl,
-  parseModelCatalog,
-  parseModelMediaRequest,
-} from "~/models/protocol";
+import {modelMediaUrl, parseModelCatalog, parseModelMediaRequest} from "~/models/protocol";
 
 describe("model protocol", () => {
   test("round-trips nested unicode model IDs", () => {
@@ -21,9 +17,7 @@ describe("model protocol", () => {
     });
     expect(() =>
       parseModelCatalog({
-        models: [
-          {id: "../bad.glb", label: "Bad", url: modelMediaUrl("bad.glb")},
-        ],
+        models: [{id: "../bad.glb", label: "Bad", url: modelMediaUrl("bad.glb")}],
       }),
     ).toThrow();
     expect(() =>

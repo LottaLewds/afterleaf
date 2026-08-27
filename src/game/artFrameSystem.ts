@@ -1,21 +1,10 @@
-import {
-  Material,
-  Mesh,
-  Quaternion,
-  Vector3,
-  type PerspectiveCamera,
-  type Raycaster,
-  type Scene,
-} from "three";
+import {Material, Mesh, Quaternion, Vector3, type PerspectiveCamera, type Raycaster, type Scene} from "three";
 import type {ArtFrameChannel, ArtFrameImage} from "~/artFrames/protocol";
 import type {ArtFrameFit} from "~/artFrames/aspect";
 import {DigitalArtFrame} from "~/game/DigitalArtFrame";
 import type {WorldDigitalArtFrameSave} from "~/game/worldSave";
 import type {ArtFrameTextureCache} from "~/game/artFrameTextureCache";
-import {
-  resolveWallPlacement,
-  type PosterSurface,
-} from "~/game/interior/interiorPrimitives";
+import {resolveWallPlacement, type PosterSurface} from "~/game/interior/interiorPrimitives";
 import {POSTER_PLACEMENT_DISTANCE} from "~/game/wallDecorTuning";
 import {
   DEFAULT_POSTER_HEIGHT,
@@ -54,16 +43,8 @@ export type ArtFrameSystemHost = {
   emitGameState: () => void;
   getPosterSurface: (surfaceId: string) => PosterSurface | undefined;
   hasPosterPlacement: () => boolean;
-  importArtFrameImage?:
-    | ((
-        image: Blob,
-        channelId: string,
-        signal: AbortSignal,
-      ) => Promise<ArtFrameImage>)
-    | undefined;
-  importPoster?:
-    | ((image: Blob, signal: AbortSignal) => Promise<PosterAssetLike>)
-    | undefined;
+  importArtFrameImage?: ((image: Blob, channelId: string, signal: AbortSignal) => Promise<ArtFrameImage>) | undefined;
+  importPoster?: ((image: Blob, signal: AbortSignal) => Promise<PosterAssetLike>) | undefined;
   isDisposed: () => boolean;
   isPointerLocked: () => boolean;
   markWorldStateDirty: () => void;
@@ -156,9 +137,7 @@ export class ArtFrameSystem {
   set preview(frame: DigitalArtFrame | undefined) {
     this.#preview = frame;
   }
-  set targetImportChannel(
-    value: {channelId: string; frameId: string} | undefined,
-  ) {
+  set targetImportChannel(value: {channelId: string; frameId: string} | undefined) {
     this.#targetImportChannel = value;
   }
   clearRecords(): void {
@@ -193,21 +172,14 @@ export class ArtFrameSystem {
   applyArtFrameCatalog(channels: readonly ArtFrameChannel[]) {
     if (this.#artFrameCatalogMatches(channels)) return;
     const selectedAssetId = this.#assets[this.#assetIndex]?.id;
-    const activeAssetId = this.#placement
-      ? this.#assets[this.#placement.assetIndex]?.id
-      : undefined;
+    const activeAssetId = this.#placement ? this.#assets[this.#placement.assetIndex]?.id : undefined;
     this.#channels = channels;
     this.#assets = channels.flatMap((channel) => channel.images);
-    const selectedIndex = selectedAssetId
-      ? this.#assets.findIndex((asset) => asset.id === selectedAssetId)
-      : -1;
+    const selectedIndex = selectedAssetId ? this.#assets.findIndex((asset) => asset.id === selectedAssetId) : -1;
     this.#assetIndex = Math.max(0, selectedIndex);
-    for (const record of this.#records.values())
-      record.frame.setChannels(channels);
+    for (const record of this.#records.values()) record.frame.setChannels(channels);
     if (this.#placement && activeAssetId) {
-      const activeIndex = this.#assets.findIndex(
-        (asset) => asset.id === activeAssetId,
-      );
+      const activeIndex = this.#assets.findIndex((asset) => asset.id === activeAssetId);
       if (activeIndex < 0) this.cancelDigitalArtFramePlacement();
       else {
         this.#placement.assetIndex = activeIndex;
@@ -228,9 +200,7 @@ export class ArtFrameSystem {
           channelId: savedFrame.channelId,
           channels,
           fit: savedFrame.fit,
-          ...(savedFrame.currentImageId
-            ? {imageId: savedFrame.currentImageId}
-            : {}),
+          ...(savedFrame.currentImageId ? {imageId: savedFrame.currentImageId} : {}),
           intervalSeconds: savedFrame.intervalSeconds,
           loadTexture: (image, priority) => this.#textures.get(image, priority),
           onImageChange: () => {
@@ -257,8 +227,7 @@ export class ArtFrameSystem {
         restoredIds.add(savedFrame.id);
       }),
     );
-    if (restoredIds.size !== this.#pendingSaves.length)
-      this.#host.markWorldStateDirty();
+    if (restoredIds.size !== this.#pendingSaves.length) this.#host.markWorldStateDirty();
     this.#pendingSaves = [];
     this.#saveRestoreCompleted = true;
   }
@@ -295,8 +264,7 @@ export class ArtFrameSystem {
     intervalSeconds = DIGITAL_ART_FRAME_DEFAULT_INTERVAL_SECONDS,
   ) {
     if (this.#assets.length === 0) return;
-    const normalizedIndex =
-      (assetIndex + this.#assets.length) % this.#assets.length;
+    const normalizedIndex = (assetIndex + this.#assets.length) % this.#assets.length;
     const asset = this.#assets[normalizedIndex];
     if (!asset) return;
     const channelId = asset.id.split("/")[0];
@@ -320,13 +288,7 @@ export class ArtFrameSystem {
     if (movingFrame) movingFrame.frame.object.visible = false;
     this.#placementSelection = undefined;
     this.setDigitalArtFrameTargeted();
-    const preview = this.createDigitalArtFrame(
-      asset,
-      aspectRatio,
-      channelId,
-      fit,
-      0,
-    );
+    const preview = this.createDigitalArtFrame(asset, aspectRatio, channelId, fit, 0);
     if (
       this.#host.isDisposed() ||
       revision !== this.#placementRevision ||
@@ -379,15 +341,10 @@ export class ArtFrameSystem {
   cycleDigitalArtFramePlacementChannel(direction: -1 | 1) {
     const placement = this.#placement;
     if (!placement || this.#channels.length <= 1) return;
-    const channelIndex = this.#channels.findIndex(
-      (channel) => channel.id === placement.channelId,
-    );
+    const channelIndex = this.#channels.findIndex((channel) => channel.id === placement.channelId);
     const nextChannel =
       this.#channels[
-        ((channelIndex >= 0 ? channelIndex : -1) +
-          direction +
-          this.#channels.length) %
-          this.#channels.length
+        ((channelIndex >= 0 ? channelIndex : -1) + direction + this.#channels.length) % this.#channels.length
       ];
     const image = nextChannel?.images[0];
     if (!image) return;
@@ -398,21 +355,12 @@ export class ArtFrameSystem {
   cycleDigitalArtFramePlacementImage(direction: -1 | 1) {
     const placement = this.#placement;
     if (!placement) return;
-    const channel = this.#channels.find(
-      (candidate) => candidate.id === placement.channelId,
-    );
+    const channel = this.#channels.find((candidate) => candidate.id === placement.channelId);
     if (!channel || channel.images.length <= 1) return;
     const currentAsset = this.#assets[placement.assetIndex];
-    const imageIndex = channel.images.findIndex(
-      (image) => image.id === currentAsset?.id,
-    );
+    const imageIndex = channel.images.findIndex((image) => image.id === currentAsset?.id);
     const image =
-      channel.images[
-        ((imageIndex >= 0 ? imageIndex : -1) +
-          direction +
-          channel.images.length) %
-          channel.images.length
-      ];
+      channel.images[((imageIndex >= 0 ? imageIndex : -1) + direction + channel.images.length) % channel.images.length];
     if (!image) return;
     const assetIndex = this.#assets.findIndex((asset) => asset.id === image.id);
     if (assetIndex >= 0) this.#selectDigitalArtFramePlacementAsset(assetIndex);
@@ -447,9 +395,7 @@ export class ArtFrameSystem {
     this.#previewMaterialStates = [];
     preview.object.traverse((child) => {
       if (!(child instanceof Mesh)) return;
-      const materials = Array.isArray(child.material)
-        ? child.material
-        : [child.material];
+      const materials = Array.isArray(child.material) ? child.material : [child.material];
       for (const material of materials) {
         this.#previewMaterialStates.push({
           depthWrite: material.depthWrite,
@@ -473,10 +419,7 @@ export class ArtFrameSystem {
     this.#previewMaterialStates = [];
   }
 
-  #showDigitalArtFramePlacementGhost(
-    preview: DigitalArtFrame,
-    placement: DigitalArtFramePlacementSession,
-  ) {
+  #showDigitalArtFramePlacementGhost(preview: DigitalArtFrame, placement: DigitalArtFramePlacementSession) {
     this.#camera.add(preview.object);
     preview.object.position.set(0, -0.1, -1.5);
     preview.object.quaternion.identity();
@@ -492,20 +435,10 @@ export class ArtFrameSystem {
       this.#setDigitalArtFramePlacementSelection();
       return;
     }
-    const intersection = this.#raycaster.intersectObjects(
-      this.#raycastMeshes,
-      false,
-    )[0];
+    const intersection = this.#raycaster.intersectObjects(this.#raycastMeshes, false)[0];
     const surfaceId = intersection?.object.userData.posterSurfaceId;
-    const surface =
-      typeof surfaceId === "string"
-        ? this.#host.getPosterSurface(surfaceId)
-        : undefined;
-    if (
-      !intersection ||
-      intersection.distance > POSTER_PLACEMENT_DISTANCE ||
-      !surface
-    ) {
+    const surface = typeof surfaceId === "string" ? this.#host.getPosterSurface(surfaceId) : undefined;
+    if (!intersection || intersection.distance > POSTER_PLACEMENT_DISTANCE || !surface) {
       this.#showDigitalArtFramePlacementGhost(preview, placement);
       this.#setDigitalArtFramePlacementSelection();
       return;
@@ -543,9 +476,7 @@ export class ArtFrameSystem {
     if (!placement || !selection || !preview || !preview.object.visible) return;
     this.#restoreDigitalArtFramePreview();
     preview.setIntervalSeconds(placement.intervalSeconds);
-    const existing = placement.movingFrameId
-      ? this.#records.get(placement.movingFrameId)
-      : undefined;
+    const existing = placement.movingFrameId ? this.#records.get(placement.movingFrameId) : undefined;
     if (existing) {
       const targetIndex = this.#targetMeshes.indexOf(existing.frame.target);
       existing.frame.dispose();
@@ -582,17 +513,14 @@ export class ArtFrameSystem {
     this.#records.delete(frameId);
     const targetIndex = this.#targetMeshes.indexOf(record.frame.target);
     if (targetIndex >= 0) this.#targetMeshes.splice(targetIndex, 1);
-    if (this.#targetImportChannel?.frameId === frameId)
-      this.#targetImportChannel = undefined;
+    if (this.#targetImportChannel?.frameId === frameId) this.#targetImportChannel = undefined;
     this.#targetedId = undefined;
     this.#host.markWorldStateDirty();
     this.#host.emitGameState();
   }
 
   cycleTargetedDigitalArtFrameFit() {
-    const record = this.#targetedId
-      ? this.#records.get(this.#targetedId)
-      : undefined;
+    const record = this.#targetedId ? this.#records.get(this.#targetedId) : undefined;
     if (!record) return;
     record.frame.setFit(record.frame.fit() === "contain" ? "cover" : "contain");
     this.#host.markWorldStateDirty();
@@ -600,17 +528,13 @@ export class ArtFrameSystem {
   }
 
   cycleTargetedDigitalArtFrameInterval() {
-    const record = this.#targetedId
-      ? this.#records.get(this.#targetedId)
-      : undefined;
+    const record = this.#targetedId ? this.#records.get(this.#targetedId) : undefined;
     if (!record) return;
     const intervalIndex = DIGITAL_ART_FRAME_INTERVALS.indexOf(
       record.frame.intervalSeconds() as (typeof DIGITAL_ART_FRAME_INTERVALS)[number],
     );
     const nextInterval =
-      DIGITAL_ART_FRAME_INTERVALS[
-        (Math.max(0, intervalIndex) + 1) % DIGITAL_ART_FRAME_INTERVALS.length
-      ];
+      DIGITAL_ART_FRAME_INTERVALS[(Math.max(0, intervalIndex) + 1) % DIGITAL_ART_FRAME_INTERVALS.length];
     if (nextInterval === undefined) return;
     record.frame.setIntervalSeconds(nextInterval);
     this.#host.markWorldStateDirty();
@@ -626,10 +550,7 @@ export class ArtFrameSystem {
     if (!frameId || !frame) return;
     const pendingChannel = this.#targetImportChannel;
     return {
-      channelId:
-        pendingChannel?.frameId === frameId
-          ? pendingChannel.channelId
-          : frame.channelId(),
+      channelId: pendingChannel?.frameId === frameId ? pendingChannel.channelId : frame.channelId(),
       frameId,
       kind: "frame",
     };
@@ -637,17 +558,36 @@ export class ArtFrameSystem {
 
   setDigitalArtFrameTargeted(frameId?: string) {
     if (frameId === this.#targetedId) return;
-    if (this.#targetedId)
-      this.#records.get(this.#targetedId)?.frame.setTargeted(false);
+    if (this.#targetedId) this.#records.get(this.#targetedId)?.frame.setTargeted(false);
     this.#targetedId = frameId;
     if (frameId) this.#records.get(frameId)?.frame.setTargeted(true);
     this.#host.emitGameState();
   }
 
-  async importPastedArtFrameImage(
-    image: Blob,
-    target: DigitalArtFramePasteTarget,
-  ) {
+  #applyImportedImage(importChannelId: string, asset: ArtFrameImage) {
+    const existingChannel = this.#channels.find((channel) => channel.id === importChannelId);
+    const channel: ArtFrameChannel = {
+      id: importChannelId,
+      images: [...(existingChannel?.images.filter((candidate) => candidate.id !== asset.id) ?? []), asset].sort(
+        (left, right) => left.id.localeCompare(right.id),
+      ),
+      label:
+        existingChannel?.label ??
+        importChannelId
+          .split("-")
+          .filter(Boolean)
+          .map((word) => `${word[0]?.toUpperCase() ?? ""}${word.slice(1)}`)
+          .join(" "),
+    };
+    this.applyArtFrameCatalog(
+      [...this.#channels.filter((candidate) => candidate.id !== importChannelId), channel].sort((left, right) =>
+        left.id.localeCompare(right.id),
+      ),
+    );
+    return this.#assets.findIndex((candidate) => candidate.id === asset.id);
+  }
+
+  async importPastedArtFrameImage(image: Blob, target: DigitalArtFramePasteTarget) {
     const importImage = this.#host.importArtFrameImage;
     if (!importImage) return false;
     const importChannelId = target.channelId;
@@ -655,42 +595,9 @@ export class ArtFrameSystem {
     this.#importError = undefined;
     this.#host.emitGameState();
     try {
-      const asset = await importImage(
-        image,
-        importChannelId,
-        this.#host.abortSignal,
-      );
+      const asset = await importImage(image, importChannelId, this.#host.abortSignal);
       if (this.#host.isDisposed()) return false;
-      const existingChannel = this.#channels.find(
-        (channel) => channel.id === importChannelId,
-      );
-      const channel: ArtFrameChannel = {
-        id: importChannelId,
-        images: [
-          ...(existingChannel?.images.filter(
-            (candidate) => candidate.id !== asset.id,
-          ) ?? []),
-          asset,
-        ].sort((left, right) => left.id.localeCompare(right.id)),
-        label:
-          existingChannel?.label ??
-          importChannelId
-            .split("-")
-            .filter(Boolean)
-            .map((word) => `${word[0]?.toUpperCase() ?? ""}${word.slice(1)}`)
-            .join(" "),
-      };
-      this.applyArtFrameCatalog(
-        [
-          ...this.#channels.filter(
-            (candidate) => candidate.id !== importChannelId,
-          ),
-          channel,
-        ].sort((left, right) => left.id.localeCompare(right.id)),
-      );
-      const assetIndex = this.#assets.findIndex(
-        (candidate) => candidate.id === asset.id,
-      );
+      const assetIndex = this.#applyImportedImage(importChannelId, asset);
       if (assetIndex >= 0) this.#assetIndex = assetIndex;
       if (target.kind === "frame") {
         const record = this.#records.get(target.frameId);
@@ -712,9 +619,7 @@ export class ArtFrameSystem {
       const intervalSeconds = placement.intervalSeconds;
       const movingFrameId = placement.movingFrameId;
       const rotation = placement.rotation;
-      const aspectRatio = movingFrameId
-        ? placement.aspectRatio
-        : asset.aspectRatio;
+      const aspectRatio = movingFrameId ? placement.aspectRatio : asset.aspectRatio;
       this.cancelDigitalArtFramePlacement();
       if (assetIndex >= 0)
         this.startDigitalArtFramePlacement(
@@ -730,9 +635,7 @@ export class ArtFrameSystem {
     } catch (error) {
       if (this.#host.abortSignal.aborted) return false;
       this.#importError =
-        error instanceof Error && error.message
-          ? error.message
-          : "Pasted art frame image could not be imported";
+        error instanceof Error && error.message ? error.message : "Pasted art frame image could not be imported";
       return false;
     } finally {
       this.#importCount = Math.max(0, this.#importCount - 1);

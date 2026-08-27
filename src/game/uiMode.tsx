@@ -51,10 +51,7 @@ const initialViewportModeReport: ViewportModeReport = {
  * editor is impossible, while a stale dialog report must never beat a live
  * emulator; boot/error short-circuit everything.
  */
-export const deriveUiMode = (
-  viewport: ViewportModeReport,
-  menuOpen: boolean,
-): UiMode => {
+export const deriveUiMode = (viewport: ViewportModeReport, menuOpen: boolean): UiMode => {
   if (viewport.error) return "error";
   if (!viewport.ready) return "boot";
   if (viewport.arcadeStatus === "browsing") return "arcade-pick";
@@ -70,11 +67,7 @@ export const deriveUiMode = (
  * toggle. Exclusive surfaces (arcade, dialogs) unbind it entirely, so a late
  * or repeated Esc press can never leak into a menu invocation.
  */
-export const ESCAPE_FALLBACK_MODES: ReadonlySet<UiMode> = new Set([
-  "walk",
-  "menu",
-  "book",
-]);
+export const ESCAPE_FALLBACK_MODES: ReadonlySet<UiMode> = new Set(["walk", "menu", "book"]);
 
 /**
  * Modes whose surfaces may present interaction rows (the Interact popper):
@@ -109,25 +102,18 @@ export const UiModeProvider: ParentComponent<{
   paused?: Accessor<boolean>;
 }> = (props) => {
   const [viewport, setViewport] = createSignal(initialViewportModeReport);
-  const mode = createMemo(() =>
-    deriveUiMode(viewport(), props.paused?.() === true),
-  );
+  const mode = createMemo(() => deriveUiMode(viewport(), props.paused?.() === true));
   const value: UiModeContextValue = {
     mode,
     escapeFallbackArmed: () => ESCAPE_FALLBACK_MODES.has(mode()),
     reportViewport: setViewport,
   };
-  return (
-    <UiModeContext.Provider value={value}>
-      {props.children}
-    </UiModeContext.Provider>
-  );
+  return <UiModeContext.Provider value={value}>{props.children}</UiModeContext.Provider>;
 };
 
 export const useUiMode = (): UiModeContextValue => {
   const value = useContext(UiModeContext);
-  if (!value)
-    throw new Error("useUiMode must be used inside <UiModeProvider>.");
+  if (!value) throw new Error("useUiMode must be used inside <UiModeProvider>.");
   return value;
 };
 
@@ -137,10 +123,7 @@ export const useUiMode = (): UiModeContextValue => {
  * AbortController, so a listener can never survive into a mode it does not
  * belong to.
  */
-export const createModeListener = (
-  active: Accessor<unknown>,
-  bind: (signal: AbortSignal) => void,
-) => {
+export const createModeListener = (active: Accessor<unknown>, bind: (signal: AbortSignal) => void) => {
   createEffect(
     on(
       () => Boolean(active()),

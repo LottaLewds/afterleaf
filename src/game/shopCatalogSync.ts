@@ -11,13 +11,16 @@ export type ShopCatalogSyncHost = {
   observedArrivalIds: Set<string>;
   selectedPublicationId: () => string | null | undefined;
   lastSelectedPublicationId: () => string | null | undefined;
-  setLastSelectedPublicationId: (
-    publicationId: string | null | undefined,
-  ) => void;
+  setLastSelectedPublicationId: (publicationId: string | null | undefined) => void;
   booksById: () => ReadonlyMap<string, BookRecord>;
   bookActions: () => BookCarryActions;
   bookLifecycle: () => ShopBookLifecycle;
   bookTextures: () => BookTextureRuntime;
+};
+
+const bookAssetSignature = (url: string | undefined, fallback: string) => {
+  if (url === undefined) return fallback;
+  return url.split(/[?#]/u, 1)[0] ?? url;
 };
 
 /** Keeps catalog synchronization state outside the scene runtime. */
@@ -39,14 +42,8 @@ export class ShopCatalogSync {
     const arrivalsChanged = newPublicationIds !== this.#lastNewPublicationIds;
     if (itemsChanged || arrivalsChanged) {
       const hasUnobservedArrivals =
-        arrivalsChanged &&
-        newPublicationIds.some(
-          (publicationId) => !host.observedArrivalIds.has(publicationId),
-        );
-      const discardOnlyUpdate =
-        itemsChanged &&
-        !hasUnobservedArrivals &&
-        this.#isDiscardOnlyCatalogUpdate(items);
+        arrivalsChanged && newPublicationIds.some((publicationId) => !host.observedArrivalIds.has(publicationId));
+      const discardOnlyUpdate = itemsChanged && !hasUnobservedArrivals && this.#isDiscardOnlyCatalogUpdate(items);
       this.#lastItems = items;
       this.#lastNewPublicationIds = newPublicationIds;
       if ((itemsChanged || hasUnobservedArrivals) && !discardOnlyUpdate)
@@ -56,13 +53,9 @@ export class ShopCatalogSync {
     const selectedPublicationId = host.selectedPublicationId();
     if (selectedPublicationId === host.lastSelectedPublicationId()) return;
     host.setLastSelectedPublicationId(selectedPublicationId);
-    const record = selectedPublicationId
-      ? host.booksById().get(selectedPublicationId)
-      : undefined;
+    const record = selectedPublicationId ? host.booksById().get(selectedPublicationId) : undefined;
     if (record && selectedPublicationId)
-      host
-        .bookTextures()
-        .ensureStandaloneBookTextures(selectedPublicationId, record);
+      host.bookTextures().ensureStandaloneBookTextures(selectedPublicationId, record);
     host.bookLifecycle().applyBookStates();
   }
 
@@ -81,13 +74,8 @@ export class ShopCatalogSync {
       }
 
       const bookActions = this.#host.bookActions();
-      const discardPending =
-        previousItem.id === bookActions.pendingDiscardPublicationId;
-      if (
-        !discardPending &&
-        !bookActions.discardedPublicationIds.has(previousItem.id)
-      )
-        return false;
+      const discardPending = previousItem.id === bookActions.pendingDiscardPublicationId;
+      if (!discardPending && !bookActions.discardedPublicationIds.has(previousItem.id)) return false;
       removedCount += 1;
     }
 
@@ -95,5 +83,10 @@ export class ShopCatalogSync {
   }
 }
 
+/**
+ * Runtime asset URLs carry a catalog-wide cache-busting query. Book identity
+ * should follow the content path, not that query, so catalog refreshes do not
+ * replace every unchanged record.
+ */
 export const bookSignature = (item: CatalogItem) =>
-  `${item.cover}|${item.detailCover ?? "no-detail-cover"}|${item.back ?? "solid-back"}|${item.spine ?? "generated-spine"}|${item.accent}|${item.thicknessMm}|${item.aspectRatio ?? "default-aspect"}|${item.direction}|${item.title}`;
+  `${bookAssetSignature(item.cover, "no-cover")}|${bookAssetSignature(item.detailCover, "no-detail-cover")}|${bookAssetSignature(item.back, "solid-back")}|${bookAssetSignature(item.spine, "generated-spine")}|${item.accent}|${item.thicknessMm}|${item.aspectRatio ?? "default-aspect"}|${item.direction}|${item.title}`;

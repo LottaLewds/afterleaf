@@ -1,10 +1,7 @@
 import {BoxGeometry, Group, Mesh, MeshStandardMaterial, Vector3} from "three";
 import {describe, expect, test} from "bun:test";
 
-import {
-  buildMergedStaticParts,
-  isSharedStaticGeometry,
-} from "~/game/staticModelBatching";
+import {buildMergedStaticParts, isSharedStaticGeometry} from "~/game/staticModelBatching";
 
 describe("buildMergedStaticParts", () => {
   test("merges parts sharing a material signature and bakes their transforms", () => {
@@ -37,10 +34,7 @@ describe("buildMergedStaticParts", () => {
       excludedMesh,
     );
 
-    const {consumed, parts} = buildMergedStaticParts(
-      root,
-      (mesh) => mesh.material === screen,
-    );
+    const {consumed, parts} = buildMergedStaticParts(root, (mesh) => mesh.material === screen);
     expect(parts.map((part) => part.material)).toEqual([casing, rear]);
     expect(consumed).toHaveLength(3);
     expect(consumed).not.toContain(excludedMesh);
@@ -53,10 +47,7 @@ describe("buildMergedStaticParts", () => {
       color: "#ffffff",
       transparent: true,
     });
-    root.add(
-      new Mesh(new BoxGeometry(1, 1, 1), solid),
-      new Mesh(new BoxGeometry(1, 1, 1), ghost),
-    );
+    root.add(new Mesh(new BoxGeometry(1, 1, 1), solid), new Mesh(new BoxGeometry(1, 1, 1), ghost));
 
     const {parts} = buildMergedStaticParts(root);
     expect(parts).toHaveLength(1);

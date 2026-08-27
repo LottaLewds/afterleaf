@@ -52,12 +52,12 @@ export type ArcadeConsoleControl = {
   diagram?: ControlDiagramPlacement;
 };
 
-const key = (
-  value: string,
-  eventKey: string,
-  code: string,
-  keyCode: number,
-): ArcadeKeyBinding => ({value, eventKey, code, keyCode});
+const key = (value: string, eventKey: string, code: string, keyCode: number): ArcadeKeyBinding => ({
+  value,
+  eventKey,
+  code,
+  keyCode,
+});
 
 const z = (): ArcadeKeyBinding => key("z", "Z", "KeyZ", 90);
 const x = (): ArcadeKeyBinding => key("x", "X", "KeyX", 88);
@@ -80,12 +80,9 @@ const enter = (): ArcadeKeyBinding => key("enter", "Enter", "Enter", 13);
 // Arrow bindings reuse the synthetic-event shape of the existing forwarding
 // path (legacy `key` values) so behavior stays byte-identical.
 const dpadUp = (): ArcadeKeyBinding => key("up arrow", "Up", "ArrowUp", 38);
-const dpadDown = (): ArcadeKeyBinding =>
-  key("down arrow", "Down", "ArrowDown", 40);
-const dpadLeft = (): ArcadeKeyBinding =>
-  key("left arrow", "Left", "ArrowLeft", 37);
-const dpadRight = (): ArcadeKeyBinding =>
-  key("right arrow", "Right", "ArrowRight", 39);
+const dpadDown = (): ArcadeKeyBinding => key("down arrow", "Down", "ArrowDown", 40);
+const dpadLeft = (): ArcadeKeyBinding => key("left arrow", "Left", "ArrowLeft", 37);
+const dpadRight = (): ArcadeKeyBinding => key("right arrow", "Right", "ArrowRight", 39);
 
 type DirectionalControls = readonly [
   ArcadeConsoleControl,
@@ -111,8 +108,7 @@ const directionsAt = (
   y: number,
 ): DirectionalControls => {
   const [up, down, left, right] = specs;
-  if (!up || !down || !left || !right)
-    throw new Error("Direction controls need exactly four entries.");
+  if (!up || !down || !left || !right) throw new Error("Direction controls need exactly four entries.");
   return [
     {...up, diagram: {shape, x, y}},
     {...down, diagram: {shape, x, y}},
@@ -178,20 +174,13 @@ const face = (
 const pill = face;
 
 /** Control listed in the mapping rows but not drawn on the pad. */
-const offPad = (
-  id: number,
-  label: string,
-  keyboard: ArcadeKeyBinding,
-): ArcadeConsoleControl => ({id, label, keyboard});
+const offPad = (id: number, label: string, keyboard: ArcadeKeyBinding): ArcadeConsoleControl => ({id, label, keyboard});
 
 /**
  * Console controls for every supported system, ordered top-to-bottom as the
  * mapping UI lists them. Ids follow each core's libretro/EmulatorJS scheme.
  */
-export const SYSTEM_CONTROLLER_CONTROLS: Record<
-  ArcadeSystemId,
-  readonly ArcadeConsoleControl[]
-> = {
+export const SYSTEM_CONTROLLER_CONTROLS: Record<ArcadeSystemId, readonly ArcadeConsoleControl[]> = {
   nes: [
     face(8, "A", x(), {shape: "face", x: 246, y: 116}),
     face(0, "B", z(), {shape: "face", x: 208, y: 100}),
@@ -214,13 +203,7 @@ export const SYSTEM_CONTROLLER_CONTROLS: Record<
     face(0, "Button 1", z(), {shape: "face", x: 232, y: 122}, "1"),
     face(8, "Button 2", x(), {shape: "face", x: 262, y: 98}, "2"),
     face(1, "Button 3", c(), {shape: "face", x: 292, y: 122}, "3"),
-    pill(
-      2,
-      "Coin / Credit",
-      shift(),
-      {shape: "pill", x: 146, y: 154, w: 46},
-      "Coin",
-    ),
+    pill(2, "Coin / Credit", shift(), {shape: "pill", x: 146, y: 154, w: 46}, "Coin"),
     pill(3, "Start", enter(), {shape: "pill", x: 196, y: 154, w: 42}),
     // Extra MAME action buttons stay reachable from the keyboard; 5 and 6
     // are listed without a diagram placement to keep the panel drawn clean.
@@ -278,13 +261,7 @@ export const SYSTEM_CONTROLLER_CONTROLS: Record<
   segaMS: [
     face(0, "Button 1", z(), {shape: "face", x: 216, y: 106}),
     face(8, "Button 2", x(), {shape: "face", x: 256, y: 106}),
-    pill(
-      3,
-      "Start / Pause",
-      enter(),
-      {shape: "pill", x: 172, y: 152, w: 52},
-      "St",
-    ),
+    pill(3, "Start / Pause", enter(), {shape: "pill", x: 172, y: 152, w: 52}, "St"),
     ...dpadAt(96, 106),
   ],
   segaMD: [
@@ -313,20 +290,8 @@ export const SYSTEM_CONTROLLER_CONTROLS: Record<
   ],
   atari2600: [
     face(0, "Fire", x(), {shape: "face", x: 246, y: 108, r: 17}, ""),
-    pill(
-      2,
-      "Game Select",
-      shift(),
-      {shape: "pill", x: 142, y: 156, w: 54},
-      "Sel",
-    ),
-    pill(
-      3,
-      "Game Reset",
-      enter(),
-      {shape: "pill", x: 200, y: 156, w: 54},
-      "Rst",
-    ),
+    pill(2, "Game Select", shift(), {shape: "pill", x: 142, y: 156, w: 54}, "Sel"),
+    pill(3, "Game Reset", enter(), {shape: "pill", x: 200, y: 156, w: 54}, "Rst"),
     ...stickAt(110, 108),
     ...offPadDirections(),
   ],
@@ -337,10 +302,7 @@ export const SYSTEM_CONTROLLER_CONTROLS: Record<
  * button -> console control id. Face buttons follow positional convention -
  * south is the primary action, east secondary, west/north fill in the rest.
  */
-export const DEFAULT_PAD_MAPPINGS: Record<
-  ArcadeSystemId,
-  Readonly<Partial<Record<GamepadButtonName, number>>>
-> = {
+export const DEFAULT_PAD_MAPPINGS: Record<ArcadeSystemId, Readonly<Partial<Record<GamepadButtonName, number>>>> = {
   nes: {
     A: 0,
     B: 8,
@@ -489,9 +451,7 @@ export const DEFAULT_PAD_MAPPINGS: Record<
 
 // -- Persistence ---------------------------------------------------------------
 
-export type ArcadePadMappingOverrides = Partial<
-  Record<ArcadeSystemId, Partial<Record<GamepadButtonName, number>>>
->;
+export type ArcadePadMappingOverrides = Partial<Record<ArcadeSystemId, Partial<Record<GamepadButtonName, number>>>>;
 
 const STORAGE_KEY = "afterleaf:arcade:pad-mappings:v1";
 
@@ -514,9 +474,7 @@ const GAMEPAD_BUTTON_NAME_SET: ReadonlySet<string> = new Set([
   "DpadRight",
 ]);
 
-const systemsById = new Map<string, ArcadeSystem>(
-  ARCADE_SYSTEMS.map((system) => [system.id, system] as const),
-);
+const systemsById = new Map<string, ArcadeSystem>(ARCADE_SYSTEMS.map((system) => [system.id, system] as const));
 
 const isValidOverrideEntry = (
   systemId: string,
@@ -542,17 +500,14 @@ export const loadPadMappingOverrides = (): ArcadePadMappingOverrides => {
     if (typeof parsed !== "object" || parsed === null) return {};
     const merged: ArcadePadMappingOverrides = {};
     for (const [systemId, entry] of Object.entries(parsed))
-      if (isValidOverrideEntry(systemId, entry))
-        merged[systemId as ArcadeSystemId] = entry;
+      if (isValidOverrideEntry(systemId, entry)) merged[systemId as ArcadeSystemId] = entry;
     return merged;
   } catch {
     return {};
   }
 };
 
-export const savePadMappingOverrides = (
-  overrides: ArcadePadMappingOverrides,
-): void => {
+export const savePadMappingOverrides = (overrides: ArcadePadMappingOverrides): void => {
   if (typeof localStorage === "undefined") return;
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(overrides));
@@ -588,21 +543,16 @@ export const resetPadMapping = (
  * purpose: real pads are forwarded by the shop itself so parallel sessions
  * cannot cross-talk (see emulatorHost.ts).
  */
-export const buildDefaultControllers = (
-  systemId: ArcadeSystemId,
-): Record<string, unknown> => {
+export const buildDefaultControllers = (systemId: ArcadeSystemId): Record<string, unknown> => {
   const player: Record<number, {value: string}> = {};
-  for (const control of SYSTEM_CONTROLLER_CONTROLS[systemId])
-    player[control.id] = {value: control.keyboard.value};
+  for (const control of SYSTEM_CONTROLLER_CONTROLS[systemId]) player[control.id] = {value: control.keyboard.value};
   return {0: player, 1: {}, 2: {}, 3: {}};
 };
 
 const frozenForwardEventCache = new Map<ArcadeKeyBinding, ForwardedKeyEvent>();
 
 /** Converts a console control's keyboard binding into a forwardable event. */
-export const forwardedKeyEventForBinding = (
-  binding: ArcadeKeyBinding,
-): ForwardedKeyEvent => {
+export const forwardedKeyEventForBinding = (binding: ArcadeKeyBinding): ForwardedKeyEvent => {
   const cached = frozenForwardEventCache.get(binding);
   if (cached) return cached;
   const event: ForwardedKeyEvent = Object.freeze({
@@ -619,22 +569,12 @@ export const forwardedKeyEventForBinding = (
   return event;
 };
 
-const controlsByIdCache = new Map<
-  ArcadeSystemId,
-  Map<number, ArcadeConsoleControl>
->();
+const controlsByIdCache = new Map<ArcadeSystemId, Map<number, ArcadeConsoleControl>>();
 
-const controlsById = (
-  systemId: ArcadeSystemId,
-): Map<number, ArcadeConsoleControl> => {
+const controlsById = (systemId: ArcadeSystemId): Map<number, ArcadeConsoleControl> => {
   let cache = controlsByIdCache.get(systemId);
   if (!cache) {
-    cache = new Map(
-      SYSTEM_CONTROLLER_CONTROLS[systemId].map((control) => [
-        control.id,
-        control,
-      ]),
-    );
+    cache = new Map(SYSTEM_CONTROLLER_CONTROLS[systemId].map((control) => [control.id, control]));
     controlsByIdCache.set(systemId, cache);
   }
   return cache;

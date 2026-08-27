@@ -56,12 +56,7 @@ export const createWorldSave = (ctx: WorldSaveSnapshotContext): WorldSaveV1 => {
     if (record.state.status === "shelved") {
       position = record.basePosition;
       quaternion = new Quaternion().setFromEuler(
-        new Euler(
-          record.baseRotation.x,
-          record.baseRotation.y,
-          record.baseRotation.z,
-          "XYZ",
-        ),
+        new Euler(record.baseRotation.x, record.baseRotation.y, record.baseRotation.z, "XYZ"),
       );
     } else {
       record.mesh.updateWorldMatrix(true, false);
@@ -120,9 +115,7 @@ export const createWorldSave = (ctx: WorldSaveSnapshotContext): WorldSaveV1 => {
       : [],
   );
   const posters: WorldPosterSave[] = [
-    ...ctx.posters.pendingSaves.filter(
-      (savedPoster) => !ctx.posters.records.has(savedPoster.id),
-    ),
+    ...ctx.posters.pendingSaves.filter((savedPoster) => !ctx.posters.records.has(savedPoster.id)),
     ...[...ctx.posters.records.values()]
       .sort((left, right) => left.depthLayer - right.depthLayer)
       .map((record) => {
@@ -147,15 +140,13 @@ export const createWorldSave = (ctx: WorldSaveSnapshotContext): WorldSaveV1 => {
       }),
   ];
   const digitalArtFrames: WorldDigitalArtFrameSave[] = [
-    ...(
-      ctx.artFrames.pendingSaves as readonly WorldDigitalArtFrameSave[]
-    ).filter((savedFrame) => !ctx.artFrames.records.has(savedFrame.id)),
+    ...(ctx.artFrames.pendingSaves as readonly WorldDigitalArtFrameSave[]).filter(
+      (savedFrame) => !ctx.artFrames.records.has(savedFrame.id),
+    ),
     ...[...ctx.artFrames.records.values()].map((record) => {
       record.frame.object.updateWorldMatrix(true, false);
       const position = record.frame.object.getWorldPosition(new Vector3());
-      const quaternion = record.frame.object.getWorldQuaternion(
-        new Quaternion(),
-      );
+      const quaternion = record.frame.object.getWorldQuaternion(new Quaternion());
       const currentImageId = record.frame.currentImageId();
       return {
         aspectRatio: record.frame.aspectRatio(),
@@ -189,20 +180,15 @@ export const createWorldSave = (ctx: WorldSaveSnapshotContext): WorldSaveV1 => {
   // the plain props list only carries legacy pose-only leftovers from
   // pre-seeding saves that no registration has claimed yet.
   const props: WorldPropSave[] = [
-    ...[...ctx.pendingPropSaves.values()].filter(
-      (savedProp) => !ctx.movableProps.has(savedProp.id),
-    ),
+    ...[...ctx.pendingPropSaves.values()].filter((savedProp) => !ctx.movableProps.has(savedProp.id)),
   ];
   const modelProps: WorldModelPropSave[] = [
-    ...ctx.pendingModelPropSaves.filter(
-      (savedProp) => !ctx.movableProps.has(savedProp.id),
-    ),
+    ...ctx.pendingModelPropSaves.filter((savedProp) => !ctx.movableProps.has(savedProp.id)),
     ...[...ctx.movableProps.values()].flatMap((record) => {
       const assetId = record.spawnAssetId;
       if (!assetId) return [];
       const animationClip = record.modelAnimations
-        ? (record.modelAnimations[record.modelAnimationIndex ?? 0]?.name ??
-          null)
+        ? (record.modelAnimations[record.modelAnimationIndex ?? 0]?.name ?? null)
         : undefined;
       record.object.updateWorldMatrix(true, false);
       const position = record.object.getWorldPosition(new Vector3());
@@ -233,9 +219,7 @@ export const createWorldSave = (ctx: WorldSaveSnapshotContext): WorldSaveV1 => {
     catalog: {
       catalogContentHash: catalog.catalogContentHash,
       packId: catalog.packId,
-      ...(catalog.snapshotId === undefined
-        ? {}
-        : {snapshotId: catalog.snapshotId}),
+      ...(catalog.snapshotId === undefined ? {} : {snapshotId: catalog.snapshotId}),
     },
     // From here on the world owns its default props: this version stops
     // the boot-time seed passes from re-creating deleted or moved

@@ -57,8 +57,7 @@ export class FpsHud {
         text += ` · CORE ${((coreFrames - this.#lastCoreFrames) / this.#elapsed).toFixed(1)} fps`;
       this.#lastCoreFrames = coreFrames;
     }
-    if (sample?.canvasWidth && sample.canvasHeight)
-      text += ` · ${sample.canvasWidth}×${sample.canvasHeight}`;
+    if (sample?.canvasWidth && sample.canvasHeight) text += ` · ${sample.canvasWidth}×${sample.canvasHeight}`;
     this.#element.textContent = text;
     this.#hostFrames = 0;
     this.#elapsed = 0;

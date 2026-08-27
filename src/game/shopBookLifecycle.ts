@@ -1,11 +1,7 @@
 import {Color, MathUtils, Vector3} from "three";
 import type {Euler, Mesh, PerspectiveCamera, Quaternion, Scene} from "three";
 import type {CatalogItem} from "~/catalog";
-import {
-  createBook,
-  faceDisplayShelfId,
-  faceDisplayShelfOffset,
-} from "~/game/bookFactory";
+import {createBook, faceDisplayShelfId, faceDisplayShelfOffset} from "~/game/bookFactory";
 import type {BookRecord, RetainedBookGameplay} from "~/game/bookFactory";
 import type {BookTextureRuntime} from "~/game/bookTextureRuntime";
 import type {BookCarryActions} from "~/game/bookCarryActions";
@@ -14,14 +10,10 @@ import {bookDropPosition} from "~/game/bookDropPlacement";
 import {hashString} from "~/game/mathHelpers";
 import type {InspectionController} from "~/game/inspection/InspectionController";
 import {spineShelfBookNormalOffset} from "~/game/shelfPlacement";
-import type {SpineShelfDefinition} from "~/game/ShopScene";
+import type {SpineShelfDefinition} from "~/game/shopTypes";
 import type {ShopPhysicsWorld, BookPhysicsPose} from "~/game/ShopPhysicsWorld";
 import type {WorldBookSave} from "~/game/worldSave";
-import {
-  FACE_DISPLAY_COLUMNS,
-  FACE_DISPLAY_ROWS,
-  FACE_SHELF_ID,
-} from "~/game/shopLayout";
+import {FACE_DISPLAY_COLUMNS, FACE_DISPLAY_ROWS, FACE_SHELF_ID} from "~/game/shopLayout";
 import type {InteractionScanner} from "~/game/interactionScanner";
 
 const FACE_SHELF_SLOT_COUNT = FACE_DISPLAY_COLUMNS * FACE_DISPLAY_ROWS;
@@ -72,9 +64,7 @@ export class ShopBookLifecycle {
   applySavedBook(record: BookRecord, savedBook: WorldBookSave) {
     record.basePosition.copy(savedBook.pose.position);
     record.mesh.quaternion.copy(savedBook.pose.quaternion);
-    this.#host
-      .physicsPoseEuler()
-      .setFromQuaternion(record.mesh.quaternion, "XYZ");
+    this.#host.physicsPoseEuler().setFromQuaternion(record.mesh.quaternion, "XYZ");
     record.baseRotation.set(
       this.#host.physicsPoseEuler().x,
       this.#host.physicsPoseEuler().y,
@@ -83,30 +73,19 @@ export class ShopBookLifecycle {
     if (savedBook.state === "shelved") {
       const requestedShelfId = savedBook.shelf.shelfId;
       const legacySlotIndex = savedBook.shelf.slotIndex % FACE_SHELF_SLOT_COUNT;
-      const requestedShelf = this.#host
-        .spineShelfDefinitions()
-        .get(requestedShelfId);
-      const useFaceDisplayFallback =
-        requestedShelfId === FACE_SHELF_ID || !requestedShelf;
+      const requestedShelf = this.#host.spineShelfDefinitions().get(requestedShelfId);
+      const useFaceDisplayFallback = requestedShelfId === FACE_SHELF_ID || !requestedShelf;
       const shelfId = useFaceDisplayFallback
         ? faceDisplayShelfId(Math.floor(legacySlotIndex / FACE_DISPLAY_COLUMNS))
         : requestedShelfId;
       const shelf = this.#host.spineShelfDefinitions().get(shelfId);
-      const slotIndex = useFaceDisplayFallback
-        ? legacySlotIndex % FACE_DISPLAY_COLUMNS
-        : savedBook.shelf.slotIndex;
+      const slotIndex = useFaceDisplayFallback ? legacySlotIndex % FACE_DISPLAY_COLUMNS : savedBook.shelf.slotIndex;
       record.slotIndex = slotIndex;
-      record.shelfPresentation = useFaceDisplayFallback
-        ? "face"
-        : (savedBook.shelf.presentation ?? "spine");
+      record.shelfPresentation = useFaceDisplayFallback ? "face" : (savedBook.shelf.presentation ?? "spine");
       record.shelfOffset = useFaceDisplayFallback
         ? faceDisplayShelfOffset(legacySlotIndex)
         : shelf
-          ? this.#host
-              .physicsPosePosition()
-              .copy(savedBook.pose.position)
-              .sub(shelf.frontCenter)
-              .dot(shelf.axis)
+          ? this.#host.physicsPosePosition().copy(savedBook.pose.position).sub(shelf.frontCenter).dot(shelf.axis)
           : 0;
       record.state = {
         shelfId,
@@ -119,20 +98,90 @@ export class ShopBookLifecycle {
     } else record.state = {status: savedBook.state};
   }
 
-  syncBooks(
-    items: readonly CatalogItem[],
-    newPublicationIds: readonly string[] = this.#host.newPublicationIds(),
+  #createOrReplaceBookRecord(item: CatalogItem, index: number, signature: string) {
+    const current = this.#host.booksById().get(item.id);
+    if (current?.signature === signature) return {record: current, recordCreated: false};
+    const retainedGameplay: RetainedBookGameplay | undefined = current
+      ? {
+          basePosition: current.basePosition.clone(),
+          baseRotation: current.baseRotation.clone(),
+          shelfOffset: current.shelfOffset,
+          shelfPresentation: current.shelfPresentation,
+          slotIndex: current.slotIndex,
+          state: current.state,
+          taskBook: current.taskBook,
+        }
+      : undefined;
+    const initialSlotIndex = retainedGameplay?.slotIndex ?? index;
+    if (current) {
+      this.#host.physicsWorld().removeBook(item.id);
+      this.disposeBookRecord(current);
+    }
+    const record = createBook(
+      item,
+      signature,
+      initialSlotIndex,
+      true,
+      retainedGameplay,
+      this.#placeBookOnFloor.bind(this) as (record: BookRecord, floorIndex: number, seedValue: string) => void,
+    );
+    this.#host.booksById().set(item.id, record);
+    return {record, recordCreated: true};
+  }
+
+  #syncBookPresentation(
+    item: CatalogItem,
+    index: number,
+    record: BookRecord,
+    recordCreated: boolean,
+    restoredFromSave: WorldBookSave | undefined,
+    arrivalIds: ReadonlySet<string>,
   ) {
+    if (restoredFromSave) this.applySavedBook(record, restoredFromSave);
+    else if (recordCreated && arrivalIds.has(item.id)) this.#placeNewArrivalAboveFloor(record, item.id);
+    if (!record.taskBook) record.slotIndex = index;
+    this.setShelfPosition(record);
+    if (record.state.status === "shelved" && !restoredFromSave) {
+      record.basePosition.copy(record.shelfPosition);
+      this.setShelfRotation(record, item.id);
+    }
+    if (record.state.status === "carried") {
+      this.#host.bookTextures().promoteBookCoverTexture(item.id, record);
+      if (this.#host.physicsWorld().isReady) this.#host.scene().add(record.mesh);
+      else {
+        this.#host.camera().add(record.mesh);
+        record.mesh.position.copy(this.#host.heldLocalPosition());
+        record.mesh.quaternion.copy(this.#host.heldLocalRotation());
+      }
+    } else if (record.mesh.parent === null) {
+      record.mesh.position.copy(record.basePosition);
+      record.mesh.rotation.set(record.baseRotation.x, record.baseRotation.y, record.baseRotation.z, "XYZ");
+      this.#host.scene().add(record.mesh);
+    }
+  }
+
+  #syncBookItem(
+    item: CatalogItem,
+    index: number,
+    savedBooks: Map<string, WorldBookSave> | undefined,
+    arrivalIds: ReadonlySet<string>,
+    retainedIds: Set<string>,
+  ) {
+    if (retainedIds.has(item.id)) return;
+    retainedIds.add(item.id);
+    const signature = this.#host.bookSignature(item);
+    const {record, recordCreated} = this.#createOrReplaceBookRecord(item, index, signature);
+    const restoredFromSave = arrivalIds.has(item.id) ? undefined : savedBooks?.get(item.id);
+    this.#syncBookPresentation(item, index, record, recordCreated, restoredFromSave, arrivalIds);
+    this.#syncBookPhysics(item.id, record);
+  }
+
+  syncBooks(items: readonly CatalogItem[], newPublicationIds: readonly string[] = this.#host.newPublicationIds()) {
     const atlasRevision = this.#host.bookTextures().bumpRevision();
-    this.#host.bookTextures().disposeBookAtlasBatches();
     const savedBooks = this.#host.takeCompatibleWorldSave();
     const itemsById = new Map(items.map((item) => [item.id, item]));
     const unobservedArrivalIds = newPublicationIds.filter((publicationId) => {
-      if (
-        !itemsById.has(publicationId) ||
-        this.#host.observedArrivalIds.has(publicationId)
-      )
-        return false;
+      if (!itemsById.has(publicationId) || this.#host.observedArrivalIds.has(publicationId)) return false;
       this.#host.observedArrivalIds.add(publicationId);
       return true;
     });
@@ -143,88 +192,14 @@ export class ShopBookLifecycle {
       ...(discardAnimation ? [discardAnimation.publicationId] : []),
       ...(shelveAnimation ? [shelveAnimation.publicationId] : []),
     ]);
-    const displayItems = items.filter(
-      (item) => !this.#host.bookActions().discardedPublicationIds.has(item.id),
-    );
-    for (const [index, item] of displayItems.entries()) {
-      if (retainedIds.has(item.id)) continue;
-      retainedIds.add(item.id);
-      const signature = this.#host.bookSignature(item);
-      let record = this.#host.booksById().get(item.id);
-      let recordCreated = false;
-      if (record?.signature !== signature) {
-        const retainedGameplay: RetainedBookGameplay | undefined = record
-          ? {
-              basePosition: record.basePosition.clone(),
-              baseRotation: record.baseRotation.clone(),
-              shelfOffset: record.shelfOffset,
-              shelfPresentation: record.shelfPresentation,
-              slotIndex: record.slotIndex,
-              state: record.state,
-              taskBook: record.taskBook,
-            }
-          : undefined;
-        const initialSlotIndex = retainedGameplay?.slotIndex ?? index;
-        if (record) {
-          this.#host.physicsWorld().removeBook(item.id);
-          this.disposeBookRecord(record);
-        }
-        record = createBook(
-          item,
-          signature,
-          initialSlotIndex,
-          true,
-          retainedGameplay,
-          this.#placeBookOnFloor.bind(this) as (
-            record: BookRecord,
-            floorIndex: number,
-            seedValue: string,
-          ) => void,
-        );
-        this.#host.booksById().set(item.id, record);
-        recordCreated = true;
-      }
-
-      const restoredFromSave = arrivalIds.has(item.id)
-        ? undefined
-        : savedBooks?.get(item.id);
-      if (restoredFromSave) this.applySavedBook(record, restoredFromSave);
-      else if (recordCreated && arrivalIds.has(item.id))
-        this.#placeNewArrivalAboveFloor(record, item.id);
-      if (!record.taskBook) record.slotIndex = index;
-      this.setShelfPosition(record);
-      if (record.state.status === "shelved" && !restoredFromSave) {
-        record.basePosition.copy(record.shelfPosition);
-        this.setShelfRotation(record, item.id);
-      }
-      if (record.state.status === "carried") {
-        this.#host.bookTextures().promoteBookCoverTexture(item.id, record);
-        if (this.#host.physicsWorld().isReady)
-          this.#host.scene().add(record.mesh);
-        else {
-          this.#host.camera().add(record.mesh);
-          record.mesh.position.copy(this.#host.heldLocalPosition());
-          record.mesh.quaternion.copy(this.#host.heldLocalRotation());
-        }
-      } else if (record.mesh.parent === null) {
-        record.mesh.position.copy(record.basePosition);
-        record.mesh.rotation.set(
-          record.baseRotation.x,
-          record.baseRotation.y,
-          record.baseRotation.z,
-          "XYZ",
-        );
-        this.#host.scene().add(record.mesh);
-      }
-      this.#syncBookPhysics(item.id, record);
-    }
+    const displayItems = items.filter((item) => !this.#host.bookActions().discardedPublicationIds.has(item.id));
+    for (const [index, item] of displayItems.entries())
+      this.#syncBookItem(item, index, savedBooks, arrivalIds, retainedIds);
 
     for (const [publicationId, record] of this.#host.booksById()) {
       if (retainedIds.has(publicationId)) continue;
-      if (this.#host.inspection().inspectionPublicationId === publicationId)
-        this.#host.inspection().endInspection();
-      if (this.#host.carriedPublicationIds().includes(publicationId))
-        this.removeCarriedPublication(publicationId);
+      if (this.#host.inspection().inspectionPublicationId === publicationId) this.#host.inspection().endInspection();
+      if (this.#host.carriedPublicationIds().includes(publicationId)) this.removeCarriedPublication(publicationId);
       this.#host.physicsWorld().removeBook(publicationId);
       this.disposeBookRecord(record);
       this.#host.booksById().delete(publicationId);
@@ -238,9 +213,7 @@ export class ShopBookLifecycle {
     this.#host.emitGameState();
     // Book textures stream into the scene as batches finish; readiness does
     // not wait on them.
-    void this.#host
-      .bookTextures()
-      .initializeBookAtlasBatches(items, atlasRevision);
+    void this.#host.bookTextures().initializeBookAtlasBatches(items, atlasRevision);
   }
 
   /**
@@ -252,11 +225,7 @@ export class ShopBookLifecycle {
   #placeBookOnFloor(record: BookRecord, floorIndex: number, seedValue: string) {
     const seed = hashString(`${seedValue}:${floorIndex}`);
     const position = bookDropPosition(seed);
-    record.basePosition.set(
-      position.x,
-      record.thickness / 2 + 0.014,
-      position.z,
-    );
+    record.basePosition.set(position.x, record.thickness / 2 + 0.014, position.z);
     record.baseRotation.set(
       -Math.PI / 2,
       ((seed >>> 20) % 1_000) * (Math.PI / 500),
@@ -267,11 +236,7 @@ export class ShopBookLifecycle {
   #placeNewArrivalAboveFloor(record: BookRecord, seedValue: string) {
     const seed = hashString(`${seedValue}:arrival`);
     const position = bookDropPosition(seed);
-    record.basePosition.set(
-      position.x,
-      2.7 + ((seed >>> 11) % 100) * 0.012,
-      position.z,
-    );
+    record.basePosition.set(position.x, 2.7 + ((seed >>> 11) % 100) * 0.012, position.z);
     record.baseRotation.set(
       -Math.PI / 2 + (((seed >>> 8) % 100) / 100 - 0.5) * 0.7,
       ((seed >>> 15) % 100) * (Math.PI / 50),
@@ -285,8 +250,7 @@ export class ShopBookLifecycle {
 
     const shelf = this.#host.spineShelfDefinitions().get(state.shelfId);
     if (!shelf) return;
-    const shelfWidth =
-      record.shelfPresentation === "face" ? record.width : record.thickness;
+    const shelfWidth = record.shelfPresentation === "face" ? record.width : record.thickness;
     record.shelfOffset = MathUtils.clamp(
       record.shelfOffset,
       -shelf.halfWidth + shelfWidth / 2,
@@ -316,35 +280,22 @@ export class ShopBookLifecycle {
       return;
     }
     const sign = record.spineNormalSign;
-    record.baseRotation.set(
-      0,
-      Math.atan2(-shelf.normal.z * sign, shelf.normal.x * sign),
-      0,
-    );
+    record.baseRotation.set(0, Math.atan2(-shelf.normal.z * sign, shelf.normal.x * sign), 0);
     this.#syncShelfHoverTarget(record);
   }
 
   #syncShelfHoverTarget(record: BookRecord) {
     if (record.state.status !== "shelved") return;
     record.hoverTarget.position.copy(record.shelfPosition);
-    record.hoverTarget.rotation.set(
-      record.baseRotation.x,
-      record.baseRotation.y,
-      record.baseRotation.z,
-      "XYZ",
-    );
+    record.hoverTarget.rotation.set(record.baseRotation.x, record.baseRotation.y, record.baseRotation.z, "XYZ");
     record.hoverTarget.scale.set(record.width, BOOK_HEIGHT, record.thickness);
     record.hoverTarget.updateMatrixWorld(true);
   }
 
   setPhysicsPose(position: Vector3, rotation: Vector3) {
     this.#host.physicsPosePosition().copy(position);
-    this.#host
-      .physicsPoseEuler()
-      .set(rotation.x, rotation.y, rotation.z, "XYZ");
-    this.#host
-      .physicsPoseRotation()
-      .setFromEuler(this.#host.physicsPoseEuler());
+    this.#host.physicsPoseEuler().set(rotation.x, rotation.y, rotation.z, "XYZ");
+    this.#host.physicsPoseRotation().setFromEuler(this.#host.physicsPoseEuler());
     return this.#host.physicsPose();
   }
 
@@ -352,9 +303,7 @@ export class ShopBookLifecycle {
     const pose = this.setPhysicsPose(record.basePosition, record.baseRotation);
     if (!record.physicsRegistered) {
       record.physicsRegistered = this.#host.physicsWorld().addBook({
-        ...(record.state.status === "shelved"
-          ? {initialState: "shelved" as const}
-          : {}),
+        ...(record.state.status === "shelved" ? {initialState: "shelved" as const} : {}),
         pose,
         publicationId,
         thickness: record.thickness,
@@ -378,20 +327,14 @@ export class ShopBookLifecycle {
         .filter(
           ([publicationId, record]) =>
             record.state.status === "carried" &&
-            publicationId !==
-              this.#host.bookActions().discardAnimation?.publicationId,
+            publicationId !== this.#host.bookActions().discardAnimation?.publicationId,
         )
         .map(([publicationId]) => publicationId),
     );
-    const nextIds = this.#host
-      .carriedPublicationIds()
-      .filter((id) => carriedIds.has(id));
+    const nextIds = this.#host.carriedPublicationIds().filter((id) => carriedIds.has(id));
     for (const publicationId of this.#host.booksById().keys())
-      if (carriedIds.has(publicationId) && !nextIds.includes(publicationId))
-        nextIds.push(publicationId);
-    this.#host
-      .carriedPublicationIds()
-      .splice(0, this.#host.carriedPublicationIds().length, ...nextIds);
+      if (carriedIds.has(publicationId) && !nextIds.includes(publicationId)) nextIds.push(publicationId);
+    this.#host.carriedPublicationIds().splice(0, this.#host.carriedPublicationIds().length, ...nextIds);
     this.#host.setCarriedPublicationId(this.#host.carriedPublicationIds()[0]);
   }
 
@@ -415,10 +358,7 @@ export class ShopBookLifecycle {
     for (const record of this.#host.booksById().values()) {
       if (record.state.status !== "shelved") continue;
       const {shelfId} = record.state;
-      const knownShelf =
-        typeof shelfId === "string"
-          ? this.#host.spineShelfDefinitions().get(shelfId)
-          : undefined;
+      const knownShelf = typeof shelfId === "string" ? this.#host.spineShelfDefinitions().get(shelfId) : undefined;
       if (!knownShelf || typeof shelfId !== "string") {
         this.#host.ungroupedShelfHoverMeshes.push(record.hoverTarget);
         continue;
@@ -435,13 +375,8 @@ export class ShopBookLifecycle {
 
   disposeBookRecord(record: BookRecord) {
     const publicationId = record.mesh.userData.publicationId;
-    if (typeof publicationId === "string")
-      this.#host.bookTextures().forgetStandaloneId(publicationId);
-    if (record.atlasPlacement)
-      record.atlasPlacement.batch.mesh.setVisibleAt(
-        record.atlasPlacement.instanceId,
-        false,
-      );
+    if (typeof publicationId === "string") this.#host.bookTextures().forgetStandaloneId(publicationId);
+    if (record.atlasPlacement) record.atlasPlacement.batch.mesh.setVisibleAt(record.atlasPlacement.instanceId, false);
     record.atlasPlacement = undefined;
     record.hoverTarget.removeFromParent();
     record.hoverTarget.geometry.dispose();
@@ -486,23 +421,11 @@ export class ShopBookLifecycle {
       else if (selected) targetScale = 1.025;
       record.targetScale = targetScale;
       record.targetLift = hovered && !shelfHovered ? 0.08 : 0;
-      const discardTargeted =
-        publicationId === this.#host.carriedPublicationId() &&
-        this.#host.scanner().trashTargeted;
+      const discardTargeted = publicationId === this.#host.carriedPublicationId() && this.#host.scanner().trashTargeted;
       record.sceneEmissive.set(
-        discardTargeted
-          ? DISCARD_TARGETED_EMISSIVE
-          : hovered
-            ? "#a34437"
-            : selected
-              ? "#49231f"
-              : "#000000",
+        discardTargeted ? DISCARD_TARGETED_EMISSIVE : hovered ? "#a34437" : selected ? "#49231f" : "#000000",
       );
-      record.sceneEmissiveIntensity = discardTargeted
-        ? DISCARD_TARGETED_EMISSIVE_INTENSITY
-        : hovered
-          ? 0.55
-          : 0.2;
+      record.sceneEmissiveIntensity = discardTargeted ? DISCARD_TARGETED_EMISSIVE_INTENSITY : hovered ? 0.55 : 0.2;
       record.exteriorMaterial.emissive.copy(record.sceneEmissive);
       record.exteriorMaterial.emissiveIntensity = record.sceneEmissiveIntensity;
       this.#host.inspection().applyInspectionLighting(record);

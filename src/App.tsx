@@ -27,17 +27,9 @@ import {
   createSignal,
   on,
 } from "solid-js";
-import {
-  loadShortcuts,
-  saveShortcuts,
-  type ShortcutsConfig,
-} from "~/game/input/bindings";
+import {loadShortcuts, saveShortcuts, type ShortcutsConfig} from "~/game/input/bindings";
 
-import {
-  emptyLibrary,
-  isRuntimeLibraryAvailable,
-  loadRuntimeLibrary,
-} from "~/catalog";
+import {emptyLibrary, isRuntimeLibraryAvailable, loadRuntimeLibrary} from "~/catalog";
 import {
   BrowserLibraryOperationError,
   blacklistPublication,
@@ -65,46 +57,19 @@ import {OptionsPanel} from "~/components/options/OptionsPanel";
 import {ShortcutsPanel} from "~/components/shortcuts/ShortcutsPanel";
 import {PurgeBlacklistedWorksDialog} from "~/components/library/PurgeBlacklistedWorksDialog";
 import {AdultGate} from "~/components/library/AdultGate";
-import {
-  LibraryRepairDialog,
-  type LibraryRepairOptions,
-} from "~/components/library/LibraryRepairDialog";
+import {LibraryRepairDialog, type LibraryRepairOptions} from "~/components/library/LibraryRepairDialog";
 import {LibraryUpdateDialog} from "~/components/library/LibraryUpdateDialog";
 import {LibraryActivityToast} from "~/components/library/LibraryActivityToast";
 import {LibraryCard} from "~/components/library/LibraryCard";
 import {DetailPanel} from "~/components/library/DetailPanel";
-import {
-  languageLabels,
-  type LanguageFilter,
-} from "~/components/library/languageLabels";
+import {languageLabels, type LanguageFilter} from "~/components/library/languageLabels";
 import {GlobalEscapeShortcuts} from "~/components/GlobalEscapeShortcuts";
-import {
-  bookLocationKeys,
-  configLocationsChanged,
-  visualMediaLocationKeys,
-} from "~/components/locations/locationKinds";
-import {
-  loadBootFetchPreference,
-  saveBootFetchPreference,
-} from "~/content/libraryUpdate/bootFetchPreference";
-import {
-  loadLibraryFetchPreferences,
-  saveLibraryFetchPreferences,
-} from "~/content/libraryUpdate/fetchPreferences";
-import {
-  loadLibraryProviderPreference,
-  saveLibraryProviderPreference,
-} from "~/content/libraryUpdate/providerPreference";
-import {
-  loadTagBlacklist,
-  normalizeTag,
-  saveTagBlacklist,
-} from "~/content/tagBlacklistPreference";
-import {
-  loadControlPreferences,
-  saveControlPreferences,
-  type ReadingDirection,
-} from "~/game/controlPreferences";
+import {bookLocationKeys, configLocationsChanged, visualMediaLocationKeys} from "~/components/locations/locationKinds";
+import {loadBootFetchPreference, saveBootFetchPreference} from "~/content/libraryUpdate/bootFetchPreference";
+import {loadLibraryFetchPreferences, saveLibraryFetchPreferences} from "~/content/libraryUpdate/fetchPreferences";
+import {loadLibraryProviderPreference, saveLibraryProviderPreference} from "~/content/libraryUpdate/providerPreference";
+import {loadTagBlacklist, normalizeTag, saveTagBlacklist} from "~/content/tagBlacklistPreference";
+import {loadControlPreferences, saveControlPreferences, type ReadingDirection} from "~/game/controlPreferences";
 import {createEscapeScope} from "~/game/modalModes";
 import {UiModeProvider} from "~/game/uiMode";
 import {loadReaderBookmarks, saveReaderBookmark} from "~/reader/bookmarks";
@@ -126,15 +91,14 @@ export const App = () => {
   const initialControlPreferences = loadControlPreferences();
   const initialLibraryFetchPreferences = loadLibraryFetchPreferences();
   const initialProviderId = loadLibraryProviderPreference() ?? "nhentai";
-  const [libraryConfig, setLibraryConfig] =
-    createSignal<AfterleafLibraryConfig>({
-      artFramePaths: [],
-      comicPaths: [],
-      mangaPaths: [],
-      posterPaths: [],
-      romPaths: {},
-      tvChannelPaths: [],
-    });
+  const [libraryConfig, setLibraryConfig] = createSignal<AfterleafLibraryConfig>({
+    artFramePaths: [],
+    comicPaths: [],
+    mangaPaths: [],
+    posterPaths: [],
+    romPaths: {},
+    tvChannelPaths: [],
+  });
   onMount(() => {
     void loadLibraryConfig()
       .then(setLibraryConfig)
@@ -142,43 +106,25 @@ export const App = () => {
   });
   const updateLibraryConfig = async (config: AfterleafLibraryConfig) => {
     const previousConfig = libraryConfig();
-    const bookLocationsChanged = configLocationsChanged(
-      previousConfig,
-      config,
-      bookLocationKeys,
-    );
-    const visualMediaLocationsChanged = configLocationsChanged(
-      previousConfig,
-      config,
-      visualMediaLocationKeys,
-    );
-    const romFoldersChanged =
-      JSON.stringify(previousConfig.romPaths ?? {}) !==
-      JSON.stringify(config.romPaths ?? {});
+    const bookLocationsChanged = configLocationsChanged(previousConfig, config, bookLocationKeys);
+    const visualMediaLocationsChanged = configLocationsChanged(previousConfig, config, visualMediaLocationKeys);
+    const romFoldersChanged = JSON.stringify(previousConfig.romPaths ?? {}) !== JSON.stringify(config.romPaths ?? {});
     setLibraryConfig(config);
     await saveLibraryConfig(config);
     if (romFoldersChanged) {
-      setLibraryUpdateNotice(
-        "ROM folders saved. Reopen the arcade picker to see its games.",
-      );
+      setLibraryUpdateNotice("ROM folders saved. Reopen the arcade picker to see its games.");
       return;
     }
     if (bookLocationsChanged && visualMediaLocationsChanged) {
-      setLibraryUpdateNotice(
-        "Locations saved. Visual media will refresh automatically; run Scan new to update books.",
-      );
+      setLibraryUpdateNotice("Locations saved. Visual media will refresh automatically; run Scan new to update books.");
       return;
     }
     if (bookLocationsChanged) {
-      setLibraryUpdateNotice(
-        "Book locations saved. Run Scan new to update the library.",
-      );
+      setLibraryUpdateNotice("Book locations saved. Run Scan new to update the library.");
       return;
     }
     if (visualMediaLocationsChanged) {
-      setLibraryUpdateNotice(
-        "Media locations saved. TV, poster, and art frame catalogs will refresh automatically.",
-      );
+      setLibraryUpdateNotice("Media locations saved. TV, poster, and art frame catalogs will refresh automatically.");
       return;
     }
     setLibraryUpdateNotice("Locations are already up to date.");
@@ -215,72 +161,48 @@ export const App = () => {
   const [libraryUpdateFailed, setLibraryUpdateFailed] = createSignal(false);
   const [libraryUpdateOpen, setLibraryUpdateOpen] = createSignal(false);
   const [libraryUpdating, setLibraryUpdating] = createSignal(false);
-  const [libraryOperation, setLibraryOperation] =
-    createSignal<LibraryOperation>();
-  const [libraryScanMode, setLibraryScanMode] =
-    createSignal<LibraryScanMode>("quick");
-  const [libraryUpdateStage, setLibraryUpdateStage] =
-    createSignal<LibraryUpdateStage>("working");
-  const [libraryUpdateCompletedSteps, setLibraryUpdateCompletedSteps] =
-    createSignal(0);
+  const [libraryOperation, setLibraryOperation] = createSignal<LibraryOperation>();
+  const [libraryScanMode, setLibraryScanMode] = createSignal<LibraryScanMode>("quick");
+  const [libraryUpdateStage, setLibraryUpdateStage] = createSignal<LibraryUpdateStage>("working");
+  const [libraryUpdateCompletedSteps, setLibraryUpdateCompletedSteps] = createSignal(0);
   const [libraryUpdateTotalSteps, setLibraryUpdateTotalSteps] = createSignal(3);
   const [libraryUpdateSubProgress, setLibraryUpdateSubProgress] = createSignal<{
     completed: number;
     total: number;
   }>();
-  const [libraryUpdateProgressMessage, setLibraryUpdateProgressMessage] =
-    createSignal("Starting library job");
-  const [libraryUpdateElapsedSeconds, setLibraryUpdateElapsedSeconds] =
-    createSignal(0);
-  const [newPublicationIds, setNewPublicationIds] = createSignal<
-    readonly string[]
-  >([]);
+  const [libraryUpdateProgressMessage, setLibraryUpdateProgressMessage] = createSignal("Starting library job");
+  const [libraryUpdateElapsedSeconds, setLibraryUpdateElapsedSeconds] = createSignal(0);
+  const [newPublicationIds, setNewPublicationIds] = createSignal<readonly string[]>([]);
   const [fetchOnBoot, setFetchOnBoot] = createSignal(bootFetchWasEnabled);
-  const [selectedProviderId, setSelectedProviderId] =
-    createSignal(initialProviderId);
-  const [libraryFetchLimit, setLibraryFetchLimit] = createSignal(
-    initialLibraryFetchPreferences.limit,
-  );
+  const [selectedProviderId, setSelectedProviderId] = createSignal(initialProviderId);
+  const [libraryFetchLimit, setLibraryFetchLimit] = createSignal(initialLibraryFetchPreferences.limit);
   const [librarySearchPageLimit, setLibrarySearchPageLimit] = createSignal(
     initialLibraryFetchPreferences.maxSearchPages,
   );
   const [lastChecked, setLastChecked] = createSignal("when the shop opened");
-  const [mouseSensitivity, setMouseSensitivity] = createSignal(
-    initialControlPreferences.mouseSensitivity,
-  );
+  const [mouseSensitivity, setMouseSensitivity] = createSignal(initialControlPreferences.mouseSensitivity);
   const [gamepadLookSensitivity, setGamepadLookSensitivity] = createSignal(
     initialControlPreferences.gamepadLookSensitivity,
   );
   const [shortcutsConfig, setShortcutsConfig] = createSignal(loadShortcuts());
-  const [padMappingOverrides, setPadMappingOverrides] = createSignal(
-    loadPadMappingOverrides(),
-  );
-  const [tvScreenLighting, setTvScreenLighting] = createSignal(
-    initialControlPreferences.tvScreenLighting,
-  );
+  const [padMappingOverrides, setPadMappingOverrides] = createSignal(loadPadMappingOverrides());
+  const [tvScreenLighting, setTvScreenLighting] = createSignal(initialControlPreferences.tvScreenLighting);
   const [defaultReadingDirection, setDefaultReadingDirection] = createSignal(
     initialControlPreferences.defaultReadingDirection,
   );
-  const [respectBookReadingDirection, setRespectBookReadingDirection] =
-    createSignal(initialControlPreferences.respectBookReadingDirection);
-  const [blacklistedTags, setBlacklistedTags] =
-    createSignal(loadTagBlacklist());
-  const [libraryProviderError, setLibraryProviderError] =
-    createSignal<string>();
-  const [runtimeLibrary, {refetch}] = createResource(() =>
-    loadRuntimeLibrary(),
+  const [respectBookReadingDirection, setRespectBookReadingDirection] = createSignal(
+    initialControlPreferences.respectBookReadingDirection,
   );
+  const [blacklistedTags, setBlacklistedTags] = createSignal(loadTagBlacklist());
+  const [libraryProviderError, setLibraryProviderError] = createSignal<string>();
+  const [runtimeLibrary, {refetch}] = createResource(() => loadRuntimeLibrary());
   const [libraryProviders] = createResource(async () => {
     try {
       const providers = await loadLibraryProviders();
       setLibraryProviderError(undefined);
       return providers;
     } catch (error) {
-      setLibraryProviderError(
-        error instanceof Error
-          ? error.message
-          : "The library providers could not be loaded.",
-      );
+      setLibraryProviderError(error instanceof Error ? error.message : "The library providers could not be loaded.");
       return [];
     }
   });
@@ -288,49 +210,36 @@ export const App = () => {
     reenrollableBookPaths: [] as readonly string[],
     unavailableBookPathCount: 0,
   };
-  const [librarySourceStatus, {refetch: refetchLibrarySourceStatus}] =
-    createResource(async () => {
-      try {
-        latestLibrarySourceStatus = await loadLibrarySourceStatus();
-      } catch {
-        // Keep the last safety status if a later health check is interrupted.
-      }
-      return latestLibrarySourceStatus;
-    });
-  const [blacklistedPublications, {mutate: setBlacklistedPublications}] =
-    createResource(async () => {
-      try {
-        return await loadBlacklistedPublications();
-      } catch {
-        return [];
-      }
-    });
-  const resolvedRuntimeLibrary = () =>
-    runtimeLibrary.latest ?? runtimeLibrary();
-  const availableLibraryProviders = createMemo(
-    () => libraryProviders.latest ?? libraryProviders() ?? [],
-  );
-  const unavailableBookPathCount = () =>
-    librarySourceStatus.latest?.unavailableBookPathCount ?? 0;
+  const [librarySourceStatus, {refetch: refetchLibrarySourceStatus}] = createResource(async () => {
+    try {
+      latestLibrarySourceStatus = await loadLibrarySourceStatus();
+    } catch {
+      // Keep the last safety status if a later health check is interrupted.
+    }
+    return latestLibrarySourceStatus;
+  });
+  const [blacklistedPublications, {mutate: setBlacklistedPublications}] = createResource(async () => {
+    try {
+      return await loadBlacklistedPublications();
+    } catch {
+      return [];
+    }
+  });
+  const resolvedRuntimeLibrary = () => runtimeLibrary.latest ?? runtimeLibrary();
+  const availableLibraryProviders = createMemo(() => libraryProviders.latest ?? libraryProviders() ?? []);
+  const unavailableBookPathCount = () => librarySourceStatus.latest?.unavailableBookPathCount ?? 0;
   const reenrollableBookPaths = createMemo(
     () =>
-      new Set(
-        librarySourceStatus.latest?.reenrollableBookPaths ??
-          librarySourceStatus()?.reenrollableBookPaths ??
-          [],
-      ),
+      new Set(librarySourceStatus.latest?.reenrollableBookPaths ?? librarySourceStatus()?.reenrollableBookPaths ?? []),
   );
   const reenrollBookRoot = async (path: string) => {
     await reenrollLibraryRoot(path);
     await refetchLibrarySourceStatus();
-    setLibraryUpdateNotice(
-      "Library root re-enrolled. Run Scan new to reconcile its books.",
-    );
+    setLibraryUpdateNotice("Library root re-enrolled. Run Scan new to reconcile its books.");
   };
   createEffect(
     on(availableLibraryProviders, (providers) => {
-      if (providers.some((provider) => provider.id === selectedProviderId()))
-        return;
+      if (providers.some((provider) => provider.id === selectedProviderId())) return;
       const fallback = providers[0];
       if (!fallback) return;
       setSelectedProviderId(fallback.id);
@@ -340,10 +249,7 @@ export const App = () => {
   createEffect(
     on(unavailableBookPathCount, (count) => {
       if (count === 0) return;
-      const sourceStatusInterval = window.setInterval(
-        () => void refetchLibrarySourceStatus(),
-        3_000,
-      );
+      const sourceStatusInterval = window.setInterval(() => void refetchLibrarySourceStatus(), 3_000);
       onCleanup(() => window.clearInterval(sourceStatusInterval));
     }),
   );
@@ -352,17 +258,13 @@ export const App = () => {
     () => new Set(blacklistedPublications.latest ?? blacklistedPublications()),
   );
   const publicationLibrary = createMemo(() =>
-    activeLibrary().publications.filter(
-      (publication) => !blacklistedPublicationIds().has(publication.id),
-    ),
+    activeLibrary().publications.filter((publication) => !blacklistedPublicationIds().has(publication.id)),
   );
   const blacklistedTagWorkCandidates = createMemo(() =>
     findBlacklistedTagMatches(publicationLibrary(), blacklistedTags()),
   );
   const availableTags = createMemo(() =>
-    [...new Set(publicationLibrary().flatMap((item) => item.tags))].sort(
-      (left, right) => left.localeCompare(right),
-    ),
+    [...new Set(publicationLibrary().flatMap((item) => item.tags))].sort((left, right) => left.localeCompare(right)),
   );
   const library = createMemo(() => {
     const publications = publicationLibrary();
@@ -370,24 +272,16 @@ export const App = () => {
     const respectMetadata = respectBookReadingDirection();
     return publications.map((publication) => {
       const direction =
-        respectMetadata && !publication.readingDirectionUnspecified
-          ? publication.direction
-          : defaultDirection;
-      return publication.direction === direction
-        ? publication
-        : {...publication, direction};
+        respectMetadata && !publication.readingDirectionUnspecified ? publication.direction : defaultDirection;
+      return publication.direction === direction ? publication : {...publication, direction};
     });
   });
-  const queryTokens = createMemo(() =>
-    query().trim().toLowerCase().split(/\s+/).filter(Boolean),
-  );
+  const queryTokens = createMemo(() => query().trim().toLowerCase().split(/\s+/).filter(Boolean));
   const visibleTags = createMemo(() => {
     const tags = [...new Set(library().flatMap((item) => item.tags))].sort();
     const tokens = queryTokens();
     if (!tokens.length) return tags;
-    return tags.filter((catalogTag) =>
-      tokens.some((token) => catalogTag.toLowerCase().includes(token)),
-    );
+    return tags.filter((catalogTag) => tokens.some((token) => catalogTag.toLowerCase().includes(token)));
   });
   let libraryUpdateStartedAt = 0;
   let libraryUpdateTimer: number | undefined;
@@ -400,8 +294,7 @@ export const App = () => {
   };
   let activeLibraryJob: MonitoredLibraryJob | undefined;
   const finishLibraryUpdate = () => {
-    if (libraryUpdateTimer !== undefined)
-      window.clearInterval(libraryUpdateTimer);
+    if (libraryUpdateTimer !== undefined) window.clearInterval(libraryUpdateTimer);
     libraryUpdateTimer = undefined;
     activeLibraryJob = undefined;
     setLibraryUpdating(false);
@@ -415,12 +308,9 @@ export const App = () => {
     return "Scan new";
   };
   const fetchButtonLabel = () =>
-    libraryOperation() === "fetch-more"
-      ? `Fetching · ${libraryUpdateElapsedSeconds()}s`
-      : "Fetch more";
+    libraryOperation() === "fetch-more" ? `Fetching · ${libraryUpdateElapsedSeconds()}s` : "Fetch more";
   const libraryActivityStatus = () => {
-    if (libraryUpdateStage() === "loading-library")
-      return "Injecting the finished stock into the mounted shop…";
+    if (libraryUpdateStage() === "loading-library") return "Injecting the finished stock into the mounted shop…";
     return libraryUpdateProgressMessage();
   };
 
@@ -431,33 +321,23 @@ export const App = () => {
       const selectedTag = tag();
       if (selectedTag && !item.tags.includes(selectedTag)) return false;
       return tokens.every((token) =>
-        [item.title, item.titleJp, item.collection, ...item.tags].some(
-          (value) => value.toLowerCase().includes(token),
-        ),
+        [item.title, item.titleJp, item.collection, ...item.tags].some((value) => value.toLowerCase().includes(token)),
       );
     });
   });
 
-  const selectedItem = createMemo(
-    () => library().find((item) => item.id === selectedId()) ?? library()[0],
-  );
+  const selectedItem = createMemo(() => library().find((item) => item.id === selectedId()) ?? library()[0]);
 
   const recordLibraryResult = async (
     result: LocalLibrarySnapshotResult,
     operation: "Fetched" | "Imported & scanned",
   ) => {
-    const previousPublicationIds = new Set(
-      library().map((publication) => publication.id),
-    );
+    const previousPublicationIds = new Set(library().map((publication) => publication.id));
     const currentLibrary = resolvedRuntimeLibrary();
     const activatedLibrary =
-      currentLibrary?.identity.snapshotId === result.snapshotId
-        ? currentLibrary
-        : await refetch();
+      currentLibrary?.identity.snapshotId === result.snapshotId ? currentLibrary : await refetch();
     if (!activatedLibrary)
-      throw new Error(
-        `The library refresh returned no snapshot while activating ${result.snapshotId}`,
-      );
+      throw new Error(`The library refresh returned no snapshot while activating ${result.snapshotId}`);
     if (activatedLibrary.identity.snapshotId !== result.snapshotId)
       throw new Error(
         `The library activated snapshot ${result.snapshotId}, but the game loaded ${activatedLibrary.identity.snapshotId ?? "an empty library"}`,
@@ -467,8 +347,7 @@ export const App = () => {
       .map((publication) => publication.id);
     // This signal is an arrival event for the Three runtime. Publishing a new
     // empty array would look like a stock change and rebuild every book batch.
-    if (arrivedPublicationIds.length > 0)
-      setNewPublicationIds(arrivedPublicationIds);
+    if (arrivedPublicationIds.length > 0) setNewPublicationIds(arrivedPublicationIds);
     setLastChecked(
       new Date().toLocaleTimeString(undefined, {
         hour: "2-digit",
@@ -481,21 +360,13 @@ export const App = () => {
     setLibraryUpdateFailed(false);
   };
 
-  const reportLibraryFailure = (
-    operation: LibraryOperation,
-    automatic: boolean,
-    message: string,
-  ) => {
+  const reportLibraryFailure = (operation: LibraryOperation, automatic: boolean, message: string) => {
     setLibraryUpdateFailed(true);
     if (operation === "scan") {
       setLibraryUpdateNotice(`Import and scan failed: ${message}`);
       return;
     }
-    setLibraryUpdateNotice(
-      automatic
-        ? `Automatic fetch failed: ${message}`
-        : `Fetch failed: ${message}`,
-    );
+    setLibraryUpdateNotice(automatic ? `Automatic fetch failed: ${message}` : `Fetch failed: ${message}`);
   };
 
   const settleLibraryJob = async (
@@ -510,26 +381,17 @@ export const App = () => {
     if (status.state === "running") return;
     try {
       if (status.state === "failed") {
-        reportLibraryFailure(
-          job.operation,
-          job.automatic,
-          status.error.message,
-        );
+        reportLibraryFailure(job.operation, job.automatic, status.error.message);
         return;
       }
       setLibraryUpdateStage("loading-library");
       setLibraryUpdateProgressMessage("Injecting stock into the mounted shop");
-      await recordLibraryResult(
-        status.result,
-        job.operation === "fetch-more" ? "Fetched" : "Imported & scanned",
-      );
+      await recordLibraryResult(status.result, job.operation === "fetch-more" ? "Fetched" : "Imported & scanned");
     } catch (error) {
       reportLibraryFailure(
         job.operation,
         job.automatic,
-        error instanceof Error
-          ? error.message
-          : "The finished library could not be loaded.",
+        error instanceof Error ? error.message : "The finished library could not be loaded.",
       );
     } finally {
       if (activeLibraryJob?.jobId === job.jobId) finishLibraryUpdate();
@@ -537,8 +399,7 @@ export const App = () => {
   };
 
   const refreshLibraryUpdateStatus = async (job: MonitoredLibraryJob) => {
-    if (libraryStatusRequestPending || activeLibraryJob?.jobId !== job.jobId)
-      return;
+    if (libraryStatusRequestPending || activeLibraryJob?.jobId !== job.jobId) return;
     libraryStatusRequestPending = true;
     try {
       const status = await loadLibraryOperationStatus(job.jobId);
@@ -551,8 +412,7 @@ export const App = () => {
       ) {
         // A reattached job whose process is gone just winds down silently;
         // the server restarted, so there is nothing left to report.
-        if (!job.reconnect)
-          reportLibraryFailure(job.operation, job.automatic, error.message);
+        if (!job.reconnect) reportLibraryFailure(job.operation, job.automatic, error.message);
         finishLibraryUpdate();
       }
     } finally {
@@ -561,14 +421,11 @@ export const App = () => {
   };
 
   const startLibraryStatusPolling = () => {
-    if (libraryUpdateTimer !== undefined)
-      window.clearInterval(libraryUpdateTimer);
+    if (libraryUpdateTimer !== undefined) window.clearInterval(libraryUpdateTimer);
     libraryUpdateTimer = window.setInterval(() => {
       const job = activeLibraryJob;
       if (job) void refreshLibraryUpdateStatus(job);
-      setLibraryUpdateElapsedSeconds(
-        Math.floor((performance.now() - libraryUpdateStartedAt) / 1_000),
-      );
+      setLibraryUpdateElapsedSeconds(Math.floor((performance.now() - libraryUpdateStartedAt) / 1_000));
     }, 1_000);
   };
 
@@ -583,9 +440,7 @@ export const App = () => {
     setLibraryUpdateTotalSteps(3);
     setLibraryUpdateSubProgress(undefined);
     setLibraryUpdateProgressMessage(
-      operation === "fetch-more" && query
-        ? `Starting provider search for “${query}”`
-        : "Starting library job",
+      operation === "fetch-more" && query ? `Starting provider search for “${query}”` : "Starting library job",
     );
     setLibraryUpdating(true);
     startLibraryStatusPolling();
@@ -633,9 +488,7 @@ export const App = () => {
   ) => {
     if (libraryUpdating()) return;
     const providerId = options.providerId ?? selectedProviderId();
-    const provider = availableLibraryProviders().find(
-      (candidate) => candidate.id === providerId,
-    );
+    const provider = availableLibraryProviders().find((candidate) => candidate.id === providerId);
     const query = options.query ?? provider?.defaultQuery ?? "";
     beginLibraryUpdate("fetch-more", query);
     setLibraryUpdateNotice(undefined);
@@ -649,10 +502,7 @@ export const App = () => {
     }
     let acquisitionLimit = options.limit ?? libraryFetchLimit();
     let searchPageLimit = options.maxSearchPages ?? librarySearchPageLimit();
-    if (
-      !options.transient &&
-      (options.limit !== undefined || options.maxSearchPages !== undefined)
-    ) {
+    if (!options.transient && (options.limit !== undefined || options.maxSearchPages !== undefined)) {
       const preferences = saveLibraryFetchPreferences({
         limit: acquisitionLimit,
         maxSearchPages: searchPageLimit,
@@ -678,18 +528,13 @@ export const App = () => {
       monitorLibraryJob(job, options.automatic === true);
     } catch (error) {
       const message =
-        error instanceof Error
-          ? error.message
-          : "The local acquisition service could not fetch more stock.";
+        error instanceof Error ? error.message : "The local acquisition service could not fetch more stock.";
       reportLibraryFailure("fetch-more", options.automatic === true, message);
       finishLibraryUpdate();
     }
   };
 
-  const scanLibrary = async (
-    mode: LibraryScanMode = "quick",
-    repairOptions?: LibraryRepairOptions,
-  ) => {
+  const scanLibrary = async (mode: LibraryScanMode = "quick", repairOptions?: LibraryRepairOptions) => {
     if (libraryUpdating()) return;
     setLibraryScanMode(mode);
     beginLibraryUpdate("scan");
@@ -699,12 +544,8 @@ export const App = () => {
         mode === "repair"
           ? {
               repair: true,
-              ...(repairOptions?.redownloadProviderAssets
-                ? {redownloadProviderAssets: true}
-                : {}),
-              ...(repairOptions?.repairProviderMetadata
-                ? {repairProviderMetadata: true}
-                : {}),
+              ...(repairOptions?.redownloadProviderAssets ? {redownloadProviderAssets: true} : {}),
+              ...(repairOptions?.repairProviderMetadata ? {repairProviderMetadata: true} : {}),
             }
           : {},
       );
@@ -713,9 +554,7 @@ export const App = () => {
       reportLibraryFailure(
         "scan",
         false,
-        error instanceof Error
-          ? error.message
-          : "The local library could not be imported and scanned.",
+        error instanceof Error ? error.message : "The local library could not be imported and scanned.",
       );
       finishLibraryUpdate();
     }
@@ -735,29 +574,22 @@ export const App = () => {
       return false;
     }
     if (!match) return false;
-    const importLabel =
-      match.publicationId ?? `${match.providerId} publication`;
+    const importLabel = match.publicationId ?? `${match.providerId} publication`;
     if (
       match.publicationId &&
-      activeLibrary().publications.some(
-        (publication) => publication.id === match.publicationId,
-      )
+      activeLibrary().publications.some((publication) => publication.id === match.publicationId)
     ) {
       setLibraryUpdateFailed(false);
       setLibraryUpdateNotice(`${importLabel} is already imported.`);
       return true;
     }
     if (libraryUpdating()) {
-      setLibraryUpdateNotice(
-        `Could not import ${importLabel} because another library job is running.`,
-      );
+      setLibraryUpdateNotice(`Could not import ${importLabel} because another library job is running.`);
       return true;
     }
     if (unavailableBookPathCount() > 0) {
       setLibraryUpdateFailed(true);
-      setLibraryUpdateNotice(
-        `Could not import ${importLabel} until the configured book paths are remounted.`,
-      );
+      setLibraryUpdateNotice(`Could not import ${importLabel} until the configured book paths are remounted.`);
       return true;
     }
     void fetchMoreLibrary({
@@ -790,20 +622,13 @@ export const App = () => {
 
   const discardPublication = async (publicationId: string) => {
     await blacklistPublication({publicationId});
-    setBlacklistedPublications((current = []) => [
-      ...new Set([...current, publicationId]),
-    ]);
+    setBlacklistedPublications((current = []) => [...new Set([...current, publicationId])]);
     return true;
   };
 
   const purgeBlacklistedWorks = async () => {
     const candidates = blacklistedTagWorkCandidates();
-    if (
-      candidates.length === 0 ||
-      libraryUpdating() ||
-      unavailableBookPathCount() > 0
-    )
-      return;
+    if (candidates.length === 0 || libraryUpdating() || unavailableBookPathCount() > 0) return;
 
     setLibraryScanMode("quick");
     beginLibraryUpdate("scan");
@@ -813,16 +638,12 @@ export const App = () => {
     try {
       for (const [index, publication] of candidates.entries()) {
         setLibraryUpdateCompletedSteps(index);
-        setLibraryUpdateProgressMessage(
-          `Purging ${publication.title} (${index + 1} of ${candidates.length})`,
-        );
+        setLibraryUpdateProgressMessage(`Purging ${publication.title} (${index + 1} of ${candidates.length})`);
         await blacklistPublication({publicationId: publication.id});
         purgedPublicationIds.push(publication.id);
       }
       setPurgeBlacklistedOpen(false);
-      setBlacklistedPublications((current = []) => [
-        ...new Set([...current, ...purgedPublicationIds]),
-      ]);
+      setBlacklistedPublications((current = []) => [...new Set([...current, ...purgedPublicationIds])]);
       setLibraryUpdateCompletedSteps(0);
       setLibraryUpdateTotalSteps(3);
       setLibraryUpdateProgressMessage("Rebuilding the purged library");
@@ -830,9 +651,7 @@ export const App = () => {
       monitorLibraryJob(job, false);
     } catch (error) {
       if (purgedPublicationIds.length > 0)
-        setBlacklistedPublications((current = []) => [
-          ...new Set([...current, ...purgedPublicationIds]),
-        ]);
+        setBlacklistedPublications((current = []) => [...new Set([...current, ...purgedPublicationIds])]);
       reportLibraryFailure(
         "scan",
         false,
@@ -913,8 +732,7 @@ export const App = () => {
     const nextTags = saveTagBlacklist(tags);
     setBlacklistedTags(nextTags);
     const selectedTag = tag();
-    if (selectedTag && nextTags.includes(normalizeTag(selectedTag)))
-      setTag(null);
+    if (selectedTag && nextTags.includes(normalizeTag(selectedTag))) setTag(null);
   };
 
   onMount(() => {
@@ -941,8 +759,7 @@ export const App = () => {
     return true;
   });
   onCleanup(() => {
-    if (libraryUpdateTimer !== undefined)
-      window.clearInterval(libraryUpdateTimer);
+    if (libraryUpdateTimer !== undefined) window.clearInterval(libraryUpdateTimer);
   });
 
   return (
@@ -957,10 +774,7 @@ export const App = () => {
         }}
       />
       <main class="h-[100dvh] overflow-hidden bg-[#071010] text-[#d9d6cc]">
-        <Show
-          when={ageConfirmed()}
-          fallback={<AdultGate onEnter={confirmAge} />}
-        >
+        <Show when={ageConfirmed()} fallback={<AdultGate onEnter={confirmAge} />}>
           <div class="fixed inset-0">
             <Suspense
               fallback={
@@ -976,9 +790,7 @@ export const App = () => {
                   <Show when={!blacklistedPublications.loading}>
                     <ShopViewport
                       catalogAtlases={() => runtime().atlases}
-                      catalogAvailable={() =>
-                        isRuntimeLibraryAvailable(runtime())
-                      }
+                      catalogAvailable={() => isRuntimeLibraryAvailable(runtime())}
                       catalogIdentity={() => runtime().identity}
                       gamepadLookSensitivity={gamepadLookSensitivity}
                       mouseSensitivity={mouseSensitivity}
@@ -986,9 +798,7 @@ export const App = () => {
                       onControlsChange={(controls) => {
                         shopViewportControls = controls;
                       }}
-                      pageIndexForPublication={(publicationId) =>
-                        bookmarks()[publicationId] ?? 0
-                      }
+                      pageIndexForPublication={(publicationId) => bookmarks()[publicationId] ?? 0}
                       publications={library}
                       selectedPublicationId={() => selectedItem()?.id}
                       tvScreenLighting={tvScreenLighting}
@@ -1001,9 +811,7 @@ export const App = () => {
                       onPasteText={importPastedPublication}
                       onDiscardPublication={discardPublication}
                       onPageIndexChange={(publicationId, pageIndex) =>
-                        setBookmarks((current) =>
-                          saveReaderBookmark(current, publicationId, pageIndex),
-                        )
+                        setBookmarks((current) => saveReaderBookmark(current, publicationId, pageIndex))
                       }
                       onSelectPublication={(publicationId) => {
                         setSelectedId(publicationId);
@@ -1037,13 +845,10 @@ export const App = () => {
                 >
                   <FiAlertTriangle class="mt-0.5 shrink-0" size={16} />
                   <p class="text-[11px] leading-5">
-                    {count()} configured book{" "}
-                    {count() === 1 ? "path is" : "paths are"} unavailable.
-                    Library updates are locked so the current books cannot be
-                    removed. Remount the expected storage and restore its
-                    Afterleaf library root marker to continue. Enrolled book
-                    roots may be empty; missing or mismatched markers are
-                    treated as unavailable storage.
+                    {count()} configured book {count() === 1 ? "path is" : "paths are"} unavailable. Library updates are
+                    locked so the current books cannot be removed. Remount the expected storage and restore its
+                    Afterleaf library root marker to continue. Enrolled book roots may be empty; missing or mismatched
+                    markers are treated as unavailable storage.
                   </p>
                 </aside>
               )}
@@ -1063,9 +868,7 @@ export const App = () => {
                         葉
                       </div>
                       <div class="min-w-0">
-                        <h1 class="truncate font-serif text-xl tracking-[-0.03em] text-[#f0ebdf]">
-                          Afterleaf
-                        </h1>
+                        <h1 class="truncate font-serif text-xl tracking-[-0.03em] text-[#f0ebdf]">Afterleaf</h1>
                         <p class="hidden text-[9px] font-semibold tracking-[0.22em] text-[#6f7a76] uppercase sm:block">
                           Closing shift · local library
                         </p>
@@ -1073,16 +876,11 @@ export const App = () => {
                     </div>
                     <div class="ml-auto flex items-center gap-2 sm:gap-3">
                       <div class="mr-2 hidden items-center gap-2 text-[10px] text-[#6f7b76] md:flex">
-                        <span class="size-1.5 rounded-full bg-[#75aa91] shadow-[0_0_8px_#75aa91]"></span>{" "}
-                        Local library
+                        <span class="size-1.5 rounded-full bg-[#75aa91] shadow-[0_0_8px_#75aa91]"></span> Local library
                       </div>
                       <button
                         class="flex h-9 items-center gap-2 border border-white/10 px-3 text-[11px] text-[#aab2ae] transition hover:border-white/20 hover:bg-white/5 hover:text-white disabled:cursor-wait disabled:opacity-50"
-                        disabled={
-                          runtimeLibrary.loading ||
-                          libraryUpdating() ||
-                          unavailableBookPathCount() > 0
-                        }
+                        disabled={runtimeLibrary.loading || libraryUpdating() || unavailableBookPathCount() > 0}
                         onClick={() => void scanLibrary("quick")}
                         title={
                           unavailableBookPathCount() > 0
@@ -1092,23 +890,16 @@ export const App = () => {
                       >
                         <FiRefreshCw
                           classList={{
-                            "animate-spin":
-                              runtimeLibrary.loading || libraryUpdating(),
+                            "animate-spin": runtimeLibrary.loading || libraryUpdating(),
                           }}
                           size={14}
                         />
-                        <span class="hidden sm:inline">
-                          {scanButtonLabel()}
-                        </span>
+                        <span class="hidden sm:inline">{scanButtonLabel()}</span>
                       </button>
                       <button
                         aria-label="Deep scan and repair library"
                         class="grid size-9 place-items-center border border-white/10 text-[#8d9893] transition hover:border-white/20 hover:bg-white/5 hover:text-white disabled:cursor-wait disabled:opacity-50"
-                        disabled={
-                          runtimeLibrary.loading ||
-                          libraryUpdating() ||
-                          unavailableBookPathCount() > 0
-                        }
+                        disabled={runtimeLibrary.loading || libraryUpdating() || unavailableBookPathCount() > 0}
                         onClick={() => setLibraryRepairOpen(true)}
                         title={
                           unavailableBookPathCount() > 0
@@ -1120,22 +911,14 @@ export const App = () => {
                       </button>
                       <button
                         class="flex h-9 items-center gap-2 bg-[#ece6d8] px-3.5 text-[11px] font-bold text-[#1b2321] transition hover:bg-white disabled:cursor-wait"
-                        disabled={
-                          runtimeLibrary.loading ||
-                          libraryUpdating() ||
-                          unavailableBookPathCount() > 0
-                        }
+                        disabled={runtimeLibrary.loading || libraryUpdating() || unavailableBookPathCount() > 0}
                         onClick={() => {
-                          setFetchOnBoot(
-                            loadBootFetchPreference()?.enabled === true,
-                          );
+                          setFetchOnBoot(loadBootFetchPreference()?.enabled === true);
                           setLibraryUpdateOpen(true);
                         }}
                       >
                         <FiDownload size={14} />
-                        <span class="hidden sm:inline">
-                          {fetchButtonLabel()}
-                        </span>
+                        <span class="hidden sm:inline">{fetchButtonLabel()}</span>
                       </button>
                       <button
                         class="grid size-9 place-items-center text-[#8d9893] transition hover:bg-white/5 hover:text-white"
@@ -1156,8 +939,7 @@ export const App = () => {
                       class="flex h-10 flex-1 items-center justify-center gap-2 text-[10px] font-semibold tracking-[0.08em] uppercase transition"
                       classList={{
                         "bg-[#1c2523] text-[#ece8dd]": menuTab() === "library",
-                        "text-[#78837e] hover:bg-white/[0.025] hover:text-white":
-                          menuTab() !== "library",
+                        "text-[#78837e] hover:bg-white/[0.025] hover:text-white": menuTab() !== "library",
                       }}
                       aria-pressed={menuTab() === "library"}
                       onClick={() => setMenuTab("library")}
@@ -1169,8 +951,7 @@ export const App = () => {
                       class="flex h-10 flex-1 items-center justify-center gap-2 text-[10px] font-semibold tracking-[0.08em] uppercase transition"
                       classList={{
                         "bg-[#1c2523] text-[#ece8dd]": menuTab() === "options",
-                        "text-[#78837e] hover:bg-white/[0.025] hover:text-white":
-                          menuTab() !== "options",
+                        "text-[#78837e] hover:bg-white/[0.025] hover:text-white": menuTab() !== "options",
                       }}
                       aria-pressed={menuTab() === "options"}
                       onClick={() => setMenuTab("options")}
@@ -1181,10 +962,8 @@ export const App = () => {
                     <button
                       class="flex h-10 flex-1 items-center justify-center gap-2 text-[10px] font-semibold tracking-[0.08em] uppercase transition"
                       classList={{
-                        "bg-[#1c2523] text-[#ece8dd]":
-                          menuTab() === "shortcuts",
-                        "text-[#78837e] hover:bg-white/[0.025] hover:text-white":
-                          menuTab() !== "shortcuts",
+                        "bg-[#1c2523] text-[#ece8dd]": menuTab() === "shortcuts",
+                        "text-[#78837e] hover:bg-white/[0.025] hover:text-white": menuTab() !== "shortcuts",
                       }}
                       aria-pressed={menuTab() === "shortcuts"}
                       onClick={() => setMenuTab("shortcuts")}
@@ -1196,17 +975,13 @@ export const App = () => {
 
                   <div class="grid min-h-0 flex-1 grid-cols-1 overflow-hidden xl:grid-cols-[220px_minmax(0,1fr)_330px]">
                     <nav class="hidden border-r border-white/8 bg-[#121918] px-5 py-7 xl:flex xl:flex-col">
-                      <p class="px-2 text-[9px] font-bold tracking-[0.2em] text-[#59645f] uppercase">
-                        Menu
-                      </p>
+                      <p class="px-2 text-[9px] font-bold tracking-[0.2em] text-[#59645f] uppercase">Menu</p>
                       <div class="mt-4 space-y-1">
                         <button
                           class="flex w-full items-center gap-3 px-3 py-2.5 text-xs transition"
                           classList={{
-                            "bg-[#1c2523] font-semibold text-[#ece8dd]":
-                              menuTab() === "library",
-                            "text-[#7d8883] hover:bg-white/[0.025] hover:text-[#cbd0cc]":
-                              menuTab() !== "library",
+                            "bg-[#1c2523] font-semibold text-[#ece8dd]": menuTab() === "library",
+                            "text-[#7d8883] hover:bg-white/[0.025] hover:text-[#cbd0cc]": menuTab() !== "library",
                           }}
                           aria-pressed={menuTab() === "library"}
                           onClick={() => setMenuTab("library")}
@@ -1220,38 +995,30 @@ export const App = () => {
                         <button
                           class="flex w-full items-center gap-3 px-3 py-2.5 text-xs transition"
                           classList={{
-                            "bg-[#1c2523] font-semibold text-[#ece8dd]":
-                              menuTab() === "options",
-                            "text-[#7d8883] hover:bg-white/[0.025] hover:text-[#cbd0cc]":
-                              menuTab() !== "options",
+                            "bg-[#1c2523] font-semibold text-[#ece8dd]": menuTab() === "options",
+                            "text-[#7d8883] hover:bg-white/[0.025] hover:text-[#cbd0cc]": menuTab() !== "options",
                           }}
                           aria-pressed={menuTab() === "options"}
                           onClick={() => setMenuTab("options")}
                           type="button"
                         >
-                          <FiSettings size={14} class="text-[#e25a4d]" />{" "}
-                          Options
+                          <FiSettings size={14} class="text-[#e25a4d]" /> Options
                         </button>
                         <button
                           class="flex w-full items-center gap-3 px-3 py-2.5 text-xs transition"
                           classList={{
-                            "bg-[#1c2523] font-semibold text-[#ece8dd]":
-                              menuTab() === "shortcuts",
-                            "text-[#7d8883] hover:bg-white/[0.025] hover:text-[#cbd0cc]":
-                              menuTab() !== "shortcuts",
+                            "bg-[#1c2523] font-semibold text-[#ece8dd]": menuTab() === "shortcuts",
+                            "text-[#7d8883] hover:bg-white/[0.025] hover:text-[#cbd0cc]": menuTab() !== "shortcuts",
                           }}
                           aria-pressed={menuTab() === "shortcuts"}
                           onClick={() => setMenuTab("shortcuts")}
                           type="button"
                         >
-                          <FiCommand size={14} class="text-[#e25a4d]" />{" "}
-                          Shortcuts
+                          <FiCommand size={14} class="text-[#e25a4d]" /> Shortcuts
                         </button>
                       </div>
 
-                      <p class="mt-9 px-2 text-[9px] font-bold tracking-[0.2em] text-[#59645f] uppercase">
-                        Browse
-                      </p>
+                      <p class="mt-9 px-2 text-[9px] font-bold tracking-[0.2em] text-[#59645f] uppercase">Browse</p>
                       <div class="mt-4 space-y-1">
                         <button class="flex w-full items-center gap-3 px-3 py-2.5 text-xs text-[#7d8883] transition hover:bg-white/[0.025] hover:text-[#cbd0cc]">
                           <FiClock size={14} /> Recently added
@@ -1267,12 +1034,8 @@ export const App = () => {
                             <FiShield size={13} />
                           </span>
                           <div>
-                            <p class="text-[10px] font-semibold text-[#9ca6a1]">
-                              Local catalog
-                            </p>
-                            <p class="mt-0.5 text-[9px] text-[#56615c]">
-                              Stored on this device
-                            </p>
+                            <p class="text-[10px] font-semibold text-[#9ca6a1]">Local catalog</p>
+                            <p class="mt-0.5 text-[9px] text-[#56615c]">Stored on this device</p>
                           </div>
                         </div>
                       </div>
@@ -1292,9 +1055,7 @@ export const App = () => {
                           </h2>
                           <p class="mt-2 text-xs text-[#6e7974]">
                             {library().length} publications catalogued ·{" "}
-                            {library().length > 0
-                              ? "all covers verified"
-                              : "ready for import"}
+                            {library().length > 0 ? "all covers verified" : "ready for import"}
                           </p>
                         </div>
                         <div class="flex items-center gap-3 border border-white/8 bg-[#151e1c] px-4 py-3">
@@ -1303,24 +1064,15 @@ export const App = () => {
                             <span class="size-2 rounded-full bg-[#70a28b] shadow-[0_0_10px_#70a28b]"></span>
                           </span>
                           <div>
-                            <p class="text-[10px] font-semibold text-[#b8c1bc]">
-                              Library is current
-                            </p>
-                            <p class="mt-0.5 text-[9px] text-[#5f6b66]">
-                              Last checked {lastChecked()}
-                            </p>
+                            <p class="text-[10px] font-semibold text-[#b8c1bc]">Library is current</p>
+                            <p class="mt-0.5 text-[9px] text-[#5f6b66]">Last checked {lastChecked()}</p>
                             <Show when={libraryUpdating()}>
                               <p class="mt-1 text-[9px] text-[#d66a60]">
-                                {libraryActivityStatus()} ·{" "}
-                                {libraryUpdateElapsedSeconds()}s
+                                {libraryActivityStatus()} · {libraryUpdateElapsedSeconds()}s
                               </p>
                             </Show>
                             <Show when={libraryUpdateNotice()}>
-                              {(notice) => (
-                                <p class="mt-1 text-[9px] text-[#7fa995]">
-                                  {notice()}
-                                </p>
-                              )}
+                              {(notice) => <p class="mt-1 text-[9px] text-[#7fa995]">{notice()}</p>}
                             </Show>
                           </div>
                         </div>
@@ -1332,42 +1084,24 @@ export const App = () => {
                           <input
                             class="min-w-0 flex-1 bg-transparent text-xs text-[#e2ded4] outline-none placeholder:text-[#65706c]"
                             value={query()}
-                            onInput={(event) =>
-                              setQuery(event.currentTarget.value)
-                            }
+                            onInput={(event) => setQuery(event.currentTarget.value)}
                             placeholder="Search title, collection, or tag…"
                           />
                           <Show when={query()}>
-                            <button
-                              class="hover:text-white"
-                              aria-label="Clear search"
-                              onClick={() => setQuery("")}
-                            >
+                            <button class="hover:text-white" aria-label="Clear search" onClick={() => setQuery("")}>
                               <FiX size={13} />
                             </button>
                           </Show>
                         </label>
                         <div class="flex h-10 items-center gap-1 overflow-x-auto bg-[#19211f] p-1">
-                          <FiSliders
-                            class="mx-2 shrink-0 text-[#68736e]"
-                            size={13}
-                          />
-                          <For
-                            each={
-                              Object.entries(languageLabels) as [
-                                LanguageFilter,
-                                string,
-                              ][]
-                            }
-                          >
+                          <FiSliders class="mx-2 shrink-0 text-[#68736e]" size={13} />
+                          <For each={Object.entries(languageLabels) as [LanguageFilter, string][]}>
                             {(entry) => (
                               <button
                                 class="h-8 shrink-0 px-3 text-[10px] font-semibold transition"
                                 classList={{
-                                  "bg-[#ede7d9] text-[#18201f]":
-                                    language() === entry[0],
-                                  "text-[#77827d] hover:text-white":
-                                    language() !== entry[0],
+                                  "bg-[#ede7d9] text-[#18201f]": language() === entry[0],
+                                  "text-[#77827d] hover:text-white": language() !== entry[0],
                                 }}
                                 onClick={() => setLanguage(entry[0])}
                               >
@@ -1382,10 +1116,8 @@ export const App = () => {
                         <button
                           class="shrink-0 border px-3 py-1.5 text-[9px] font-semibold tracking-wide uppercase transition"
                           classList={{
-                            "border-[#d64e42] bg-[#d64e42]/10 text-[#e46a60]":
-                              tag() === null,
-                            "border-white/8 text-[#69746f] hover:border-white/15":
-                              tag() !== null,
+                            "border-[#d64e42] bg-[#d64e42]/10 text-[#e46a60]": tag() === null,
+                            "border-white/8 text-[#69746f] hover:border-white/15": tag() !== null,
                           }}
                           onClick={() => setTag(null)}
                         >
@@ -1396,8 +1128,7 @@ export const App = () => {
                             <button
                               class="shrink-0 border px-3 py-1.5 text-[9px] font-semibold tracking-wide uppercase transition"
                               classList={{
-                                "border-[#d64e42] bg-[#d64e42]/10 text-[#e46a60]":
-                                  tag() === catalogTag,
+                                "border-[#d64e42] bg-[#d64e42]/10 text-[#e46a60]": tag() === catalogTag,
                                 "border-white/8 text-[#69746f] hover:border-white/15 hover:text-[#aeb5b1]":
                                   tag() !== catalogTag,
                               }}
@@ -1411,8 +1142,7 @@ export const App = () => {
 
                       <div class="mt-5 flex items-center justify-between border-b border-white/8 pb-4">
                         <p class="text-[9px] leading-4 text-[#5f6a66]">
-                          Inspect the catalog here, then press Tab to return to
-                          the shop floor.
+                          Inspect the catalog here, then press Tab to return to the shop floor.
                         </p>
                         <span class="hidden items-center gap-2 border border-white/10 px-3 py-2 text-[9px] font-semibold tracking-[0.12em] text-[#7d8883] uppercase sm:flex">
                           <FiMenu size={12} /> Menu (Tab)
@@ -1424,27 +1154,18 @@ export const App = () => {
                           <p class="text-[10px] font-semibold tracking-[0.17em] text-[#747f7a] uppercase">
                             Face-out rack{" "}
                             <span class="ml-2 text-[#4f5955]">
-                              {filteredCatalog()
-                                .length.toString()
-                                .padStart(2, "0")}
+                              {filteredCatalog().length.toString().padStart(2, "0")}
                             </span>
                           </p>
-                          <p class="text-[9px] text-[#515c57]">
-                            Newest added first
-                          </p>
+                          <p class="text-[9px] text-[#515c57]">Newest added first</p>
                         </div>
                         <Show
                           when={filteredCatalog().length > 0}
                           fallback={
                             <div class="grid min-h-72 place-items-center border border-dashed border-white/10 text-center">
                               <div>
-                                <FiSearch
-                                  class="mx-auto text-[#53605a]"
-                                  size={20}
-                                />
-                                <p class="mt-4 text-sm text-[#9ba49f]">
-                                  Nothing on this shelf
-                                </p>
+                                <FiSearch class="mx-auto text-[#53605a]" size={20} />
+                                <p class="mt-4 text-sm text-[#9ba49f]">Nothing on this shelf</p>
                                 <button
                                   class="mt-3 text-[10px] font-semibold text-[#d65a4f]"
                                   onClick={() => {
@@ -1478,9 +1199,7 @@ export const App = () => {
                     </section>
 
                     <Show
-                      when={
-                        menuTab() === "library" ? selectedItem() : undefined
-                      }
+                      when={menuTab() === "library" ? selectedItem() : undefined}
                       fallback={
                         <Show when={menuTab() === "library"}>
                           <aside class="hidden border-l border-white/8 bg-[#151c1b] xl:block" />
@@ -1489,11 +1208,7 @@ export const App = () => {
                     >
                       {(item) => (
                         <div class="hidden xl:block">
-                          <DetailPanel
-                            item={item()}
-                            onClose={() => setSelectedId("")}
-                            onInspect={() => closeMenu()}
-                          />
+                          <DetailPanel item={item()} onClose={() => setSelectedId("")} onInspect={() => closeMenu()} />
                         </div>
                       )}
                     </Show>
@@ -1502,9 +1217,7 @@ export const App = () => {
                       <OptionsPanel
                         availableTags={availableTags()}
                         libraryConfig={libraryConfig()}
-                        onLibraryConfigChange={(config) =>
-                          void updateLibraryConfig(config)
-                        }
+                        onLibraryConfigChange={(config) => void updateLibraryConfig(config)}
                         onReenrollLibraryRoot={reenrollBookRoot}
                         reenrollableBookPaths={reenrollableBookPaths()}
                         blacklistedTags={blacklistedTags()}
@@ -1512,23 +1225,15 @@ export const App = () => {
                         gamepadLookSensitivity={gamepadLookSensitivity()}
                         mouseSensitivity={mouseSensitivity()}
                         onBlacklistedTagsChange={updateBlacklistedTags}
-                        onDefaultReadingDirectionChange={
-                          updateDefaultReadingDirection
-                        }
-                        onGamepadLookSensitivityChange={
-                          updateGamepadLookSensitivity
-                        }
+                        onDefaultReadingDirectionChange={updateDefaultReadingDirection}
+                        onGamepadLookSensitivityChange={updateGamepadLookSensitivity}
                         onMouseSensitivityChange={updateMouseSensitivity}
-                        onPurgeBlacklistedWorks={() =>
-                          setPurgeBlacklistedOpen(true)
-                        }
+                        onPurgeBlacklistedWorks={() => setPurgeBlacklistedOpen(true)}
                         onUnstuck={() => {
                           setUnstuckRequest((request) => request + 1);
                           closeMenu();
                         }}
-                        onRespectBookReadingDirectionChange={
-                          updateRespectBookReadingDirection
-                        }
+                        onRespectBookReadingDirectionChange={updateRespectBookReadingDirection}
                         onTvScreenLightingChange={updateTvScreenLighting}
                         purgeDisabled={
                           libraryUpdating() ||
@@ -1556,10 +1261,7 @@ export const App = () => {
             <Show when={mobileDetailOpen()}>
               <Show when={selectedItem()}>
                 {(item) => (
-                  <div
-                    class="fixed inset-0 z-40 bg-black/70 xl:hidden"
-                    onClick={() => setMobileDetailOpen(false)}
-                  >
+                  <div class="fixed inset-0 z-40 bg-black/70 xl:hidden" onClick={() => setMobileDetailOpen(false)}>
                     <div
                       class="absolute inset-y-0 right-0 w-full max-w-sm"
                       onClick={(event) => event.stopPropagation()}
@@ -1608,13 +1310,7 @@ export const App = () => {
                 providers={availableLibraryProviders()}
                 providerError={libraryProviderError()}
                 onCancel={closeLibraryUpdate}
-                onConfirm={(
-                  rememberBootFetch,
-                  providerId,
-                  query,
-                  fetchLimit,
-                  maxSearchPages,
-                ) =>
+                onConfirm={(rememberBootFetch, providerId, query, fetchLimit, maxSearchPages) =>
                   void fetchMoreLibrary({
                     limit: fetchLimit,
                     maxSearchPages,

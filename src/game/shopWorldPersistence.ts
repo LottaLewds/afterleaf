@@ -7,35 +7,28 @@ import type {BookRecord} from "~/game/bookFactory";
 import type {DiscardBin} from "~/game/discardBin";
 import type {MovablePropLifecycle} from "~/game/movablePropSystem";
 import type {PosterSystem} from "~/game/posters/PosterSystem";
-import {SHOP_TV_CAVE, SHOP_UPPER_FLOOR_Y} from "~/game/shopExpansionLayout";
 import type {ShopPhysicsWorld} from "~/game/ShopPhysicsWorld";
 import type {ShopSignSystem} from "~/game/signs/ShopSignSystem";
 import {shopSignKey} from "~/game/signs/ShopSignSystem";
-import {SHOP_PHYSICS_PLAYER_EYE_HEIGHT} from "~/game/ShopPhysicsWorld";
 import type {
   WorldBookSave,
   WorldModelPropSave,
+  WorldPropSave,
   WorldSaveV1,
   WorldTelevisionChannels,
   WorldTelevisionVolumes,
 } from "~/game/worldSave";
-import {
-  INITIAL_WORLD_SEEDING_VERSION,
-  worldSaveCanReconcileCatalog,
-  worldSaveMatchesCatalog,
-  worldSaveSeedingVersion,
-} from "~/game/worldSave";
+import {worldSaveCanReconcileCatalog, worldSaveMatchesCatalog} from "~/game/worldSave";
 import {createWorldSave} from "~/game/worldSaveSnapshot";
+import {
+  adoptLegacyModelPropSaves,
+  migrateLegacyPlayerPosition,
+  migrateLegacyPropSaves,
+  migrateLegacyTrashcanPosition,
+} from "~/game/worldSaveMigration";
 
 const WORLD_SAVE_INTERVAL_MS = 10_000;
 const WORLD_SAVE_IDLE_TIMEOUT_MS = 250;
-
-const LEGACY_TV_CAVE_BOUNDS = Object.freeze({
-  maxX: 23.5,
-  maxZ: 11.5,
-  minX: 16.5,
-  minZ: 2.5,
-});
 
 export type ShopWorldPersistenceHost = {
   applyPlayerPose: (
@@ -51,9 +44,7 @@ export type ShopWorldPersistenceHost = {
   discardBin: () => DiscardBin;
   disposed: () => boolean;
   movableProps: () => MovablePropLifecycle;
-  onWorldSave:
-    | ((save: WorldSaveV1) => boolean | void | Promise<boolean | void>)
-    | undefined;
+  onWorldSave: ((save: WorldSaveV1) => boolean | void | Promise<boolean | void>) | undefined;
   pendingSave: WorldSaveV1 | undefined;
   physicsWorld: () => ShopPhysicsWorld;
   posters: () => PosterSystem;
@@ -95,10 +86,7 @@ export class ShopWorldPersistence {
   }
 
   startScheduler() {
-    this.#intervalHandle = window.setInterval(
-      this.#scheduleSave,
-      WORLD_SAVE_INTERVAL_MS,
-    );
+    this.#intervalHandle = window.setInterval(this.#scheduleSave, WORLD_SAVE_INTERVAL_MS);
   }
 
   stopScheduler() {
@@ -131,8 +119,7 @@ export class ShopWorldPersistence {
           discardedPublicationIds: this.#host.discardedPublicationIds(),
           discardBin: this.#host.discardBin(),
           movableProps: this.#host.movableProps().records,
-          pendingModelPropSaves:
-            this.#host.movableProps().pendingModelPropSaves,
+          pendingModelPropSaves: this.#host.movableProps().pendingModelPropSaves,
           pendingPropSaves: this.#host.movableProps().pendingPropSaves,
           posters: this.#host.posters(),
           signs: this.#host.signs(),
@@ -149,16 +136,14 @@ export class ShopWorldPersistence {
         })
         .catch((error: unknown) => {
           this.markDirty();
-          if (DEV)
-            console.warn("Afterleaf could not persist the shop state.", error);
+          if (DEV) console.warn("Afterleaf could not persist the shop state.", error);
         })
         .finally(() => {
           this.#pendingWrite = undefined;
         });
     } catch (error) {
       this.markDirty();
-      if (DEV)
-        console.warn("Afterleaf could not persist the shop state.", error);
+      if (DEV) console.warn("Afterleaf could not persist the shop state.", error);
     }
   }
 
@@ -172,70 +157,21 @@ export class ShopWorldPersistence {
     if (!exactMatch) this.markDirty();
 
     this.#restoreSigns(save);
-    this.#restoreLegacyTrashcan(save);
+    const legacyTrashcanPosition = migrateLegacyTrashcanPosition(save);
+    if (legacyTrashcanPosition)
+      this.#host.discardBin().setPosition(legacyTrashcanPosition.x, legacyTrashcanPosition.z, false);
 
-    const savedProps = save.props ?? [];
-    const hasLegacyTvCaveProps = savedProps.some((savedProp) =>
-      savedProp.id.startsWith("tv-cave-"),
-    );
-    if (hasLegacyTvCaveProps) this.markDirty();
-    const props = this.#host.movableProps();
-    props.pendingPropSaves = new Map(
-      savedProps
-        .filter((savedProp) => !savedProp.id.startsWith("tv-cave-"))
-        .map((savedProp) => [savedProp.id, savedProp]),
-    );
-    for (const [id, record] of props.records) {
-      const savedProp = props.pendingPropSaves.get(id);
-      if (!savedProp) continue;
-      props.applySavedPropPose(record, savedProp);
-      props.pendingPropSaves.delete(id);
-    }
+    const propMigration = migrateLegacyPropSaves(save.props ?? []);
+    if (propMigration.migrated) this.markDirty();
+    this.#restoreProps(propMigration.savedProps, save.modelProps ?? []);
     this.#host.posters().pendingSaves = save.posters ?? [];
     this.#host.artFrames().pendingSaves = save.digitalArtFrames ?? [];
-
-    const adoptedModelPropSaves: WorldModelPropSave[] = [];
-    for (const savedProp of save.modelProps ?? []) {
-      const record = props.records.get(savedProp.id);
-      if (!record) {
-        adoptedModelPropSaves.push(savedProp);
-        continue;
-      }
-      props.applySavedPropPose(record, savedProp);
-      // Boot-registered defaults spawn at seed scale; without this, a
-      // player-scaled default would silently revert and the next save would
-      // overwrite the stored scale with the reverted value.
-      if (savedProp.scale !== record.modelScale)
-        props.setModelPropScale(record, savedProp.scale);
-      if (savedProp.locked && !record.locked) {
-        record.locked = true;
-        this.#host.physicsWorld().setPropLocked(record.id, true);
-      }
-    }
-    props.pendingModelPropSaves = adoptedModelPropSaves;
-    void props.restoreSavedModelProps();
-
-    const playerWasInLegacyTvCave =
-      save.player.position.y > SHOP_UPPER_FLOOR_Y &&
-      save.player.position.x >= LEGACY_TV_CAVE_BOUNDS.minX &&
-      save.player.position.x <= LEGACY_TV_CAVE_BOUNDS.maxX &&
-      save.player.position.z >= LEGACY_TV_CAVE_BOUNDS.minZ &&
-      save.player.position.z <= LEGACY_TV_CAVE_BOUNDS.maxZ;
-    const playerPosition = playerWasInLegacyTvCave
-      ? {
-          x: SHOP_TV_CAVE.centerX,
-          y: SHOP_UPPER_FLOOR_Y + SHOP_PHYSICS_PLAYER_EYE_HEIGHT,
-          z: SHOP_TV_CAVE.centerZ,
-        }
-      : save.player.position;
-    if (playerWasInLegacyTvCave) this.markDirty();
-    this.#host.applyPlayerPose(playerPosition, save.player.quaternion);
+    const playerMigration = migrateLegacyPlayerPosition(save.player.position);
+    if (playerMigration.migrated) this.markDirty();
+    this.#host.applyPlayerPose(playerMigration.position, save.player.quaternion);
     return new Map(
       save.books
-        .filter(
-          (book) =>
-            !this.#host.discardedPublicationIds().has(book.publicationId),
-        )
+        .filter((book) => !this.#host.discardedPublicationIds().has(book.publicationId))
         .map((book) => [book.publicationId, book]),
     );
   }
@@ -260,12 +196,7 @@ export class ShopWorldPersistence {
     this.#idleHandle = window.requestIdleCallback(
       () => {
         this.#idleHandle = undefined;
-        if (
-          !this.#host.disposed() &&
-          document.visibilityState === "visible" &&
-          document.hasFocus()
-        )
-          this.flush();
+        if (!this.#host.disposed() && document.visibilityState === "visible" && document.hasFocus()) this.flush();
       },
       {timeout: WORLD_SAVE_IDLE_TIMEOUT_MS},
     );
@@ -275,37 +206,42 @@ export class ShopWorldPersistence {
     const signs = this.#host.signs();
     if (save.shelfSigns) {
       for (const slot of signs.slots.values()) {
-        if (slot.kind === "shelf" && slot.column !== undefined)
-          signs.setShelfSign(slot.column, "");
+        if (slot.kind === "shelf" && slot.column !== undefined) signs.setShelfSign(slot.column, "");
       }
-      for (const sign of save.shelfSigns)
-        signs.setShelfSign(sign.column, sign.text, sign.subtitle);
+      for (const sign of save.shelfSigns) signs.setShelfSign(sign.column, sign.text, sign.subtitle);
     }
     if (!save.aisleSigns) return;
     for (const [key, slot] of signs.slots) {
       if (slot.kind === "aisle") signs.setSign(key, "", "");
     }
-    for (const sign of save.aisleSigns)
-      signs.setSign(
-        shopSignKey("aisle", sign.id),
-        sign.title,
-        sign.subtitle ?? "",
-      );
+    for (const sign of save.aisleSigns) signs.setSign(shopSignKey("aisle", sign.id), sign.title, sign.subtitle ?? "");
   }
 
-  #restoreLegacyTrashcan(save: WorldSaveV1) {
-    // Legacy trashcan positions apply only while migrating worlds that never
-    // ran a seeding pass; afterwards the bin's pose lives in modelProps.
-    if (
-      worldSaveSeedingVersion(save) < INITIAL_WORLD_SEEDING_VERSION &&
-      save.trashcan
-    )
-      this.#host
-        .discardBin()
-        .setPosition(save.trashcan.x, save.trashcan.z, false);
-    // Legacy `television` pose fields are intentionally ignored: worlds saved
-    // before default-prop seeding respawn the movable CRT television at its
-    // designed spot through the prop lifecycle instead.
+  #restoreProps(savedProps: readonly WorldPropSave[], savedModelProps: readonly WorldModelPropSave[]) {
+    const props = this.#host.movableProps();
+    props.pendingPropSaves = new Map(savedProps.map((savedProp) => [savedProp.id, savedProp]));
+    for (const [id, record] of props.records) {
+      const savedProp = props.pendingPropSaves.get(id);
+      if (!savedProp) continue;
+      props.applySavedPropPose(record, savedProp);
+      props.pendingPropSaves.delete(id);
+    }
+    const existingModelPropIds = new Set(props.records.keys());
+    for (const savedProp of savedModelProps) {
+      const record = props.records.get(savedProp.id);
+      if (!record) continue;
+      props.applySavedPropPose(record, savedProp);
+      // Boot-registered defaults spawn at seed scale; without this, a
+      // player-scaled default would silently revert and the next save would
+      // overwrite the stored scale with the reverted value.
+      if (savedProp.scale !== record.modelScale) props.setModelPropScale(record, savedProp.scale);
+      if (savedProp.locked && !record.locked) {
+        record.locked = true;
+        this.#host.physicsWorld().setPropLocked(record.id, true);
+      }
+    }
+    props.pendingModelPropSaves = adoptLegacyModelPropSaves(savedModelProps, existingModelPropIds);
+    void props.restoreSavedModelProps();
   }
 
   #worldSaveWritable() {

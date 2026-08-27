@@ -1,13 +1,5 @@
 import {createHash, randomUUID} from "node:crypto";
-import {
-  access,
-  mkdir,
-  readdir,
-  readFile,
-  rename,
-  rm,
-  writeFile,
-} from "node:fs/promises";
+import {access, mkdir, readdir, readFile, rename, rm, writeFile} from "node:fs/promises";
 import {basename, parse, resolve} from "node:path";
 import {replaceDirectory} from "~/content/replaceDirectory";
 import {
@@ -29,10 +21,7 @@ import {
   type NhentaiGallerySummary,
   nhentaiPageExtension,
 } from "./client";
-import {
-  NHENTAI_SPARSE_METADATA_FILE,
-  createNhentaiSparseMetadata,
-} from "./sparseMetadata";
+import {NHENTAI_SPARSE_METADATA_FILE, createNhentaiSparseMetadata} from "./sparseMetadata";
 import {nhentaiGalleryIdFromText} from "./url";
 
 export interface NhentaiSyncOptions {
@@ -109,14 +98,9 @@ const assertSafeOutputDirectory = (path: string) => {
   return outputDirectory;
 };
 
-const galleryLanguage = (
-  gallery: NhentaiGallerySummary,
-  languages: readonly SupportedLanguage[],
-) => {
+const galleryLanguage = (gallery: NhentaiGallerySummary, languages: readonly SupportedLanguage[]) => {
   const languageTags = new Set(
-    gallery.tags
-      .filter((tag) => normalizeTag(tag.type) === "language")
-      .map((tag) => normalizeTag(tag.name)),
+    gallery.tags.filter((tag) => normalizeTag(tag.type) === "language").map((tag) => normalizeTag(tag.name)),
   );
   return languages.find((language) => languageTags.has(language));
 };
@@ -141,13 +125,8 @@ const galleryMetadataHash = (gallery: NhentaiGallery) =>
     .digest("hex");
 
 const chooseTitle = (gallery: NhentaiGallery, language: SupportedLanguage) => {
-  if (language === "english")
-    return (
-      gallery.title.english ?? gallery.title.pretty ?? gallery.title.japanese
-    );
-  return (
-    gallery.title.japanese ?? gallery.title.pretty ?? gallery.title.english
-  );
+  if (language === "english") return gallery.title.english ?? gallery.title.pretty ?? gallery.title.japanese;
+  return gallery.title.japanese ?? gallery.title.pretty ?? gallery.title.english;
 };
 
 const manifestForGallery = (
@@ -164,16 +143,10 @@ const manifestForGallery = (
   const pageDigits = Math.max(3, String(gallery.numPages).length);
   const pagePath = (pageIndex: number) => {
     const page = gallery.pages[pageIndex];
-    if (!page)
-      throw new Error(
-        `Gallery ${gallery.id} lacks page metadata for page ${pageIndex + 1}`,
-      );
+    if (!page) throw new Error(`Gallery ${gallery.id} lacks page metadata for page ${pageIndex + 1}`);
     return `pages/${String(pageIndex + 1).padStart(pageDigits, "0")}.${nhentaiPageExtension(page)}`;
   };
-  const pagePlan = createRepresentativePagePlan(
-    gallery.numPages,
-    previewPageCount,
-  );
+  const pagePlan = createRepresentativePagePlan(gallery.numPages, previewPageCount);
   const pages = pagePlan.initialPageIndexes.map(pagePath);
   const firstPage = pages[0];
   if (!firstPage) throw new Error(`Gallery ${gallery.id} has no pages`);
@@ -215,10 +188,7 @@ const existingManifest = async (publicationDirectory: string) => {
   }
 };
 
-const publicationIncompleteReason = async (
-  publicationDirectory: string,
-  document: LocalPublicationDocument,
-) => {
+const publicationIncompleteReason = async (publicationDirectory: string, document: LocalPublicationDocument) => {
   if (
     document.pageCount !== undefined &&
     document.pageCount > document.assets.pages.length &&
@@ -239,12 +209,8 @@ const publicationIncompleteReason = async (
   return undefined;
 };
 
-const publicationIsComplete = async (
-  publicationDirectory: string,
-  document: LocalPublicationDocument,
-) =>
-  (await publicationIncompleteReason(publicationDirectory, document)) ===
-  undefined;
+const publicationIsComplete = async (publicationDirectory: string, document: LocalPublicationDocument) =>
+  (await publicationIncompleteReason(publicationDirectory, document)) === undefined;
 
 const publicationAssetsMatch = (
   first: LocalPublicationDocument["assets"],
@@ -278,10 +244,7 @@ const cachedPublicationState = async (outputDirectory: string) => {
     const manifest = await existingManifest(publicationDirectory);
     if (manifest?.id !== entry.name) continue;
     publicationIds.add(manifest.id);
-    const incompleteReason = await publicationIncompleteReason(
-      publicationDirectory,
-      manifest,
-    );
+    const incompleteReason = await publicationIncompleteReason(publicationDirectory, manifest);
     if (!incompleteReason) completePublicationIds.add(manifest.id);
     else incompleteReasonByPublicationId.set(manifest.id, incompleteReason);
   }
@@ -292,10 +255,7 @@ const cachedPublicationState = async (outputDirectory: string) => {
   };
 };
 
-const commitPublication = async (
-  stagingDirectory: string,
-  publicationDirectory: string,
-) => {
+const commitPublication = async (stagingDirectory: string, publicationDirectory: string) => {
   if (!(await fileExists(publicationDirectory))) {
     await replaceDirectory(stagingDirectory, publicationDirectory);
     return "added" as const;
@@ -307,8 +267,7 @@ const commitPublication = async (
     await rm(backupDirectory, {recursive: true, force: true});
     return "updated" as const;
   } catch (error) {
-    if (!(await fileExists(publicationDirectory)))
-      await rename(backupDirectory, publicationDirectory);
+    if (!(await fileExists(publicationDirectory))) await rename(backupDirectory, publicationDirectory);
     throw error;
   }
 };
@@ -321,53 +280,30 @@ const materializeGallery = async (
   previewPageCount?: number,
   onDownloadStart?: () => void,
 ) => {
-  const document = manifestForGallery(
-    selected.gallery,
-    selected.language,
-    retrievedAt,
-    previewPageCount,
-  );
+  const document = manifestForGallery(selected.gallery, selected.language, retrievedAt, previewPageCount);
   const publicationDirectory = resolve(outputDirectory, document.id);
   const existing = await existingManifest(publicationDirectory);
   const metadataHash = document.source?.metadataHash;
-  if (!metadataHash)
-    throw new Error(`Gallery ${selected.gallery.id} lacks a metadata hash`);
-  const sparseMetadata = `${JSON.stringify(
-    createNhentaiSparseMetadata(selected.gallery, metadataHash),
-    null,
-    2,
-  )}\n`;
+  if (!metadataHash) throw new Error(`Gallery ${selected.gallery.id} lacks a metadata hash`);
+  const sparseMetadata = `${JSON.stringify(createNhentaiSparseMetadata(selected.gallery, metadataHash), null, 2)}\n`;
   if (
     existing &&
     existing.source?.metadataHash === metadataHash &&
     publicationAssetsMatch(existing.assets, document.assets) &&
     (await publicationIsComplete(publicationDirectory, existing))
   ) {
-    const sparseMetadataPath = resolve(
-      publicationDirectory,
-      NHENTAI_SPARSE_METADATA_FILE,
-    );
-    if (!(await fileExists(sparseMetadataPath)))
-      await writeFile(sparseMetadataPath, sparseMetadata);
+    const sparseMetadataPath = resolve(publicationDirectory, NHENTAI_SPARSE_METADATA_FILE);
+    if (!(await fileExists(sparseMetadataPath))) await writeFile(sparseMetadataPath, sparseMetadata);
     return "unchanged" as const;
   }
 
-  const stagingDirectory = resolve(
-    outputDirectory,
-    `.${document.id}.staging-${randomUUID()}`,
-  );
+  const stagingDirectory = resolve(outputDirectory, `.${document.id}.staging-${randomUUID()}`);
   const pagesDirectory = resolve(stagingDirectory, "pages");
   await mkdir(pagesDirectory, {recursive: true});
   try {
-    const pagePlan = createRepresentativePagePlan(
-      selected.gallery.numPages,
-      previewPageCount,
-    );
-    const localPathByPageIndex = new Map(
-      document.assets.pages.map((path, pageIndex) => [pageIndex, path]),
-    );
-    if (document.assets.back)
-      localPathByPageIndex.set(pagePlan.backPageIndex, document.assets.back);
+    const pagePlan = createRepresentativePagePlan(selected.gallery.numPages, previewPageCount);
+    const localPathByPageIndex = new Map(document.assets.pages.map((path, pageIndex) => [pageIndex, path]));
+    if (document.assets.back) localPathByPageIndex.set(pagePlan.backPageIndex, document.assets.back);
     const downloads = pagePlan.acquisitionPageIndexes.map((pageIndex) => ({
       pageIndex,
       path: localPathByPageIndex.get(pageIndex),
@@ -382,36 +318,18 @@ const materializeGallery = async (
           nextDownloadIndex += 1;
           if (!download) continue;
           onDownloadStart?.();
-          const bytes = await client.downloadPage(
-            selected.gallery,
-            download.pageIndex,
-          );
+          const bytes = await client.downloadPage(selected.gallery, download.pageIndex);
           downloadedPages.push({bytes, pageIndex: download.pageIndex});
-          if (download.path)
-            await writeFile(resolve(stagingDirectory, download.path), bytes);
+          if (download.path) await writeFile(resolve(stagingDirectory, download.path), bytes);
         }
       }),
     );
-    const finalizedDocument = await finalizeProviderPublicationDocument(
-      document,
-      downloadedPages,
-    );
-    await writeFile(
-      resolve(stagingDirectory, "publication.json"),
-      `${JSON.stringify(finalizedDocument, null, 2)}\n`,
-    );
-    await writeFile(
-      resolve(stagingDirectory, NHENTAI_SPARSE_METADATA_FILE),
-      sparseMetadata,
-    );
-    const incompleteReason = await publicationIncompleteReason(
-      stagingDirectory,
-      finalizedDocument,
-    );
+    const finalizedDocument = await finalizeProviderPublicationDocument(document, downloadedPages);
+    await writeFile(resolve(stagingDirectory, "publication.json"), `${JSON.stringify(finalizedDocument, null, 2)}\n`);
+    await writeFile(resolve(stagingDirectory, NHENTAI_SPARSE_METADATA_FILE), sparseMetadata);
+    const incompleteReason = await publicationIncompleteReason(stagingDirectory, finalizedDocument);
     if (incompleteReason)
-      throw new Error(
-        `Gallery ${selected.gallery.id} staging verification failed: ${incompleteReason}`,
-      );
+      throw new Error(`Gallery ${selected.gallery.id} staging verification failed: ${incompleteReason}`);
     return await commitPublication(stagingDirectory, publicationDirectory);
   } catch (error) {
     await rm(stagingDirectory, {recursive: true, force: true});
@@ -419,17 +337,10 @@ const materializeGallery = async (
   }
 };
 
-const writeSyncLedger = async (
-  outputDirectory: string,
-  report: NhentaiSyncReport,
-  syncedAt: string,
-) => {
+const writeSyncLedger = async (outputDirectory: string, report: NhentaiSyncReport, syncedAt: string) => {
   const path = resolve(outputDirectory, ".nhentai-sync.json");
   const temporaryPath = `${path}.staging-${randomUUID()}`;
-  await writeFile(
-    temporaryPath,
-    `${JSON.stringify({schemaVersion: 1, syncedAt, ...report}, null, 2)}\n`,
-  );
+  await writeFile(temporaryPath, `${JSON.stringify({schemaVersion: 1, syncedAt, ...report}, null, 2)}\n`);
   await rename(temporaryPath, path);
 };
 
@@ -439,23 +350,17 @@ export const syncNhentaiCatalog = async (
 ): Promise<NhentaiSyncReport> => {
   if (!Number.isSafeInteger(options.limit) || options.limit <= 0)
     throw new Error("nHentai sync limit must be a positive integer");
-  if (
-    !Number.isSafeInteger(options.maxSearchPages) ||
-    options.maxSearchPages <= 0
-  )
+  if (!Number.isSafeInteger(options.maxSearchPages) || options.maxSearchPages <= 0)
     throw new Error("nHentai max search pages must be a positive integer");
-  if (options.languages.length === 0)
-    throw new Error("nHentai sync requires at least one catalog language");
+  if (options.languages.length === 0) throw new Error("nHentai sync requires at least one catalog language");
   if (
     options.previewPageCount !== undefined &&
-    (!Number.isSafeInteger(options.previewPageCount) ||
-      options.previewPageCount <= 0)
+    (!Number.isSafeInteger(options.previewPageCount) || options.previewPageCount <= 0)
   )
     throw new Error("nHentai preview page count must be a positive integer");
   if (
     options.searchPageDelayMs !== undefined &&
-    (!Number.isFinite(options.searchPageDelayMs) ||
-      options.searchPageDelayMs < 0)
+    (!Number.isFinite(options.searchPageDelayMs) || options.searchPageDelayMs < 0)
   )
     throw new Error("nHentai search page delay must be a non-negative number");
 
@@ -471,10 +376,9 @@ export const syncNhentaiCatalog = async (
           incompleteReasonByPublicationId: new Map<string, string>(),
           publicationIds: new Set<string>(),
         };
-  const candidatesByLanguage = new Map<
-    SupportedLanguage,
-    SelectedGallery<NhentaiGallerySummary>[]
-  >(options.languages.map((language) => [language, []]));
+  const candidatesByLanguage = new Map<SupportedLanguage, SelectedGallery<NhentaiGallerySummary>[]>(
+    options.languages.map((language) => [language, []]),
+  );
   const newCandidateCountByLanguage = new Map<SupportedLanguage, number>(
     options.languages.map((language) => [language, 0]),
   );
@@ -492,8 +396,7 @@ export const syncNhentaiCatalog = async (
   const syncedAt = (dependencies.now?.() ?? new Date()).toISOString();
   const exactGalleryId = nhentaiGalleryIdFromText(options.query);
   const exactGalleryAlreadyImported =
-    exactGalleryId !== undefined &&
-    cachedPublications.completePublicationIds.has(`nhentai-${exactGalleryId}`);
+    exactGalleryId !== undefined && cachedPublications.completePublicationIds.has(`nhentai-${exactGalleryId}`);
   if (exactGalleryAlreadyImported)
     diagnostics.push({
       code: "existing-complete",
@@ -501,9 +404,7 @@ export const syncNhentaiCatalog = async (
       message: `Skipped existing complete publication nhentai-${exactGalleryId}`,
     });
   const exactGallery =
-    exactGalleryId === undefined || exactGalleryAlreadyImported
-      ? undefined
-      : await client.loadGallery(exactGalleryId);
+    exactGalleryId === undefined || exactGalleryAlreadyImported ? undefined : await client.loadGallery(exactGalleryId);
   type MaterializationResult = Awaited<ReturnType<typeof materializeGallery>>;
   interface QueuedAcquisition {
     candidateIndex: number;
@@ -528,11 +429,7 @@ export const syncNhentaiCatalog = async (
   let stepCompletedCount = 0;
   let stepTotalCount = 0;
   const reportStep = () => {
-    if (stepTotalCount > 0)
-      options.onStep?.(
-        Math.min(stepCompletedCount, stepTotalCount),
-        stepTotalCount,
-      );
+    if (stepTotalCount > 0) options.onStep?.(Math.min(stepCompletedCount, stepTotalCount), stepTotalCount);
   };
 
   const acquisitions = createConcurrentAcquisitionPipeline<
@@ -542,8 +439,7 @@ export const syncNhentaiCatalog = async (
   >({
     concurrency: MAX_CONCURRENT_GALLERY_MATERIALIZATIONS,
     prepare: async ({candidateIndex, selectedGallery}) => {
-      if (!selectedGallery.repair && scheduledNewGalleryCount >= options.limit)
-        return undefined;
+      if (!selectedGallery.repair && scheduledNewGalleryCount >= options.limit) return undefined;
       if (selectedGallery.repair) {
         repairIndex += 1;
         stepTotalCount += 1;
@@ -579,9 +475,7 @@ export const syncNhentaiCatalog = async (
         options.onProgress?.(message);
         return undefined;
       }
-      options.onProgress?.(
-        `Loaded nhentai-${gallery.id} metadata; downloading preview/back assets`,
-      );
+      options.onProgress?.(`Loaded nhentai-${gallery.id} metadata; downloading preview/back assets`);
       if (!selectedGallery.repair) scheduledNewGalleryCount += 1;
       return {
         candidateIndex,
@@ -604,9 +498,7 @@ export const syncNhentaiCatalog = async (
           options.previewPageCount,
           markStarted,
         );
-        options.onProgress?.(
-          `${prepared.repair ? "Repaired" : "Imported"} nhentai-${prepared.gallery.id} (${result})`,
-        );
+        options.onProgress?.(`${prepared.repair ? "Repaired" : "Imported"} nhentai-${prepared.gallery.id} (${result})`);
         stepCompletedCount += 1;
         reportStep();
         return {
@@ -635,9 +527,7 @@ export const syncNhentaiCatalog = async (
           ? `Loading pasted nhentai-${exactGallery.id}`
           : `Searching page ${page} of ${options.maxSearchPages} for new publications`,
       );
-      const galleries = exactGallery
-        ? [exactGallery]
-        : await client.search(upstreamQuery, page);
+      const galleries = exactGallery ? [exactGallery] : await client.search(upstreamQuery, page);
       if (galleries.length === 0) break;
       let firstPageAcquisitionStarted: Promise<void> | undefined;
       for (const gallery of galleries) {
@@ -667,9 +557,7 @@ export const syncNhentaiCatalog = async (
           });
           continue;
         }
-        const normalizedTags = normalizeTags(
-          gallery.tags.map((tag) => tag.name),
-        );
+        const normalizedTags = normalizeTags(gallery.tags.map((tag) => tag.name));
         const blockedTag = normalizedTags.find((tag) => blockedTags.has(tag));
         if (blockedTag) {
           diagnostics.push({
@@ -689,51 +577,32 @@ export const syncNhentaiCatalog = async (
           continue;
         }
         const repair = cachedPublications.publicationIds.has(publicationId);
-        const incompleteReason =
-          cachedPublications.incompleteReasonByPublicationId.get(publicationId);
+        const incompleteReason = cachedPublications.incompleteReasonByPublicationId.get(publicationId);
         const selectedGallery = {
           gallery,
           language,
           repair,
-          ...(incompleteReason === undefined
-            ? {}
-            : {repairReason: incompleteReason}),
+          ...(incompleteReason === undefined ? {} : {repairReason: incompleteReason}),
         };
         const languageCandidates = candidatesByLanguage.get(language);
         languageCandidates?.push(selectedGallery);
-        if (
-          options.write &&
-          language === options.languages[0] &&
-          languageCandidates
-        ) {
+        if (options.write && language === options.languages[0] && languageCandidates) {
           const acquisition = acquisitions.enqueue({
             candidateIndex: languageCandidates.length - 1,
             selectedGallery,
           });
           firstPageAcquisitionStarted ??= acquisition.started;
         }
-        if (!repair)
-          newCandidateCountByLanguage.set(
-            language,
-            (newCandidateCountByLanguage.get(language) ?? 0) + 1,
-          );
+        if (!repair) newCandidateCountByLanguage.set(language, (newCandidateCountByLanguage.get(language) ?? 0) + 1);
       }
       await firstPageAcquisitionStarted;
       if (acquisitions.hasFailed()) break;
       const preferredLanguage = options.languages[0];
-      if (
-        preferredLanguage &&
-        (newCandidateCountByLanguage.get(preferredLanguage) ?? 0) >=
-          options.limit
-      )
-        break;
+      if (preferredLanguage && (newCandidateCountByLanguage.get(preferredLanguage) ?? 0) >= options.limit) break;
       if (options.searchPageDelayMs)
         await (
           dependencies.sleep ??
-          ((milliseconds: number) =>
-            new Promise<void>((resolvePromise) =>
-              setTimeout(resolvePromise, milliseconds),
-            ))
+          ((milliseconds: number) => new Promise<void>((resolvePromise) => setTimeout(resolvePromise, milliseconds)))
         )(options.searchPageDelayMs);
     }
   } catch (error) {
@@ -742,9 +611,7 @@ export const syncNhentaiCatalog = async (
     throw error;
   }
 
-  const orderedCandidates = options.languages.flatMap(
-    (language) => candidatesByLanguage.get(language) ?? [],
-  );
+  const orderedCandidates = options.languages.flatMap((language) => candidatesByLanguage.get(language) ?? []);
   let previewNewGalleryCount = 0;
   const previewSelected = orderedCandidates.filter((candidate) => {
     if (candidate.repair) return true;
@@ -779,13 +646,8 @@ export const syncNhentaiCatalog = async (
 
   const repairCount = orderedCandidates.filter(({repair}) => repair).length;
   report.selectedGalleryIds = [];
-  const preferredCandidateCount =
-    candidatesByLanguage.get(options.languages[0] ?? "english")?.length ?? 0;
-  for (
-    let candidateIndex = preferredCandidateCount;
-    candidateIndex < orderedCandidates.length;
-    candidateIndex += 1
-  ) {
+  const preferredCandidateCount = candidatesByLanguage.get(options.languages[0] ?? "english")?.length ?? 0;
+  for (let candidateIndex = preferredCandidateCount; candidateIndex < orderedCandidates.length; candidateIndex += 1) {
     const selectedGallery = orderedCandidates[candidateIndex];
     if (!selectedGallery) continue;
     acquisitions.enqueue({candidateIndex, selectedGallery});
@@ -797,9 +659,7 @@ export const syncNhentaiCatalog = async (
     if (acquisition.result === "updated") report.updatedCount += 1;
     if (acquisition.result === "unchanged") report.unchangedCount += 1;
   }
-  const completedRepairCount = outcomes.filter(
-    ({result}) => result.repair,
-  ).length;
+  const completedRepairCount = outcomes.filter(({result}) => result.repair).length;
   addFewerThanLimitDiagnostic(scheduledNewGalleryCount);
   const diagnosticCounts = Object.entries(
     diagnostics.reduce<Record<string, number>>((counts, diagnostic) => {

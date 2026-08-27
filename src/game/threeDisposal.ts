@@ -1,11 +1,4 @@
-import {
-  BatchedMesh,
-  BufferGeometry,
-  Mesh,
-  Object3D,
-  Texture,
-  type Material,
-} from "three";
+import {BatchedMesh, BufferGeometry, Mesh, Object3D, Texture, type Material} from "three";
 
 export const disposeMaterial = (material: Material, textures: Set<Texture>) => {
   for (const value of Object.values(material)) {
@@ -24,9 +17,7 @@ export const disposeObject = (root: Object3D) => {
     if (!(object instanceof Mesh)) return;
     if (object instanceof BatchedMesh) batchedMeshes.add(object);
     else geometries.add(object.geometry);
-    const objectMaterials = Array.isArray(object.material)
-      ? object.material
-      : [object.material];
+    const objectMaterials = Array.isArray(object.material) ? object.material : [object.material];
     for (const material of objectMaterials) materials.add(material);
   });
 

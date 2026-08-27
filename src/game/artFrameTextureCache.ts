@@ -1,10 +1,7 @@
 import {ImageBitmapLoader, LinearFilter, SRGBColorSpace, Texture} from "three";
 import {DEV} from "solid-js";
 import type {ArtFrameImage} from "~/artFrames/protocol";
-import {
-  ART_FRAME_TEXTURE_UPLOAD_IDLE_BUDGET_MS,
-  MAX_UNUSED_ART_FRAME_TEXTURES,
-} from "~/game/wallDecorTuning";
+import {ART_FRAME_TEXTURE_UPLOAD_IDLE_BUDGET_MS, MAX_UNUSED_ART_FRAME_TEXTURES} from "~/game/wallDecorTuning";
 
 export type ArtFrameTextureCacheEntry = {
   lastUsed: number;
@@ -91,12 +88,8 @@ export class ArtFrameTextureCache {
     texture.colorSpace = SRGBColorSpace;
     texture.generateMipmaps = false;
     texture.minFilter = LinearFilter;
-    texture.anisotropy = Math.min(
-      8,
-      this.#host.renderer.capabilities.getMaxAnisotropy(),
-    );
-    if (loadState.priority === "display")
-      this.#host.renderer.initTexture(texture);
+    texture.anisotropy = Math.min(8, this.#host.renderer.capabilities.getMaxAnisotropy());
+    if (loadState.priority === "display") this.#host.renderer.initTexture(texture);
     else await this.#prepare(texture, loadState);
     return texture;
   }
@@ -111,8 +104,7 @@ export class ArtFrameTextureCache {
     try {
       this.#host.renderer.initTexture(preparation.texture);
     } catch (error) {
-      if (DEV)
-        console.warn("Afterleaf could not upload an art texture.", error);
+      if (DEV) console.warn("Afterleaf could not upload an art texture.", error);
     }
     preparation.resolve();
   }
@@ -133,9 +125,7 @@ export class ArtFrameTextureCache {
     for (const [imageId, entry] of unusedEntries.slice(0, removalCount)) {
       if (this.#entries.get(imageId) !== entry) continue;
       this.#entries.delete(imageId);
-      void entry.promise
-        .then((texture) => this.#disposeTexture(texture))
-        .catch(() => {});
+      void entry.promise.then((texture) => this.#disposeTexture(texture)).catch(() => {});
     }
   }
 
@@ -156,18 +146,10 @@ export class ArtFrameTextureCache {
   }
 
   #schedule() {
-    if (
-      this.#host.isDisposed() ||
-      this.#handle !== undefined ||
-      this.#queue.length === 0
-    )
-      return;
+    if (this.#host.isDisposed() || this.#handle !== undefined || this.#queue.length === 0) return;
     const prepareNext = (deadline?: IdleDeadline) => {
       this.#handle = undefined;
-      if (
-        deadline &&
-        deadline.timeRemaining() < ART_FRAME_TEXTURE_UPLOAD_IDLE_BUDGET_MS
-      ) {
+      if (deadline && deadline.timeRemaining() < ART_FRAME_TEXTURE_UPLOAD_IDLE_BUDGET_MS) {
         this.#schedule();
         return;
       }
@@ -178,11 +160,7 @@ export class ArtFrameTextureCache {
         try {
           this.#host.renderer.initTexture(preparation.texture);
         } catch (error) {
-          if (DEV)
-            console.warn(
-              "Afterleaf could not pre-upload an art texture.",
-              error,
-            );
+          if (DEV) console.warn("Afterleaf could not pre-upload an art texture.", error);
         }
       }
       preparation.resolve();
@@ -201,20 +179,14 @@ export class ArtFrameTextureCache {
   disposeAll(): void {
     this.cancelPreparation();
     for (const entry of this.#entries.values())
-      void entry.promise
-        .then((texture) => this.#disposeTexture(texture))
-        .catch(() => {});
+      void entry.promise.then((texture) => this.#disposeTexture(texture)).catch(() => {});
     this.#entries.clear();
   }
 
   cancelPreparation() {
     const handle = this.#handle;
     if (handle !== undefined) {
-      if (
-        this.#usesIdleCallback &&
-        typeof window.cancelIdleCallback === "function"
-      )
-        window.cancelIdleCallback(handle);
+      if (this.#usesIdleCallback && typeof window.cancelIdleCallback === "function") window.cancelIdleCallback(handle);
       else window.clearTimeout(handle);
     }
     this.#handle = undefined;

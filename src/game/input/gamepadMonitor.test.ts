@@ -3,11 +3,7 @@ import {describe, expect, test} from "bun:test";
 import {gamepadButtonIndex} from "~/game/input/bindings";
 import {GamepadMonitor} from "~/game/input/gamepadMonitor";
 
-const mockGamepad = (overrides?: {
-  buttons?: (boolean | null)[];
-  axes?: number[];
-  connected?: boolean;
-}): Gamepad => {
+const mockGamepad = (overrides?: {buttons?: (boolean | null)[]; axes?: number[]; connected?: boolean}): Gamepad => {
   const buttons = (overrides?.buttons ?? Array(16).fill(null)).map(
     (pressed): GamepadButton =>
       ({
@@ -36,10 +32,7 @@ const setNavigatorGamepads = (gamepads: (Gamepad | null)[]) => {
   });
 };
 
-const press = (
-  monitor: GamepadMonitor,
-  name: Parameters<GamepadMonitor["isDown"]>[0],
-) => {
+const press = (monitor: GamepadMonitor, name: Parameters<GamepadMonitor["isDown"]>[0]) => {
   monitor.pressed[gamepadButtonIndex(name)] = 1;
 };
 
@@ -50,12 +43,7 @@ describe("GamepadMonitor", () => {
 
     // Frame 1: A goes down.
     monitor.poll();
-    setNavigatorGamepads([
-      mockGamepad({buttons: [true, false]}),
-      null,
-      null,
-      null,
-    ]);
+    setNavigatorGamepads([mockGamepad({buttons: [true, false]}), null, null, null]);
     monitor.connected = true;
     monitor.poll();
     expect(monitor.justPressed("A")).toBe(true);
@@ -76,12 +64,7 @@ describe("GamepadMonitor", () => {
   test("applies deadzones to stick axes and clamps movement", () => {
     const monitor = new GamepadMonitor();
     monitor.connected = true;
-    setNavigatorGamepads([
-      mockGamepad({axes: [0.1, -0.1, 0.15, -0.15]}),
-      null,
-      null,
-      null,
-    ]);
+    setNavigatorGamepads([mockGamepad({axes: [0.1, -0.1, 0.15, -0.15]}), null, null, null]);
     monitor.poll();
     expect(monitor.movement.right).toBe(0);
     expect(monitor.movement.forward).toBe(0);
@@ -110,21 +93,7 @@ describe("GamepadMonitor", () => {
     monitor.connected = true;
     setNavigatorGamepads([
       mockGamepad({
-        buttons: [
-          false,
-          false,
-          false,
-          false,
-          false,
-          false,
-          false,
-          true,
-          false,
-          false,
-          false,
-          false,
-          true,
-        ],
+        buttons: [false, false, false, false, false, false, false, true, false, false, false, false, true],
       }),
       null,
       null,

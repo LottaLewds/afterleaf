@@ -23,11 +23,9 @@ export const createWeebCentralProvider = (
   return {
     descriptor,
     materializePage: createWeebCentralSparsePageMaterializer(client),
-    sync: (syncOptions: LibraryProviderSyncOptions) =>
-      syncWeebCentralCatalog(syncOptions, {client}),
+    sync: (syncOptions: LibraryProviderSyncOptions) => syncWeebCentralCatalog(syncOptions, {client}),
   };
 };
 
-export const createProvider: LibraryProviderPluginModule["createProvider"] = (
-  context,
-) => createWeebCentralProvider(context.descriptor);
+export const createProvider: LibraryProviderPluginModule["createProvider"] = (context) =>
+  createWeebCentralProvider(context.descriptor);

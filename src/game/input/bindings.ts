@@ -124,25 +124,19 @@ const GAMEPAD_BUTTON_INDEX: Record<GamepadButtonName, number> = {
   DpadRight: 15,
 };
 
-export const gamepadButtonIndex = (name: GamepadButtonName): number =>
-  GAMEPAD_BUTTON_INDEX[name];
+export const gamepadButtonIndex = (name: GamepadButtonName): number => GAMEPAD_BUTTON_INDEX[name];
 
 /** Physical controller families with distinct button iconography. */
 export type GamepadStyle = "xbox" | "playstation";
 
 /** Detects a controller family from the Gamepad API id string. */
 export const detectGamepadStyle = (id: string): GamepadStyle =>
-  /dualsense|dualshock|wireless controller|playstation|\bps[345]\b/i.test(id)
-    ? "playstation"
-    : "xbox";
+  /dualsense|dualshock|wireless controller|playstation|\bps[345]\b/i.test(id) ? "playstation" : "xbox";
 
 type GamepadButtonPresentation = {label: string; icon: string};
 
 /** Per-style display labels and prompt icon stems for every button. */
-export const GAMEPAD_BUTTON_PRESENTATION: Record<
-  GamepadStyle,
-  Record<GamepadButtonName, GamepadButtonPresentation>
-> = {
+export const GAMEPAD_BUTTON_PRESENTATION: Record<GamepadStyle, Record<GamepadButtonName, GamepadButtonPresentation>> = {
   xbox: {
     A: {label: "A", icon: "xbox-a"},
     B: {label: "B", icon: "xbox-b"},
@@ -181,23 +175,14 @@ export const GAMEPAD_BUTTON_PRESENTATION: Record<
   },
 };
 
-export const formatGamepadButton = (
-  code: string,
-  style: GamepadStyle = "xbox",
-): string =>
-  GAMEPAD_BUTTON_PRESENTATION[style][code as GamepadButtonName]?.label ??
-  `Btn ${code}`;
+export const formatGamepadButton = (code: string, style: GamepadStyle = "xbox"): string =>
+  GAMEPAD_BUTTON_PRESENTATION[style][code as GamepadButtonName]?.label ?? `Btn ${code}`;
 
 /** Prompt icon stem under /images/input-prompts/ for a standard-mapping button. */
-export const gamepadButtonIcon = (
-  code: string,
-  style: GamepadStyle,
-): string | undefined =>
+export const gamepadButtonIcon = (code: string, style: GamepadStyle): string | undefined =>
   GAMEPAD_BUTTON_PRESENTATION[style][code as GamepadButtonName]?.icon;
 
-export type ShortcutBinding =
-  | {device: "keyboard"; code: string}
-  | {device: "gamepad"; code: GamepadButtonName};
+export type ShortcutBinding = {device: "keyboard"; code: string} | {device: "gamepad"; code: GamepadButtonName};
 
 export type ShortcutsConfig = Record<ShortcutAction, ShortcutBinding[]>;
 
@@ -249,8 +234,7 @@ export const ACTION_DISPATCH_ORDER: readonly ShortcutAction[] = [
 ];
 
 const ACTION_ORDER_INDEX: Partial<Record<ShortcutAction, number>> = {};
-for (const [index, action] of ACTION_DISPATCH_ORDER.entries())
-  ACTION_ORDER_INDEX[action] = index;
+for (const [index, action] of ACTION_DISPATCH_ORDER.entries()) ACTION_ORDER_INDEX[action] = index;
 
 /** Lower sorts earlier. Unlisted actions sort last, stable. */
 export const actionDispatchPriority = (action: ShortcutAction): number =>
@@ -300,51 +284,22 @@ export const SHORTCUT_LABELS: Record<ShortcutAction, string> = {
   propCycleAnimationRight: "Prop: next animation",
 };
 
-export const SHORTCUT_CATEGORIES: Record<
-  string,
-  {label: string; actions: ShortcutAction[]}
-> = {
+export const SHORTCUT_CATEGORIES: Record<string, {label: string; actions: ShortcutAction[]}> = {
   movement: {
     label: "Movement",
-    actions: [
-      "moveForward",
-      "moveBackward",
-      "moveLeft",
-      "moveRight",
-      "jump",
-      "sprint",
-    ],
+    actions: ["moveForward", "moveBackward", "moveLeft", "moveRight", "jump", "sprint"],
   },
   core: {
     label: "Core",
-    actions: [
-      "interact",
-      "throw",
-      "drop",
-      "pickUpCancel",
-      "propPinToggle",
-      "toggleShelfPresentation",
-      "toggleMenu",
-    ],
+    actions: ["interact", "throw", "drop", "pickUpCancel", "propPinToggle", "toggleShelfPresentation", "toggleMenu"],
   },
   placementToggle: {
     label: "Placement toggles",
-    actions: [
-      "toggleModelPlacement",
-      "toggleArtFramePlacement",
-      "togglePosterPlacement",
-      "channelEditorOpen",
-    ],
+    actions: ["toggleModelPlacement", "toggleArtFramePlacement", "togglePosterPlacement", "channelEditorOpen"],
   },
   inspection: {
     label: "Book inspection",
-    actions: [
-      "inspectionTurnLeft",
-      "inspectionTurnRight",
-      "inspectionThrow",
-      "inspectionDrop",
-      "inspectionReturn",
-    ],
+    actions: ["inspectionTurnLeft", "inspectionTurnRight", "inspectionThrow", "inspectionDrop", "inspectionReturn"],
   },
   tv: {
     label: "Television",
@@ -352,12 +307,7 @@ export const SHORTCUT_CATEGORIES: Record<
   },
   artFrame: {
     label: "Digital art frames",
-    actions: [
-      "artFramePreviousChannel",
-      "artFrameNextChannel",
-      "artFrameInterval",
-      "artFrameFit",
-    ],
+    actions: ["artFramePreviousChannel", "artFrameNextChannel", "artFrameInterval", "artFrameFit"],
   },
   remove: {
     label: "Removal",
@@ -379,11 +329,7 @@ export const SHORTCUT_CATEGORIES: Record<
   },
   prop: {
     label: "Props",
-    actions: [
-      "propToggleSnap",
-      "propCycleAnimationLeft",
-      "propCycleAnimationRight",
-    ],
+    actions: ["propToggleSnap", "propCycleAnimationLeft", "propCycleAnimationRight"],
   },
 };
 
@@ -442,30 +388,17 @@ export const DEFAULT_SHORTCUTS: ShortcutsConfig = {
 
 const STORAGE_KEY = "afterleaf:shortcuts:v1";
 
-const GAMEPAD_BUTTON_NAME_SET: ReadonlySet<string> = new Set(
-  GAMEPAD_BUTTON_NAMES,
-);
+const GAMEPAD_BUTTON_NAME_SET: ReadonlySet<string> = new Set(GAMEPAD_BUTTON_NAMES);
 
-const isShortcutsConfig = (
-  value: unknown,
-): value is Partial<ShortcutsConfig> => {
+const isShortcutsConfig = (value: unknown): value is Partial<ShortcutsConfig> => {
   if (typeof value !== "object" || value === null) return false;
   for (const action of Object.keys(DEFAULT_SHORTCUTS)) {
     const bindings = (value as Record<string, unknown>)[action];
     if (bindings === undefined) continue;
     if (!Array.isArray(bindings)) return false;
     for (const binding of bindings) {
-      if (
-        typeof binding !== "object" ||
-        binding === null ||
-        typeof binding.code !== "string"
-      )
-        return false;
-      if (
-        binding.device === "gamepad"
-          ? !GAMEPAD_BUTTON_NAME_SET.has(binding.code)
-          : binding.device !== "keyboard"
-      )
+      if (typeof binding !== "object" || binding === null || typeof binding.code !== "string") return false;
+      if (binding.device === "gamepad" ? !GAMEPAD_BUTTON_NAME_SET.has(binding.code) : binding.device !== "keyboard")
         return false;
     }
   }
@@ -512,10 +445,5 @@ export const formatKeyboardCode = (code: string): string => {
   return code;
 };
 
-export const formatBinding = (
-  binding: ShortcutBinding,
-  style: GamepadStyle = "xbox",
-): string =>
-  binding.device === "keyboard"
-    ? formatKeyboardCode(binding.code)
-    : formatGamepadButton(binding.code, style);
+export const formatBinding = (binding: ShortcutBinding, style: GamepadStyle = "xbox"): string =>
+  binding.device === "keyboard" ? formatKeyboardCode(binding.code) : formatGamepadButton(binding.code, style);

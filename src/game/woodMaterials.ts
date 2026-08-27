@@ -37,20 +37,11 @@ const configureTexture = (texture: Texture, anisotropy: number) => {
   return texture;
 };
 
-export const loadWoodTextures = (
-  textureLoader: TextureLoader,
-  maxAnisotropy: number,
-): WoodTextures => {
+export const loadWoodTextures = (textureLoader: TextureLoader, maxAnisotropy: number): WoodTextures => {
   const anisotropy = Math.min(8, maxAnisotropy);
-  const baseColor = configureTexture(
-    textureLoader.load(darkWoodAlbedoUrl),
-    anisotropy,
-  );
+  const baseColor = configureTexture(textureLoader.load(darkWoodAlbedoUrl), anisotropy);
   baseColor.colorSpace = SRGBColorSpace;
-  const surface = configureTexture(
-    textureLoader.load(darkWoodSurfaceUrl),
-    anisotropy,
-  );
+  const surface = configureTexture(textureLoader.load(darkWoodSurfaceUrl), anisotropy);
   surface.channel = 0;
   return {
     baseColor,
@@ -59,10 +50,7 @@ export const loadWoodTextures = (
   };
 };
 
-export const createWoodMaterial = (
-  textures: WoodTextures,
-  options: WoodMaterialOptions = {},
-) =>
+export const createWoodMaterial = (textures: WoodTextures, options: WoodMaterialOptions = {}) =>
   new MeshStandardMaterial({
     aoMap: textures.surface,
     aoMapIntensity: 0.65,
@@ -78,10 +66,7 @@ export const createWoodMaterial = (
 
 const textureOffset = (position: BoxPosition) => {
   const [x, y, z] = position;
-  return [
-    Math.abs(x * 0.173 + y * 0.311 + z * 0.137) % 1,
-    Math.abs(x * 0.107 + y * 0.193 + z * 0.283) % 1,
-  ] as const;
+  return [Math.abs(x * 0.173 + y * 0.311 + z * 0.137) % 1, Math.abs(x * 0.107 + y * 0.193 + z * 0.283) % 1] as const;
 };
 
 /** Keeps a shared wood map at a stable physical scale on every side of a box. */
@@ -100,10 +85,8 @@ export const createWoodBoxGeometry = (size: BoxSize, position: BoxPosition) => {
   ] as const;
 
   for (const [faceIndex, [faceWidth, faceHeight]] of faceDimensions.entries()) {
-    const grainLength =
-      Math.max(faceWidth, faceHeight) / WOOD_TEXTURE_WORLD_SIZE;
-    const grainWidth =
-      Math.min(faceWidth, faceHeight) / WOOD_TEXTURE_WORLD_SIZE;
+    const grainLength = Math.max(faceWidth, faceHeight) / WOOD_TEXTURE_WORLD_SIZE;
+    const grainWidth = Math.min(faceWidth, faceHeight) / WOOD_TEXTURE_WORLD_SIZE;
     const rotate = faceHeight > faceWidth;
     const vertexOffset = faceIndex * 4;
     for (let vertex = 0; vertex < 4; vertex += 1) {

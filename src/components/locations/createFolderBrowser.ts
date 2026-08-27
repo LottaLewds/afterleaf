@@ -28,11 +28,7 @@ export const createFolderBrowser = () => {
       const nextListing = await browseLibraryLocation(directory);
       if (request !== browseRequest) return;
       const displayedPath =
-        options.preserveTrailingSeparator &&
-        directory &&
-        /[\\/]$/u.test(directory)
-          ? directory
-          : nextListing.path;
+        options.preserveTrailingSeparator && directory && /[\\/]$/u.test(directory) ? directory : nextListing.path;
       batch(() => {
         setListing(nextListing);
         setPathInput(displayedPath);
@@ -41,9 +37,7 @@ export const createFolderBrowser = () => {
       });
     } catch (error) {
       if (request !== browseRequest || options.reportError === false) return;
-      setBrowserError(
-        error instanceof Error ? error.message : "Could not browse that folder",
-      );
+      setBrowserError(error instanceof Error ? error.message : "Could not browse that folder");
     } finally {
       if (request === browseRequest) setBrowserPending(false);
     }
@@ -69,8 +63,7 @@ export const createFolderBrowser = () => {
     }
     browseTimer = setTimeout(navigateToPath, 300);
   };
-  const canChooseCurrentFolder = () =>
-    !browserPending() && pathInput().trim() === confirmedPathInput();
+  const canChooseCurrentFolder = () => !browserPending() && pathInput().trim() === confirmedPathInput();
   const close = () => setBrowserOpen(false);
   onCleanup(() => {
     if (browseTimer) clearTimeout(browseTimer);

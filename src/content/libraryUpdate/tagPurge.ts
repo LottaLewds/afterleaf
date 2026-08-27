@@ -1,16 +1,11 @@
-import {
-  normalizeTagBlacklist,
-  normalizeTag,
-} from "~/content/tagBlacklistPreference";
+import {normalizeTagBlacklist, normalizeTag} from "~/content/tagBlacklistPreference";
 
 export type TaggablePublication = {
   id: string;
   tags: readonly string[];
 };
 
-export const findBlacklistedTagMatches = <
-  Publication extends TaggablePublication,
->(
+export const findBlacklistedTagMatches = <Publication extends TaggablePublication>(
   publications: readonly Publication[],
   blacklistedTags: readonly string[],
 ) => {

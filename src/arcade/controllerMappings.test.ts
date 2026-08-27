@@ -64,8 +64,7 @@ afterEach(() => {
 
 describe("SYSTEM_CONTROLLER_CONTROLS", () => {
   test("defines controls for every supported system", () => {
-    for (const id of systemIds)
-      expect(SYSTEM_CONTROLLER_CONTROLS[id].length).toBeGreaterThan(0);
+    for (const id of systemIds) expect(SYSTEM_CONTROLLER_CONTROLS[id].length).toBeGreaterThan(0);
   });
 
   test("uses unique retropad ids and valid EJS key values per system", () => {
@@ -82,9 +81,7 @@ describe("SYSTEM_CONTROLLER_CONTROLS", () => {
 
   test("every default pad binding targets an existing control", () => {
     for (const id of systemIds) {
-      const validIds = new Set(
-        SYSTEM_CONTROLLER_CONTROLS[id].map((control) => control.id),
-      );
+      const validIds = new Set(SYSTEM_CONTROLLER_CONTROLS[id].map((control) => control.id));
       for (const controlId of Object.values(DEFAULT_PAD_MAPPINGS[id]))
         expect(validIds.has(controlId as number)).toBe(true);
     }
@@ -99,12 +96,7 @@ describe("SYSTEM_CONTROLLER_CONTROLS", () => {
       expect(mapping.DpadDown, `${id} DpadDown`).toBeDefined();
       expect(mapping.DpadLeft, `${id} DpadLeft`).toBeDefined();
       expect(mapping.DpadRight, `${id} DpadRight`).toBeDefined();
-      for (const direction of [
-        mapping.DpadUp,
-        mapping.DpadDown,
-        mapping.DpadLeft,
-        mapping.DpadRight,
-      ])
+      for (const direction of [mapping.DpadUp, mapping.DpadDown, mapping.DpadLeft, mapping.DpadRight])
         expect(movementIds.has(direction as number), `${id}`).toBe(true);
     }
   });
@@ -124,10 +116,7 @@ describe("buildDefaultControllers", () => {
   });
 
   test("includes directional controls bound to arrows", () => {
-    const player = buildDefaultControllers("nes")[0] as Record<
-      number,
-      {value: string}
-    >;
+    const player = buildDefaultControllers("nes")[0] as Record<number, {value: string}>;
     expect(player[4]?.value).toBe("up arrow");
     expect(player[7]?.value).toBe("right arrow");
   });
@@ -141,10 +130,7 @@ describe("pad mapping persistence", () => {
 
   test("save + load round-trips and drops invalid entries", () => {
     savePadMappingOverrides({nes: {A: 0}, bogus: {A: 0}} as never);
-    const loaded = loadPadMappingOverrides() as Record<
-      string,
-      Partial<Record<GamepadButtonName, number>> | undefined
-    >;
+    const loaded = loadPadMappingOverrides() as Record<string, Partial<Record<GamepadButtonName, number>> | undefined>;
     expect(loaded.nes?.A).toBe(0);
     expect(loaded.bogus).toBeUndefined();
     localStorage.removeItem("afterleaf:arcade:pad-mappings:v1");
@@ -193,9 +179,7 @@ describe("padForwardEvent", () => {
 
 describe("forwardedKeyEventForBinding", () => {
   test("flags shift bindings so modifiers stay consistent", () => {
-    const control = SYSTEM_CONTROLLER_CONTROLS.snes.find(
-      (item) => item.id === 2,
-    );
+    const control = SYSTEM_CONTROLLER_CONTROLS.snes.find((item) => item.id === 2);
     if (!control) throw new Error("missing snes select control");
     const event = forwardedKeyEventForBinding(control.keyboard);
     expect(event.shiftKey).toBe(true);

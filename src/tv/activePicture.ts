@@ -24,17 +24,9 @@ export const FULL_ACTIVE_PICTURE_RECT: ActivePictureRect = Object.freeze({
 });
 
 const lumaAt = (pixels: Uint8ClampedArray, offset: number) =>
-  ((pixels[offset] ?? 0) * 54 +
-    (pixels[offset + 1] ?? 0) * 183 +
-    (pixels[offset + 2] ?? 0) * 19) /
-  256;
+  ((pixels[offset] ?? 0) * 54 + (pixels[offset + 1] ?? 0) * 183 + (pixels[offset + 2] ?? 0) * 19) / 256;
 
-const isDarkColumn = (
-  pixels: Uint8ClampedArray,
-  width: number,
-  height: number,
-  column: number,
-) => {
+const isDarkColumn = (pixels: Uint8ClampedArray, width: number, height: number, column: number) => {
   const maximumBrightPixels = Math.floor(height * MAX_BRIGHT_EDGE_PIXEL_RATIO);
   let brightPixels = 0;
   for (let row = 0; row < height; row += 1) {
@@ -46,12 +38,7 @@ const isDarkColumn = (
   return true;
 };
 
-const countDarkEdgeColumns = (
-  pixels: Uint8ClampedArray,
-  width: number,
-  height: number,
-  fromRight: boolean,
-) => {
+const countDarkEdgeColumns = (pixels: Uint8ClampedArray, width: number, height: number, fromRight: boolean) => {
   const maximumColumns = Math.floor(width * MAX_BAR_RATIO);
   for (let inset = 0; inset < maximumColumns; inset += 1) {
     const column = fromRight ? width - inset - 1 : inset;
@@ -60,19 +47,13 @@ const countDarkEdgeColumns = (
   return maximumColumns;
 };
 
-const hasVisiblePicture = (
-  pixels: Uint8ClampedArray,
-  width: number,
-  height: number,
-) => {
+const hasVisiblePicture = (pixels: Uint8ClampedArray, width: number, height: number) => {
   const xStart = Math.floor(width * 0.1);
   const xEnd = Math.ceil(width * 0.9);
   const yStart = Math.floor(height * 0.1);
   const yEnd = Math.ceil(height * 0.9);
   const sampledPixels = (xEnd - xStart) * (yEnd - yStart);
-  const minimumVisiblePixels = Math.ceil(
-    sampledPixels * MIN_VISIBLE_PIXEL_RATIO,
-  );
+  const minimumVisiblePixels = Math.ceil(sampledPixels * MIN_VISIBLE_PIXEL_RATIO);
   let visiblePixels = 0;
   for (let y = yStart; y < yEnd; y += 1) {
     for (let x = xStart; x < xEnd; x += 1) {
@@ -94,32 +75,19 @@ export const detectActivePictureRect = (
   width: number,
   height: number,
 ): ActivePictureRect | undefined => {
-  if (
-    width <= 0 ||
-    height <= 0 ||
-    pixels.length < width * height * 4 ||
-    !hasVisiblePicture(pixels, width, height)
-  )
+  if (width <= 0 || height <= 0 || pixels.length < width * height * 4 || !hasVisiblePicture(pixels, width, height))
     return;
 
   const leftColumns = countDarkEdgeColumns(pixels, width, height, false);
   const rightColumns = countDarkEdgeColumns(pixels, width, height, true);
   const minimumBarColumns = Math.ceil(width * MIN_BAR_RATIO);
-  if (leftColumns < minimumBarColumns || rightColumns < minimumBarColumns)
-    return FULL_ACTIVE_PICTURE_RECT;
-  if (
-    Math.abs(leftColumns - rightColumns) >
-    Math.max(2, width * MAX_BAR_ASYMMETRY_RATIO)
-  )
+  if (leftColumns < minimumBarColumns || rightColumns < minimumBarColumns) return FULL_ACTIVE_PICTURE_RECT;
+  if (Math.abs(leftColumns - rightColumns) > Math.max(2, width * MAX_BAR_ASYMMETRY_RATIO))
     return FULL_ACTIVE_PICTURE_RECT;
 
   const activeWidth = width - leftColumns - rightColumns;
   const activeAspect = activeWidth / height;
-  if (
-    Math.abs(activeAspect - TARGET_ASPECT) / TARGET_ASPECT >
-    TARGET_ASPECT_TOLERANCE
-  )
-    return FULL_ACTIVE_PICTURE_RECT;
+  if (Math.abs(activeAspect - TARGET_ASPECT) / TARGET_ASPECT > TARGET_ASPECT_TOLERANCE) return FULL_ACTIVE_PICTURE_RECT;
 
   return {
     height: 1,
@@ -147,8 +115,7 @@ export const getActivePictureConsensus = (
     const matching = samples.filter(
       (sample) =>
         Math.abs(sample.x - candidate.x) <= CONSENSUS_EDGE_TOLERANCE &&
-        Math.abs(sample.width - candidate.width) <=
-          CONSENSUS_EDGE_TOLERANCE * 2,
+        Math.abs(sample.width - candidate.width) <= CONSENSUS_EDGE_TOLERANCE * 2,
     );
     if (matching.length < minimumSamples) continue;
     return {

@@ -11,11 +11,7 @@ export type ActionPhase = "down" | "up";
 export type ActionSource = "keyboard" | "gamepad";
 export type InputMode = "shop" | "arcade" | "paused";
 
-export type ActionHandler = (
-  action: ShortcutAction,
-  phase: ActionPhase,
-  source: ActionSource,
-) => boolean;
+export type ActionHandler = (action: ShortcutAction, phase: ActionPhase, source: ActionSource) => boolean;
 
 /** Standard-mapping names by index; mirrors GAMEPAD_BUTTON_NAMES order. */
 const BUTTON_NAME_BY_INDEX: readonly GamepadButtonName[] = [
@@ -40,20 +36,13 @@ const BUTTON_NAME_BY_INDEX: readonly GamepadButtonName[] = [
 const LEFT_STICK_ARROW_THRESHOLD = 0.5;
 
 /** Text entry surfaces that must never be hijacked by game bindings. */
-const EDITABLE_TAGS: ReadonlySet<string> = new Set([
-  "INPUT",
-  "TEXTAREA",
-  "SELECT",
-]);
+const EDITABLE_TAGS: ReadonlySet<string> = new Set(["INPUT", "TEXTAREA", "SELECT"]);
 
 /** True while keyboard events target a text-entry surface. */
 export const isEditableTarget = (target: EventTarget | null): boolean => {
   if (target === null || typeof target !== "object") return false;
   const element = target as {tagName?: string; isContentEditable?: boolean};
-  return (
-    EDITABLE_TAGS.has(element.tagName ?? "") ||
-    element.isContentEditable === true
-  );
+  return EDITABLE_TAGS.has(element.tagName ?? "") || element.isContentEditable === true;
 };
 
 /**
@@ -61,8 +50,7 @@ export const isEditableTarget = (target: EventTarget | null): boolean => {
  * physical codes only, so these combos stay reserved for native
  * shortcuts (e.g. Ctrl/Cmd+V paste) and are never consumed.
  */
-const hasReservedModifier = (event: KeyboardEvent): boolean =>
-  event.ctrlKey || event.metaKey || event.altKey;
+const hasReservedModifier = (event: KeyboardEvent): boolean => event.ctrlKey || event.metaKey || event.altKey;
 
 /** Bit slots for synthesized stick arrows: up, down, left, right. */
 const STICK_ARROW_SLOTS: readonly (readonly [number, GamepadButtonName])[] = [
@@ -93,18 +81,13 @@ export class InputManager {
   readonly #onKeyEvent: ((event: KeyboardEvent) => void) | undefined;
   /** Arcade sessions intercept raw keys before action resolution. */
   #keyboardInterceptor: ((event: KeyboardEvent) => boolean) | undefined;
-  #rawGamepadForward:
-    | ((name: GamepadButtonName, down: boolean) => void)
-    | undefined;
+  #rawGamepadForward: ((name: GamepadButtonName, down: boolean) => void) | undefined;
 
   #lastShortcuts: ShortcutsConfig | undefined;
   /** Physical code -> candidate actions (dispatch order). */
   readonly #actionsByKeyCode = new Map<string, ShortcutAction[]>();
   /** Button name -> candidate actions (dispatch order). */
-  readonly #actionsByButtonName = new Map<
-    GamepadButtonName,
-    ShortcutAction[]
-  >();
+  readonly #actionsByButtonName = new Map<GamepadButtonName, ShortcutAction[]>();
   /** Every bound keyboard code, for preventDefault decisions. */
   readonly #boundCodes = new Set<string>();
   /** Synthesized D-pad-arrow states for arcade stick driving. */
@@ -138,8 +121,7 @@ export class InputManager {
         this.#syncShortcuts();
         // Typing into inputs must never be hijacked by bindings.
         if (isEditableTarget(event.target)) return;
-        if (!event.repeat && !hasReservedModifier(event))
-          this.#keysDown.add(event.code);
+        if (!event.repeat && !hasReservedModifier(event)) this.#keysDown.add(event.code);
         this.#onKeyEvent?.(event);
         // The interceptor owns modal raw-key routing (arcade emulation).
         if (this.#keyboardInterceptor?.(event)) return;
@@ -161,12 +143,7 @@ export class InputManager {
         if (isEditableTarget(event.target)) return;
         if (this.#keyboardInterceptor?.(event)) return;
         const actions = this.#actionsByKeyCode.get(event.code);
-        if (
-          actions === undefined ||
-          !this.#inputActive() ||
-          hasReservedModifier(event)
-        )
-          return;
+        if (actions === undefined || !this.#inputActive() || hasReservedModifier(event)) return;
         event.preventDefault();
         this.#dispatchCandidateList(actions, "up", "keyboard");
       },
@@ -188,8 +165,7 @@ export class InputManager {
     // While a session plays every pad button belongs to the emulated game -
     // including Start and Back. The pause/pick-game menu is keyboard-only
     // (Tab); every other mode keeps Start as the menu toggle.
-    if (mode !== "arcade" && this.gamepad.justPressed("Start"))
-      this.#onMenuToggle?.();
+    if (mode !== "arcade" && this.gamepad.justPressed("Start")) this.#onMenuToggle?.();
 
     if (mode === "shop") {
       for (const [name, actions] of this.#actionsByButtonName) {
@@ -204,7 +180,8 @@ export class InputManager {
       const forward = this.#rawGamepadForward;
       if (!forward) return;
       for (let index = 0; index < BUTTON_NAME_BY_INDEX.length; index++) {
-        const name = BUTTON_NAME_BY_INDEX[index]!;
+        const name = BUTTON_NAME_BY_INDEX[index];
+        if (!name) continue;
         if (this.gamepad.justPressed(name)) forward(name, true);
         else if (this.gamepad.justReleased(name)) forward(name, false);
       }
@@ -219,7 +196,8 @@ export class InputManager {
   isActionDown(action: ShortcutAction): boolean {
     const bindings = this.#getShortcuts()[action];
     for (let index = 0; index < bindings.length; index++) {
-      const binding = bindings[index]!;
+      const binding = bindings[index];
+      if (!binding) continue;
       if (binding.device === "keyboard") {
         if (this.#keysDown.has(binding.code)) return true;
       } else if (this.gamepad.isDown(binding.code)) return true;
@@ -244,16 +222,12 @@ export class InputManager {
    * Installs the modal raw-key interceptor (arcade forwarding); pass
    * undefined to restore normal action resolution.
    */
-  setKeyboardInterceptor(
-    interceptor: ((event: KeyboardEvent) => boolean) | undefined,
-  ) {
+  setKeyboardInterceptor(interceptor: ((event: KeyboardEvent) => boolean) | undefined) {
     this.#keyboardInterceptor = interceptor;
   }
 
   /** Installs arcade-mode gamepad button forwarding. */
-  setRawGamepadForward(
-    forward: ((name: GamepadButtonName, down: boolean) => void) | undefined,
-  ) {
+  setRawGamepadForward(forward: ((name: GamepadButtonName, down: boolean) => void) | undefined) {
     this.#rawGamepadForward = forward;
   }
 
@@ -261,18 +235,14 @@ export class InputManager {
   #inputActive(): boolean {
     if (this.#isActive && !this.#isActive()) return false;
     // Headless environments (tests) have no document to inspect.
-    const element =
-      typeof document === "undefined" ? null : document.activeElement;
+    const element = typeof document === "undefined" ? null : document.activeElement;
     return !isEditableTarget(element);
   }
 
-  #dispatchCandidateList(
-    actions: ShortcutAction[],
-    phase: ActionPhase,
-    source: ActionSource,
-  ) {
+  #dispatchCandidateList(actions: ShortcutAction[], phase: ActionPhase, source: ActionSource) {
     for (let index = 0; index < actions.length; index++) {
-      if (this.#handleAction(actions[index]!, phase, source)) return;
+      const action = actions[index];
+      if (action && this.#handleAction(action, phase, source)) return;
     }
   }
 
@@ -280,9 +250,7 @@ export class InputManager {
    * Drives emulators' D-pad defaults from left-stick deflection so analog
    * input works in retro games without per-core support.
    */
-  #forwardLeftStickArrows(
-    forward: (name: GamepadButtonName, down: boolean) => void,
-  ) {
+  #forwardLeftStickArrows(forward: (name: GamepadButtonName, down: boolean) => void) {
     const {forward: moveForward, right: moveRight} = this.gamepad.movement;
     const wanted =
       (moveForward < -LEFT_STICK_ARROW_THRESHOLD ? 1 : 0) |
@@ -290,7 +258,9 @@ export class InputManager {
       (moveRight < -LEFT_STICK_ARROW_THRESHOLD ? 4 : 0) |
       (moveRight > LEFT_STICK_ARROW_THRESHOLD ? 8 : 0);
     for (let slot = 0; slot < STICK_ARROW_SLOTS.length; slot++) {
-      const [bit, name] = STICK_ARROW_SLOTS[slot]!;
+      const arrowSlot = STICK_ARROW_SLOTS[slot];
+      if (!arrowSlot) continue;
+      const [bit, name] = arrowSlot;
       const isWanted = (wanted & bit) !== 0 ? 1 : 0;
       if (this.#stickArrows[slot] === isWanted) continue;
       this.#stickArrows[slot] = isWanted;
@@ -321,11 +291,7 @@ export class InputManager {
     }
   }
 
-  #pushCandidate<K>(
-    table: Map<K, ShortcutAction[]>,
-    key: K,
-    action: ShortcutAction,
-  ) {
+  #pushCandidate<K>(table: Map<K, ShortcutAction[]>, key: K, action: ShortcutAction) {
     const existing = table.get(key);
     if (existing === undefined) {
       table.set(key, [action]);
@@ -336,7 +302,8 @@ export class InputManager {
     const priority = actionDispatchPriority(action);
     while (
       insertAt > 0 &&
-      actionDispatchPriority(existing[insertAt - 1]!) > priority
+      existing[insertAt - 1] !== undefined &&
+      actionDispatchPriority(existing[insertAt - 1] as ShortcutAction) > priority
     )
       insertAt -= 1;
     existing.splice(insertAt, 0, action);

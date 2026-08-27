@@ -48,6 +48,18 @@
   },
   "overrides": [
     {
+      "files": ["src/game/**/*.ts", "src/game/**/*.tsx"],
+      "rules": {
+        "eslint/complexity": [
+          "error",
+          {
+            "max": 20,
+            "variant": "modified"
+          }
+        ]
+      }
+    },
+    {
       "files": ["**/*.test.ts", "**/*.test.tsx"],
       "rules": {
         "typescript/no-non-null-assertion": "off",

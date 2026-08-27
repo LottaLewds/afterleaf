@@ -1,8 +1,4 @@
-import type {
-  ContentSeedReport,
-  MatchMode,
-  SupportedLanguage,
-} from "~/content/schema";
+import type {ContentSeedReport, MatchMode, SupportedLanguage} from "~/content/schema";
 import type {LibraryProviderSyncReport} from "~/content/providers/types";
 
 export const LIBRARY_SNAPSHOT_INDEX_VERSION = 1 as const;
@@ -52,10 +48,7 @@ export interface LibraryFetchMoreRequest {
   tags?: string[];
 }
 
-export type LibraryScanRequest = Pick<
-  LibraryFetchMoreRequest,
-  "languages" | "match" | "seed" | "tags"
-> & {
+export type LibraryScanRequest = Pick<LibraryFetchMoreRequest, "languages" | "match" | "seed" | "tags"> & {
   limit?: number;
   repair?: boolean;
   repairProviderMetadata?: boolean;
@@ -85,13 +78,7 @@ export interface LibraryFetchMoreResult {
   syncReport: LibraryProviderSyncReport;
 }
 
-export type LibraryUpdatePhase =
-  | "idle"
-  | "syncing"
-  | "seeding"
-  | "activating"
-  | "complete"
-  | "failed";
+export type LibraryUpdatePhase = "idle" | "syncing" | "seeding" | "activating" | "complete" | "failed";
 
 interface LibraryUpdateStateBase {
   activeSnapshot?: LibrarySnapshotDescriptor;

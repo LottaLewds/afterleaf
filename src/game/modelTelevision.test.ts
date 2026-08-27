@@ -74,11 +74,7 @@ describe("normalizeModelScreenUvs", () => {
     const uvs = geometry.getAttribute("uv");
     // Simulate a texture atlas window from (0.25, 0.25) to (0.75, 0.75).
     for (let index = 0; index < uvs.count; index += 1)
-      uvs.setXY(
-        index,
-        0.25 + uvs.getX(index) * 0.5,
-        0.25 + uvs.getY(index) * 0.5,
-      );
+      uvs.setXY(index, 0.25 + uvs.getX(index) * 0.5, 0.25 + uvs.getY(index) * 0.5);
     const screen = new Mesh(geometry);
     const previousGeometry = normalizeModelScreenUvs(screen);
     expect(previousGeometry).toBe(geometry);
@@ -102,8 +98,7 @@ describe("normalizeModelScreenUvs", () => {
 
     const degenerate = new Mesh(new PlaneGeometry(4, 3));
     const degenerateUvs = degenerate.geometry.getAttribute("uv");
-    for (let index = 0; index < degenerateUvs.count; index += 1)
-      degenerateUvs.setXY(index, 0.5, 0.5);
+    for (let index = 0; index < degenerateUvs.count; index += 1) degenerateUvs.setXY(index, 0.5, 0.5);
     const original = degenerate.geometry;
     expect(normalizeModelScreenUvs(degenerate)).toBeUndefined();
     expect(degenerate.geometry).toBe(original);

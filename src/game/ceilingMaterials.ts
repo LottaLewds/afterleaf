@@ -26,24 +26,12 @@ const configureTexture = (texture: Texture, anisotropy: number) => {
   return texture;
 };
 
-export const createCeilingMaterial = (
-  textureLoader: TextureLoader,
-  maxAnisotropy: number,
-) => {
+export const createCeilingMaterial = (textureLoader: TextureLoader, maxAnisotropy: number) => {
   const anisotropy = Math.min(8, maxAnisotropy);
-  const albedo = configureTexture(
-    textureLoader.load(ceilingAlbedoUrl),
-    anisotropy,
-  );
+  const albedo = configureTexture(textureLoader.load(ceilingAlbedoUrl), anisotropy);
   albedo.colorSpace = SRGBColorSpace;
-  const normal = configureTexture(
-    textureLoader.load(ceilingNormalUrl),
-    anisotropy,
-  );
-  const surface = configureTexture(
-    textureLoader.load(ceilingSurfaceUrl),
-    anisotropy,
-  );
+  const normal = configureTexture(textureLoader.load(ceilingNormalUrl), anisotropy);
+  const surface = configureTexture(textureLoader.load(ceilingSurfaceUrl), anisotropy);
   surface.channel = 0;
   const material = new MeshStandardMaterial({
     aoMap: surface,
@@ -69,19 +57,12 @@ export const createCeilingMaterial = (
 export const applyCeilingShapeUv = (geometry: BufferGeometry) => {
   const uv = geometry.getAttribute("uv");
   for (let index = 0; index < uv.count; index += 1)
-    uv.setXY(
-      index,
-      uv.getX(index) / CEILING_TEXTURE_WORLD_SIZE,
-      uv.getY(index) / CEILING_TEXTURE_WORLD_SIZE,
-    );
+    uv.setXY(index, uv.getX(index) / CEILING_TEXTURE_WORLD_SIZE, uv.getY(index) / CEILING_TEXTURE_WORLD_SIZE);
   uv.needsUpdate = true;
 };
 
 /** Keeps the tile grid upright and at one physical scale across every slab. */
-export const createCeilingBoxGeometry = (
-  size: BoxSize,
-  position: BoxPosition,
-) => {
+export const createCeilingBoxGeometry = (size: BoxSize, position: BoxPosition) => {
   const [width, height, depth] = size;
   const geometry = new BoxGeometry(width, height, depth);
   const uv = geometry.getAttribute("uv");
@@ -96,10 +77,7 @@ export const createCeilingBoxGeometry = (
     [width, height, -position[0] - width / 2, position[1] - height / 2],
   ] as const;
 
-  for (const [
-    faceIndex,
-    [faceWidth, faceHeight, offsetU, offsetV],
-  ] of faceMappings.entries()) {
+  for (const [faceIndex, [faceWidth, faceHeight, offsetU, offsetV]] of faceMappings.entries()) {
     const vertexOffset = faceIndex * 4;
     for (let vertex = 0; vertex < 4; vertex += 1) {
       const index = vertexOffset + vertex;

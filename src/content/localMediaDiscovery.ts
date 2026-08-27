@@ -37,16 +37,12 @@ const NATURAL_COLLATOR = new Intl.Collator("en-US", {
 
 const toPortablePath = (path: string) => path.split(sep).join("/");
 
-export const discoverLocalMedia = async (
-  rootDirectory: string,
-): Promise<LocalMediaDiscoveryResult> => {
+export const discoverLocalMedia = async (rootDirectory: string): Promise<LocalMediaDiscoveryResult> => {
   const root = resolve(rootDirectory);
   const diagnostics: LocalMediaDiscoveryDiagnostic[] = [];
   const nodes = new Map<string, DirectoryNode>();
   const results = new Map<string, DirectoryResult>();
-  const pending: Array<{directory: string; visited: boolean}> = [
-    {directory: root, visited: false},
-  ];
+  const pending: Array<{directory: string; visited: boolean}> = [{directory: root, visited: false}];
 
   while (pending.length > 0) {
     const current = pending.pop();
@@ -61,9 +57,7 @@ export const discoverLocalMedia = async (
         if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
         throw error;
       }
-      entries.sort((left, right) =>
-        NATURAL_COLLATOR.compare(left.name, right.name),
-      );
+      entries.sort((left, right) => NATURAL_COLLATOR.compare(left.name, right.name));
       const childDirectories: string[] = [];
       const archives: string[] = [];
       let directImageCount = 0;
@@ -91,8 +85,7 @@ export const discoverLocalMedia = async (
           archives.push(path);
           continue;
         }
-        if (IMAGE_EXTENSIONS.has(extname(entry.name).toLowerCase()))
-          directImageCount += 1;
+        if (IMAGE_EXTENSIONS.has(extname(entry.name).toLowerCase())) directImageCount += 1;
       }
 
       nodes.set(current.directory, {
@@ -116,15 +109,10 @@ export const discoverLocalMedia = async (
       return result ? [result] : [];
     });
     const descendantArchives = childResults.flatMap(({archives}) => archives);
-    const descendantPublications = childResults.flatMap(
-      ({publicationDirectories}) => publicationDirectories,
-    );
-    const hasDescendantManifest = childResults.some(
-      ({hasManifest}) => hasManifest,
-    );
+    const descendantPublications = childResults.flatMap(({publicationDirectories}) => publicationDirectories);
+    const hasDescendantManifest = childResults.some(({hasManifest}) => hasManifest);
     const archives = [...node.archives, ...descendantArchives];
-    const hasDescendantMedia =
-      archives.length > 0 || descendantPublications.length > 0;
+    const hasDescendantMedia = archives.length > 0 || descendantPublications.length > 0;
     let publicationDirectories: string[];
 
     if (node.hasManifest && !hasDescendantManifest && archives.length === 0) {
@@ -139,12 +127,7 @@ export const discoverLocalMedia = async (
       if (node.hasManifest)
         diagnostics.push({
           code: "shadowed-manifest",
-          path: toPortablePath(
-            relative(
-              root,
-              resolve(current.directory, LOCAL_PUBLICATION_MANIFEST),
-            ),
-          ),
+          path: toPortablePath(relative(root, resolve(current.directory, LOCAL_PUBLICATION_MANIFEST))),
         });
     } else if (node.directImageCount > 0) {
       publicationDirectories = [current.directory];
@@ -163,18 +146,12 @@ export const discoverLocalMedia = async (
   return {
     archives:
       result?.archives.toSorted((left, right) =>
-        NATURAL_COLLATOR.compare(
-          toPortablePath(relative(root, left)),
-          toPortablePath(relative(root, right)),
-        ),
+        NATURAL_COLLATOR.compare(toPortablePath(relative(root, left)), toPortablePath(relative(root, right))),
       ) ?? [],
     diagnostics,
     publicationDirectories:
       result?.publicationDirectories.toSorted((left, right) =>
-        NATURAL_COLLATOR.compare(
-          toPortablePath(relative(root, left)),
-          toPortablePath(relative(root, right)),
-        ),
+        NATURAL_COLLATOR.compare(toPortablePath(relative(root, left)), toPortablePath(relative(root, right))),
       ) ?? [],
   };
 };

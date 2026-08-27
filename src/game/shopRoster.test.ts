@@ -36,10 +36,7 @@ describe("shop roster selection", () => {
     });
 
     expect(selection.publicationIds).toHaveLength(20);
-    expect(selection.publicationIds.slice(0, 2)).toEqual([
-      "catalog-24",
-      "catalog-3",
-    ]);
+    expect(selection.publicationIds.slice(0, 2)).toEqual(["catalog-24", "catalog-3"]);
     expect(new Set(selection.publicationIds).size).toBe(20);
   });
 
@@ -97,11 +94,7 @@ describe("shop roster selection", () => {
 
     expect(selection.promotedArrivalIds).toEqual(["arrival-a", "arrival-b"]);
     expect(selection.pendingArrivalIds).toEqual([]);
-    expect(selection.publicationIds).toEqual([
-      "arrival-a",
-      "arrival-b",
-      ...currentPublicationIds.slice(0, 18),
-    ]);
+    expect(selection.publicationIds).toEqual(["arrival-a", "arrival-b", ...currentPublicationIds.slice(0, 18)]);
   });
 
   test("keeps overflow arrivals queued for the next completed batch", () => {

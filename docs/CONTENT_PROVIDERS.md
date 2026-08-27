@@ -38,10 +38,7 @@ published to a package registry. JavaScript and TypeScript plugins import the
 same stable package name:
 
 ```ts
-import {
-  createRepresentativePagePlan,
-  type LibraryProviderPluginModule,
-} from "@afterleaf/provider-sdk";
+import {createRepresentativePagePlan, type LibraryProviderPluginModule} from "@afterleaf/provider-sdk";
 ```
 
 The SDK exports the version-1 provider interfaces, normalized publication

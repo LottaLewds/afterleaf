@@ -8,9 +8,7 @@ import {createNhentaiSparsePageMaterializer} from "~/content/providers/nhentai/s
 import {NHENTAI_SPARSE_METADATA_FILE} from "~/content/providers/nhentai/sparseMetadata";
 
 test("nHentai sparse pages reuse persisted gallery metadata", async () => {
-  const sourceDirectory = await mkdtemp(
-    resolve(tmpdir(), "afterleaf-nhentai-sparse-"),
-  );
+  const sourceDirectory = await mkdtemp(resolve(tmpdir(), "afterleaf-nhentai-sparse-"));
   const metadataHash = "a".repeat(64);
   const publication = {
     pageCount: 2,

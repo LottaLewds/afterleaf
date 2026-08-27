@@ -62,8 +62,7 @@ describe("server world save persistence", () => {
       new Date("2026-08-06T12:15:00.000Z"),
       new Date("2026-08-06T12:30:00.000Z"),
     ];
-    for (const date of dates)
-      await saveWorldStateBackup(backupDirectory, save, date);
+    for (const date of dates) await saveWorldStateBackup(backupDirectory, save, date);
 
     expect((await readdir(backupDirectory)).sort()).toEqual([
       "world-state.2026-08-06T12-00-00.000Z.json",
@@ -76,11 +75,7 @@ describe("server world save persistence", () => {
       "world-state.2026-08-06T12-15-00.000Z.json",
       "world-state.2026-08-06T12-30-00.000Z.json",
     ]);
-    expect(
-      await loadWorldSaveFile(
-        path.resolve(backupDirectory, remaining[1] ?? ""),
-      ),
-    ).toEqual(save);
+    expect(await loadWorldSaveFile(path.resolve(backupDirectory, remaining[1] ?? ""))).toEqual(save);
   });
 
   test("rejects corrupt disk data", async () => {

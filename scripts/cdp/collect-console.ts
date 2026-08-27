@@ -14,11 +14,7 @@ const stopListening = session.onEvent((method, rawParams) => {
     };
     if (params.type !== "error" && params.type !== "warning") return;
     const text = (params.args ?? [])
-      .map((argument) =>
-        argument.value === undefined
-          ? (argument.description ?? "")
-          : String(argument.value),
-      )
+      .map((argument) => (argument.value === undefined ? (argument.description ?? "") : String(argument.value)))
       .join(" ");
     const key = `${params.type}: ${text}`;
     messages.set(key, (messages.get(key) ?? 0) + 1);
@@ -31,10 +27,7 @@ const stopListening = session.onEvent((method, rawParams) => {
       text?: string;
     };
   };
-  const text =
-    params.exceptionDetails?.exception?.description ??
-    params.exceptionDetails?.text ??
-    "Unknown exception";
+  const text = params.exceptionDetails?.exception?.description ?? params.exceptionDetails?.text ?? "Unknown exception";
   const key = `exception: ${text}`;
   messages.set(key, (messages.get(key) ?? 0) + 1);
 });

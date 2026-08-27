@@ -15,19 +15,13 @@ export type ArrayLocationKind =
  * `romPaths` as auxiliary folders alongside each system's built-in
  * `content/roms/<system id>` convention folder.
  */
-export type AdditionalLocationKind =
-  | ArrayLocationKind
-  | `rom:${ArcadeSystemId}`;
+export type AdditionalLocationKind = ArrayLocationKind | `rom:${ArcadeSystemId}`;
 
-export const romSystemOfKind = (
-  kind: AdditionalLocationKind,
-): ArcadeSystemId | undefined =>
+export const romSystemOfKind = (kind: AdditionalLocationKind): ArcadeSystemId | undefined =>
   kind.startsWith("rom:") ? (kind.slice(4) as ArcadeSystemId) : undefined;
 
 /** Narrows a location kind to plain path collections, excluding `rom:` kinds. */
-export const isBookLocationKind = (
-  kind: AdditionalLocationKind,
-): kind is ArrayLocationKind => !kind.startsWith("rom:");
+export const isBookLocationKind = (kind: AdditionalLocationKind): kind is ArrayLocationKind => !kind.startsWith("rom:");
 
 /** Copies the config with a system's auxiliary ROM folders replaced. */
 export const withRomFolders = (
@@ -41,22 +35,10 @@ export const withRomFolders = (
   return {...config, romPaths: nextRomPaths};
 };
 
-export const bookLocationKeys = [
-  "comicPaths",
-  "mangaPaths",
-  "mediaPaths",
-] as const;
-export const visualMediaLocationKeys = [
-  "artFramePaths",
-  "posterPaths",
-  "tvChannelPaths",
-] as const;
-const locationListsMatch = (
-  left: readonly string[] | undefined,
-  right: readonly string[] | undefined,
-) =>
-  (left?.length ?? 0) === (right?.length ?? 0) &&
-  (left ?? []).every((path, index) => path === right?.[index]);
+export const bookLocationKeys = ["comicPaths", "mangaPaths", "mediaPaths"] as const;
+export const visualMediaLocationKeys = ["artFramePaths", "posterPaths", "tvChannelPaths"] as const;
+const locationListsMatch = (left: readonly string[] | undefined, right: readonly string[] | undefined) =>
+  (left?.length ?? 0) === (right?.length ?? 0) && (left ?? []).every((path, index) => path === right?.[index]);
 export const configLocationsChanged = (
   previous: AfterleafLibraryConfig,
   next: AfterleafLibraryConfig,

@@ -1,8 +1,4 @@
-import type {
-  ContentPackCatalog,
-  PackedPublication,
-  PublicationIssue,
-} from "~/content/schema";
+import type {ContentPackCatalog, PackedPublication, PublicationIssue} from "~/content/schema";
 
 const escapeHtml = (value: string) =>
   value
@@ -14,15 +10,8 @@ const escapeHtml = (value: string) =>
 
 const encodeAssetPath = (path: string) => {
   const segments = path.split("/");
-  if (
-    segments.length === 0 ||
-    segments.some(
-      (segment) => segment === "" || segment === "." || segment === "..",
-    )
-  )
-    throw new Error(
-      `Preview asset path must be a contained relative path: ${path}`,
-    );
+  if (segments.length === 0 || segments.some((segment) => segment === "" || segment === "." || segment === ".."))
+    throw new Error(`Preview asset path must be a contained relative path: ${path}`);
   return segments.map(encodeURIComponent).join("/");
 };
 
@@ -37,8 +26,7 @@ const formatIssue = (issue: PublicationIssue | undefined) => {
   return parts.join(" · ");
 };
 
-const renderTags = (tags: readonly string[]) =>
-  tags.map((tag) => `<li class="tag">${escapeHtml(tag)}</li>`).join("");
+const renderTags = (tags: readonly string[]) => tags.map((tag) => `<li class="tag">${escapeHtml(tag)}</li>`).join("");
 
 const renderPublication = (publication: PackedPublication, index: number) => {
   const issue = formatIssue(publication.issue);
@@ -46,11 +34,8 @@ const renderPublication = (publication: PackedPublication, index: number) => {
   const physicalDetails = [
     publication.kind,
     publication.physical.trim,
-    publication.physical.thicknessMm === undefined
-      ? undefined
-      : `${publication.physical.thicknessMm} mm`,
-    publication.physical.readingDirection?.toUpperCase() ??
-      "DIRECTION UNSPECIFIED",
+    publication.physical.thicknessMm === undefined ? undefined : `${publication.physical.thicknessMm} mm`,
+    publication.physical.readingDirection?.toUpperCase() ?? "DIRECTION UNSPECIFIED",
   ].filter((value): value is string => value !== undefined);
   return `<li class="publication-card" style="--card-index: ${index}">
   <figure class="book-stage">
@@ -71,19 +56,13 @@ const renderPublication = (publication: PackedPublication, index: number) => {
 </li>`;
 };
 
-const renderAtlas = (
-  label: string,
-  path: string,
-  dimensions: string,
-) => `<figure class="atlas">
+const renderAtlas = (label: string, path: string, dimensions: string) => `<figure class="atlas">
   <figcaption>${escapeHtml(label)} <span>${escapeHtml(dimensions)}</span></figcaption>
   <img src="${encodeAssetPath(path)}" alt="${escapeHtml(label)}">
 </figure>`;
 
 export const generateContentPackPreview = (catalog: ContentPackCatalog) => {
-  const selectionTags = catalog.selection.tags.length
-    ? catalog.selection.tags.join(", ")
-    : "all tags";
+  const selectionTags = catalog.selection.tags.length ? catalog.selection.tags.join(", ") : "all tags";
   const atlasEntries = [
     ["Front-cover atlas", catalog.atlases.front],
     ["Back-cover atlas", catalog.atlases.back],
@@ -92,11 +71,7 @@ export const generateContentPackPreview = (catalog: ContentPackCatalog) => {
   const atlases = atlasEntries
     .flatMap(([label, surfaceAtlases]) =>
       surfaceAtlases.map((atlas, atlasIndex) =>
-        renderAtlas(
-          `${label} ${atlasIndex + 1}`,
-          atlas.path,
-          `${atlas.width} × ${atlas.height}`,
-        ),
+        renderAtlas(`${label} ${atlasIndex + 1}`, atlas.path, `${atlas.width} × ${atlas.height}`),
       ),
     )
     .join("");

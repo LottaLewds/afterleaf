@@ -1,26 +1,12 @@
-import {
-  Euler,
-  type Object3D,
-  type PerspectiveCamera,
-  Quaternion,
-  type Scene,
-  Vector3,
-} from "three";
+import {Euler, type Object3D, type PerspectiveCamera, Quaternion, type Scene, Vector3} from "three";
 import {MathUtils} from "three";
 import type {BookRecord} from "~/game/bookFactory";
 import type {BookTextureRuntime} from "~/game/bookTextureRuntime";
 import {BOOK_HEIGHT} from "~/game/bookTuning";
 import {TRASH_CAN_HEIGHT, TRASH_CAN_PROP_ID} from "~/game/discardBin";
-import type {
-  MovablePropRecord,
-  ShelfTargetSelection,
-  SpineShelfDefinition,
-} from "~/game/ShopScene";
+import type {MovablePropRecord, ShelfTargetSelection, SpineShelfDefinition} from "~/game/shopTypes";
 import type {ShopPhysicsWorld, BookPhysicsPose} from "~/game/ShopPhysicsWorld";
-import type {
-  ShelfPresentation,
-  SpineShelfPlacement,
-} from "~/game/shelfPlacement";
+import type {ShelfPresentation, SpineShelfPlacement} from "~/game/shelfPlacement";
 import {transitionBookInteraction} from "~/game/shopGameplay";
 import {SHOP_BOUNDS} from "~/game/shopLayout";
 import {MAX_CARRIED_BOOKS} from "~/game/worldSave";
@@ -75,9 +61,7 @@ export type BookCarryHost = {
   lookYaw: () => number;
   markWorldStateDirty: () => void;
   movableProps: () => ReadonlyMap<string, MovablePropRecord>;
-  onDiscardPublication:
-    | (() => ((publicationId: string) => Promise<boolean>) | undefined)
-    | undefined;
+  onDiscardPublication: (() => ((publicationId: string) => Promise<boolean>) | undefined) | undefined;
   physicsPose: () => BookPhysicsPose;
   physicsPosePosition: () => Vector3;
   physicsPoseRotation: () => Quaternion;
@@ -122,25 +106,31 @@ export class BookCarryActions {
   #throwChargeSeconds = 0;
   readonly #throwAngularVelocity = new Vector3(2.8, 4.5, 1.9);
   readonly #trashTossTarget = new Vector3();
-  readonly #trashTossRotation = new Quaternion().setFromEuler(
-    new Euler(-Math.PI / 2, 0.45, Math.PI * 0.5),
-  );
+  readonly #trashTossRotation = new Quaternion().setFromEuler(new Euler(-Math.PI / 2, 0.45, Math.PI * 0.5));
 
   constructor(host: BookCarryHost) {
     this.#host = host;
   }
 
+  #refreshAfterBookMutation(clearShelfTarget = true, flushWorldSave = false): void {
+    const host = this.#host;
+    if (clearShelfTarget) host.clearShelfTargetSelection();
+    host.setTrashTargeted(false);
+    host.syncCarriedBookPresentation();
+    host.updateHeldPhysicsTarget();
+    host.syncInteractiveMeshes();
+    host.updateShelfTargetVisuals();
+    host.markWorldStateDirty();
+    host.emitGameState();
+    if (flushWorldSave) host.flushWorldSave();
+  }
+
   pickUpBook(publicationId: string): void {
     const host = this.#host;
-    if (
-      host.carriedPublicationIds().length >= MAX_CARRIED_BOOKS ||
-      host.carriedProp?.() !== undefined
-    )
-      return;
+    if (host.carriedPublicationIds().length >= MAX_CARRIED_BOOKS || host.carriedProp?.() !== undefined) return;
     const record = host.booksById().get(publicationId);
     if (!record) return;
-    const previousShelfId =
-      record.state.status === "shelved" ? record.state.shelfId : undefined;
+    const previousShelfId = record.state.status === "shelved" ? record.state.shelfId : undefined;
     const transition = transitionBookInteraction(record.state, {
       type: "pick-up",
     });
@@ -197,9 +187,7 @@ export class BookCarryActions {
     record.shelfPresentation = selection.presentation;
     record.slotIndex = selection.slotIndex;
     record.shelfOffset = selection.offset;
-    const insertedPlacement = selection.placements?.find(
-      (placement) => placement.id === publicationId,
-    );
+    const insertedPlacement = selection.placements?.find((placement) => placement.id === publicationId);
     if (insertedPlacement) {
       record.slotIndex = insertedPlacement.slotIndex;
       record.shelfOffset = insertedPlacement.center;
@@ -208,12 +196,7 @@ export class BookCarryActions {
     host.setShelfRotation(record, publicationId);
     const targetPosition = record.shelfPosition.clone();
     const targetRotation = new Quaternion().setFromEuler(
-      new Euler(
-        record.baseRotation.x,
-        record.baseRotation.y,
-        record.baseRotation.z,
-        "XYZ",
-      ),
+      new Euler(record.baseRotation.x, record.baseRotation.y, record.baseRotation.z, "XYZ"),
     );
     this.shelveAnimation = {
       elapsedSeconds: 0,
@@ -227,20 +210,10 @@ export class BookCarryActions {
     };
     host.removeCarriedPublication(publicationId);
     this.discardError = undefined;
-    host.clearShelfTargetSelection();
-    host.setTrashTargeted(false);
-    host.syncCarriedBookPresentation();
-    host.updateHeldPhysicsTarget();
-    host.syncInteractiveMeshes();
-    host.updateShelfTargetVisuals();
-    host.markWorldStateDirty();
-    host.emitGameState();
+    this.#refreshAfterBookMutation();
   }
 
-  applySpineShelfPlacements(
-    shelfId: string,
-    placements: readonly SpineShelfPlacement[],
-  ): void {
+  applySpineShelfPlacements(shelfId: string, placements: readonly SpineShelfPlacement[]): void {
     const host = this.#host;
     for (const placement of placements) {
       const record = host.booksById().get(placement.id);
@@ -255,12 +228,11 @@ export class BookCarryActions {
       host.setShelfPosition(record);
       record.basePosition.copy(record.shelfPosition);
       host.setShelfRotation(record, placement.id);
-      host
-        .physicsWorld()
-        .shelveBook(
-          placement.id,
-          host.setPhysicsPose(record.shelfPosition, record.baseRotation),
-        );
+      record.mesh.position.copy(record.shelfPosition);
+      record.mesh.rotation.set(record.baseRotation.x, record.baseRotation.y, record.baseRotation.z, "XYZ");
+      record.mesh.scale.setScalar(1);
+      host.physicsWorld().shelveBook(placement.id, host.setPhysicsPose(record.shelfPosition, record.baseRotation));
+      host.bookTextures().syncBookAtlasBatch(placement.id);
     }
   }
 
@@ -268,10 +240,7 @@ export class BookCarryActions {
     const host = this.#host;
     if (!host.spineShelfDefinitions().has(shelfId)) return;
     const records = [...host.booksById().values()]
-      .filter(
-        (record) =>
-          record.state.status === "shelved" && record.state.shelfId === shelfId,
-      )
+      .filter((record) => record.state.status === "shelved" && record.state.shelfId === shelfId)
       .sort((first, second) => first.shelfOffset - second.shelfOffset);
     for (const [slotIndex, record] of records.entries()) {
       record.slotIndex = slotIndex;
@@ -280,20 +249,11 @@ export class BookCarryActions {
   }
 
   throwChargeProgress(): number {
-    return MathUtils.clamp(
-      this.#throwChargeSeconds / THROW_CHARGE_SECONDS,
-      0,
-      1,
-    );
+    return MathUtils.clamp(this.#throwChargeSeconds / THROW_CHARGE_SECONDS, 0, 1);
   }
 
   startThrowCharge(): void {
-    if (
-      this.throwChargeActive ||
-      !this.#host.carriedPublicationId() ||
-      this.#host.inspectionMode() !== "none"
-    )
-      return;
+    if (this.throwChargeActive || !this.#host.carriedPublicationId() || this.#host.inspectionMode() !== "none") return;
     this.throwChargeActive = true;
     this.#throwChargeBucket = 0;
     this.#throwChargeSeconds = 0;
@@ -302,17 +262,11 @@ export class BookCarryActions {
 
   updateThrowCharge(deltaSeconds: number): void {
     if (!this.throwChargeActive) return;
-    if (
-      !this.#host.carriedPublicationId() ||
-      this.#host.inspectionMode() !== "none"
-    ) {
+    if (!this.#host.carriedPublicationId() || this.#host.inspectionMode() !== "none") {
       this.cancelThrowCharge();
       return;
     }
-    this.#throwChargeSeconds = Math.min(
-      THROW_CHARGE_SECONDS,
-      this.#throwChargeSeconds + deltaSeconds,
-    );
+    this.#throwChargeSeconds = Math.min(THROW_CHARGE_SECONDS, this.#throwChargeSeconds + deltaSeconds);
     const bucket = Math.round(this.throwChargeProgress() * 50);
     if (bucket === this.#throwChargeBucket) return;
     this.#throwChargeBucket = bucket;
@@ -336,12 +290,7 @@ export class BookCarryActions {
     this.dropCarriedBook(false, true, charge);
   }
 
-  dropCarriedBook(
-    fromCurrentPose = false,
-    throwBook = false,
-    throwCharge = 0,
-    publicationIdOverride?: string,
-  ): void {
+  dropCarriedBook(fromCurrentPose = false, throwBook = false, throwCharge = 0, publicationIdOverride?: string): void {
     const host = this.#host;
     if (this.discardBusy) return;
     const publicationId = publicationIdOverride ?? host.carriedPublicationId();
@@ -365,8 +314,7 @@ export class BookCarryActions {
     } else {
       host.updateHeldPhysicsTarget();
       const carriedIndex = host.carriedPublicationIds().indexOf(publicationId);
-      if (carriedIndex >= 0)
-        host.writeHeldBookTargetPose(carriedIndex, publicationId);
+      if (carriedIndex >= 0) host.writeHeldBookTargetPose(carriedIndex, publicationId);
       dropPose = host.heldTargetPose();
     }
     host.scene().attach(record.mesh);
@@ -382,11 +330,7 @@ export class BookCarryActions {
           .copy(host.viewDirection())
           .multiplyScalar(throwSpeed)
           .add(host.playerVelocity())
-          .setY(
-            host.viewDirection().y * throwSpeed +
-              host.playerVelocity().y +
-              throwLift,
-          )
+          .setY(host.viewDirection().y * throwSpeed + host.playerVelocity().y + throwLift)
       : host.playerVelocity();
     host.physicsWorld().dropBook(publicationId, {
       ...(throwBook ? {angularVelocity: this.#throwAngularVelocity} : {}),
@@ -410,14 +354,7 @@ export class BookCarryActions {
     record.baseRotation.set(-Math.PI / 2, host.lookYaw(), -0.04);
     host.removeCarriedPublication(publicationId);
     this.discardError = undefined;
-    host.clearShelfTargetSelection();
-    host.setTrashTargeted(false);
-    host.syncCarriedBookPresentation();
-    host.updateHeldPhysicsTarget();
-    host.syncInteractiveMeshes();
-    host.updateShelfTargetVisuals();
-    host.markWorldStateDirty();
-    host.emitGameState();
+    this.#refreshAfterBookMutation();
   }
 
   async discardCarriedBook(): Promise<void> {
@@ -434,14 +371,11 @@ export class BookCarryActions {
 
     let discarded = false;
     try {
-      discarded =
-        (await host.onDiscardPublication?.()?.(publicationId)) === true;
+      discarded = (await host.onDiscardPublication?.()?.(publicationId)) === true;
     } catch (error) {
       if (!host.disposed())
         this.discardError =
-          error instanceof Error && error.message
-            ? error.message
-            : "The library rejected the discard.";
+          error instanceof Error && error.message ? error.message : "The library rejected the discard.";
     }
     if (host.disposed()) return;
     this.discardBusy = false;
@@ -465,14 +399,7 @@ export class BookCarryActions {
         host.booksById().delete(publicationId);
       }
       host.removeCarriedPublication(publicationId);
-      host.setTrashTargeted(false);
-      host.syncCarriedBookPresentation();
-      host.updateHeldPhysicsTarget();
-      host.syncInteractiveMeshes();
-      host.updateShelfTargetVisuals();
-      host.markWorldStateDirty();
-      host.emitGameState();
-      host.flushWorldSave();
+      this.#refreshAfterBookMutation(false, true);
       return;
     }
     host.scene().attach(record.mesh);
@@ -485,15 +412,7 @@ export class BookCarryActions {
       startRotation: record.mesh.quaternion.clone(),
     };
     host.removeCarriedPublication(publicationId);
-    host.clearShelfTargetSelection();
-    host.setTrashTargeted(false);
-    host.syncCarriedBookPresentation();
-    host.updateHeldPhysicsTarget();
-    host.syncInteractiveMeshes();
-    host.updateShelfTargetVisuals();
-    host.markWorldStateDirty();
-    host.emitGameState();
-    host.flushWorldSave();
+    this.#refreshAfterBookMutation(true, true);
   }
 
   finishShelveAnimation(): void {
@@ -509,16 +428,12 @@ export class BookCarryActions {
     record.mesh.scale.setScalar(1);
     record.shelfPreview = 0;
     host.bookTextures().restoreCompactBookCoverTexture(record);
-    if (animation.placements)
-      this.applySpineShelfPlacements(animation.shelfId, animation.placements);
+    if (animation.placements) this.applySpineShelfPlacements(animation.shelfId, animation.placements);
     else {
       record.basePosition.copy(record.shelfPosition);
       host
         .physicsWorld()
-        .shelveBook(
-          animation.publicationId,
-          host.setPhysicsPose(record.shelfPosition, record.baseRotation),
-        );
+        .shelveBook(animation.publicationId, host.setPhysicsPose(record.shelfPosition, record.baseRotation));
     }
     host.syncInteractiveMeshes();
     host.applyBookStates();
@@ -535,22 +450,11 @@ export class BookCarryActions {
       this.shelveAnimation = undefined;
       return;
     }
-    animation.elapsedSeconds = Math.min(
-      SHELVE_BOOK_DURATION_SECONDS,
-      animation.elapsedSeconds + deltaSeconds,
-    );
+    animation.elapsedSeconds = Math.min(SHELVE_BOOK_DURATION_SECONDS, animation.elapsedSeconds + deltaSeconds);
     const progress = animation.elapsedSeconds / SHELVE_BOOK_DURATION_SECONDS;
     const eased = 1 - (1 - progress) ** 3;
-    record.mesh.position.lerpVectors(
-      animation.startPosition,
-      animation.targetPosition,
-      eased,
-    );
-    record.mesh.quaternion.slerpQuaternions(
-      animation.startRotation,
-      animation.targetRotation,
-      eased,
-    );
+    record.mesh.position.lerpVectors(animation.startPosition, animation.targetPosition, eased);
+    record.mesh.quaternion.slerpQuaternions(animation.startRotation, animation.targetRotation, eased);
     record.mesh.scale.setScalar(1);
     if (progress >= 1) this.finishShelveAnimation();
   }
@@ -565,35 +469,22 @@ export class BookCarryActions {
       return;
     }
 
-    animation.elapsedSeconds = Math.min(
-      DISCARD_TOSS_DURATION_SECONDS,
-      animation.elapsedSeconds + deltaSeconds,
-    );
+    animation.elapsedSeconds = Math.min(DISCARD_TOSS_DURATION_SECONDS, animation.elapsedSeconds + deltaSeconds);
     const progress = animation.elapsedSeconds / DISCARD_TOSS_DURATION_SECONDS;
     const eased = 1 - (1 - progress) ** 3;
     // Aim the toss at whichever bin the player targeted, falling back to
     // the seeded discard bin when that one is gone.
     const targetedTrashBinId = host.targetedTrashBinId();
     const discardBin =
-      (targetedTrashBinId !== undefined
-        ? host.movableProps().get(targetedTrashBinId)?.object
-        : undefined) ??
+      (targetedTrashBinId !== undefined ? host.movableProps().get(targetedTrashBinId)?.object : undefined) ??
       host.movableProps().get(TRASH_CAN_PROP_ID)?.object ??
       host.discardBinGroup();
     discardBin.updateWorldMatrix(true, false);
     this.#trashTossTarget.set(0, TRASH_CAN_HEIGHT * 0.35, 0);
     discardBin.localToWorld(this.#trashTossTarget);
-    record.mesh.position.lerpVectors(
-      animation.startPosition,
-      this.#trashTossTarget,
-      eased,
-    );
+    record.mesh.position.lerpVectors(animation.startPosition, this.#trashTossTarget, eased);
     record.mesh.position.y += Math.sin(progress * Math.PI) * 0.72;
-    record.mesh.quaternion.slerpQuaternions(
-      animation.startRotation,
-      this.#trashTossRotation,
-      eased,
-    );
+    record.mesh.quaternion.slerpQuaternions(animation.startRotation, this.#trashTossRotation, eased);
     record.mesh.scale.setScalar(1 - progress * 0.28);
     if (progress < 1) return;
 
@@ -601,8 +492,7 @@ export class BookCarryActions {
     host.physicsWorld().removeBook(animation.publicationId);
     host.disposeBookRecord(record);
     host.booksById().delete(animation.publicationId);
-    if (host.hoveredPublicationId() === animation.publicationId)
-      host.setHoveredPublicationId(undefined);
+    if (host.hoveredPublicationId() === animation.publicationId) host.setHoveredPublicationId(undefined);
     host.syncInteractiveMeshes();
     host.applyBookStates();
     host.markWorldStateDirty();

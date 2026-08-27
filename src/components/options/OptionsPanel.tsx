@@ -33,30 +33,19 @@ export const OptionsPanel = (props: {
 }) => (
   <section class="min-w-0 overflow-y-auto px-4 pt-7 pb-12 sm:px-7 lg:px-10 lg:pt-9 xl:col-span-2">
     <div class="mx-auto max-w-4xl">
-      <p class="text-[10px] font-semibold tracking-[0.2em] text-[#d55247] uppercase">
-        Shop preferences
-      </p>
-      <h2 class="mt-2 font-serif text-3xl tracking-[-0.04em] text-[#f0ecdf] sm:text-4xl">
-        Options
-      </h2>
+      <p class="text-[10px] font-semibold tracking-[0.2em] text-[#d55247] uppercase">Shop preferences</p>
+      <h2 class="mt-2 font-serif text-3xl tracking-[-0.04em] text-[#f0ecdf] sm:text-4xl">Options</h2>
       <p class="mt-2 max-w-xl text-xs leading-5 text-[#6e7974]">
-        Tune first-person controls, book handling, and which publications enter
-        your shop.
+        Tune first-person controls, book handling, and which publications enter your shop.
       </p>
 
       <div class="mt-8 space-y-3">
-        <MouseSensitivityControl
-          value={props.mouseSensitivity}
-          onChange={props.onMouseSensitivityChange}
-        />
+        <MouseSensitivityControl value={props.mouseSensitivity} onChange={props.onMouseSensitivityChange} />
         <GamepadLookSensitivityControl
           value={props.gamepadLookSensitivity}
           onChange={props.onGamepadLookSensitivityChange}
         />
-        <TvScreenLightingControl
-          enabled={props.tvScreenLighting}
-          onChange={props.onTvScreenLightingChange}
-        />
+        <TvScreenLightingControl enabled={props.tvScreenLighting} onChange={props.onTvScreenLightingChange} />
         <ReadingDirectionControl
           defaultDirection={props.defaultReadingDirection}
           onDefaultDirectionChange={props.onDefaultReadingDirectionChange}
@@ -68,9 +57,7 @@ export const OptionsPanel = (props: {
             <FiMapPin size={15} />
           </span>
           <div class="min-w-0 flex-1">
-            <p class="text-[10px] font-semibold tracking-[0.12em] text-[#c5cec9] uppercase">
-              Player recovery
-            </p>
+            <p class="text-[10px] font-semibold tracking-[0.12em] text-[#c5cec9] uppercase">Player recovery</p>
             <p class="mt-1 text-[9px] leading-4 text-[#65716c]">
               Teleport back to the first-floor entrance if you become stuck.
             </p>

@@ -5,12 +5,9 @@ type KeyboardLayoutApi = {
 };
 
 /** Reads the browser's keyboard layout when the experimental API is available. */
-export const readKeyboardLayout = async (): Promise<
-  KeyboardLayout | undefined
-> => {
+export const readKeyboardLayout = async (): Promise<KeyboardLayout | undefined> => {
   if (typeof navigator === "undefined") return;
-  const keyboard = (navigator as Navigator & {keyboard?: KeyboardLayoutApi})
-    .keyboard;
+  const keyboard = (navigator as Navigator & {keyboard?: KeyboardLayoutApi}).keyboard;
   if (!keyboard?.getLayoutMap) return;
   try {
     return await keyboard.getLayoutMap();
@@ -32,10 +29,7 @@ export const keyboardLayoutEntry = (
 const INTERACTION_KEY_TOKEN = /\b([A-Z])\b/g;
 
 /** Replaces QWERTY letter labels in an interaction with the physical key's label. */
-export const formatInteractionKey = (
-  interactionKey: string,
-  layout: KeyboardLayout,
-) =>
+export const formatInteractionKey = (interactionKey: string, layout: KeyboardLayout) =>
   interactionKey.replace(INTERACTION_KEY_TOKEN, (match, letter: string) => {
     const label = layout.get(`Key${letter}`);
     return label ? label.toUpperCase() : match;

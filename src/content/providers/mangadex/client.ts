@@ -11,8 +11,7 @@ const CHAPTER_RESULT_LIMIT = 100;
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
-const optionalString = (value: unknown) =>
-  typeof value === "string" && value.trim() ? value.trim() : undefined;
+const optionalString = (value: unknown) => (typeof value === "string" && value.trim() ? value.trim() : undefined);
 
 const requiredString = (value: unknown, field: string) => {
   const string = optionalString(value);
@@ -30,8 +29,7 @@ const requiredArray = (value: unknown, field: string) => {
   return value;
 };
 
-const languageCode = (language: SupportedLanguage) =>
-  language === "english" ? "en" : "ja";
+const languageCode = (language: SupportedLanguage) => (language === "english" ? "en" : "ja");
 
 const parseTextMap = (value: unknown) => {
   if (!isRecord(value)) return {};
@@ -132,9 +130,7 @@ const retryAfterMilliseconds = (response: Response) => {
   const value = response.headers.get("retry-after")?.trim();
   if (!value) return undefined;
   const seconds = Number(value);
-  return Number.isFinite(seconds) && seconds >= 0
-    ? Math.min(seconds * 1_000, 60_000)
-    : undefined;
+  return Number.isFinite(seconds) && seconds >= 0 ? Math.min(seconds * 1_000, 60_000) : undefined;
 };
 
 const normalizeOrigin = (origin: string) => {
@@ -149,35 +145,19 @@ const parseManga = (value: unknown, field: string): MangaDexManga => {
   const attributes = requiredRecord(record.attributes, `${field}.attributes`);
   const relationships = parseRelationships(record.relationships);
   const id = requiredString(record.id, `${field}.id`);
-  const tags = requiredArray(
-    attributes.tags,
-    `${field}.attributes.tags`,
-  ).flatMap((tag, index) => {
+  const tags = requiredArray(attributes.tags, `${field}.attributes.tags`).flatMap((tag, index) => {
     const tagRecord = requiredRecord(tag, `${field}.attributes.tags[${index}]`);
-    const tagAttributes = requiredRecord(
-      tagRecord.attributes,
-      `${field}.attributes.tags[${index}].attributes`,
-    );
+    const tagAttributes = requiredRecord(tagRecord.attributes, `${field}.attributes.tags[${index}].attributes`);
     const tagId = optionalString(tagRecord.id);
     const name = firstText(tagAttributes.name, ["en"]);
     return tagId && name ? [{id: tagId, name}] : [];
   });
-  const cover = relationships.find(
-    (relationship) => relationship.type === "cover_art",
-  );
-  const year = Number.isSafeInteger(attributes.year)
-    ? Number(attributes.year)
-    : undefined;
+  const cover = relationships.find((relationship) => relationship.type === "cover_art");
+  const year = Number.isSafeInteger(attributes.year) ? Number(attributes.year) : undefined;
   const originalLanguage = optionalString(attributes.originalLanguage);
-  const coverFileName =
-    cover?.attributes === undefined
-      ? undefined
-      : optionalString(cover.attributes.fileName);
+  const coverFileName = cover?.attributes === undefined ? undefined : optionalString(cover.attributes.fileName);
   return {
-    altTitles: requiredArray(
-      attributes.altTitles,
-      `${field}.attributes.altTitles`,
-    ).flatMap((title) => {
+    altTitles: requiredArray(attributes.altTitles, `${field}.attributes.altTitles`).flatMap((title) => {
       const parsed = parseTextMap(title);
       return Object.keys(parsed).length > 0 ? [parsed] : [];
     }),
@@ -206,20 +186,13 @@ const parseChapter = (value: unknown, field: string): MangaDexChapter => {
     id: requiredString(record.id, `${field}.id`),
     mangaId: requiredString(
       attributes.mangaId ??
-        parseRelationships(record.relationships).find(
-          (relationship) => relationship.type === "manga",
-        )?.id,
+        parseRelationships(record.relationships).find((relationship) => relationship.type === "manga")?.id,
       `${field}.mangaId`,
     ),
-    pages: Number.isSafeInteger(attributes.pages)
-      ? Number(attributes.pages)
-      : 0,
+    pages: Number.isSafeInteger(attributes.pages) ? Number(attributes.pages) : 0,
     ...(publishedAt === undefined ? {} : {publishedAt}),
     ...(title === undefined ? {} : {title}),
-    translatedLanguage: requiredString(
-      attributes.translatedLanguage,
-      `${field}.translatedLanguage`,
-    ),
+    translatedLanguage: requiredString(attributes.translatedLanguage, `${field}.translatedLanguage`),
     ...(volume === undefined ? {} : {volume}),
   };
 };
@@ -229,14 +202,10 @@ const parseAtHomeServer = (value: unknown): MangaDexAtHomeServer => {
   const chapter = requiredRecord(record.chapter, "at-home response.chapter");
   const baseUrl = requiredString(record.baseUrl, "at-home response.baseUrl");
   const hash = requiredString(chapter.hash, "at-home response.chapter.hash");
-  const data = requiredArray(chapter.data, "at-home response.chapter.data").map(
-    (page, index) =>
-      requiredString(page, `at-home response.chapter.data[${index}]`),
+  const data = requiredArray(chapter.data, "at-home response.chapter.data").map((page, index) =>
+    requiredString(page, `at-home response.chapter.data[${index}]`),
   );
-  const dataSaver = requiredArray(
-    chapter.dataSaver,
-    "at-home response.chapter.dataSaver",
-  ).map((page, index) =>
+  const dataSaver = requiredArray(chapter.dataSaver, "at-home response.chapter.dataSaver").map((page, index) =>
     requiredString(page, `at-home response.chapter.dataSaver[${index}]`),
   );
   return {baseUrl, chapter: {data, dataSaver, hash}};
@@ -257,11 +226,7 @@ export class MangaDexClient {
     this.#onRetry = options.onRetry;
     this.#requestTimeoutMilliseconds = Math.max(
       1,
-      Math.min(
-        120_000,
-        options.requestTimeoutMilliseconds ??
-          DEFAULT_REQUEST_TIMEOUT_MILLISECONDS,
-      ),
+      Math.min(120_000, options.requestTimeoutMilliseconds ?? DEFAULT_REQUEST_TIMEOUT_MILLISECONDS),
     );
     this.#retryCount = Math.max(0, Math.min(5, options.retryCount ?? 2));
     this.#sleep = options.sleep ?? ((milliseconds) => Bun.sleep(milliseconds));
@@ -285,16 +250,11 @@ export class MangaDexClient {
       params.set("title", trimmedQuery);
       params.append("order[relevance]", "desc");
     } else params.append("order[updatedAt]", "desc");
-    for (const language of languages)
-      params.append("availableTranslatedLanguage[]", languageCode(language));
-    for (const tagId of await this.#resolveTagIds(blockedTags))
-      params.append("excludedTags[]", tagId);
+    for (const language of languages) params.append("availableTranslatedLanguage[]", languageCode(language));
+    for (const tagId of await this.#resolveTagIds(blockedTags)) params.append("excludedTags[]", tagId);
     params.append("includes[]", "cover_art");
     const value = await this.#requestJson(`/manga?${params.toString()}`);
-    const data = requiredArray(
-      requiredRecord(value, "manga search response").data,
-      "manga search response.data",
-    );
+    const data = requiredArray(requiredRecord(value, "manga search response").data, "manga search response.data");
     return data.map((manga, index) => parseManga(manga, `manga[${index}]`));
   }
 
@@ -307,15 +267,11 @@ export class MangaDexClient {
       limit: String(CHAPTER_RESULT_LIMIT),
       offset: String((page - 1) * CHAPTER_RESULT_LIMIT),
     });
-    for (const language of languages)
-      params.append("translatedLanguage[]", languageCode(language));
-    for (const rating of ["safe", "suggestive"])
-      params.append("contentRating[]", rating);
+    for (const language of languages) params.append("translatedLanguage[]", languageCode(language));
+    for (const rating of ["safe", "suggestive"]) params.append("contentRating[]", rating);
     params.append("order[volume]", "asc");
     params.append("order[chapter]", "asc");
-    const value = await this.#requestJson(
-      `/manga/${encodeURIComponent(mangaId)}/feed?${params.toString()}`,
-    );
+    const value = await this.#requestJson(`/manga/${encodeURIComponent(mangaId)}/feed?${params.toString()}`);
     const response = requiredRecord(value, "chapter feed response");
     const data = requiredArray(response.data, "chapter feed response.data");
     const chapters = data
@@ -324,33 +280,19 @@ export class MangaDexClient {
     const responseLimit = Number(response.limit);
     const responseOffset = Number(response.offset);
     const responseTotal = Number(response.total);
-    const limit =
-      Number.isSafeInteger(responseLimit) && responseLimit > 0
-        ? responseLimit
-        : CHAPTER_RESULT_LIMIT;
+    const limit = Number.isSafeInteger(responseLimit) && responseLimit > 0 ? responseLimit : CHAPTER_RESULT_LIMIT;
     const offset =
-      Number.isSafeInteger(responseOffset) && responseOffset >= 0
-        ? responseOffset
-        : (page - 1) * CHAPTER_RESULT_LIMIT;
-    const total =
-      Number.isSafeInteger(responseTotal) && responseTotal >= 0
-        ? responseTotal
-        : offset + data.length;
+      Number.isSafeInteger(responseOffset) && responseOffset >= 0 ? responseOffset : (page - 1) * CHAPTER_RESULT_LIMIT;
+    const total = Number.isSafeInteger(responseTotal) && responseTotal >= 0 ? responseTotal : offset + data.length;
     return {chapters, limit, offset, total};
   }
 
-  async getChapterFeed(
-    mangaId: string,
-    languages: readonly SupportedLanguage[],
-    page: number,
-  ) {
+  async getChapterFeed(mangaId: string, languages: readonly SupportedLanguage[], page: number) {
     return (await this.getChapterFeedPage(mangaId, languages, page)).chapters;
   }
 
   async getAtHomeServer(chapterId: string) {
-    const value = await this.#requestJson(
-      `/at-home/server/${encodeURIComponent(chapterId)}`,
-    );
+    const value = await this.#requestJson(`/at-home/server/${encodeURIComponent(chapterId)}`);
     return parseAtHomeServer(value);
   }
 
@@ -361,16 +303,10 @@ export class MangaDexClient {
 
   async #resolveTagList() {
     this.#tagPromise ??= this.#requestJson("/manga/tag").then((value) => {
-      const data = requiredArray(
-        requiredRecord(value, "manga tag response").data,
-        "manga tag response.data",
-      );
+      const data = requiredArray(requiredRecord(value, "manga tag response").data, "manga tag response.data");
       return data.flatMap((tag, index) => {
         const record = requiredRecord(tag, `tag[${index}]`);
-        const attributes = requiredRecord(
-          record.attributes,
-          `tag[${index}].attributes`,
-        );
+        const attributes = requiredRecord(record.attributes, `tag[${index}].attributes`);
         const id = optionalString(record.id);
         const name = firstText(attributes.name, ["en"]);
         return id && name ? [{id, name}] : [];
@@ -390,8 +326,7 @@ export class MangaDexClient {
   async #requestJson(path: string) {
     const response = await this.#request(path);
     const bytes = await response.arrayBuffer();
-    if (bytes.byteLength > MAX_JSON_RESPONSE_BYTES)
-      throw new Error("MangaDex API response was too large");
+    if (bytes.byteLength > MAX_JSON_RESPONSE_BYTES) throw new Error("MangaDex API response was too large");
     try {
       return JSON.parse(new TextDecoder().decode(bytes)) as unknown;
     } catch {
@@ -402,31 +337,22 @@ export class MangaDexClient {
   async #requestBytes(url: string, maxBytes: number) {
     const response = await this.#request(url);
     const bytes = await response.arrayBuffer();
-    if (bytes.byteLength > maxBytes)
-      throw new Error("MangaDex image response was too large");
+    if (bytes.byteLength > maxBytes) throw new Error("MangaDex image response was too large");
     return Buffer.from(bytes);
   }
 
   async #request(pathOrUrl: string) {
-    const url = pathOrUrl.startsWith("http")
-      ? pathOrUrl
-      : `${this.#apiOrigin}${pathOrUrl}`;
+    const url = pathOrUrl.startsWith("http") ? pathOrUrl : `${this.#apiOrigin}${pathOrUrl}`;
     for (let attempt = 0; ; attempt += 1) {
       const response = await this.#fetcher(url, {
         headers: {Accept: "application/json"},
         signal: AbortSignal.timeout(this.#requestTimeoutMilliseconds),
       });
       if (response.ok) return response;
-      if (
-        attempt >= this.#retryCount ||
-        (response.status < 429 && response.status < 500)
-      ) {
-        throw new Error(
-          `MangaDex request failed with HTTP ${response.status}: ${url}`,
-        );
+      if (attempt >= this.#retryCount || response.status < 429) {
+        throw new Error(`MangaDex request failed with HTTP ${response.status}: ${url}`);
       }
-      const delayMilliseconds =
-        retryAfterMilliseconds(response) ?? 2 ** attempt * 500;
+      const delayMilliseconds = retryAfterMilliseconds(response) ?? 2 ** attempt * 500;
       this.#onRetry?.({
         delayMilliseconds,
         retryAttempt: attempt + 1,

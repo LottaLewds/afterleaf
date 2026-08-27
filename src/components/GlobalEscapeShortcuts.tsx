@@ -57,8 +57,7 @@ export const GlobalEscapeShortcuts = (props: {onFallback: () => void}) => {
         if (event.key !== "Tab" || isEditableTarget(event.target)) return;
         if (isDialogDescendant(event.target)) return;
         if (event.defaultPrevented || event.repeat) return;
-        if (performance.now() - lastStackConsumeAt < ESCAPE_GESTURE_COOLDOWN_MS)
-          return;
+        if (performance.now() - lastStackConsumeAt < ESCAPE_GESTURE_COOLDOWN_MS) return;
         event.preventDefault();
         props.onFallback();
       },

@@ -37,32 +37,20 @@ export const AdditionalLocationsControl = (props: {
   };
   const locationKeys: readonly AdditionalLocationKind[] = [
     ...(Object.keys(arrayLabels) as ArrayLocationKind[]),
-    ...ARCADE_SYSTEMS.map(
-      (system): AdditionalLocationKind => `rom:${system.id}`,
-    ),
+    ...ARCADE_SYSTEMS.map((system): AdditionalLocationKind => `rom:${system.id}`),
   ];
-  const selectableLocationKeys = locationKeys.filter(
-    (key) => key !== "mediaPaths",
-  );
+  const selectableLocationKeys = locationKeys.filter((key) => key !== "mediaPaths");
   const locationsFor = (key: AdditionalLocationKind): readonly string[] => {
     if (isBookLocationKind(key)) return props.config[key] ?? [];
     const system = romSystemOfKind(key);
     if (!system) return [];
     return props.config.romPaths?.[system] ?? [];
   };
-  const withBookLocation = (
-    config: AfterleafLibraryConfig,
-    key: ArrayLocationKind,
-    path: string,
-  ) => {
-    if (!bookLocationKeys.includes(key as (typeof bookLocationKeys)[number]))
-      return config;
+  const withBookLocation = (config: AfterleafLibraryConfig, key: ArrayLocationKind, path: string) => {
+    if (!bookLocationKeys.includes(key as (typeof bookLocationKeys)[number])) return config;
     const nextConfig = {...config};
     for (const bookKey of bookLocationKeys)
-      if (bookKey !== key)
-        nextConfig[bookKey] = (config[bookKey] ?? []).filter(
-          (entry) => entry !== path,
-        );
+      if (bookKey !== key) nextConfig[bookKey] = (config[bookKey] ?? []).filter((entry) => entry !== path);
     return nextConfig;
   };
   const matchingEntries = createMemo(() => {
@@ -70,10 +58,7 @@ export const AdditionalLocationsControl = (props: {
     if (!current) return [];
     const input = browser.pathInput().trim();
     if (input === current.path || /[\\/]$/u.test(input)) return current.entries;
-    const separatorIndex = Math.max(
-      input.lastIndexOf("/"),
-      input.lastIndexOf("\\"),
-    );
+    const separatorIndex = Math.max(input.lastIndexOf("/"), input.lastIndexOf("\\"));
     const fragment = input.slice(separatorIndex + 1).toLocaleLowerCase();
     if (!fragment) return current.entries;
     const rank = (entry: (typeof current.entries)[number]) => {
@@ -84,11 +69,7 @@ export const AdditionalLocationsControl = (props: {
     };
     return current.entries.toSorted((left, right) => rank(left) - rank(right));
   });
-  const moveLocation = (
-    from: AdditionalLocationKind,
-    path: string,
-    to: AdditionalLocationKind,
-  ) => {
+  const moveLocation = (from: AdditionalLocationKind, path: string, to: AdditionalLocationKind) => {
     if (from === to) return;
     let nextConfig = props.config;
     if (isBookLocationKind(from)) {
@@ -108,16 +89,11 @@ export const AdditionalLocationsControl = (props: {
     const toSystem = romSystemOfKind(to);
     if (toSystem) {
       const targetFolders = locationsFor(to);
-      nextConfig = withRomFolders(nextConfig, toSystem, [
-        ...targetFolders.filter((entry) => entry !== path),
-        path,
-      ]);
+      nextConfig = withRomFolders(nextConfig, toSystem, [...targetFolders.filter((entry) => entry !== path), path]);
     } else if (isBookLocationKind(to)) {
       const targetLocations = locationsFor(to);
       const merged = withBookLocation(nextConfig, to, path);
-      merged[to] = targetLocations.includes(path)
-        ? targetLocations
-        : [...targetLocations, path];
+      merged[to] = targetLocations.includes(path) ? targetLocations : [...targetLocations, path];
       nextConfig = merged;
     }
     props.onChange(nextConfig);
@@ -127,10 +103,7 @@ export const AdditionalLocationsControl = (props: {
     const system = romSystemOfKind(key);
     if (system) {
       const folders = locationsFor(key);
-      if (!folders.includes(path))
-        props.onChange(
-          withRomFolders(props.config, system, [...folders, path]),
-        );
+      if (!folders.includes(path)) props.onChange(withRomFolders(props.config, system, [...folders, path]));
       browser.close();
       return;
     }
@@ -172,11 +145,7 @@ export const AdditionalLocationsControl = (props: {
     try {
       await props.onReenroll(path);
     } catch (error) {
-      browser.setBrowserError(
-        error instanceof Error
-          ? error.message
-          : "Could not re-enroll that library root",
-      );
+      browser.setBrowserError(error instanceof Error ? error.message : "Could not re-enroll that library root");
     } finally {
       setReenrollingPath("");
     }
@@ -192,8 +161,8 @@ export const AdditionalLocationsControl = (props: {
             Additional content locations
           </p>
           <p class="mt-1 text-[9px] leading-4 text-[#65716c]">
-            Book locations apply on the next Scan new. TV, poster, art frame,
-            and ROM folder locations apply immediately.
+            Book locations apply on the next Scan new. TV, poster, art frame, and ROM folder locations apply
+            immediately.
           </p>
         </div>
         <button
@@ -214,20 +183,10 @@ export const AdditionalLocationsControl = (props: {
                     aria-label={`Media type for ${location}`}
                     class="h-8 shrink-0 border border-white/8 bg-[#1b2422] px-2 text-[9px] text-[#c5cec9] [color-scheme:dark]"
                     onChange={(event) =>
-                      moveLocation(
-                        key,
-                        location,
-                        event.currentTarget.value as AdditionalLocationKind,
-                      )
+                      moveLocation(key, location, event.currentTarget.value as AdditionalLocationKind)
                     }
                   >
-                    <For
-                      each={
-                        key === "mediaPaths"
-                          ? locationKeys
-                          : selectableLocationKeys
-                      }
-                    >
+                    <For each={key === "mediaPaths" ? locationKeys : selectableLocationKeys}>
                       {(locationKind) => (
                         <option
                           class="bg-[#1b2422] text-[#f0ecdf]"
@@ -239,23 +198,13 @@ export const AdditionalLocationsControl = (props: {
                       )}
                     </For>
                   </select>
-                  <span
-                    class="min-w-0 flex-1 truncate text-[10px] text-[#aeb8b3]"
-                    title={location}
-                  >
+                  <span class="min-w-0 flex-1 truncate text-[10px] text-[#aeb8b3]" title={location}>
                     {location}
                   </span>
-                  <Show
-                    when={bookLocationKeys.includes(
-                      key as (typeof bookLocationKeys)[number],
-                    )}
-                  >
+                  <Show when={bookLocationKeys.includes(key as (typeof bookLocationKeys)[number])}>
                     <button
                       class="shrink-0 text-[9px] text-[#b9a28f] transition hover:text-white disabled:cursor-wait disabled:opacity-40"
-                      disabled={
-                        reenrollingPath() === location ||
-                        !props.reenrollableBookPaths.has(location)
-                      }
+                      disabled={reenrollingPath() === location || !props.reenrollableBookPaths.has(location)}
                       title={
                         props.reenrollableBookPaths.has(location)
                           ? "Replace this root's missing or mismatched Afterleaf mount marker"
@@ -264,9 +213,7 @@ export const AdditionalLocationsControl = (props: {
                       type="button"
                       onClick={() => void reenroll(location)}
                     >
-                      {reenrollingPath() === location
-                        ? "Enrolling…"
-                        : "Re-enroll"}
+                      {reenrollingPath() === location ? "Enrolling…" : "Re-enroll"}
                     </button>
                   </Show>
                   <button
@@ -294,17 +241,11 @@ export const AdditionalLocationsControl = (props: {
           <select
             aria-label="Media type"
             class="h-8 border border-[#d94c3f]/35 bg-[#d94c3f]/10 px-3 text-[9px] font-semibold text-[#e4a098] uppercase [color-scheme:dark] outline-none"
-            onChange={(event) =>
-              setKind(event.currentTarget.value as AdditionalLocationKind)
-            }
+            onChange={(event) => setKind(event.currentTarget.value as AdditionalLocationKind)}
           >
             <For each={selectableLocationKeys}>
               {(key) => (
-                <option
-                  class="bg-[#1b2422] text-[#f0ecdf]"
-                  selected={key === kind()}
-                  value={key}
-                >
+                <option class="bg-[#1b2422] text-[#f0ecdf]" selected={key === kind()} value={key}>
                   {labelFor(key)}
                 </option>
               )}

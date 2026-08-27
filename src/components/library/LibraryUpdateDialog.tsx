@@ -27,17 +27,10 @@ export const LibraryUpdateDialog = (props: {
   onFetchOnBootChange: (enabled: boolean) => void;
   onProviderChange: (providerId: string) => void;
 }) => {
-  const provider = () =>
-    props.providers.find((candidate) => candidate.id === props.providerId);
-  const [query, setQuery] = createSignal(
-    untrack(() => provider()?.defaultQuery ?? ""),
-  );
-  const [fetchLimit, setFetchLimit] = createSignal(
-    untrack(() => props.fetchLimit),
-  );
-  const [maxSearchPages, setMaxSearchPages] = createSignal(
-    untrack(() => props.maxSearchPages),
-  );
+  const provider = () => props.providers.find((candidate) => candidate.id === props.providerId);
+  const [query, setQuery] = createSignal(untrack(() => provider()?.defaultQuery ?? ""));
+  const [fetchLimit, setFetchLimit] = createSignal(untrack(() => props.fetchLimit));
+  const [maxSearchPages, setMaxSearchPages] = createSignal(untrack(() => props.maxSearchPages));
   const fetchLimitIsValid = () =>
     Number.isSafeInteger(fetchLimit()) &&
     fetchLimit() >= MIN_LIBRARY_FETCH_LIMIT &&
@@ -52,11 +45,7 @@ export const LibraryUpdateDialog = (props: {
       () => setQuery(provider()?.defaultQuery ?? ""),
     ),
   );
-  const canUpdate = () =>
-    Boolean(provider()) &&
-    fetchLimitIsValid() &&
-    searchPageLimitIsValid() &&
-    !props.busy;
+  const canUpdate = () => Boolean(provider()) && fetchLimitIsValid() && searchPageLimitIsValid() && !props.busy;
 
   return (
     <div
@@ -68,21 +57,16 @@ export const LibraryUpdateDialog = (props: {
       <div class="max-h-[calc(100dvh-2rem)] w-full max-w-lg overflow-y-auto border border-white/12 bg-[#151d1b] p-6 shadow-[0_30px_100px_#000] sm:p-8">
         <div class="flex items-start justify-between gap-5">
           <div>
-            <p class="text-[9px] font-bold tracking-[0.2em] text-[#d55247] uppercase">
-              Provider acquisition
-            </p>
-            <h2 class="mt-2 font-serif text-2xl text-[#f0ebdf]">
-              Fetch more stock
-            </h2>
+            <p class="text-[9px] font-bold tracking-[0.2em] text-[#d55247] uppercase">Provider acquisition</p>
+            <h2 class="mt-2 font-serif text-2xl text-[#f0ebdf]">Fetch more stock</h2>
           </div>
           <span class="grid size-10 shrink-0 place-items-center border border-[#d55247]/35 bg-[#d55247]/10 text-[#e16458]">
             <FiRefreshCw size={16} />
           </span>
         </div>
         <p class="mt-5 text-xs leading-5 text-[#929e99]">
-          {provider()?.summary ?? "Choose a provider to fetch local stock."}{" "}
-          This downloads a small preview and lazily caches later pages as you
-          read.
+          {provider()?.summary ?? "Choose a provider to fetch local stock."} This downloads a small preview and lazily
+          caches later pages as you read.
         </p>
 
         <div class="mt-6 space-y-3">
@@ -102,9 +86,7 @@ export const LibraryUpdateDialog = (props: {
                 class="w-full border border-white/10 bg-[#0c1312] px-3 py-2.5 text-xs text-[#eee8dc] outline-none focus:border-[#d55247]/70"
                 value={props.providerId}
                 disabled={props.busy}
-                onChange={(event) =>
-                  props.onProviderChange(event.currentTarget.value)
-                }
+                onChange={(event) => props.onProviderChange(event.currentTarget.value)}
               >
                 <For each={props.providers}>
                   {(candidate) => (
@@ -129,9 +111,7 @@ export const LibraryUpdateDialog = (props: {
                 disabled={props.busy}
                 onInput={(event) => setQuery(event.currentTarget.value)}
               />
-              <span class="mt-2 block text-[9px] leading-4 text-[#65716c]">
-                {provider()?.queryHelp}
-              </span>
+              <span class="mt-2 block text-[9px] leading-4 text-[#65716c]">{provider()?.queryHelp}</span>
             </label>
             <Show when={provider()?.queryGuide}>
               {(guide) => (
@@ -139,37 +119,21 @@ export const LibraryUpdateDialog = (props: {
                   <summary class="flex cursor-pointer list-none items-center justify-between gap-4 text-[9px] font-bold tracking-[0.16em] text-[#8e9b96] uppercase transition hover:text-[#d5d9d6]">
                     <span>{provider()?.name} search syntax</span>
                     <span class="text-[#d55247] group-open:hidden">Show</span>
-                    <span class="hidden text-[#d55247] group-open:inline">
-                      Hide
-                    </span>
+                    <span class="hidden text-[#d55247] group-open:inline">Hide</span>
                   </summary>
                   <div class="pt-4">
-                    <p class="text-[10px] leading-4 text-[#77837e]">
-                      {guide().introduction}
-                    </p>
+                    <p class="text-[10px] leading-4 text-[#77837e]">{guide().introduction}</p>
                     <div class="mt-4">
                       <div class="grid grid-cols-[minmax(0,1fr)_minmax(0,1.25fr)_minmax(0,1.25fr)] gap-x-3 gap-y-2 text-[10px]">
-                        <span class="font-bold tracking-[0.1em] text-[#5f6c67] uppercase">
-                          Filter
-                        </span>
-                        <span class="font-bold tracking-[0.1em] text-[#5f6c67] uppercase">
-                          Include
-                        </span>
-                        <span class="font-bold tracking-[0.1em] text-[#5f6c67] uppercase">
-                          Exclude
-                        </span>
+                        <span class="font-bold tracking-[0.1em] text-[#5f6c67] uppercase">Filter</span>
+                        <span class="font-bold tracking-[0.1em] text-[#5f6c67] uppercase">Include</span>
+                        <span class="font-bold tracking-[0.1em] text-[#5f6c67] uppercase">Exclude</span>
                         <For each={guide().entries}>
                           {(entry) => (
                             <>
-                              <span class="text-[#919c97]">
-                                {entry.description}
-                              </span>
-                              <code class="break-words text-[#d7d1c6]">
-                                {entry.expression}
-                              </code>
-                              <code class="break-words text-[#c7837c]">
-                                {entry.exclusion}
-                              </code>
+                              <span class="text-[#919c97]">{entry.description}</span>
+                              <code class="break-words text-[#d7d1c6]">{entry.expression}</code>
+                              <code class="break-words text-[#c7837c]">{entry.exclusion}</code>
                             </>
                           )}
                         </For>
@@ -177,9 +141,7 @@ export const LibraryUpdateDialog = (props: {
                     </div>
                     <Show when={guide().examples.length > 0}>
                       <div class="mt-4 border-t border-white/8 pt-4">
-                        <p class="text-[9px] font-bold tracking-[0.12em] text-[#68746f] uppercase">
-                          Examples
-                        </p>
+                        <p class="text-[9px] font-bold tracking-[0.12em] text-[#68746f] uppercase">Examples</p>
                         <div class="mt-2 flex flex-col gap-1.5">
                           <For each={guide().examples}>
                             {(example) => (
@@ -209,9 +171,7 @@ export const LibraryUpdateDialog = (props: {
                 step="1"
                 value={fetchLimit()}
                 disabled={props.busy}
-                onInput={(event) =>
-                  setFetchLimit(Number(event.currentTarget.value))
-                }
+                onInput={(event) => setFetchLimit(Number(event.currentTarget.value))}
               />
               <span class="mt-2 block text-[9px] leading-4 text-[#65716c]">
                 Maximum unseen publications to acquire this run.
@@ -229,9 +189,7 @@ export const LibraryUpdateDialog = (props: {
                 step="1"
                 value={maxSearchPages()}
                 disabled={props.busy}
-                onInput={(event) =>
-                  setMaxSearchPages(Number(event.currentTarget.value))
-                }
+                onInput={(event) => setMaxSearchPages(Number(event.currentTarget.value))}
               />
               <span class="mt-2 block text-[9px] leading-4 text-[#65716c]">
                 Maximum provider result pages to search for unseen matches.
@@ -243,13 +201,11 @@ export const LibraryUpdateDialog = (props: {
               class="mt-0.5 size-4 accent-[#d94c3f]"
               type="checkbox"
               checked={props.fetchOnBoot}
-              onInput={(event) =>
-                props.onFetchOnBootChange(event.currentTarget.checked)
-              }
+              onInput={(event) => props.onFetchOnBootChange(event.currentTarget.checked)}
             />
             <span>
-              Try to fetch more unique stock whenever Afterleaf boots. This
-              choice is remembered on this device and can be disabled here.
+              Try to fetch more unique stock whenever Afterleaf boots. This choice is remembered on this device and can
+              be disabled here.
             </span>
           </label>
         </div>
@@ -266,13 +222,7 @@ export const LibraryUpdateDialog = (props: {
             class="flex h-10 items-center gap-2 bg-[#d94c3f] px-4 text-[10px] font-bold tracking-[0.1em] text-white uppercase hover:bg-[#e45a4d] disabled:cursor-not-allowed disabled:bg-[#493331] disabled:text-[#86716e]"
             disabled={!canUpdate()}
             onClick={() =>
-              props.onConfirm?.(
-                props.fetchOnBoot,
-                props.providerId,
-                query().trim(),
-                fetchLimit(),
-                maxSearchPages(),
-              )
+              props.onConfirm?.(props.fetchOnBoot, props.providerId, query().trim(), fetchLimit(), maxSearchPages())
             }
           >
             <FiRefreshCw classList={{"animate-spin": props.busy}} size={13} />

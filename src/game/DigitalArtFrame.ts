@@ -13,10 +13,7 @@ import {DEV} from "solid-js";
 
 import {getArtFrameImageMapping, type ArtFrameFit} from "~/artFrames/aspect";
 import type {ArtFrameChannel, ArtFrameImage} from "~/artFrames/protocol";
-import {
-  ART_FRAME_CROSSFADE_SECONDS,
-  artFrameCrossfadeOpacity,
-} from "~/artFrames/transition";
+import {ART_FRAME_CROSSFADE_SECONDS, artFrameCrossfadeOpacity} from "~/artFrames/transition";
 
 const FRAME_BORDER = 0.045;
 const FRAME_DEPTH = 0.055;
@@ -30,10 +27,7 @@ export type DigitalArtFrameOptions = {
   fit: ArtFrameFit;
   imageId?: string;
   intervalSeconds: number;
-  loadTexture: (
-    image: ArtFrameImage,
-    priority: "display" | "preload",
-  ) => Promise<Texture>;
+  loadTexture: (image: ArtFrameImage, priority: "display" | "preload") => Promise<Texture>;
   onImageChange?: () => void;
   releaseTexture: (imageId: string) => void;
 };
@@ -96,11 +90,7 @@ export class DigitalArtFrame {
 
     this.object.name = "digital-art-frame";
     const backing = new Mesh(
-      new BoxGeometry(
-        this.#aspectRatio + FRAME_BORDER * 2,
-        1 + FRAME_BORDER * 2,
-        FRAME_DEPTH,
-      ),
+      new BoxGeometry(this.#aspectRatio + FRAME_BORDER * 2, 1 + FRAME_BORDER * 2, FRAME_DEPTH),
       new MeshStandardMaterial({
         color: "#171918",
         metalness: 0.72,
@@ -115,18 +105,14 @@ export class DigitalArtFrame {
     this.object.add(this.#display.mesh);
 
     this.target = new Mesh(
-      new PlaneGeometry(
-        this.#aspectRatio + FRAME_BORDER * 2,
-        1 + FRAME_BORDER * 2,
-      ),
+      new PlaneGeometry(this.#aspectRatio + FRAME_BORDER * 2, 1 + FRAME_BORDER * 2),
       new MeshBasicMaterial({colorWrite: false, depthWrite: false}),
     );
     this.target.name = "digital-art-frame-target";
     this.target.position.z = SCREEN_OFFSET + 0.002;
     this.object.add(this.target);
 
-    const initialImage =
-      this.#findImage(options.imageId) ?? this.#channel()?.images[0];
+    const initialImage = this.#findImage(options.imageId) ?? this.#channel()?.images[0];
     if (initialImage) void this.#showImage(initialImage, false);
   }
 
@@ -180,10 +166,8 @@ export class DigitalArtFrame {
       : undefined;
     if (currentImage) {
       this.#currentImage = currentImage;
-      if (this.#displayImage?.id === currentImage.id)
-        this.#displayImage = currentImage;
-      if (this.#transition?.image.id === currentImage.id)
-        this.#transition.image = currentImage;
+      if (this.#displayImage?.id === currentImage.id) this.#displayImage = currentImage;
+      if (this.#transition?.image.id === currentImage.id) this.#transition.image = currentImage;
       this.#updateMappings();
       this.#preloadNextImage();
       return;
@@ -194,14 +178,9 @@ export class DigitalArtFrame {
 
   changeChannel(direction: -1 | 1) {
     if (this.#channels.length <= 1) return;
-    const channelIndex = this.#channels.findIndex(
-      (channel) => channel.id === this.#channelId,
-    );
+    const channelIndex = this.#channels.findIndex((channel) => channel.id === this.#channelId);
     const nextIndex =
-      ((channelIndex >= 0 ? channelIndex : -1) +
-        direction +
-        this.#channels.length) %
-      this.#channels.length;
+      ((channelIndex >= 0 ? channelIndex : -1) + direction + this.#channels.length) % this.#channels.length;
     const channel = this.#channels[nextIndex];
     const image = channel?.images[0];
     if (!channel || !image) return;
@@ -209,12 +188,8 @@ export class DigitalArtFrame {
   }
 
   setChannel(channelId: string, imageId?: string) {
-    const channel = this.#channels.find(
-      (candidate) => candidate.id === channelId,
-    );
-    const image =
-      channel?.images.find((candidate) => candidate.id === imageId) ??
-      channel?.images[0];
+    const channel = this.#channels.find((candidate) => candidate.id === channelId);
+    const image = channel?.images.find((candidate) => candidate.id === imageId) ?? channel?.images[0];
     if (!channel || !image) return false;
     this.#releasePreloadedImage();
     this.#channelId = channel.id;
@@ -253,9 +228,7 @@ export class DigitalArtFrame {
     this.object.traverse((object) => {
       if (!(object instanceof Mesh)) return;
       object.geometry.dispose();
-      const materials = Array.isArray(object.material)
-        ? object.material
-        : [object.material];
+      const materials = Array.isArray(object.material) ? object.material : [object.material];
       for (const material of materials) material.dispose();
     });
   }
@@ -274,9 +247,7 @@ export class DigitalArtFrame {
     if (images.length === 0) return;
     if (images.length === 1) return images[0];
     if (this.#shuffleBag.length === 0) {
-      this.#shuffleBag = images
-        .filter((image) => image.id !== this.#currentImage?.id)
-        .map((image) => image.id);
+      this.#shuffleBag = images.filter((image) => image.id !== this.#currentImage?.id).map((image) => image.id);
       for (let index = this.#shuffleBag.length - 1; index > 0; index -= 1) {
         const swapIndex = Math.floor(Math.random() * (index + 1));
         const value = this.#shuffleBag[index];
@@ -292,10 +263,7 @@ export class DigitalArtFrame {
 
   async #showImage(image: ArtFrameImage, notify: boolean) {
     const revision = (this.#revision += 1);
-    const preloadedImage =
-      this.#preloadedImage?.image.id === image.id
-        ? this.#preloadedImage
-        : undefined;
+    const preloadedImage = this.#preloadedImage?.image.id === image.id ? this.#preloadedImage : undefined;
     const texture = this.#loadTexture(image, "display");
     if (preloadedImage) {
       this.#preloadedImage = undefined;
@@ -338,11 +306,7 @@ export class DigitalArtFrame {
       if (!this.#transition) this.#preloadNextImage();
     } catch (error) {
       if (ownsTexture) this.#releaseTexture(image.id);
-      if (DEV)
-        console.warn(
-          `Afterleaf could not load art frame image ${image.id}.`,
-          error,
-        );
+      if (DEV) console.warn(`Afterleaf could not load art frame image ${image.id}.`, error);
     }
   }
 
@@ -439,9 +403,7 @@ ${shader.fragmentShader}`;
     const transition = this.#transition;
     if (!transition) return;
     transition.elapsedSeconds += deltaSeconds;
-    this.#display.transitionProgress.value = artFrameCrossfadeOpacity(
-      transition.elapsedSeconds,
-    );
+    this.#display.transitionProgress.value = artFrameCrossfadeOpacity(transition.elapsedSeconds);
     if (transition.elapsedSeconds < ART_FRAME_CROSSFADE_SECONDS) return;
     this.#finishTransition(true);
   }
@@ -453,16 +415,11 @@ ${shader.fragmentShader}`;
     this.#displayImage = transition.image;
     this.#display.material.map = transition.texture;
     this.#display.incomingMap.value = transition.texture;
-    this.#display.currentContentScale.value.copy(
-      this.#display.incomingContentScale.value,
-    );
-    this.#display.currentSourceRect.value.copy(
-      this.#display.incomingSourceRect.value,
-    );
+    this.#display.currentContentScale.value.copy(this.#display.incomingContentScale.value);
+    this.#display.currentSourceRect.value.copy(this.#display.incomingSourceRect.value);
     this.#display.transitionProgress.value = 0;
     this.#transition = undefined;
-    if (preloadNext)
-      this.#preloadDelaySeconds = PRELOAD_AFTER_TRANSITION_DELAY_SECONDS;
+    if (preloadNext) this.#preloadDelaySeconds = PRELOAD_AFTER_TRANSITION_DELAY_SECONDS;
   }
 
   #updatePreload(deltaSeconds: number) {
@@ -505,22 +462,9 @@ ${shader.fragmentShader}`;
       );
   }
 
-  #updateMapping(
-    image: ArtFrameImage,
-    contentScale: Vector2,
-    sourceRect: Vector4,
-  ) {
-    const mapping = getArtFrameImageMapping(
-      image.aspectRatio,
-      this.#aspectRatio,
-      this.#fit,
-    );
+  #updateMapping(image: ArtFrameImage, contentScale: Vector2, sourceRect: Vector4) {
+    const mapping = getArtFrameImageMapping(image.aspectRatio, this.#aspectRatio, this.#fit);
     contentScale.set(mapping.contentScaleX, mapping.contentScaleY);
-    sourceRect.set(
-      mapping.sourceMinimumX,
-      mapping.sourceMinimumY,
-      mapping.sourceMaximumX,
-      mapping.sourceMaximumY,
-    );
+    sourceRect.set(mapping.sourceMinimumX, mapping.sourceMinimumY, mapping.sourceMaximumX, mapping.sourceMaximumY);
   }
 }

@@ -10,10 +10,8 @@ export const LibraryRepairDialog = (props: {
   onCancel: () => void;
   onConfirm: (options: LibraryRepairOptions) => void;
 }) => {
-  const [repairProviderMetadata, setRepairProviderMetadata] =
-    createSignal(false);
-  const [redownloadProviderAssets, setRedownloadProviderAssets] =
-    createSignal(false);
+  const [repairProviderMetadata, setRepairProviderMetadata] = createSignal(false);
+  const [redownloadProviderAssets, setRedownloadProviderAssets] = createSignal(false);
   return (
     <div
       class="fixed inset-0 z-[70] grid place-items-center bg-black/80 p-4 backdrop-blur-md"
@@ -31,22 +29,16 @@ export const LibraryRepairDialog = (props: {
             <FiTool size={17} />
           </span>
           <div>
-            <p class="text-[9px] font-bold tracking-[0.2em] text-[#d55247] uppercase">
-              Library maintenance
-            </p>
-            <h2
-              id="deep-repair-title"
-              class="mt-2 font-serif text-2xl text-[#f0ebdf]"
-            >
+            <p class="text-[9px] font-bold tracking-[0.2em] text-[#d55247] uppercase">Library maintenance</p>
+            <h2 id="deep-repair-title" class="mt-2 font-serif text-2xl text-[#f0ebdf]">
               Deep scan and repair
             </h2>
           </div>
         </div>
 
         <p class="mt-5 text-xs leading-5 text-[#929e99]">
-          Every local publication and generated asset will be validated and
-          rebuilt. This takes longer than Scan new but does not contact online
-          providers unless you select an option below.
+          Every local publication and generated asset will be validated and rebuilt. This takes longer than Scan new but
+          does not contact online providers unless you select an option below.
         </p>
 
         <div class="mt-5 space-y-3">
@@ -55,18 +47,13 @@ export const LibraryRepairDialog = (props: {
               class="mt-0.5 size-4 accent-[#d94c3f]"
               type="checkbox"
               checked={repairProviderMetadata()}
-              onInput={(event) =>
-                setRepairProviderMetadata(event.currentTarget.checked)
-              }
+              onInput={(event) => setRepairProviderMetadata(event.currentTarget.checked)}
             />
             <span>
-              <span class="block font-semibold text-[#d6dcd8]">
-                Update older provider metadata
-              </span>
+              <span class="block font-semibold text-[#d6dcd8]">Update older provider metadata</span>
               <span class="mt-1 block text-[10px] leading-4 text-[#707c77]">
-                Upgrade cached books that need current metadata. This may
-                download a few representative pages, but it does not search for
-                new books.
+                Upgrade cached books that need current metadata. This may download a few representative pages, but it
+                does not search for new books.
               </span>
             </span>
           </label>
@@ -75,18 +62,13 @@ export const LibraryRepairDialog = (props: {
               class="mt-0.5 size-4 accent-[#d94c3f]"
               type="checkbox"
               checked={redownloadProviderAssets()}
-              onInput={(event) =>
-                setRedownloadProviderAssets(event.currentTarget.checked)
-              }
+              onInput={(event) => setRedownloadProviderAssets(event.currentTarget.checked)}
             />
             <span>
-              <span class="block font-semibold text-[#d6dcd8]">
-                Re-download cached provider images
-              </span>
+              <span class="block font-semibold text-[#d6dcd8]">Re-download cached provider images</span>
               <span class="mt-1 block text-[10px] leading-4 text-[#707c77]">
-                Refresh preview and back-cover images for every cached remote
-                book. Use this only when those images appear damaged or
-                incomplete.
+                Refresh preview and back-cover images for every cached remote book. Use this only when those images
+                appear damaged or incomplete.
               </span>
             </span>
           </label>

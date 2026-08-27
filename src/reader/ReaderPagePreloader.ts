@@ -7,8 +7,7 @@ const loadReaderPageImage: ReaderPageImageLoader = (url) =>
   new Promise((resolvePromise, rejectPromise) => {
     const image = new Image();
     image.onload = () => resolvePromise();
-    image.onerror = () =>
-      rejectPromise(new Error(`Could not preload reader page ${url}`));
+    image.onerror = () => rejectPromise(new Error(`Could not preload reader page ${url}`));
     image.src = url;
   });
 

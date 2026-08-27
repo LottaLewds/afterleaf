@@ -20,5 +20,4 @@ for (const [path, url] of Object.entries(modules)) {
   if (stem) iconsByStem.set(stem, url);
 }
 
-export const promptIconUrl = (icon: string): string | undefined =>
-  iconsByStem.get(icon);
+export const promptIconUrl = (icon: string): string | undefined => iconsByStem.get(icon);

@@ -1,10 +1,6 @@
 import {describe, expect, test} from "bun:test";
 
-import {
-  TAG_BLACKLIST_PREFERENCE_KEY,
-  loadTagBlacklist,
-  saveTagBlacklist,
-} from "~/content/tagBlacklistPreference";
+import {TAG_BLACKLIST_PREFERENCE_KEY, loadTagBlacklist, saveTagBlacklist} from "~/content/tagBlacklistPreference";
 
 const memoryStorage = () => {
   const values = new Map<string, string>();
@@ -20,12 +16,7 @@ describe("tag blacklist preference", () => {
     const storage = memoryStorage();
 
     expect(loadTagBlacklist(storage)).toEqual([]);
-    expect(
-      saveTagBlacklist(
-        ["  Big   Breasts ", "YURI", "big breasts", ""],
-        storage,
-      ),
-    ).toEqual(["big breasts", "yuri"]);
+    expect(saveTagBlacklist(["  Big   Breasts ", "YURI", "big breasts", ""], storage)).toEqual(["big breasts", "yuri"]);
     expect(loadTagBlacklist(storage)).toEqual(["big breasts", "yuri"]);
   });
 
@@ -33,10 +24,7 @@ describe("tag blacklist preference", () => {
     const storage = memoryStorage();
     storage.values.set(TAG_BLACKLIST_PREFERENCE_KEY, "not json");
     expect(loadTagBlacklist(storage)).toEqual([]);
-    storage.values.set(
-      TAG_BLACKLIST_PREFERENCE_KEY,
-      JSON.stringify({schemaVersion: 2, tags: ["office"]}),
-    );
+    storage.values.set(TAG_BLACKLIST_PREFERENCE_KEY, JSON.stringify({schemaVersion: 2, tags: ["office"]}));
     expect(loadTagBlacklist(storage)).toEqual([]);
     expect(
       loadTagBlacklist({

@@ -26,12 +26,8 @@ describe("TV protocol", () => {
   });
 
   test("rejects traversal and malformed media paths", () => {
-    expect(
-      parseTvMediaRequest("/api/media/tv/channels/afterleaf/..%2Fsecret.mp4"),
-    ).toEqual({kind: "invalid"});
-    expect(
-      parseTvMediaRequest("/api/media/tv/channels/afterleaf/nested/file.mp4"),
-    ).toEqual({kind: "invalid"});
+    expect(parseTvMediaRequest("/api/media/tv/channels/afterleaf/..%2Fsecret.mp4")).toEqual({kind: "invalid"});
+    expect(parseTvMediaRequest("/api/media/tv/channels/afterleaf/nested/file.mp4")).toEqual({kind: "invalid"});
     expect(parseTvMediaRequest("/unrelated")).toEqual({kind: "unscoped"});
   });
 
@@ -52,15 +48,11 @@ describe("TV protocol", () => {
         ],
       }).channels[0]?.videos[0]?.id,
     ).toBe("sample.mp4");
-    expect(() => parseTvChannelManifest({channels: [{id: "../bad"}]})).toThrow(
-      "TV channel 0 is invalid",
-    );
+    expect(() => parseTvChannelManifest({channels: [{id: "../bad"}]})).toThrow("TV channel 0 is invalid");
   });
 
   test("validates video URL import messages", () => {
-    expect(tvVideoImportUrl(" https://example.com/watch?v=42 ")).toBe(
-      "https://example.com/watch?v=42",
-    );
+    expect(tvVideoImportUrl(" https://example.com/watch?v=42 ")).toBe("https://example.com/watch?v=42");
     expect(tvVideoImportUrl("file:///tmp/video.mp4")).toBeUndefined();
     expect(
       parseTvVideoImportRequest({
@@ -101,9 +93,12 @@ describe("TV protocol", () => {
         },
       ],
     };
-    expect(
-      parseTvChannelManifest(manifest).channels[0]?.videos[0]?.activePicture,
-    ).toEqual({height: 1, width: 0.75, x: 0.125, y: 0});
+    expect(parseTvChannelManifest(manifest).channels[0]?.videos[0]?.activePicture).toEqual({
+      height: 1,
+      width: 0.75,
+      x: 0.125,
+      y: 0,
+    });
 
     expect(() =>
       parseTvChannelManifest({

@@ -2,21 +2,14 @@ import {afterEach, expect, test} from "bun:test";
 import {mkdtemp, mkdir, readFile, rm, writeFile} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {resolve} from "node:path";
-import {
-  runLibrarySourceMigrations,
-  type LibrarySourceMigration,
-} from "~/content/librarySourceMigrations";
+import {runLibrarySourceMigrations, type LibrarySourceMigration} from "~/content/librarySourceMigrations";
 import type {LocalPublicationDocument} from "~/content/schema";
 import {parseLocalPublicationDocument} from "~/content/validation";
 
 const temporaryDirectories: string[] = [];
 
 afterEach(async () => {
-  await Promise.all(
-    temporaryDirectories
-      .splice(0)
-      .map((directory) => rm(directory, {force: true, recursive: true})),
-  );
+  await Promise.all(temporaryDirectories.splice(0).map((directory) => rm(directory, {force: true, recursive: true})));
 });
 
 const createPublication = async (root: string) => {
@@ -36,10 +29,7 @@ const createPublication = async (root: string) => {
 };
 
 const readPublication = async (manifestPath: string) =>
-  parseLocalPublicationDocument(
-    JSON.parse(await readFile(manifestPath, "utf8")) as unknown,
-    manifestPath,
-  );
+  parseLocalPublicationDocument(JSON.parse(await readFile(manifestPath, "utf8")) as unknown, manifestPath);
 
 test("runs registered migrations in order and preserves earlier successes", async () => {
   const root = await mkdtemp(resolve(tmpdir(), "afterleaf-migrations-"));
@@ -125,8 +115,6 @@ test("rejects identity-changing migration results without touching the manifest"
   });
 
   expect(report).toMatchObject({failedCount: 1, migratedCount: 0});
-  expect(report.diagnostics[0]?.message).toContain(
-    "migrations cannot change publication IDs",
-  );
+  expect(report.diagnostics[0]?.message).toContain("migrations cannot change publication IDs");
   expect(await readFile(manifestPath, "utf8")).toBe(original);
 });

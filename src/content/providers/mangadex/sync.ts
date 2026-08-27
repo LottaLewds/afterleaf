@@ -1,13 +1,5 @@
 import {createHash, randomUUID} from "node:crypto";
-import {
-  access,
-  mkdir,
-  readdir,
-  readFile,
-  rename,
-  rm,
-  writeFile,
-} from "node:fs/promises";
+import {access, mkdir, readdir, readFile, rename, rm, writeFile} from "node:fs/promises";
 import {basename, parse, resolve} from "node:path";
 import {replaceDirectory} from "~/content/replaceDirectory";
 import {
@@ -25,16 +17,8 @@ import {
   type LocalPublicationDocument,
   type SupportedLanguage,
 } from "@afterleaf/provider-sdk";
-import {
-  MangaDexClient,
-  type MangaDexAtHomeServer,
-  type MangaDexChapter,
-  type MangaDexManga,
-} from "./client";
-import {
-  MANGADEX_SPARSE_METADATA_FILE,
-  createMangaDexSparseMetadata,
-} from "./sparseMetadata";
+import {MangaDexClient, type MangaDexAtHomeServer, type MangaDexChapter, type MangaDexManga} from "./client";
+import {MANGADEX_SPARSE_METADATA_FILE, createMangaDexSparseMetadata} from "./sparseMetadata";
 
 const PROVIDER_ID = "mangadex";
 const MAX_CONCURRENT_CHAPTER_MATERIALIZATIONS = 2;
@@ -57,8 +41,7 @@ const assertSafeOutputDirectory = (path: string) => {
   return outputDirectory;
 };
 
-const publicationId = (mangaId: string, chapterId: string) =>
-  `${PROVIDER_ID}-${mangaId}-${chapterId}`;
+const publicationId = (mangaId: string, chapterId: string) => `${PROVIDER_ID}-${mangaId}-${chapterId}`;
 
 const normalizeChapterIdentifier = (value: string) => {
   const number = Number(value);
@@ -71,15 +54,13 @@ const logicalChapterKey = (
   chapter: Pick<MangaDexChapter, "chapter" | "id" | "title">,
 ) => {
   const chapterNumber = chapter.chapter?.trim();
-  if (chapterNumber)
-    return `${mangaId}:${language}:chapter:${normalizeChapterIdentifier(chapterNumber)}`;
+  if (chapterNumber) return `${mangaId}:${language}:chapter:${normalizeChapterIdentifier(chapterNumber)}`;
   const title = chapter.title ? normalizeTag(chapter.title) : undefined;
   return `${mangaId}:${language}:${title ? `title:${title}` : `upload:${chapter.id}`}`;
 };
 
 const manifestLogicalChapterKey = (manifest: LocalPublicationDocument) => {
-  if (manifest.source?.provider !== PROVIDER_ID || !manifest.groupId)
-    return undefined;
+  if (manifest.source?.provider !== PROVIDER_ID || !manifest.groupId) return undefined;
   const mangaId = manifest.groupId.startsWith(`${PROVIDER_ID}-`)
     ? manifest.groupId.slice(`${PROVIDER_ID}-`.length)
     : undefined;
@@ -95,21 +76,12 @@ const manifestLogicalChapterKey = (manifest: LocalPublicationDocument) => {
   return `${mangaId}:${manifest.language}:title:${normalizeTag(label.replace(/^chapter\s*:?\s*/iu, ""))}`;
 };
 
-const languageCode = (language: SupportedLanguage) =>
-  language === "english" ? "en" : "ja";
+const languageCode = (language: SupportedLanguage) => (language === "english" ? "en" : "ja");
 
-const chapterLanguage = (
-  chapter: MangaDexChapter,
-  languages: readonly SupportedLanguage[],
-) =>
-  languages.find(
-    (language) => languageCode(language) === chapter.translatedLanguage,
-  );
+const chapterLanguage = (chapter: MangaDexChapter, languages: readonly SupportedLanguage[]) =>
+  languages.find((language) => languageCode(language) === chapter.translatedLanguage);
 
-const titleForLanguage = (
-  manga: MangaDexManga,
-  language: SupportedLanguage,
-) => {
+const titleForLanguage = (manga: MangaDexManga, language: SupportedLanguage) => {
   const codes = language === "english" ? ["en"] : ["ja", "ja-ro"];
   for (const code of codes) {
     const title = manga.title[code];
@@ -125,16 +97,10 @@ const chapterTitle = (chapter: MangaDexChapter) => {
 
 const pageExtension = (filename: string) => {
   const extension = filename.match(/\.([a-z\d]+)$/iu)?.[1]?.toLowerCase();
-  return extension === "png" || extension === "webp" || extension === "jpeg"
-    ? extension
-    : "jpg";
+  return extension === "png" || extension === "webp" || extension === "jpeg" ? extension : "jpg";
 };
 
-const metadataHash = (
-  manga: MangaDexManga,
-  chapter: MangaDexChapter,
-  server: MangaDexAtHomeServer,
-) =>
+const metadataHash = (manga: MangaDexManga, chapter: MangaDexChapter, server: MangaDexAtHomeServer) =>
   createHash("sha256")
     .update(JSON.stringify({chapter, manga, pages: server.chapter.data}))
     .digest("hex");
@@ -147,26 +113,18 @@ const manifestForChapter = (
   retrievedAt: string,
 ): LocalPublicationDocument => {
   const title = `${titleForLanguage(manga, language)} · ${chapterTitle(chapter)}`;
-  const tags = normalizeTags([
-    "manga",
-    language,
-    ...manga.tags.map((tag) => tag.name),
-  ]);
+  const tags = normalizeTags(["manga", language, ...manga.tags.map((tag) => tag.name)]);
   const identity = inferPreparedPublicationIdentity(title, tags);
   const pageDigits = Math.max(3, String(chapter.pages).length);
   const pagePath = (pageIndex: number) => {
     const filename = server.chapter.data[pageIndex];
-    if (!filename)
-      throw new Error(
-        `MangaDex chapter ${chapter.id} lacks page metadata for page ${pageIndex + 1}`,
-      );
+    if (!filename) throw new Error(`MangaDex chapter ${chapter.id} lacks page metadata for page ${pageIndex + 1}`);
     return `pages/${String(pageIndex + 1).padStart(pageDigits, "0")}.${pageExtension(filename)}`;
   };
   const pagePlan = createRepresentativePagePlan(chapter.pages);
   const pages = pagePlan.initialPageIndexes.map(pagePath);
   const firstPage = pages[0];
-  if (!firstPage)
-    throw new Error(`MangaDex chapter ${chapter.id} has no pages`);
+  if (!firstPage) throw new Error(`MangaDex chapter ${chapter.id} has no pages`);
   const backPage = pagePath(pagePlan.backPageIndex);
   return {
     schemaVersion: CONTENT_SCHEMA_VERSION,
@@ -174,9 +132,7 @@ const manifestForChapter = (
     groupId: `${PROVIDER_ID}-${manga.id}`,
     issue: {
       label: chapterTitle(chapter),
-      ...(chapter.chapter && Number.isFinite(Number(chapter.chapter))
-        ? {number: Number(chapter.chapter)}
-        : {}),
+      ...(chapter.chapter && Number.isFinite(Number(chapter.chapter)) ? {number: Number(chapter.chapter)} : {}),
     },
     kind: identity.kind ?? "commercial-volume",
     title: identity.title,
@@ -195,27 +151,17 @@ const manifestForChapter = (
   };
 };
 
-const publicationAssetsMatch = (
-  first: LocalPublicationDocument,
-  second: LocalPublicationDocument,
-) =>
+const publicationAssetsMatch = (first: LocalPublicationDocument, second: LocalPublicationDocument) =>
   first.source?.metadataHash === second.source?.metadataHash &&
   first.assets.front === second.assets.front &&
   first.assets.back === second.assets.back &&
   first.assets.pages.length === second.assets.pages.length &&
-  first.assets.pages.every(
-    (page, index) => page === second.assets.pages[index],
-  );
+  first.assets.pages.every((page, index) => page === second.assets.pages[index]);
 
 const existingManifest = async (publicationDirectory: string) => {
   try {
     return parseLocalPublicationDocument(
-      JSON.parse(
-        await readFile(
-          resolve(publicationDirectory, "publication.json"),
-          "utf8",
-        ),
-      ) as unknown,
+      JSON.parse(await readFile(resolve(publicationDirectory, "publication.json"), "utf8")) as unknown,
       resolve(publicationDirectory, "publication.json"),
     );
   } catch {
@@ -223,19 +169,14 @@ const existingManifest = async (publicationDirectory: string) => {
   }
 };
 
-const publicationIsComplete = async (
-  publicationDirectory: string,
-  manifest: LocalPublicationDocument,
-) => {
+const publicationIsComplete = async (publicationDirectory: string, manifest: LocalPublicationDocument) => {
   const paths = [
     ...manifest.assets.pages,
     ...(manifest.assets.front ? [manifest.assets.front] : []),
     ...(manifest.assets.back ? [manifest.assets.back] : []),
     ...(manifest.assets.spine ? [manifest.assets.spine] : []),
   ];
-  return paths.every((asset) =>
-    fileExists(resolve(publicationDirectory, asset)),
-  );
+  return paths.every((asset) => fileExists(resolve(publicationDirectory, asset)));
 };
 
 const cachedPublicationState = async (outputDirectory: string) => {
@@ -254,8 +195,7 @@ const cachedPublicationState = async (outputDirectory: string) => {
     const publicationDirectory = resolve(outputDirectory, entry.name);
     const manifest = await existingManifest(publicationDirectory);
     if (!manifest || manifest.id !== entry.name) continue;
-    if (!(await publicationIsComplete(publicationDirectory, manifest)))
-      continue;
+    if (!(await publicationIsComplete(publicationDirectory, manifest))) continue;
     completePublicationIds.add(manifest.id);
     const logicalKey = manifestLogicalChapterKey(manifest);
     if (logicalKey) completeLogicalChapterKeys.add(logicalKey);
@@ -263,10 +203,7 @@ const cachedPublicationState = async (outputDirectory: string) => {
   return {completeLogicalChapterKeys, completePublicationIds};
 };
 
-const commitPublication = async (
-  stagingDirectory: string,
-  publicationDirectory: string,
-) => {
+const commitPublication = async (stagingDirectory: string, publicationDirectory: string) => {
   if (!(await fileExists(publicationDirectory))) {
     await replaceDirectory(stagingDirectory, publicationDirectory);
     return "added" as const;
@@ -278,8 +215,7 @@ const commitPublication = async (
     await rm(backupDirectory, {recursive: true, force: true});
     return "updated" as const;
   } catch (error) {
-    if (!(await fileExists(publicationDirectory)))
-      await rename(backupDirectory, publicationDirectory);
+    if (!(await fileExists(publicationDirectory))) await rename(backupDirectory, publicationDirectory);
     throw error;
   }
 };
@@ -294,18 +230,11 @@ const materializeChapter = async (
   retrievedAt: string,
   onDownloadStart?: () => void,
 ) => {
-  const document = manifestForChapter(
-    manga,
-    chapter,
-    server,
-    language,
-    retrievedAt,
-  );
+  const document = manifestForChapter(manga, chapter, server, language, retrievedAt);
   const publicationDirectory = resolve(outputDirectory, document.id);
   const existing = await existingManifest(publicationDirectory);
   const documentMetadataHash = document.source?.metadataHash;
-  if (!documentMetadataHash)
-    throw new Error(`MangaDex chapter ${chapter.id} lacks a metadata hash`);
+  if (!documentMetadataHash) throw new Error(`MangaDex chapter ${chapter.id} lacks a metadata hash`);
   const sparseMetadata = `${JSON.stringify(
     createMangaDexSparseMetadata(chapter.id, documentMetadataHash, server),
     null,
@@ -316,19 +245,12 @@ const materializeChapter = async (
     publicationAssetsMatch(existing, document) &&
     (await publicationIsComplete(publicationDirectory, existing))
   ) {
-    const sparseMetadataPath = resolve(
-      publicationDirectory,
-      MANGADEX_SPARSE_METADATA_FILE,
-    );
-    if (!(await fileExists(sparseMetadataPath)))
-      await writeFile(sparseMetadataPath, sparseMetadata);
+    const sparseMetadataPath = resolve(publicationDirectory, MANGADEX_SPARSE_METADATA_FILE);
+    if (!(await fileExists(sparseMetadataPath))) await writeFile(sparseMetadataPath, sparseMetadata);
     return "unchanged" as const;
   }
 
-  const stagingDirectory = resolve(
-    outputDirectory,
-    `.${document.id}.staging-${randomUUID()}`,
-  );
+  const stagingDirectory = resolve(outputDirectory, `.${document.id}.staging-${randomUUID()}`);
   await mkdir(resolve(stagingDirectory, "pages"), {recursive: true});
   try {
     const pagePlan = createRepresentativePagePlan(chapter.pages);
@@ -345,31 +267,16 @@ const materializeChapter = async (
           nextDownloadIndex += 1;
           if (!download) continue;
           onDownloadStart?.();
-          const bytes = await client.downloadPage(
-            server,
-            server.chapter.data[download.pageIndex] ?? "",
-          );
+          const bytes = await client.downloadPage(server, server.chapter.data[download.pageIndex] ?? "");
           downloadedPages.push({bytes, pageIndex: download.pageIndex});
-          if (
-            document.assets.pages[download.pageIndex] ||
-            download.pageIndex === pagePlan.backPageIndex
-          )
+          if (document.assets.pages[download.pageIndex] || download.pageIndex === pagePlan.backPageIndex)
             await writeFile(resolve(stagingDirectory, download.path), bytes);
         }
       }),
     );
-    const finalizedDocument = await finalizeProviderPublicationDocument(
-      document,
-      downloadedPages,
-    );
-    await writeFile(
-      resolve(stagingDirectory, "publication.json"),
-      `${JSON.stringify(finalizedDocument, null, 2)}\n`,
-    );
-    await writeFile(
-      resolve(stagingDirectory, MANGADEX_SPARSE_METADATA_FILE),
-      sparseMetadata,
-    );
+    const finalizedDocument = await finalizeProviderPublicationDocument(document, downloadedPages);
+    await writeFile(resolve(stagingDirectory, "publication.json"), `${JSON.stringify(finalizedDocument, null, 2)}\n`);
+    await writeFile(resolve(stagingDirectory, MANGADEX_SPARSE_METADATA_FILE), sparseMetadata);
     return await commitPublication(stagingDirectory, publicationDirectory);
   } catch (error) {
     await rm(stagingDirectory, {recursive: true, force: true});
@@ -377,17 +284,10 @@ const materializeChapter = async (
   }
 };
 
-const writeSyncLedger = async (
-  outputDirectory: string,
-  report: LibraryProviderSyncReport,
-  syncedAt: string,
-) => {
+const writeSyncLedger = async (outputDirectory: string, report: LibraryProviderSyncReport, syncedAt: string) => {
   const path = resolve(outputDirectory, ".mangadex-sync.json");
   const temporaryPath = `${path}.staging-${randomUUID()}`;
-  await writeFile(
-    temporaryPath,
-    `${JSON.stringify({schemaVersion: 1, syncedAt, ...report}, null, 2)}\n`,
-  );
+  await writeFile(temporaryPath, `${JSON.stringify({schemaVersion: 1, syncedAt, ...report}, null, 2)}\n`);
   await rename(temporaryPath, path);
 };
 
@@ -400,13 +300,9 @@ export const syncMangaDexCatalog = async (
 ): Promise<LibraryProviderSyncReport> => {
   if (!Number.isSafeInteger(options.limit) || options.limit <= 0)
     throw new Error("MangaDex sync limit must be a positive integer");
-  if (
-    !Number.isSafeInteger(options.maxSearchPages) ||
-    options.maxSearchPages <= 0
-  )
+  if (!Number.isSafeInteger(options.maxSearchPages) || options.maxSearchPages <= 0)
     throw new Error("MangaDex search pages must be a positive integer");
-  if (options.languages.length === 0)
-    throw new Error("MangaDex sync requires at least one catalog language");
+  if (options.languages.length === 0) throw new Error("MangaDex sync requires at least one catalog language");
 
   const outputDirectory = assertSafeOutputDirectory(options.outputDirectory);
   const client = dependencies.client ?? new MangaDexClient();
@@ -442,20 +338,14 @@ export const syncMangaDexCatalog = async (
   let stepTotalCount = 0;
   const now = dependencies.now ?? (() => new Date());
   const syncedAt = options.write ? now().toISOString() : "";
-  const acquisitions = createConcurrentAcquisitionPipeline<
-    SelectedChapter,
-    PreparedChapter,
-    MaterializedChapter
-  >({
+  const acquisitions = createConcurrentAcquisitionPipeline<SelectedChapter, PreparedChapter, MaterializedChapter>({
     concurrency: MAX_CONCURRENT_CHAPTER_MATERIALIZATIONS,
     prepare: async (entry) => ({
       ...entry,
       server: await client.getAtHomeServer(entry.chapter.id),
     }),
     acquire: async (entry, {markStarted}) => {
-      options.onProgress?.(
-        `Downloading MangaDex publication ${entry.selectionIndex + 1} of ${options.limit}`,
-      );
+      options.onProgress?.(`Downloading MangaDex publication ${entry.selectionIndex + 1} of ${options.limit}`);
       try {
         const result = await materializeChapter(
           client,
@@ -470,33 +360,21 @@ export const syncMangaDexCatalog = async (
         return {result};
       } finally {
         stepCompletedCount += 1;
-        options.onStep?.(
-          Math.min(stepCompletedCount, stepTotalCount),
-          stepTotalCount,
-        );
+        options.onStep?.(Math.min(stepCompletedCount, stepTotalCount), stepTotalCount);
       }
     },
   });
 
   try {
     for (let page = 1; page <= options.maxSearchPages; page += 1) {
-      options.onProgress?.(
-        `Searching MangaDex page ${page} of ${options.maxSearchPages} for new publications`,
-      );
-      const manga = await client.searchManga(
-        options.query,
-        page,
-        options.languages,
-        options.blockedTags,
-      );
+      options.onProgress?.(`Searching MangaDex page ${page} of ${options.maxSearchPages} for new publications`);
+      const manga = await client.searchManga(options.query, page, options.languages, options.blockedTags);
       if (manga.length === 0) break;
       let firstPageAcquisitionStarted: Promise<void> | undefined;
       for (const candidate of manga) {
         if (seenMangaIds.has(candidate.id)) continue;
         seenMangaIds.add(candidate.id);
-        const normalizedTags = normalizeTags(
-          candidate.tags.map((tag) => tag.name),
-        );
+        const normalizedTags = normalizeTags(candidate.tags.map((tag) => tag.name));
         const blockedTag = normalizedTags.find((tag) => blockedTags.has(tag));
         if (blockedTag) {
           diagnostics.push({
@@ -505,24 +383,12 @@ export const syncMangaDexCatalog = async (
           });
           continue;
         }
-        for (
-          let chapterPage = 1;
-          chapterPage <= options.maxSearchPages;
-          chapterPage += 1
-        ) {
-          const feed = await client.getChapterFeedPage(
-            candidate.id,
-            options.languages,
-            chapterPage,
-          );
+        for (let chapterPage = 1; chapterPage <= options.maxSearchPages; chapterPage += 1) {
+          const feed = await client.getChapterFeedPage(candidate.id, options.languages, chapterPage);
           for (const chapter of feed.chapters) {
             const language = chapterLanguage(chapter, options.languages);
             if (!language) continue;
-            const logicalKey = logicalChapterKey(
-              candidate.id,
-              language,
-              chapter,
-            );
+            const logicalKey = logicalChapterKey(candidate.id, language, chapter);
             if (seenLogicalChapterKeys.has(logicalKey)) continue;
             seenLogicalChapterKeys.add(logicalKey);
             const id = publicationId(candidate.id, chapter.id);
@@ -554,17 +420,13 @@ export const syncMangaDexCatalog = async (
             selected.push(entry);
             if (options.write) {
               stepTotalCount += 1;
-              options.onStep?.(
-                Math.min(stepCompletedCount, stepTotalCount),
-                stepTotalCount,
-              );
+              options.onStep?.(Math.min(stepCompletedCount, stepTotalCount), stepTotalCount);
               const acquisition = acquisitions.enqueue(entry);
               firstPageAcquisitionStarted ??= acquisition.started;
             }
             if (selected.length >= options.limit) break;
           }
-          if (acquisitions.hasFailed() || selected.length >= options.limit)
-            break;
+          if (acquisitions.hasFailed() || selected.length >= options.limit) break;
           if (feed.offset + feed.limit >= feed.total) break;
         }
         if (acquisitions.hasFailed() || selected.length >= options.limit) break;
@@ -578,9 +440,7 @@ export const syncMangaDexCatalog = async (
     throw error;
   }
 
-  const selectedPublicationIds = selected.map(({chapter, manga}) =>
-    publicationId(manga.id, chapter.id),
-  );
+  const selectedPublicationIds = selected.map(({chapter, manga}) => publicationId(manga.id, chapter.id));
   let addedCount = 0;
   let unchangedCount = 0;
   let updatedCount = 0;

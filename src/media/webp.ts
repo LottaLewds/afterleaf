@@ -1,12 +1,5 @@
 import {createHash, randomUUID} from "node:crypto";
-import {
-  mkdir,
-  readFile,
-  rename,
-  stat,
-  unlink,
-  writeFile,
-} from "node:fs/promises";
+import {mkdir, readFile, rename, stat, unlink, writeFile} from "node:fs/promises";
 import {resolve} from "node:path";
 import sharp from "./sharpRuntime";
 
@@ -22,10 +15,7 @@ const WEBP_REOPTIMIZATION_RATIO = 0.9;
 const WEBP_ORIENTATION_NORMAL = 1;
 const pendingCachedWebpRenders = new Map<string, Promise<Buffer>>();
 
-export const createWebpDerivative = (
-  source: Uint8Array,
-  options: WebpDerivativeOptions,
-) => {
+export const createWebpDerivative = (source: Uint8Array, options: WebpDerivativeOptions) => {
   const image = sharp(source, {limitInputPixels: 100_000_000}).rotate();
   if (options.background) image.flatten({background: options.background});
   return image
@@ -55,13 +45,10 @@ export const renderWebpImage = async (
     metadata.height !== undefined &&
     metadata.width <= maxDimension &&
     metadata.height <= maxDimension &&
-    (metadata.orientation === undefined ||
-      metadata.orientation === WEBP_ORIENTATION_NORMAL);
+    (metadata.orientation === undefined || metadata.orientation === WEBP_ORIENTATION_NORMAL);
   const derivative = await createDerivative(source);
   if (!sourceCanPassThrough) return derivative;
-  return derivative.byteLength <= source.byteLength * WEBP_REOPTIMIZATION_RATIO
-    ? derivative
-    : source;
+  return derivative.byteLength <= source.byteLength * WEBP_REOPTIMIZATION_RATIO ? derivative : source;
 };
 
 const cachedWebpPath = (
@@ -72,19 +59,12 @@ const cachedWebpPath = (
   cacheVersion: string,
 ) => {
   const key = createHash("sha256")
-    .update(
-      `${resolve(filePath)}\u0000${sourceSize}\u0000${Math.floor(
-        sourceModifiedAt,
-      )}\u0000${cacheVersion}`,
-    )
+    .update(`${resolve(filePath)}\u0000${sourceSize}\u0000${Math.floor(sourceModifiedAt)}\u0000${cacheVersion}`)
     .digest("hex");
   return resolve(cacheDirectory, `webp-${cacheVersion}-${key}.webp`);
 };
 
-const persistCachedFile = async (
-  filePath: string,
-  content: string | Uint8Array,
-) => {
+const persistCachedFile = async (filePath: string, content: string | Uint8Array) => {
   const temporaryPath = `${filePath}.${randomUUID()}.tmp`;
   try {
     await writeFile(temporaryPath, content, {flag: "wx"});
@@ -109,13 +89,7 @@ export const renderCachedWebpImage = async (
   cacheVersion: string,
 ) => {
   const source = await stat(filePath);
-  const cachePath = cachedWebpPath(
-    filePath,
-    source.size,
-    source.mtimeMs,
-    cacheDirectory,
-    cacheVersion,
-  );
+  const cachePath = cachedWebpPath(filePath, source.size, source.mtimeMs, cacheDirectory, cacheVersion);
   const passThroughMarkerPath = `${cachePath}.source`;
   const cached = pendingCachedWebpRenders.get(cachePath);
   if (cached) return cached;
@@ -142,14 +116,8 @@ export const renderCachedWebpImage = async (
     }
 
     const sourceBytes = await readFile(filePath);
-    const derivative = await renderWebpImage(
-      filePath,
-      createDerivative,
-      maxDimension,
-    );
-    const outputPath = derivative.equals(sourceBytes)
-      ? passThroughMarkerPath
-      : cachePath;
+    const derivative = await renderWebpImage(filePath, createDerivative, maxDimension);
+    const outputPath = derivative.equals(sourceBytes) ? passThroughMarkerPath : cachePath;
     const output = derivative.equals(sourceBytes) ? "source" : derivative;
     try {
       await mkdir(cacheDirectory, {recursive: true});
@@ -163,7 +131,6 @@ export const renderCachedWebpImage = async (
   try {
     return await pending;
   } finally {
-    if (pendingCachedWebpRenders.get(cachePath) === pending)
-      pendingCachedWebpRenders.delete(cachePath);
+    if (pendingCachedWebpRenders.get(cachePath) === pending) pendingCachedWebpRenders.delete(cachePath);
   }
 };

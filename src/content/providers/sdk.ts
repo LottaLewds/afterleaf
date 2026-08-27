@@ -24,37 +24,20 @@ export interface RepresentativePagePlan {
  * Selects a contiguous initial preview, bounded interior dimension samples,
  * and the back page. Sparse-page URLs retain their true numbering.
  */
-export const createRepresentativePagePlan = (
-  pageCount: number,
-  initialPageCount = 3,
-): RepresentativePagePlan => {
-  if (!Number.isSafeInteger(pageCount) || pageCount <= 0)
-    throw new Error("pageCount must be a positive integer");
+export const createRepresentativePagePlan = (pageCount: number, initialPageCount = 3): RepresentativePagePlan => {
+  if (!Number.isSafeInteger(pageCount) || pageCount <= 0) throw new Error("pageCount must be a positive integer");
   if (!Number.isSafeInteger(initialPageCount) || initialPageCount <= 0)
     throw new Error("initialPageCount must be a positive integer");
-  const initialPageIndexes = Array.from(
-    {length: Math.min(pageCount, initialPageCount)},
-    (_, index) => index,
-  );
+  const initialPageIndexes = Array.from({length: Math.min(pageCount, initialPageCount)}, (_, index) => index);
   const backPageIndex = pageCount - 1;
   const interiorPageIndexes = bookAspectRatioSamplePageIndices(pageCount);
   const aspectRatioPageIndexes =
-    interiorPageIndexes.length > 0
-      ? interiorPageIndexes
-      : [...new Set([0, backPageIndex])];
+    interiorPageIndexes.length > 0 ? interiorPageIndexes : [...new Set([0, backPageIndex])];
   return {
-    acquisitionPageIndexes: [
-      ...new Set([
-        ...initialPageIndexes,
-        ...aspectRatioPageIndexes,
-        backPageIndex,
-      ]),
-    ],
+    acquisitionPageIndexes: [...new Set([...initialPageIndexes, ...aspectRatioPageIndexes, backPageIndex])],
     aspectRatioPageIndexes,
     initialPageIndexes,
-    representativePageIndexes: [
-      ...new Set([...initialPageIndexes, backPageIndex]),
-    ],
+    representativePageIndexes: [...new Set([...initialPageIndexes, backPageIndex])],
     backPageIndex,
   };
 };
@@ -70,14 +53,10 @@ export const finalizeProviderPublicationDocument = async (
   pages: readonly DownloadedProviderPage[],
 ): Promise<LocalPublicationDocument> => {
   const pageCount = document.pageCount ?? document.assets.pages.length;
-  const samplePageIndexes = new Set(
-    createRepresentativePagePlan(pageCount).aspectRatioPageIndexes,
-  );
+  const samplePageIndexes = new Set(createRepresentativePagePlan(pageCount).aspectRatioPageIndexes);
   const dimensions = (
     await Promise.all(
-      pages
-        .filter(({pageIndex}) => samplePageIndexes.has(pageIndex))
-        .map(({bytes}) => readImageDimensions(bytes)),
+      pages.filter(({pageIndex}) => samplePageIndexes.has(pageIndex)).map(({bytes}) => readImageDimensions(bytes)),
     )
   ).filter((value) => value !== undefined);
   return {
@@ -85,10 +64,7 @@ export const finalizeProviderPublicationDocument = async (
     aspectRatioInferenceVersion: BOOK_ASPECT_RATIO_INFERENCE_VERSION,
     physical: {
       ...(document.physical ?? {}),
-      aspectRatio: inferRepresentativeBookAspectRatio(
-        dimensions,
-        DEFAULT_PROVIDER_BOOK_ASPECT_RATIO,
-      ),
+      aspectRatio: inferRepresentativeBookAspectRatio(dimensions, DEFAULT_PROVIDER_BOOK_ASPECT_RATIO),
     },
   };
 };
@@ -117,19 +93,14 @@ export interface ConcurrentAcquisitionOutcome<Input, Prepared, Result> {
 
 export interface ConcurrentAcquisitionPipeline<Input, Prepared, Result> {
   abort(reason?: unknown): void;
-  drain(): Promise<
-    readonly ConcurrentAcquisitionOutcome<Input, Prepared, Result>[]
-  >;
+  drain(): Promise<readonly ConcurrentAcquisitionOutcome<Input, Prepared, Result>[]>;
   enqueue(input: Input): ConcurrentAcquisitionHandle;
   getFailure(): unknown;
   hasFailed(): boolean;
 }
 
 export interface ConcurrentAcquisitionPipelineOptions<Input, Prepared, Result> {
-  acquire(
-    prepared: Prepared,
-    context: ConcurrentAcquisitionContext,
-  ): Promise<Result>;
+  acquire(prepared: Prepared, context: ConcurrentAcquisitionContext): Promise<Result>;
   /** Maximum acquisitions in flight after serial preparation. */
   concurrency: number;
   /**
@@ -166,10 +137,7 @@ export const createConcurrentAcquisitionPipeline = <Input, Prepared, Result>(
     throw new Error("concurrency must be a positive integer");
 
   const queue: QueuedAcquisition<Input>[] = [];
-  const active = new Map<
-    number,
-    Promise<SettledAcquisition<Input, Prepared, Result>>
-  >();
+  const active = new Map<number, Promise<SettledAcquisition<Input, Prepared, Result>>>();
   const outcomes: ConcurrentAcquisitionOutcome<Input, Prepared, Result>[] = [];
   let failure: unknown;
   let failed = false;

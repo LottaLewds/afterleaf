@@ -1,13 +1,5 @@
 import {afterEach, describe, expect, test} from "bun:test";
-import {
-  access,
-  mkdir,
-  mkdtemp,
-  readdir,
-  rm,
-  symlink,
-  writeFile,
-} from "node:fs/promises";
+import {access, mkdir, mkdtemp, readdir, rm, symlink, writeFile} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {join, resolve} from "node:path";
 import {pruneSnapshotGarbage} from "~/content/libraryUpdate/snapshotGarbageCollector";
@@ -15,11 +7,7 @@ import {pruneSnapshotGarbage} from "~/content/libraryUpdate/snapshotGarbageColle
 const temporaryDirectories: string[] = [];
 
 afterEach(async () => {
-  await Promise.all(
-    temporaryDirectories
-      .splice(0)
-      .map((directory) => rm(directory, {force: true, recursive: true})),
-  );
+  await Promise.all(temporaryDirectories.splice(0).map((directory) => rm(directory, {force: true, recursive: true})));
 });
 
 describe("snapshot garbage collection", () => {
@@ -41,9 +29,7 @@ describe("snapshot garbage collection", () => {
 
     pruneSnapshotGarbage(garbageDirectory);
 
-    await expect(
-      access(resolve(garbageDirectory, "snapshot-1")),
-    ).rejects.toThrow();
+    await expect(access(resolve(garbageDirectory, "snapshot-1"))).rejects.toThrow();
     await access(resolve(garbageDirectory, ".keep"));
     await access(resolve(garbageDirectory, "snapshot-link"));
     await access(outsideDirectory);
@@ -59,14 +45,8 @@ describe("snapshot garbage collection", () => {
     const garbageDirectory = resolve(root, "source-garbage");
     const outsideFile = resolve(root, "outside.cbz");
     await mkdir(resolve(garbageDirectory, "Retired Book"), {recursive: true});
-    const setup = [
-      writeFile(resolve(garbageDirectory, "book.cbz"), "archive"),
-      writeFile(outsideFile, "outside"),
-    ];
-    if (process.platform !== "win32")
-      setup.push(
-        symlink(outsideFile, resolve(garbageDirectory, "outside-link.cbz")),
-      );
+    const setup = [writeFile(resolve(garbageDirectory, "book.cbz"), "archive"), writeFile(outsideFile, "outside")];
+    if (process.platform !== "win32") setup.push(symlink(outsideFile, resolve(garbageDirectory, "outside-link.cbz")));
     await Promise.all(setup);
 
     pruneSnapshotGarbage(garbageDirectory);

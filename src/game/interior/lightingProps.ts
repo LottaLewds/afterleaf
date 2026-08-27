@@ -15,10 +15,7 @@ import {GLTFLoader} from "three/examples/jsm/loaders/GLTFLoader.js";
 import {DEV} from "solid-js";
 import lampModelUrl from "~/assets/models/lamp.glb?url";
 import {disposeObject} from "~/game/threeDisposal";
-import {
-  BUILTIN_CEILING_LIGHT_ASSET_ID,
-  BUILTIN_DESK_LAMP_ASSET_ID,
-} from "~/game/propAssetIds";
+import {BUILTIN_CEILING_LIGHT_ASSET_ID, BUILTIN_DESK_LAMP_ASSET_ID} from "~/game/propAssetIds";
 import type {MovablePropRegistration} from "~/game/propRegistration";
 import {INITIAL_WORLD_SEEDING_VERSION} from "~/game/worldSave";
 import {DEFAULT_MODEL_SCALE} from "~/game/propTuning";
@@ -103,10 +100,7 @@ export const createCeilingLightTemplate = (host: LightingPropsHost) => {
   });
 };
 
-export const createDeskLamps = async (
-  parent: Group,
-  host: LightingPropsHost,
-) => {
+export const createDeskLamps = async (parent: Group, host: LightingPropsHost) => {
   try {
     const loader = new GLTFLoader();
     const gltf = await loader.loadAsync(lampModelUrl);
@@ -126,11 +120,7 @@ export const createDeskLamps = async (
     const scale = DESK_LAMP_HEIGHT / height;
     const center = bounds.getCenter(new Vector3());
     gltf.scene.scale.setScalar(scale);
-    gltf.scene.position.set(
-      -center.x * scale,
-      -bounds.min.y * scale,
-      -center.z * scale,
-    );
+    gltf.scene.position.set(-center.x * scale, -bounds.min.y * scale, -center.z * scale);
     gltf.scene.name = "reading-table-lamp";
     gltf.scene.traverse((object) => {
       if (!(object instanceof Mesh)) return;
@@ -141,15 +131,10 @@ export const createDeskLamps = async (
     // The model is always loaded and always becomes the spawn template;
     // seeding only decides whether default-positioned copies are placed.
     for (const [index, z] of READING_TABLE_Z_POSITIONS.entries()) {
-      if (index > 0 && !host.needsSeedPass(INITIAL_WORLD_SEEDING_VERSION))
-        break;
+      if (index > 0 && !host.needsSeedPass(INITIAL_WORLD_SEEDING_VERSION)) break;
       const lamp = index === 0 ? gltf.scene : cloneWithSkeleton(gltf.scene);
-      const spawnClearance =
-        index === 1
-          ? CRT_TABLE_DESK_LAMP_SPAWN_CLEARANCE
-          : DESK_LAMP_SPAWN_CLEARANCE;
-      lamp.position.y =
-        READING_TABLE_SURFACE_Y + spawnClearance - bounds.min.y * scale;
+      const spawnClearance = index === 1 ? CRT_TABLE_DESK_LAMP_SPAWN_CLEARANCE : DESK_LAMP_SPAWN_CLEARANCE;
+      lamp.position.y = READING_TABLE_SURFACE_Y + spawnClearance - bounds.min.y * scale;
       lamp.position.z = z - center.z * scale;
       const lampBounds = new Box3().setFromObject(lamp);
       const lampSize = lampBounds.getSize(new Vector3());
@@ -191,7 +176,6 @@ export const createDeskLamps = async (
       });
     }
   } catch (error) {
-    if (DEV && !host.isDisposed())
-      console.warn("Afterleaf could not load the desk lamp model.", error);
+    if (DEV && !host.isDisposed()) console.warn("Afterleaf could not load the desk lamp model.", error);
   }
 };

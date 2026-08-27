@@ -3,19 +3,12 @@ import {mkdtemp, mkdir, rm, writeFile} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {resolve} from "node:path";
 import sharp from "../media/sharpRuntime";
-import {
-  localCatalogSourceRoots,
-  materializeLocalCatalogReaderPage,
-} from "~/content/localCatalogSparsePage";
+import {localCatalogSourceRoots, materializeLocalCatalogReaderPage} from "~/content/localCatalogSparsePage";
 
 const temporaryDirectories: string[] = [];
 
 afterEach(async () => {
-  await Promise.all(
-    temporaryDirectories
-      .splice(0)
-      .map((directory) => rm(directory, {force: true, recursive: true})),
-  );
+  await Promise.all(temporaryDirectories.splice(0).map((directory) => rm(directory, {force: true, recursive: true})));
 });
 
 const createPng = (color: string) =>
@@ -97,17 +90,9 @@ test("materializes an interior page from an image-folder publication", async () 
 test("resolves a primary-root local source id without the @media prefix", async () => {
   const root = await mkdtemp(resolve(tmpdir(), "afterleaf-sparse-primary-"));
   temporaryDirectories.push(root);
-  const providersDirectory = resolve(
-    root,
-    "afterleaf-data",
-    "providers",
-    "primary-comic",
-  );
+  const providersDirectory = resolve(root, "afterleaf-data", "providers", "primary-comic");
   await mkdir(providersDirectory, {recursive: true});
-  await writeFile(
-    resolve(providersDirectory, "page.png"),
-    await createPng("#405060"),
-  );
+  await writeFile(resolve(providersDirectory, "page.png"), await createPng("#405060"));
   await writeFile(
     resolve(providersDirectory, "publication.json"),
     JSON.stringify({
@@ -148,28 +133,14 @@ test("rejects out-of-range pages and mismatched manifests", async () => {
     pageCount: 3,
   };
 
+  expect(materializeLocalCatalogReaderPage(publication, 4, options)).rejects.toThrow("does not expose that page");
+  expect(materializeLocalCatalogReaderPage({...publication, id: "another-comic"}, 1, options)).rejects.toThrow(
+    "does not match the active catalog entry",
+  );
   expect(
-    materializeLocalCatalogReaderPage(publication, 4, options),
-  ).rejects.toThrow("does not expose that page");
-  expect(
-    materializeLocalCatalogReaderPage(
-      {...publication, id: "another-comic"},
-      1,
-      options,
-    ),
-  ).rejects.toThrow("does not match the active catalog entry");
-  expect(
-    materializeLocalCatalogReaderPage(
-      {...publication, localSourceId: "@media-999/folder-comic"},
-      1,
-      options,
-    ),
+    materializeLocalCatalogReaderPage({...publication, localSourceId: "@media-999/folder-comic"}, 1, options),
   ).rejects.toThrow("invalid local source reference");
   expect(
-    materializeLocalCatalogReaderPage(
-      {...publication, localSourceId: `@media-${index}/../../escape`},
-      1,
-      options,
-    ),
+    materializeLocalCatalogReaderPage({...publication, localSourceId: `@media-${index}/../../escape`}, 1, options),
   ).rejects.toThrow("invalid local source reference");
 });

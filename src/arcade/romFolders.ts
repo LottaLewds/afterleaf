@@ -1,8 +1,5 @@
 import type {ArcadeSystemId} from "~/arcade/systems";
-import {
-  LIBRARY_ROM_FILE_ENDPOINT,
-  LIBRARY_ROMS_ENDPOINT,
-} from "~/content/libraryUpdate/httpProtocol";
+import {LIBRARY_ROM_FILE_ENDPOINT, LIBRARY_ROMS_ENDPOINT} from "~/content/libraryUpdate/httpProtocol";
 
 /** A ROM file discovered inside a system's configured ROM folder. */
 export type ArcadeFolderRom = {
@@ -27,9 +24,7 @@ export const arcadeFolderRomUrl = (systemId: string, name: string): string => {
   return `${origin}${LIBRARY_ROM_FILE_ENDPOINT}?system=${encodeURIComponent(systemId)}&name=${encodeURIComponent(name)}`;
 };
 
-const parseRomsPayload = (
-  value: unknown,
-): {paths: readonly string[]; roms: ArcadeFolderRom[]} => {
+const parseRomsPayload = (value: unknown): {paths: readonly string[]; roms: ArcadeFolderRom[]} => {
   if (!value || typeof value !== "object" || !("paths" in value))
     throw new Error("The ROM folder response is malformed");
   const payload = value as {
@@ -39,9 +34,7 @@ const parseRomsPayload = (
   };
   if (!Array.isArray(payload.paths) || !Array.isArray(payload.roms))
     throw new Error("The ROM folder response is malformed");
-  const paths = payload.paths.filter(
-    (path): path is string => typeof path === "string",
-  );
+  const paths = payload.paths.filter((path): path is string => typeof path === "string");
   const roms: ArcadeFolderRom[] = [];
   for (const entry of payload.roms) {
     if (!entry || typeof entry !== "object") continue;
@@ -63,10 +56,7 @@ const parseRomsPayload = (
 export const listArcadeFolderRoms = async (
   systemId: ArcadeSystemId,
   options: {
-    fetcher?: (
-      input: string,
-      init?: {signal?: AbortSignal},
-    ) => Promise<Pick<Response, "json" | "ok" | "status">>;
+    fetcher?: (input: string, init?: {signal?: AbortSignal}) => Promise<Pick<Response, "json" | "ok" | "status">>;
     signal?: AbortSignal;
   } = {},
 ): Promise<ArcadeFolderRomsResult> => {
@@ -77,8 +67,7 @@ export const listArcadeFolderRoms = async (
     // property never carries an explicit undefined under exactOptionalPropertyTypes.
     ...(signal ? [{signal}] : []),
   );
-  if (response.ok)
-    return {...parseRomsPayload(await response.json()), state: "ready"};
+  if (response.ok) return {...parseRomsPayload(await response.json()), state: "ready"};
   if (response.status === 422) {
     // The middleware reports a missing configuration as a structured failure.
     try {
@@ -86,10 +75,8 @@ export const listArcadeFolderRoms = async (
         error?: {code?: unknown; message?: unknown};
         ok?: unknown;
       };
-      if (payload?.ok === false && payload.error?.code === "no_rom_folder")
-        return {state: "unconfigured"};
-      if (typeof payload.error?.message === "string")
-        throw new Error(payload.error.message);
+      if (payload?.ok === false && payload.error?.code === "no_rom_folder") return {state: "unconfigured"};
+      if (typeof payload.error?.message === "string") throw new Error(payload.error.message);
     } catch (cause) {
       if (cause instanceof Error && cause.message) throw cause;
     }

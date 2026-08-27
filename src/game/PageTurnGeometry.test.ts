@@ -135,14 +135,8 @@ describe("active-leaf deformation", () => {
       });
     }
 
-    expect(
-      deformActiveLeafVertex(1, 0.5, 2, 3, getActiveLeafDeformation(0, "LTR"))
-        .x,
-    ).toBe(2);
-    expect(
-      deformActiveLeafVertex(1, 0.5, 2, 3, getActiveLeafDeformation(0, "RTL"))
-        .x,
-    ).toBe(-2);
+    expect(deformActiveLeafVertex(1, 0.5, 2, 3, getActiveLeafDeformation(0, "LTR")).x).toBe(2);
+    expect(deformActiveLeafVertex(1, 0.5, 2, 3, getActiveLeafDeformation(0, "RTL")).x).toBe(-2);
   });
 
   test("crosses above the binding and settles flat on the opposite side", () => {
@@ -154,49 +148,19 @@ describe("active-leaf deformation", () => {
     expect(centerAtCrossing.x).toBeLessThan(0);
     expect(centerAtCrossing.z).toBeCloseTo(1);
 
-    const settled = deformActiveLeafVertex(
-      1,
-      0.5,
-      2,
-      3,
-      getActiveLeafDeformation(1, "LTR"),
-    );
+    const settled = deformActiveLeafVertex(1, 0.5, 2, 3, getActiveLeafDeformation(1, "LTR"));
     expect(settled.x).toBeCloseTo(-2);
     expect(settled.z).toBeCloseTo(0);
 
-    const rtlSettled = deformActiveLeafVertex(
-      1,
-      0.5,
-      2,
-      3,
-      getActiveLeafDeformation(1, "RTL"),
-    );
+    const rtlSettled = deformActiveLeafVertex(1, 0.5, 2, 3, getActiveLeafDeformation(1, "RTL"));
     expect(rtlSettled.x).toBeCloseTo(2);
     expect(rtlSettled.z).toBeCloseTo(0);
   });
 
   test("runs backward by sampling the same curve from one to zero", () => {
-    const started = deformActiveLeafVertex(
-      1,
-      0.5,
-      2,
-      3,
-      getActiveLeafDeformation(1, "LTR"),
-    );
-    const crossing = deformActiveLeafVertex(
-      1,
-      0.5,
-      2,
-      3,
-      getActiveLeafDeformation(0.5, "LTR"),
-    );
-    const returned = deformActiveLeafVertex(
-      1,
-      0.5,
-      2,
-      3,
-      getActiveLeafDeformation(0, "LTR"),
-    );
+    const started = deformActiveLeafVertex(1, 0.5, 2, 3, getActiveLeafDeformation(1, "LTR"));
+    const crossing = deformActiveLeafVertex(1, 0.5, 2, 3, getActiveLeafDeformation(0.5, "LTR"));
+    const returned = deformActiveLeafVertex(1, 0.5, 2, 3, getActiveLeafDeformation(0, "LTR"));
     expect(started.x).toBeCloseTo(-2);
     expect(crossing.z).toBeCloseTo(2);
     expect(returned.x).toBeCloseTo(2);
@@ -232,27 +196,14 @@ describe("active-leaf deformation", () => {
     });
 
     const vertex = {x: 99, y: 99, z: 99};
-    writeActiveLeafPositions(
-      new Float32Array([0, 0]),
-      new Float32Array(3),
-      2,
-      3,
-      writable,
-      vertex,
-    );
+    writeActiveLeafPositions(new Float32Array([0, 0]), new Float32Array(3), 2, 3, writable, vertex);
     expect(vertex).toEqual({x: 0, y: -1.5, z: 0});
   });
 
   test("writes directly into a PlaneGeometry-style position buffer", () => {
     const uvs = new Float32Array([0, 0, 0.5, 0.5, 1, 1]);
     const positions = new Float32Array(9);
-    const returned = writeActiveLeafPositions(
-      uvs,
-      positions,
-      2,
-      3,
-      getActiveLeafDeformation(0, "LTR"),
-    );
+    const returned = writeActiveLeafPositions(uvs, positions, 2, 3, getActiveLeafDeformation(0, "LTR"));
 
     expect(returned).toBe(positions);
     expect([...positions]).toEqual([0, -1.5, 0, 1, 0, 0, 2, 1.5, 0]);

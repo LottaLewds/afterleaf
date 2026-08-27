@@ -1,11 +1,4 @@
-import {
-  BoxGeometry,
-  Color,
-  Mesh,
-  PerspectiveCamera,
-  Scene,
-  WebGLRenderer,
-} from "three";
+import {BoxGeometry, Color, Mesh, PerspectiveCamera, Scene, WebGLRenderer} from "three";
 import {DEV} from "solid-js";
 
 import {createBookExteriorMaterial} from "~/game/bookExteriorMaterial";
@@ -48,9 +41,7 @@ export class ShopShaderWarmup {
       // four wash lights: forcing every television would multiply the light
       // count into every program and stall the machine during compilation.
       // Multi-TV combinations stay lazy (rare, incremental).
-      const sampleTelevision = host.tvScreenLighting()
-        ? host.televisions()[0]
-        : undefined;
+      const sampleTelevision = host.tvScreenLighting() ? host.televisions()[0] : undefined;
       if (sampleTelevision) {
         sampleTelevision.setScreenLightsForcedVisible(true);
         await host.renderer.compileAsync(host.scene, host.camera);
@@ -58,8 +49,7 @@ export class ShopShaderWarmup {
       }
     } catch (error: unknown) {
       // Lazy compilation still works; precompilation is best-effort.
-      if (DEV)
-        console.warn("Afterleaf could not precompile shader programs.", error);
+      if (DEV) console.warn("Afterleaf could not precompile shader programs.", error);
     } finally {
       host.scene.remove(batchMaterialStandIn);
       batchMaterialStandIn.geometry.dispose();

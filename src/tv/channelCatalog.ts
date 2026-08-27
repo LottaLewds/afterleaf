@@ -5,18 +5,14 @@ import type {ActivePictureRect} from "./activePicture";
 import type {TvChannel, TvChannelManifest, TvVideo} from "./protocol";
 
 export type TvMediaUrlBuilder = (channelId: string, videoId: string) => string;
-export type TvVideoAnalyzer = (
-  filePath: string,
-  cacheKey: string,
-) => Promise<ActivePictureRect | undefined>;
+export type TvVideoAnalyzer = (filePath: string, cacheKey: string) => Promise<ActivePictureRect | undefined>;
 
 const VIDEO_CONTENT_TYPES: Readonly<Record<string, string>> = {
   ".mp4": "video/mp4",
   ".webm": "video/webm",
 };
 
-const compareNames = (left: string, right: string) =>
-  left < right ? -1 : left > right ? 1 : 0;
+const compareNames = (left: string, right: string) => (left < right ? -1 : left > right ? 1 : 0);
 
 const channelLabel = (channelId: string) =>
   channelId
@@ -25,18 +21,14 @@ const channelLabel = (channelId: string) =>
     .map((word) => `${word[0]?.toUpperCase() ?? ""}${word.slice(1)}`)
     .join(" ");
 
-export const tvVideoContentType = (videoId: string) =>
-  VIDEO_CONTENT_TYPES[extname(videoId).toLowerCase()];
+export const tvVideoContentType = (videoId: string) => VIDEO_CONTENT_TYPES[extname(videoId).toLowerCase()];
 
 export const discoverTvChannels = async (
   channelsDirectories: readonly string[],
   mediaUrl: TvMediaUrlBuilder,
   analyzeVideo?: TvVideoAnalyzer,
 ): Promise<TvChannelManifest> => {
-  const channels = new Map<
-    string,
-    TvChannel & {videoIds: Set<string>; videos: TvVideo[]}
-  >();
+  const channels = new Map<string, TvChannel & {videoIds: Set<string>; videos: TvVideo[]}>();
   for (const channelsDirectory of channelsDirectories) {
     let channelEntries;
     try {
@@ -47,11 +39,8 @@ export const discoverTvChannels = async (
       throw error;
     }
 
-    for (const channelEntry of channelEntries.sort((left, right) =>
-      compareNames(left.name, right.name),
-    )) {
-      if (!channelEntry.isDirectory() || channelEntry.name.startsWith("."))
-        continue;
+    for (const channelEntry of channelEntries.sort((left, right) => compareNames(left.name, right.name))) {
+      if (!channelEntry.isDirectory() || channelEntry.name.startsWith(".")) continue;
       let entries;
       try {
         entries = await readdir(resolve(channelsDirectory, channelEntry.name), {
@@ -64,10 +53,7 @@ export const discoverTvChannels = async (
       }
       const videoEntries = entries
         .filter(
-          (entry) =>
-            entry.isFile() &&
-            !entry.name.startsWith(".") &&
-            tvVideoContentType(entry.name) !== undefined,
+          (entry) => entry.isFile() && !entry.name.startsWith(".") && tvVideoContentType(entry.name) !== undefined,
         )
         .sort((left, right) => compareNames(left.name, right.name));
       const existing = channels.get(channelEntry.name);
@@ -81,11 +67,7 @@ export const discoverTvChannels = async (
         } satisfies TvChannel & {videoIds: Set<string>; videos: TvVideo[]});
       for (const entry of videoEntries) {
         if (channel.videoIds.has(entry.name)) continue;
-        const filePath = resolve(
-          channelsDirectory,
-          channelEntry.name,
-          entry.name,
-        );
+        const filePath = resolve(channelsDirectory, channelEntry.name, entry.name);
         let activePicture: ActivePictureRect | undefined;
         try {
           activePicture = await analyzeVideo?.(filePath, filePath);
@@ -101,8 +83,7 @@ export const discoverTvChannels = async (
         channel.videoIds.add(entry.name);
         channel.videos.push(activePicture ? {...video, activePicture} : video);
       }
-      if (!existing && channel.videos.length > 0)
-        channels.set(channel.id, channel);
+      if (!existing && channel.videos.length > 0) channels.set(channel.id, channel);
     }
   }
   return {

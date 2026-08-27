@@ -36,28 +36,16 @@ const configureTexture = (texture: Texture, anisotropy: number) => {
   return texture;
 };
 
-export const loadUpholsteryTextures = (
-  textureLoader: TextureLoader,
-  maxAnisotropy: number,
-): UpholsteryTextures => {
+export const loadUpholsteryTextures = (textureLoader: TextureLoader, maxAnisotropy: number): UpholsteryTextures => {
   const anisotropy = Math.min(16, maxAnisotropy);
-  const albedo = configureTexture(
-    textureLoader.load(upholsteryAlbedoUrl),
-    anisotropy,
-  );
+  const albedo = configureTexture(textureLoader.load(upholsteryAlbedoUrl), anisotropy);
   albedo.colorSpace = SRGBColorSpace;
-  const surface = configureTexture(
-    textureLoader.load(upholsterySurfaceUrl),
-    anisotropy,
-  );
+  const surface = configureTexture(textureLoader.load(upholsterySurfaceUrl), anisotropy);
   surface.channel = 0;
 
   return {
     albedo,
-    normal: configureTexture(
-      textureLoader.load(upholsteryNormalUrl),
-      anisotropy,
-    ),
+    normal: configureTexture(textureLoader.load(upholsteryNormalUrl), anisotropy),
     surface,
   };
 };
@@ -79,18 +67,9 @@ export const createUpholsteryMaterial = (textures: UpholsteryTextures) => {
 };
 
 /** Keeps the upholstery weave at a stable physical scale on every panel. */
-export const createUpholsteryBoxGeometry = (
-  size: BoxSize,
-  position: BoxPosition,
-) => {
+export const createUpholsteryBoxGeometry = (size: BoxSize, position: BoxPosition) => {
   const [width, height, depth] = size;
-  const geometry = new RoundedBoxGeometry(
-    width,
-    height,
-    depth,
-    2,
-    UPHOLSTERY_EDGE_RADIUS,
-  );
+  const geometry = new RoundedBoxGeometry(width, height, depth, 2, UPHOLSTERY_EDGE_RADIUS);
   const uv = geometry.getAttribute("uv");
   const faceDimensions = [
     [depth, height],

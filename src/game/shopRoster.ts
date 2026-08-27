@@ -25,8 +25,7 @@ const appendAvailableIds = (
   const includedIds = new Set(output);
   for (const publicationId of candidates) {
     if (output.length >= limit) break;
-    if (!availableIds.has(publicationId) || includedIds.has(publicationId))
-      continue;
+    if (!availableIds.has(publicationId) || includedIds.has(publicationId)) continue;
     includedIds.add(publicationId);
     output.push(publicationId);
   }
@@ -47,37 +46,16 @@ export const selectShopRoster = (
   const basePublicationIds: string[] = [];
 
   if (options.initializeRoster) {
-    appendAvailableIds(
-      basePublicationIds,
-      options.savedPublicationIds ?? [],
-      availableIds,
-      boundedLimit,
-    );
-    appendAvailableIds(
-      basePublicationIds,
-      options.catalogPublicationIds,
-      availableIds,
-      boundedLimit,
-    );
+    appendAvailableIds(basePublicationIds, options.savedPublicationIds ?? [], availableIds, boundedLimit);
+    appendAvailableIds(basePublicationIds, options.catalogPublicationIds, availableIds, boundedLimit);
   } else {
-    appendAvailableIds(
-      basePublicationIds,
-      options.currentPublicationIds,
-      availableIds,
-      boundedLimit,
-    );
+    appendAvailableIds(basePublicationIds, options.currentPublicationIds, availableIds, boundedLimit);
   }
 
   const baseIds = new Set(basePublicationIds);
   const queuedArrivalIds: string[] = [];
-  appendAvailableIds(
-    queuedArrivalIds,
-    [...options.pendingArrivalIds, ...options.newPublicationIds],
-    availableIds,
-  );
-  const pendingArrivalIds = queuedArrivalIds.filter(
-    (publicationId) => !baseIds.has(publicationId),
-  );
+  appendAvailableIds(queuedArrivalIds, [...options.pendingArrivalIds, ...options.newPublicationIds], availableIds);
+  const pendingArrivalIds = queuedArrivalIds.filter((publicationId) => !baseIds.has(publicationId));
   if (pendingArrivalIds.length === 0)
     return {
       pendingArrivalIds,
@@ -96,12 +74,7 @@ export const selectShopRoster = (
 
   const promotedArrivalIds = pendingArrivalIds.slice(0, boundedLimit);
   const publicationIds = [...promotedArrivalIds];
-  appendAvailableIds(
-    publicationIds,
-    basePublicationIds,
-    availableIds,
-    boundedLimit,
-  );
+  appendAvailableIds(publicationIds, basePublicationIds, availableIds, boundedLimit);
   return {
     pendingArrivalIds: pendingArrivalIds.slice(promotedArrivalIds.length),
     promotedArrivalIds,

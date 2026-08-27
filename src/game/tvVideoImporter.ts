@@ -8,13 +8,7 @@ import type {TvVideo} from "~/tv/protocol";
 export type TvVideoImporterHost = {
   abortSignal: AbortSignal;
   emitGameState: () => void;
-  importTvVideo?:
-    | ((
-        url: string,
-        channelId: string,
-        signal: AbortSignal,
-      ) => Promise<TvVideo>)
-    | undefined;
+  importTvVideo?: ((url: string, channelId: string, signal: AbortSignal) => Promise<TvVideo>) | undefined;
   isDisposed: () => boolean;
 };
 
@@ -42,8 +36,7 @@ export class TvVideoImporter {
 
   /** Clears any pending status message timer (used during disposal). */
   clearMessageTimer(): void {
-    if (this.#messageTimer !== undefined)
-      window.clearTimeout(this.#messageTimer);
+    if (this.#messageTimer !== undefined) window.clearTimeout(this.#messageTimer);
     this.#messageTimer = undefined;
   }
 
@@ -59,17 +52,14 @@ export class TvVideoImporter {
     this.#count += 1;
     this.#error = undefined;
     this.#message = undefined;
-    if (this.#messageTimer !== undefined)
-      window.clearTimeout(this.#messageTimer);
+    if (this.#messageTimer !== undefined) window.clearTimeout(this.#messageTimer);
     this.#messageTimer = undefined;
     this.#host.emitGameState();
     try {
       const video = await importVideo(url, channelId, this.#host.abortSignal);
       if (this.#host.isDisposed()) return false;
-      if (selectImportedChannel)
-        television.playImportedChannel(channelId, video, channelLabel);
-      else
-        television.playVideoIfChannelSelected(channelId, video, channelLabel);
+      if (selectImportedChannel) television.playImportedChannel(channelId, video, channelLabel);
+      else television.playVideoIfChannelSelected(channelId, video, channelLabel);
       this.#message = `Added ${video.id} to ${channelLabel}`;
       this.#messageTimer = window.setTimeout(() => {
         this.#messageTimer = undefined;
@@ -79,10 +69,7 @@ export class TvVideoImporter {
       return true;
     } catch (error) {
       if (this.#host.abortSignal.aborted) return false;
-      this.#error =
-        error instanceof Error && error.message
-          ? error.message
-          : "Video URL could not be imported";
+      this.#error = error instanceof Error && error.message ? error.message : "Video URL could not be imported";
       return false;
     } finally {
       this.#count = Math.max(0, this.#count - 1);

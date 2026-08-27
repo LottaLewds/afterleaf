@@ -120,12 +120,8 @@ const saveFixture = (): WorldSaveV1 => ({
 
 describe("world save validation", () => {
   test("rejects unsupported versions, invalid dates, and malformed transforms", () => {
-    expect(() => parseWorldSave({...saveFixture(), schemaVersion: 2})).toThrow(
-      "Unsupported world save schema version",
-    );
-    expect(() =>
-      parseWorldSave({...saveFixture(), savedAt: "not-a-date"}),
-    ).toThrow("savedAt");
+    expect(() => parseWorldSave({...saveFixture(), schemaVersion: 2})).toThrow("Unsupported world save schema version");
+    expect(() => parseWorldSave({...saveFixture(), savedAt: "not-a-date"})).toThrow("savedAt");
     expect(() =>
       parseWorldSave({
         ...saveFixture(),
@@ -222,9 +218,7 @@ describe("world save validation", () => {
 
   test("accepts multiple carried books and rejects more than five", () => {
     const base = saveFixture();
-    expect(() =>
-      parseWorldSave({...base, books: [base.books[0], base.books[0]]}),
-    ).toThrow("duplicate copy IDs");
+    expect(() => parseWorldSave({...base, books: [base.books[0], base.books[0]]})).toThrow("duplicate copy IDs");
     expect(() =>
       parseWorldSave({
         ...base,
@@ -286,15 +280,11 @@ describe("world save validation", () => {
   test("rejects malformed or duplicate poster placements", () => {
     const poster = saveFixture().posters?.[0];
     if (!poster) throw new Error("Expected poster fixture");
-    expect(() =>
-      parseWorldSave({...saveFixture(), posters: [{...poster, height: 0}]}),
-    ).toThrow("height must be between");
-    expect(() =>
-      parseWorldSave({...saveFixture(), posters: [poster, poster]}),
-    ).toThrow("duplicate poster IDs");
-    expect(() =>
-      parseWorldSave({...saveFixture(), posters: [{...poster, assetId: ""}]}),
-    ).toThrow("assetId");
+    expect(() => parseWorldSave({...saveFixture(), posters: [{...poster, height: 0}]})).toThrow(
+      "height must be between",
+    );
+    expect(() => parseWorldSave({...saveFixture(), posters: [poster, poster]})).toThrow("duplicate poster IDs");
+    expect(() => parseWorldSave({...saveFixture(), posters: [{...poster, assetId: ""}]})).toThrow("assetId");
     expect(() =>
       parseWorldSave({
         ...saveFixture(),
@@ -324,34 +314,28 @@ describe("world save validation", () => {
         digitalArtFrames: [{...frame, intervalSeconds: 1}],
       }),
     ).toThrow("intervalSeconds");
-    expect(() =>
-      parseWorldSave({...saveFixture(), digitalArtFrames: [frame, frame]}),
-    ).toThrow("duplicate digital art frame IDs");
+    expect(() => parseWorldSave({...saveFixture(), digitalArtFrames: [frame, frame]})).toThrow(
+      "duplicate digital art frame IDs",
+    );
   });
 
   test("rejects malformed or duplicate movable props", () => {
     const prop = saveFixture().props?.[0];
     if (!prop) throw new Error("Expected movable prop fixture");
-    expect(() =>
-      parseWorldSave({...saveFixture(), props: [{...prop, id: ""}]}),
-    ).toThrow("non-empty bounded string");
-    expect(() =>
-      parseWorldSave({...saveFixture(), props: [prop, prop]}),
-    ).toThrow("duplicate prop IDs");
-    expect(() =>
-      parseWorldSave({...saveFixture(), props: [{...prop, locked: "yes"}]}),
-    ).toThrow("locked must be a boolean when present");
+    expect(() => parseWorldSave({...saveFixture(), props: [{...prop, id: ""}]})).toThrow("non-empty bounded string");
+    expect(() => parseWorldSave({...saveFixture(), props: [prop, prop]})).toThrow("duplicate prop IDs");
+    expect(() => parseWorldSave({...saveFixture(), props: [{...prop, locked: "yes"}]})).toThrow(
+      "locked must be a boolean when present",
+    );
   });
 
   test("rejects malformed or duplicate model props", () => {
     const prop = saveFixture().modelProps?.[0];
     if (!prop) throw new Error("Expected model prop fixture");
-    expect(() =>
-      parseWorldSave({...saveFixture(), modelProps: [{...prop, scale: 0}]}),
-    ).toThrow("scale must be between");
-    expect(() =>
-      parseWorldSave({...saveFixture(), modelProps: [prop, prop]}),
-    ).toThrow("duplicate model prop IDs");
+    expect(() => parseWorldSave({...saveFixture(), modelProps: [{...prop, scale: 0}]})).toThrow(
+      "scale must be between",
+    );
+    expect(() => parseWorldSave({...saveFixture(), modelProps: [prop, prop]})).toThrow("duplicate model prop IDs");
     expect(() =>
       parseWorldSave({
         ...saveFixture(),
@@ -369,12 +353,10 @@ describe("world save validation", () => {
   test("preserves prop lock flags through a validation round trip", () => {
     const save = saveFixture();
     const parsed = parseWorldSave(save);
-    expect(
-      parsed.props?.find((entry) => entry.id === "desk-lamp-1")?.locked,
-    ).toBe(true);
-    expect(
-      parsed.props?.find((entry) => entry.id === "reading-table-1"),
-    ).toEqual(expect.not.objectContaining({locked: expect.anything()}));
+    expect(parsed.props?.find((entry) => entry.id === "desk-lamp-1")?.locked).toBe(true);
+    expect(parsed.props?.find((entry) => entry.id === "reading-table-1")).toEqual(
+      expect.not.objectContaining({locked: expect.anything()}),
+    );
     const parsedModelProp = parsed.modelProps?.[0];
     if (!parsedModelProp) throw new Error("Expected model prop fixture");
     expect(parsedModelProp.locked).toBeUndefined();
@@ -387,13 +369,9 @@ describe("world save validation", () => {
         seedingVersion: WORLD_SEEDING_VERSION,
         someFutureField: 1,
       }),
-    ).toThrow(
-      "Unknown world save field(s): someFutureField. This reader predates the writer's save format",
-    );
+    ).toThrow("Unknown world save field(s): someFutureField. This reader predates the writer's save format");
     // The legacy flag is known input even though it normalizes away.
-    expect(() =>
-      parseWorldSave({...saveFixture(), defaultsSeeded: true}),
-    ).not.toThrow();
+    expect(() => parseWorldSave({...saveFixture(), defaultsSeeded: true})).not.toThrow();
   });
 
   test("seeding versions normalize legacy flags and survive a round trip", () => {
@@ -408,21 +386,21 @@ describe("world save validation", () => {
       seedingVersion: WORLD_SEEDING_VERSION,
     });
     expect(current.seedingVersion).toBe(WORLD_SEEDING_VERSION);
-    expect(() =>
-      parseWorldSave({...saveFixture(), defaultsSeeded: false}),
-    ).toThrow("defaultsSeeded must be true when present");
-    expect(() =>
-      parseWorldSave({...saveFixture(), defaultsSeeded: "yes"}),
-    ).toThrow("defaultsSeeded must be true when present");
+    expect(() => parseWorldSave({...saveFixture(), defaultsSeeded: false})).toThrow(
+      "defaultsSeeded must be true when present",
+    );
+    expect(() => parseWorldSave({...saveFixture(), defaultsSeeded: "yes"})).toThrow(
+      "defaultsSeeded must be true when present",
+    );
     expect(() =>
       parseWorldSave({
         ...saveFixture(),
         seedingVersion: WORLD_SEEDING_VERSION + 1,
       }),
     ).toThrow("seedingVersion must be an integer between 1 and 2");
-    expect(() =>
-      parseWorldSave({...saveFixture(), seedingVersion: 1.5}),
-    ).toThrow("seedingVersion must be an integer between 1 and 2");
+    expect(() => parseWorldSave({...saveFixture(), seedingVersion: 1.5})).toThrow(
+      "seedingVersion must be an integer between 1 and 2",
+    );
   });
 });
 
@@ -432,12 +410,8 @@ test("catalog compatibility requires exact pack, hash, and snapshot identity", (
   if (!catalog) throw new Error("Expected fixture catalog identity");
 
   expect(worldSaveMatchesCatalog(save, catalog)).toBe(true);
-  expect(
-    worldSaveMatchesCatalog(save, {...catalog, catalogContentHash: "changed"}),
-  ).toBe(false);
-  expect(
-    worldSaveMatchesCatalog(save, {...catalog, snapshotId: "new-snapshot"}),
-  ).toBe(false);
+  expect(worldSaveMatchesCatalog(save, {...catalog, catalogContentHash: "changed"})).toBe(false);
+  expect(worldSaveMatchesCatalog(save, {...catalog, snapshotId: "new-snapshot"})).toBe(false);
   expect(worldSaveMatchesCatalog(omitCatalog(save), catalog)).toBe(false);
 });
 
@@ -453,9 +427,7 @@ test("catalog reconciliation allows a new snapshot of the same logical library",
       snapshotId: "next-snapshot",
     }),
   ).toBe(true);
-  expect(
-    worldSaveCanReconcileCatalog(save, {...catalog, packId: "other-library"}),
-  ).toBe(false);
+  expect(worldSaveCanReconcileCatalog(save, {...catalog, packId: "other-library"})).toBe(false);
   expect(worldSaveCanReconcileCatalog(omitCatalog(save), catalog)).toBe(false);
 });
 
@@ -466,7 +438,5 @@ test("world save validation rejects malformed or duplicate pending arrivals", ()
       pendingArrivalIds: ["duplicate", "duplicate"],
     }),
   ).toThrow("duplicate pending arrival IDs");
-  expect(() =>
-    parseWorldSave({...saveFixture(), pendingArrivalIds: [""]}),
-  ).toThrow("pendingArrivalIds[0]");
+  expect(() => parseWorldSave({...saveFixture(), pendingArrivalIds: [""]})).toThrow("pendingArrivalIds[0]");
 });

@@ -87,8 +87,7 @@ const CONTENT_TYPE_BY_EXTENSION: Record<string, string> = {
 };
 
 export const emulatorDataContentType = (filePath: string): string =>
-  CONTENT_TYPE_BY_EXTENSION[path.extname(filePath).toLowerCase()] ??
-  "application/octet-stream";
+  CONTENT_TYPE_BY_EXTENSION[path.extname(filePath).toLowerCase()] ?? "application/octet-stream";
 
 /**
  * Resolved absolute file path for `relativePath` beneath
@@ -97,12 +96,8 @@ export const emulatorDataContentType = (filePath: string): string =>
  * packages, whose on-disk layout already matches `data/cores/`; everything
  * else maps into the EmulatorJS data directory itself.
  */
-const resolveWithinVendoredTree = (
-  nodeModulesDirectory: string,
-  relativePath: string,
-): string | undefined => {
-  if (relativePath.length === 0 || relativePath.includes("\0"))
-    return undefined;
+const resolveWithinVendoredTree = (nodeModulesDirectory: string, relativePath: string): string | undefined => {
+  if (relativePath.length === 0 || relativePath.includes("\0")) return undefined;
   if (relativePath.startsWith("cores/")) {
     for (const packageName of requiredEmulatorCorePackages()) {
       const candidate = containedPath(
@@ -113,10 +108,7 @@ const resolveWithinVendoredTree = (
     }
     return undefined;
   }
-  const candidate = containedPath(
-    emulatorDataRoot(nodeModulesDirectory),
-    relativePath,
-  );
+  const candidate = containedPath(emulatorDataRoot(nodeModulesDirectory), relativePath);
   return candidate && existsSync(candidate) ? candidate : undefined;
 };
 
@@ -128,15 +120,9 @@ const resolveWithinVendoredTree = (
  * has no single-file equivalent and is bundled by
  * {@link loadEmulatorDataAsset} instead.
  */
-export const resolveEmulatorDataFile = (
-  nodeModulesDirectory: string,
-  relativePath: string,
-): string | undefined =>
+export const resolveEmulatorDataFile = (nodeModulesDirectory: string, relativePath: string): string | undefined =>
   resolveWithinVendoredTree(nodeModulesDirectory, relativePath) ??
-  resolveWithinVendoredTree(
-    nodeModulesDirectory,
-    relativePath.replace(/\.min(?=\.[^./]+$)/u, ""),
-  );
+  resolveWithinVendoredTree(nodeModulesDirectory, relativePath.replace(/\.min(?=\.[^./]+$)/u, ""));
 
 /** Name loader.js uses for the production script bundle. */
 export const EMULATOR_MIN_JS_NAME = "emulator.min.js";
@@ -200,18 +186,13 @@ export const loadEmulatorDataAsset = async (
   );
 };
 
-const buildMinJsBundle = async (
-  nodeModulesDirectory: string,
-): Promise<Buffer | undefined> => {
+const buildMinJsBundle = async (nodeModulesDirectory: string): Promise<Buffer | undefined> => {
   // A bare semicolon between files keeps a missing trailing semicolon in one
   // source from swallowing the next file's first statement.
   const separator = Buffer.from("\n;\n");
   const chunks: Buffer[] = [];
   for (const source of MIN_JS_BUNDLE_SOURCES) {
-    const sourcePath = resolveEmulatorDataFile(
-      nodeModulesDirectory,
-      `src/${source}`,
-    );
+    const sourcePath = resolveEmulatorDataFile(nodeModulesDirectory, `src/${source}`);
     if (!sourcePath) return undefined;
     chunks.push(await readFile(sourcePath), separator);
   }
@@ -236,10 +217,7 @@ export const copyEmulatorDataInto = async (
     await mkdir(targetCoresDirectory, {recursive: true});
     for (const entry of await readdir(sourceRoot, {withFileTypes: true})) {
       if (entry.isFile() && entry.name.endsWith("-wasm.data"))
-        await copyFile(
-          path.join(sourceRoot, entry.name),
-          path.join(targetCoresDirectory, entry.name),
-        );
+        await copyFile(path.join(sourceRoot, entry.name), path.join(targetCoresDirectory, entry.name));
     }
     const reportsSource = path.join(sourceRoot, "reports");
     if (existsSync(reportsSource))
