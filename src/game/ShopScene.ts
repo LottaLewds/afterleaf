@@ -24,7 +24,7 @@ import {BOOK_HEIGHT} from "~/game/bookTuning";
 import {type ShopArcadeCabinet} from "~/game/ShopArcadeCabinet";
 import {KTX2Loader} from "three/examples/jsm/loaders/KTX2Loader.js";
 import {RectAreaLightUniformsLib} from "three/examples/jsm/lights/RectAreaLightUniformsLib.js";
-import {DEV} from "solid-js";
+import {DEV, untrack} from "solid-js";
 import {ShopAudioManager} from "~/game/ShopAudioManager";
 import {FpsHud} from "~/game/FpsHud";
 import type {BookRecord} from "~/game/bookFactory";
@@ -1184,7 +1184,10 @@ export class ShopScene {
   }
 
   #emitGameState() {
-    this.#gameStateEmitter.emit(this.#snapshotInput);
+    // Snapshot assembly is imperative; callers may originate in a Solid
+    // effect callback, but emitting state must not subscribe that effect to
+    // every accessor the snapshot reads.
+    untrack(() => this.#gameStateEmitter.emit(this.#snapshotInput));
   }
 
   #applyPlayerPose(position: WorldSaveV1["player"]["position"], quaternion: WorldSaveV1["player"]["quaternion"]) {
