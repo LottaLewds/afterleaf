@@ -81,7 +81,7 @@ export const TagBlacklistControl = (props: {
         }}
       >
         <div class="flex min-h-11 items-center gap-2 border border-white/10 bg-[#0c1312] px-3 focus-within:border-[#d55247]/70">
-          <FiSearch class="shrink-0 text-[#65716c]" size={13} />
+          <FiSearch size={13} color="#65716c" style={{flexShrink: 0}} />
           <input
             ref={(element) => {
               input = element;
@@ -90,7 +90,7 @@ export const TagBlacklistControl = (props: {
             role="combobox"
             aria-autocomplete="list"
             aria-controls="tag-blacklist-options"
-            aria-expanded={open()}
+            aria-expanded={open() ? "true" : "false"}
             autocomplete="off"
             maxlength={100}
             placeholder="Search library tags or enter a custom tag…"

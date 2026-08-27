@@ -1,5 +1,6 @@
 import {FiFolder} from "solid-icons/fi";
-import {For, Show, type JSX} from "solid-js";
+import {For, Show} from "solid-js";
+import type {JSX} from "@solidjs/web";
 import type {LibraryDirectoryEntry} from "~/content/libraryUpdate/browserClient";
 import type {FolderBrowser} from "~/components/locations/createFolderBrowser";
 
@@ -80,7 +81,7 @@ export const FolderBrowserDialog = (props: {
                 onClick={() => void props.browser.openBrowser(entry.path)}
                 type="button"
               >
-                <FiFolder class="shrink-0" size={12} />
+                <FiFolder size={12} style={{flexShrink: 0}} />
                 <span class="truncate">{entry.name}</span>
               </button>
             )}

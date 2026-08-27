@@ -1,5 +1,5 @@
 import {FiRefreshCw} from "solid-icons/fi";
-import {createEffect, createSignal, For, on, Show, untrack} from "solid-js";
+import {createEffect, createSignal, For, Show, untrack} from "solid-js";
 import type {LibraryProviderDescriptor} from "~/content/providers/types";
 import {
   MAX_LIBRARY_FETCH_LIMIT,
@@ -40,10 +40,10 @@ export const LibraryUpdateDialog = (props: {
     maxSearchPages() >= MIN_LIBRARY_SEARCH_PAGE_LIMIT &&
     maxSearchPages() <= MAX_LIBRARY_SEARCH_PAGE_LIMIT;
   createEffect(
-    on(
-      () => [props.providerId, props.providers] as const,
-      () => setQuery(provider()?.defaultQuery ?? ""),
-    ),
+    () => [props.providerId, props.providers] as const,
+    ([providerId, providers]) => {
+      setQuery(providers.find((candidate) => candidate.id === providerId)?.defaultQuery ?? "");
+    },
   );
   const canUpdate = () => Boolean(provider()) && fetchLimitIsValid() && searchPageLimitIsValid() && !props.busy;
 
@@ -225,7 +225,7 @@ export const LibraryUpdateDialog = (props: {
               props.onConfirm?.(props.fetchOnBoot, props.providerId, query().trim(), fetchLimit(), maxSearchPages())
             }
           >
-            <FiRefreshCw classList={{"animate-spin": props.busy}} size={13} />
+            <FiRefreshCw size={13} style={{animation: props.busy ? "spin 1s linear infinite" : undefined}} />
             {props.busy ? "Fetching stock…" : "Fetch more"}
           </button>
         </div>

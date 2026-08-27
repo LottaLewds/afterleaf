@@ -32,11 +32,13 @@ export const LibraryActivityToast = (props: {
           fallback={
             <div class="flex items-start gap-3">
               <span
-                class="grid size-8 shrink-0 place-items-center"
-                classList={{
-                  "bg-[#6da089]/12 text-[#83b69f]": !props.failed,
-                  "bg-[#d94c3f]/12 text-[#e16357]": props.failed,
-                }}
+                class={[
+                  "grid size-8 shrink-0 place-items-center",
+                  {
+                    "bg-[#6da089]/12 text-[#83b69f]": !props.failed,
+                    "bg-[#d94c3f]/12 text-[#e16357]": props.failed,
+                  },
+                ]}
               >
                 <Show when={props.failed} fallback={<FiCheck size={14} />}>
                   <FiX size={14} />
@@ -44,11 +46,13 @@ export const LibraryActivityToast = (props: {
               </span>
               <div class="min-w-0 flex-1">
                 <p
-                  class="text-[9px] font-bold tracking-[0.16em] uppercase"
-                  classList={{
-                    "text-[#799c8d]": !props.failed,
-                    "text-[#d66a60]": props.failed,
-                  }}
+                  class={[
+                    "text-[9px] font-bold tracking-[0.16em] uppercase",
+                    {
+                      "text-[#799c8d]": !props.failed,
+                      "text-[#d66a60]": props.failed,
+                    },
+                  ]}
                 >
                   Library update
                 </p>
@@ -66,7 +70,7 @@ export const LibraryActivityToast = (props: {
         >
           <div class="flex items-start gap-3">
             <span class="grid size-8 shrink-0 place-items-center bg-[#d94c3f]/12 text-[#e16357]">
-              <FiRefreshCw class="animate-spin" size={14} />
+              <FiRefreshCw size={14} style={{animation: "spin 1s linear infinite"}} />
             </span>
             <div class="min-w-0 flex-1">
               <div class="flex items-center justify-between gap-3">

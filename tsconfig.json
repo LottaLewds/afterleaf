@@ -10,7 +10,7 @@
     "exactOptionalPropertyTypes": true,
     "noUncheckedIndexedAccess": true,
     "jsx": "preserve",
-    "jsxImportSource": "solid-js",
+    "jsxImportSource": "@solidjs/web",
     "types": ["node", "bun-types", "vite/client"],
     "isolatedModules": true,
     "noUnusedLocals": true,

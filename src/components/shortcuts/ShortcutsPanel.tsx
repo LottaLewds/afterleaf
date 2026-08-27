@@ -21,7 +21,7 @@ import {
 import {ControllerDiagram} from "~/arcade/ControllerDiagram";
 import {findArcadeSystem, ARCADE_SYSTEMS, type ArcadeSystemId} from "~/arcade/systems";
 import {GamepadBindingGlyph} from "~/components/shortcuts/GamepadBindingGlyph";
-import {createEffect, createSignal, For, onCleanup, onMount, Show} from "solid-js";
+import {createEffect, createSignal, For, onSettled, Show} from "solid-js";
 
 /** First connected pad id, or undefined. */
 const connectedGamepadId = (): string | undefined => {
@@ -99,7 +99,7 @@ export const ShortcutsPanel = (props: {
 
   const resetToDefaults = () => props.onChange({...DEFAULT_SHORTCUTS});
 
-  onMount(() => {
+  onSettled(() => {
     const abortController = new AbortController();
     window.addEventListener(
       "keydown",
@@ -123,61 +123,65 @@ export const ShortcutsPanel = (props: {
       const id = connectedGamepadId();
       setPadStyle(id ? detectGamepadStyle(id) : undefined);
     }, 500);
-    onCleanup(() => {
+    return () => {
       abortController.abort();
       clearInterval(styleInterval);
-    });
+    };
   });
 
   // Capture a gamepad button while any pad capture is active (shortcut
   // bindings or emulator controller mappings); the poll loop lives exactly
   // as long as the capture request.
-  createEffect(() => {
-    const target = listening();
-    if (!target) return;
-    if (target.kind === "shortcut" && target.device !== "gamepad") return;
-    let frameHandle: number | undefined;
-    let previousButtons: boolean[] | undefined;
-    let stopped = false;
-    const stop = () => {
-      stopped = true;
-      if (frameHandle !== undefined) cancelAnimationFrame(frameHandle);
-    };
-    const poll = () => {
-      if (stopped) return;
-      frameHandle = requestAnimationFrame(poll);
-      const current = listening();
-      if (!current) return;
-      if (current.kind === "shortcut" && current.device !== "gamepad") return;
-      const gamepads = navigator.getGamepads?.() ?? [];
-      for (const gamepad of gamepads) {
-        if (!gamepad?.connected || gamepad.buttons.length === 0) continue;
-        const pressed = Array.from(gamepad.buttons, (button) => Boolean(button?.pressed || (button?.value ?? 0) > 0.5));
-        // The first frame only records a baseline so a held button from
-        // before the click is not mistaken for a fresh press.
-        if (previousButtons !== undefined) {
-          for (let index = 0; index < pressed.length; index++) {
-            if (!pressed[index] || previousButtons[index]) continue;
-            stop();
-            const name = GAMEPAD_BUTTON_NAMES[index];
-            if (name === undefined) {
-              // Non-standard button beyond the mapping: keep listening.
-              previousButtons = pressed;
-              frameHandle = requestAnimationFrame(poll);
+  createEffect(
+    () => listening(),
+    (target) => {
+      if (!target) return;
+      if (target.kind === "shortcut" && target.device !== "gamepad") return;
+      let frameHandle: number | undefined;
+      let previousButtons: boolean[] | undefined;
+      let stopped = false;
+      const stop = () => {
+        stopped = true;
+        if (frameHandle !== undefined) cancelAnimationFrame(frameHandle);
+      };
+      const poll = () => {
+        if (stopped) return;
+        frameHandle = requestAnimationFrame(poll);
+        const current = listening();
+        if (!current) return;
+        if (current.kind === "shortcut" && current.device !== "gamepad") return;
+        const gamepads = navigator.getGamepads?.() ?? [];
+        for (const gamepad of gamepads) {
+          if (!gamepad?.connected || gamepad.buttons.length === 0) continue;
+          const pressed = Array.from(gamepad.buttons, (button) =>
+            Boolean(button?.pressed || (button?.value ?? 0) > 0.5),
+          );
+          // The first frame only records a baseline so a held button from
+          // before the click is not mistaken for a fresh press.
+          if (previousButtons !== undefined) {
+            for (let index = 0; index < pressed.length; index++) {
+              if (!pressed[index] || previousButtons[index]) continue;
+              stop();
+              const name = GAMEPAD_BUTTON_NAMES[index];
+              if (name === undefined) {
+                // Non-standard button beyond the mapping: keep listening.
+                previousButtons = pressed;
+                frameHandle = requestAnimationFrame(poll);
+                return;
+              }
+              if (current.kind === "padControl") setPadBinding(current.systemId, current.controlId, name);
+              else updateBinding(current.action, "gamepad", name);
               return;
             }
-            if (current.kind === "padControl") setPadBinding(current.systemId, current.controlId, name);
-            else updateBinding(current.action, "gamepad", name);
-            return;
           }
+          previousButtons = pressed;
+          break;
         }
-        previousButtons = pressed;
-        break;
-      }
-    };
-    frameHandle = requestAnimationFrame(poll);
-    onCleanup(stop);
-  });
+      };
+      frameHandle = requestAnimationFrame(poll);
+      return stop;
+    },
+  );
 
   return (
     <section class="min-w-0 overflow-y-auto px-4 pt-7 pb-12 sm:px-7 lg:px-10 lg:pt-9 xl:col-span-2">
@@ -221,10 +225,10 @@ export const ShortcutsPanel = (props: {
                         <span class="text-xs text-[#b8c1bc]">{SHORTCUT_LABELS[action]}</span>
                         <div class="flex items-center gap-2">
                           <button
-                            class="flex h-9 min-w-[4.5rem] items-center justify-center border border-white/10 bg-[#121918] px-2.5 text-center text-[10px] font-semibold tracking-wider text-[#e2ded4] uppercase transition hover:border-[#d94c3f]/40 hover:text-white"
-                            classList={{
-                              "animate-pulse border-[#d94c3f]/60 text-[#d94c3f]": isListening("keyboard"),
-                            }}
+                            class={[
+                              "flex h-9 min-w-[4.5rem] items-center justify-center border border-white/10 bg-[#121918] px-2.5 text-center text-[10px] font-semibold tracking-wider text-[#e2ded4] uppercase transition hover:border-[#d94c3f]/40 hover:text-white",
+                              {"animate-pulse border-[#d94c3f]/60 text-[#d94c3f]": isListening("keyboard")},
+                            ]}
                             onClick={() =>
                               setListening(
                                 isListening("keyboard")
@@ -243,10 +247,10 @@ export const ShortcutsPanel = (props: {
                             </Show>
                           </button>
                           <button
-                            class="flex h-9 min-w-[4.5rem] items-center justify-center border border-white/10 bg-[#121918] px-2.5 text-center text-[10px] font-semibold tracking-wider text-[#e2ded4] uppercase transition hover:border-[#d94c3f]/40 hover:text-white"
-                            classList={{
-                              "animate-pulse border-[#d94c3f]/60 text-[#d94c3f]": isListening("gamepad"),
-                            }}
+                            class={[
+                              "flex h-9 min-w-[4.5rem] items-center justify-center border border-white/10 bg-[#121918] px-2.5 text-center text-[10px] font-semibold tracking-wider text-[#e2ded4] uppercase transition hover:border-[#d94c3f]/40 hover:text-white",
+                              {"animate-pulse border-[#d94c3f]/60 text-[#d94c3f]": isListening("gamepad")},
+                            ]}
                             onClick={() =>
                               setListening(
                                 isListening("gamepad")
@@ -342,10 +346,10 @@ export const ShortcutsPanel = (props: {
                               {formatArcadeKeyBinding(control.keyboard)}
                             </span>
                             <button
-                              class="flex h-9 min-w-[4.5rem] items-center justify-center border border-white/10 bg-[#151e1c] px-2.5 text-center transition hover:border-[#d94c3f]/40"
-                              classList={{
-                                "animate-pulse border-[#d94c3f]/60": isCapturing(),
-                              }}
+                              class={[
+                                "flex h-9 min-w-[4.5rem] items-center justify-center border border-white/10 bg-[#151e1c] px-2.5 text-center transition hover:border-[#d94c3f]/40",
+                                {"animate-pulse border-[#d94c3f]/60": isCapturing()},
+                              ]}
                               title="Click, then press a controller button"
                               type="button"
                               onClick={() =>

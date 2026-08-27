@@ -146,6 +146,7 @@ export type MovablePropLifecycleHost = {
   pendingWorldSave: () => WorldSaveV1 | undefined;
   physicsPose: () => BookPhysicsPose;
   physicsPosePosition: () => Vector3;
+  physicsPoseRotation: () => Quaternion;
   physicsWorld: () => ShopPhysicsWorld;
   playerVelocity: () => Vector3;
   savedTelevisionChannels: () => WorldTelevisionChannels;
@@ -427,7 +428,7 @@ export class MovablePropLifecycle {
     if (!record) return;
     record.object.updateMatrixWorld(true);
     record.object.getWorldPosition(host.physicsPosePosition());
-    record.object.getWorldQuaternion(this.#placementQuaternion);
+    record.object.getWorldQuaternion(host.physicsPoseRotation());
     host.scene().attach(record.object);
     host.camera().getWorldDirection(host.viewDirection());
     const linearVelocity = throwProp

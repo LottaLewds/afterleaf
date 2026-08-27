@@ -1,10 +1,9 @@
 import {
+  createComponent,
   createContext,
   createEffect,
   createMemo,
   createSignal,
-  on,
-  onCleanup,
   useContext,
   type Accessor,
   type ParentComponent,
@@ -108,13 +107,16 @@ export const UiModeProvider: ParentComponent<{
     escapeFallbackArmed: () => ESCAPE_FALLBACK_MODES.has(mode()),
     reportViewport: setViewport,
   };
-  return <UiModeContext.Provider value={value}>{props.children}</UiModeContext.Provider>;
+  return createComponent(UiModeContext, {
+    value,
+    get children() {
+      return props.children;
+    },
+  });
 };
 
 export const useUiMode = (): UiModeContextValue => {
-  const value = useContext(UiModeContext);
-  if (!value) throw new Error("useUiMode must be used inside <UiModeProvider>.");
-  return value;
+  return useContext(UiModeContext);
 };
 
 /**
@@ -125,15 +127,13 @@ export const useUiMode = (): UiModeContextValue => {
  */
 export const createModeListener = (active: Accessor<unknown>, bind: (signal: AbortSignal) => void) => {
   createEffect(
-    on(
-      () => Boolean(active()),
-      (isActive) => {
-        // The initial false run no-ops, mirroring createEscapeScope.
-        if (!isActive) return;
-        const abortController = new AbortController();
-        bind(abortController.signal);
-        onCleanup(() => abortController.abort());
-      },
-    ),
+    () => Boolean(active()),
+    (isActive) => {
+      // The initial false run no-ops, mirroring createEscapeScope.
+      if (!isActive) return;
+      const abortController = new AbortController();
+      bind(abortController.signal);
+      return () => abortController.abort();
+    },
   );
 };

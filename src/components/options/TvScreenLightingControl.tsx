@@ -13,24 +13,28 @@ export const TvScreenLightingControl = (props: {enabled: boolean; onChange: (ena
     </div>
     <button
       class="flex min-h-11 shrink-0 items-center gap-3 bg-[#1b2422] px-3 py-2 text-left transition hover:bg-[#202b28]"
-      aria-checked={props.enabled}
+      aria-checked={props.enabled ? "true" : "false"}
       onClick={() => props.onChange(!props.enabled)}
       role="switch"
       type="button"
     >
       <span
-        class="relative h-5 w-9 shrink-0 rounded-full transition-colors"
-        classList={{
-          "bg-[#d94c3f]": props.enabled,
-          "bg-[#3b4743]": !props.enabled,
-        }}
+        class={[
+          "relative h-5 w-9 shrink-0 rounded-full transition-colors",
+          {
+            "bg-[#d94c3f]": props.enabled,
+            "bg-[#3b4743]": !props.enabled,
+          },
+        ]}
       >
         <span
-          class="absolute top-0.5 size-4 rounded-full bg-white shadow transition-transform"
-          classList={{
-            "translate-x-[18px]": props.enabled,
-            "translate-x-0.5": !props.enabled,
-          }}
+          class={[
+            "absolute top-0.5 size-4 rounded-full bg-white shadow transition-transform",
+            {
+              "translate-x-[18px]": props.enabled,
+              "translate-x-0.5": !props.enabled,
+            },
+          ]}
         />
       </span>
       <span class="text-[9px] font-semibold tracking-[0.08em] text-[#c5cec9] uppercase">
