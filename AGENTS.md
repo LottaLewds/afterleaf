@@ -30,7 +30,8 @@ Code conventions:
 - Instead of typing `children: ...` in props, use `ParentComponent<Props>` from solid
 - Prefer `export const Component = () => {...}` over `export function Component { ... }`
 - Prefer `<Show when={props.foo}>...</Show>` over `{props.foo && ...}`
-- Run `bun check` at the repository root after your changes; it does `bun format`, `bun lint`, `bun type-check`, unit tests, and the production build in that order
+- Run `bun check` at the repository root after your changes; it does `bun format`, `bun lint`, `bun type-check`, and unit tests in that order
+- Run `bun run build` separately when production-bundle verification is needed
 - Run `bun check:ci` in CI or when you want a verify-only pass; it uses the non-autofix formatter and linter
 - If you see a constant has inexplicably changed, especially a tuning, balance, color, or visual constant, chances are that I have modified it while you were coding. Mention it if relevant, but don't immediately change it back unless it clearly conflicts with the requested fix.
 - Use import { DEV } from "solid-js" for client‑only dev‑only checks (warnings, logging, etc.).

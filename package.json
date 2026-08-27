@@ -27,11 +27,11 @@
     "lint:check": "oxlint --config .oxlintrc.json .",
     "type-check": "tsc --noEmit",
     "test:unit": "bun test --only-failures src",
-    "check": "bun run format && bun run lint && bun run type-check && bun run test:unit && bun run build",
+    "check": "bun run format && bun run lint && bun run type-check && bun run test:unit",
     "check:ci": "bun run format:check && bun run lint:check && bun run type-check && bun run test:unit && bun run build"
   },
   "dependencies": {
-    "@dimforge/rapier3d-compat": "^0.19.3",
+    "@dimforge/rapier3d-compat": "^0.20.0",
     "@gltf-transform/core": "^4.4.2",
     "@gltf-transform/extensions": "^4.4.2",
     "@gltf-transform/functions": "^4.4.2",
