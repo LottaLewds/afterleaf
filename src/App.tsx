@@ -16,16 +16,15 @@ import {
 } from "solid-icons/fi";
 import {
   For,
-  Suspense,
+  Loading,
   createEffect,
-  createResource,
   lazy,
-  onCleanup,
-  onMount,
+  onSettled,
   Show,
   createMemo,
   createSignal,
-  on,
+  isPending,
+  resolve,
 } from "solid-js";
 import {loadShortcuts, saveShortcuts, type ShortcutsConfig} from "~/game/input/bindings";
 
@@ -47,6 +46,7 @@ import {
   type LocalLibraryJob,
   type LocalLibrarySnapshotResult,
 } from "~/content/libraryUpdate/browserClient";
+import type {LibraryProviderDescriptor} from "~/content/providers/types";
 import {
   loadPadMappingOverrides,
   savePadMappingOverrides,
@@ -99,7 +99,7 @@ export const App = () => {
     romPaths: {},
     tvChannelPaths: [],
   });
-  onMount(() => {
+  onSettled(() => {
     void loadLibraryConfig()
       .then(setLibraryConfig)
       .catch(() => {});
@@ -194,68 +194,98 @@ export const App = () => {
     initialControlPreferences.respectBookReadingDirection,
   );
   const [blacklistedTags, setBlacklistedTags] = createSignal(loadTagBlacklist());
-  const [libraryProviderError, setLibraryProviderError] = createSignal<string>();
-  const [runtimeLibrary, {refetch}] = createResource(() => loadRuntimeLibrary());
-  const [libraryProviders] = createResource(async () => {
-    try {
-      const providers = await loadLibraryProviders();
-      setLibraryProviderError(undefined);
-      return providers;
-    } catch (error) {
-      setLibraryProviderError(error instanceof Error ? error.message : "The library providers could not be loaded.");
-      return [];
-    }
-  });
+  const [runtimeLibraryRefresh, setRuntimeLibraryRefresh] = createSignal(0, {equals: false});
+  const runtimeLibrary = createMemo(
+    async () => {
+      runtimeLibraryRefresh();
+      return loadRuntimeLibrary();
+    },
+    {loadingValue: emptyLibrary},
+  );
+  const refetch = async () => {
+    setRuntimeLibraryRefresh((revision) => revision + 1);
+    return resolve(() => runtimeLibrary());
+  };
+  type LibraryProvidersState = {
+    providers: readonly LibraryProviderDescriptor[];
+    error: string | undefined;
+  };
+  const libraryProviders = createMemo<LibraryProvidersState>(
+    async () => {
+      try {
+        return {providers: await loadLibraryProviders(), error: undefined};
+      } catch (error) {
+        return {
+          providers: [],
+          error: error instanceof Error ? error.message : "The library providers could not be loaded.",
+        };
+      }
+    },
+    {loadingValue: {providers: [], error: undefined}},
+  );
   let latestLibrarySourceStatus = {
     reenrollableBookPaths: [] as readonly string[],
     unavailableBookPathCount: 0,
   };
-  const [librarySourceStatus, {refetch: refetchLibrarySourceStatus}] = createResource(async () => {
-    try {
-      latestLibrarySourceStatus = await loadLibrarySourceStatus();
-    } catch {
-      // Keep the last safety status if a later health check is interrupted.
-    }
-    return latestLibrarySourceStatus;
-  });
-  const [blacklistedPublications, {mutate: setBlacklistedPublications}] = createResource(async () => {
-    try {
-      return await loadBlacklistedPublications();
-    } catch {
-      return [];
-    }
-  });
-  const resolvedRuntimeLibrary = () => runtimeLibrary.latest ?? runtimeLibrary();
-  const availableLibraryProviders = createMemo(() => libraryProviders.latest ?? libraryProviders() ?? []);
-  const unavailableBookPathCount = () => librarySourceStatus.latest?.unavailableBookPathCount ?? 0;
-  const reenrollableBookPaths = createMemo(
-    () =>
-      new Set(librarySourceStatus.latest?.reenrollableBookPaths ?? librarySourceStatus()?.reenrollableBookPaths ?? []),
+  const [librarySourceStatusRefresh, setLibrarySourceStatusRefresh] = createSignal(0, {equals: false});
+  const librarySourceStatus = createMemo(
+    async () => {
+      librarySourceStatusRefresh();
+      try {
+        latestLibrarySourceStatus = await loadLibrarySourceStatus();
+      } catch {
+        // Keep the last safety status if a later health check is interrupted.
+      }
+      return latestLibrarySourceStatus;
+    },
+    {loadingValue: latestLibrarySourceStatus},
   );
+  const refetchLibrarySourceStatus = async () => {
+    setLibrarySourceStatusRefresh((revision) => revision + 1);
+    return resolve(() => librarySourceStatus());
+  };
+  const blacklistedPublications = createMemo(
+    async () => {
+      try {
+        return await loadBlacklistedPublications();
+      } catch {
+        return [] as readonly string[];
+      }
+    },
+    {loadingValue: [] as readonly string[]},
+  );
+  const [blacklistedPublicationOverride, setBlacklistedPublicationOverride] = createSignal<readonly string[]>();
+  const resolvedRuntimeLibrary = () => runtimeLibrary();
+  const availableLibraryProviders = createMemo(() => libraryProviders().providers);
+  const libraryProviderError = () => libraryProviders().error;
+  const unavailableBookPathCount = () => librarySourceStatus().unavailableBookPathCount;
+  const reenrollableBookPaths = createMemo(() => new Set(librarySourceStatus().reenrollableBookPaths));
   const reenrollBookRoot = async (path: string) => {
     await reenrollLibraryRoot(path);
     await refetchLibrarySourceStatus();
     setLibraryUpdateNotice("Library root re-enrolled. Run Scan new to reconcile its books.");
   };
   createEffect(
-    on(availableLibraryProviders, (providers) => {
-      if (providers.some((provider) => provider.id === selectedProviderId())) return;
+    () => [availableLibraryProviders(), selectedProviderId()] as const,
+    ([providers, selectedProviderId]) => {
+      if (providers.some((provider) => provider.id === selectedProviderId)) return;
       const fallback = providers[0];
       if (!fallback) return;
       setSelectedProviderId(fallback.id);
       saveLibraryProviderPreference(fallback.id);
-    }),
+    },
   );
   createEffect(
-    on(unavailableBookPathCount, (count) => {
+    () => unavailableBookPathCount(),
+    (count) => {
       if (count === 0) return;
       const sourceStatusInterval = window.setInterval(() => void refetchLibrarySourceStatus(), 3_000);
-      onCleanup(() => window.clearInterval(sourceStatusInterval));
-    }),
+      return () => window.clearInterval(sourceStatusInterval);
+    },
   );
   const activeLibrary = () => resolvedRuntimeLibrary() ?? emptyLibrary;
   const blacklistedPublicationIds = createMemo(
-    () => new Set(blacklistedPublications.latest ?? blacklistedPublications()),
+    () => new Set(blacklistedPublicationOverride() ?? blacklistedPublications()),
   );
   const publicationLibrary = createMemo(() =>
     activeLibrary().publications.filter((publication) => !blacklistedPublicationIds().has(publication.id)),
@@ -301,7 +331,7 @@ export const App = () => {
     setLibraryOperation(undefined);
   };
   const scanButtonLabel = () => {
-    if (runtimeLibrary.loading) return "Loading…";
+    if (isPending(() => runtimeLibrary())) return "Loading…";
     if (libraryOperation() === "scan")
       return `${libraryScanMode() === "repair" ? "Repairing" : "Scanning"} · ${libraryUpdateElapsedSeconds()}s`;
     if (libraryUpdating()) return "Library busy…";
@@ -622,7 +652,7 @@ export const App = () => {
 
   const discardPublication = async (publicationId: string) => {
     await blacklistPublication({publicationId});
-    setBlacklistedPublications((current = []) => [...new Set([...current, publicationId])]);
+    setBlacklistedPublicationOverride((current = []) => [...new Set([...current, publicationId])]);
     return true;
   };
 
@@ -643,7 +673,7 @@ export const App = () => {
         purgedPublicationIds.push(publication.id);
       }
       setPurgeBlacklistedOpen(false);
-      setBlacklistedPublications((current = []) => [...new Set([...current, ...purgedPublicationIds])]);
+      setBlacklistedPublicationOverride((current = []) => [...new Set([...current, ...purgedPublicationIds])]);
       setLibraryUpdateCompletedSteps(0);
       setLibraryUpdateTotalSteps(3);
       setLibraryUpdateProgressMessage("Rebuilding the purged library");
@@ -651,7 +681,7 @@ export const App = () => {
       monitorLibraryJob(job, false);
     } catch (error) {
       if (purgedPublicationIds.length > 0)
-        setBlacklistedPublications((current = []) => [...new Set([...current, ...purgedPublicationIds])]);
+        setBlacklistedPublicationOverride((current = []) => [...new Set([...current, ...purgedPublicationIds])]);
       reportLibraryFailure(
         "scan",
         false,
@@ -735,7 +765,7 @@ export const App = () => {
     if (selectedTag && nextTags.includes(normalizeTag(selectedTag))) setTag(null);
   };
 
-  onMount(() => {
+  onSettled(() => {
     // Reattach to a job that survived the reload before the boot fetch can
     // consider starting a second one; adoption marks the library busy.
     void reconnectActiveLibraryJob().then(() => maybeFetchOnBoot());
@@ -758,8 +788,10 @@ export const App = () => {
     setMobileDetailOpen(false);
     return true;
   });
-  onCleanup(() => {
-    if (libraryUpdateTimer !== undefined) window.clearInterval(libraryUpdateTimer);
+  onSettled(() => {
+    return () => {
+      if (libraryUpdateTimer !== undefined) window.clearInterval(libraryUpdateTimer);
+    };
   });
 
   return (
@@ -776,7 +808,7 @@ export const App = () => {
       <main class="h-[100dvh] overflow-hidden bg-[#071010] text-[#d9d6cc]">
         <Show when={ageConfirmed()} fallback={<AdultGate onEnter={confirmAge} />}>
           <div class="fixed inset-0">
-            <Suspense
+            <Loading
               fallback={
                 <div class="grid size-full place-items-center bg-[#071010]">
                   <p class="text-[9px] font-semibold tracking-[0.2em] text-[#7e918b] uppercase">
@@ -787,40 +819,38 @@ export const App = () => {
             >
               <Show when={resolvedRuntimeLibrary()}>
                 {(runtime) => (
-                  <Show when={!blacklistedPublications.loading}>
-                    <ShopViewport
-                      catalogAtlases={() => runtime().atlases}
-                      catalogAvailable={() => isRuntimeLibraryAvailable(runtime())}
-                      catalogIdentity={() => runtime().identity}
-                      gamepadLookSensitivity={gamepadLookSensitivity}
-                      mouseSensitivity={mouseSensitivity}
-                      newPublicationIds={newPublicationIds}
-                      onControlsChange={(controls) => {
-                        shopViewportControls = controls;
-                      }}
-                      pageIndexForPublication={(publicationId) => bookmarks()[publicationId] ?? 0}
-                      publications={library}
-                      selectedPublicationId={() => selectedItem()?.id}
-                      tvScreenLighting={tvScreenLighting}
-                      unstuckRequest={unstuckRequest}
-                      paused={menuOpen}
-                      onOpenMenu={openMenu}
-                      onCloseMenu={() => closeMenu()}
-                      shortcutsConfig={shortcutsConfig}
-                      padMappingOverrides={padMappingOverrides}
-                      onPasteText={importPastedPublication}
-                      onDiscardPublication={discardPublication}
-                      onPageIndexChange={(publicationId, pageIndex) =>
-                        setBookmarks((current) => saveReaderBookmark(current, publicationId, pageIndex))
-                      }
-                      onSelectPublication={(publicationId) => {
-                        setSelectedId(publicationId);
-                      }}
-                    />
-                  </Show>
+                  <ShopViewport
+                    catalogAtlases={() => runtime().atlases}
+                    catalogAvailable={() => isRuntimeLibraryAvailable(runtime())}
+                    catalogIdentity={() => runtime().identity}
+                    gamepadLookSensitivity={gamepadLookSensitivity}
+                    mouseSensitivity={mouseSensitivity}
+                    newPublicationIds={newPublicationIds}
+                    onControlsChange={(controls) => {
+                      shopViewportControls = controls;
+                    }}
+                    pageIndexForPublication={(publicationId) => bookmarks()[publicationId] ?? 0}
+                    publications={library}
+                    selectedPublicationId={() => selectedItem()?.id}
+                    tvScreenLighting={tvScreenLighting}
+                    unstuckRequest={unstuckRequest}
+                    paused={menuOpen}
+                    onOpenMenu={openMenu}
+                    onCloseMenu={() => closeMenu()}
+                    shortcutsConfig={shortcutsConfig}
+                    padMappingOverrides={padMappingOverrides}
+                    onPasteText={importPastedPublication}
+                    onDiscardPublication={discardPublication}
+                    onPageIndexChange={(publicationId, pageIndex) =>
+                      setBookmarks((current) => saveReaderBookmark(current, publicationId, pageIndex))
+                    }
+                    onSelectPublication={(publicationId) => {
+                      setSelectedId(publicationId);
+                    }}
+                  />
                 )}
               </Show>
-            </Suspense>
+            </Loading>
 
             <LibraryActivityToast
               busy={libraryUpdating()}
@@ -843,7 +873,7 @@ export const App = () => {
                   class="fixed top-4 left-1/2 z-40 flex w-[min(42rem,calc(100vw-2rem))] -translate-x-1/2 items-start gap-3 border border-[#d94c3f]/60 bg-[#250d0b]/95 px-4 py-3 text-[#ff796c] shadow-[0_16px_50px_#000b] backdrop-blur-md"
                   aria-live="assertive"
                 >
-                  <FiAlertTriangle class="mt-0.5 shrink-0" size={16} />
+                  <FiAlertTriangle size={16} style={{marginTop: "0.125rem", flexShrink: 0}} />
                   <p class="text-[11px] leading-5">
                     {count()} configured book {count() === 1 ? "path is" : "paths are"} unavailable. Library updates are
                     locked so the current books cannot be removed. Remount the expected storage and restore its
@@ -880,7 +910,9 @@ export const App = () => {
                       </div>
                       <button
                         class="flex h-9 items-center gap-2 border border-white/10 px-3 text-[11px] text-[#aab2ae] transition hover:border-white/20 hover:bg-white/5 hover:text-white disabled:cursor-wait disabled:opacity-50"
-                        disabled={runtimeLibrary.loading || libraryUpdating() || unavailableBookPathCount() > 0}
+                        disabled={
+                          isPending(() => runtimeLibrary()) || libraryUpdating() || unavailableBookPathCount() > 0
+                        }
                         onClick={() => void scanLibrary("quick")}
                         title={
                           unavailableBookPathCount() > 0
@@ -888,18 +920,21 @@ export const App = () => {
                             : "Find new or normally changed local books and reuse unchanged generated assets"
                         }
                       >
-                        <FiRefreshCw
-                          classList={{
-                            "animate-spin": runtimeLibrary.loading || libraryUpdating(),
+                        <span
+                          class={{
+                            "animate-spin": isPending(() => runtimeLibrary()) || libraryUpdating(),
                           }}
-                          size={14}
-                        />
+                        >
+                          <FiRefreshCw size={14} />
+                        </span>
                         <span class="hidden sm:inline">{scanButtonLabel()}</span>
                       </button>
                       <button
                         aria-label="Deep scan and repair library"
                         class="grid size-9 place-items-center border border-white/10 text-[#8d9893] transition hover:border-white/20 hover:bg-white/5 hover:text-white disabled:cursor-wait disabled:opacity-50"
-                        disabled={runtimeLibrary.loading || libraryUpdating() || unavailableBookPathCount() > 0}
+                        disabled={
+                          isPending(() => runtimeLibrary()) || libraryUpdating() || unavailableBookPathCount() > 0
+                        }
                         onClick={() => setLibraryRepairOpen(true)}
                         title={
                           unavailableBookPathCount() > 0
@@ -911,7 +946,9 @@ export const App = () => {
                       </button>
                       <button
                         class="flex h-9 items-center gap-2 bg-[#ece6d8] px-3.5 text-[11px] font-bold text-[#1b2321] transition hover:bg-white disabled:cursor-wait"
-                        disabled={runtimeLibrary.loading || libraryUpdating() || unavailableBookPathCount() > 0}
+                        disabled={
+                          isPending(() => runtimeLibrary()) || libraryUpdating() || unavailableBookPathCount() > 0
+                        }
                         onClick={() => {
                           setFetchOnBoot(loadBootFetchPreference()?.enabled === true);
                           setLibraryUpdateOpen(true);
@@ -924,7 +961,7 @@ export const App = () => {
                         class="grid size-9 place-items-center text-[#8d9893] transition hover:bg-white/5 hover:text-white"
                         aria-label="Close menu and return to shop"
                         title="Return to shop (Tab)"
-                        on:pointerdown={(event) => {
+                        onPointerDown={(event) => {
                           if (event.button === 0) closeMenu();
                         }}
                         onClick={() => closeMenu()}
@@ -936,36 +973,42 @@ export const App = () => {
 
                   <nav class="flex shrink-0 border-b border-white/8 bg-[#121918] p-2 xl:hidden">
                     <button
-                      class="flex h-10 flex-1 items-center justify-center gap-2 text-[10px] font-semibold tracking-[0.08em] uppercase transition"
-                      classList={{
-                        "bg-[#1c2523] text-[#ece8dd]": menuTab() === "library",
-                        "text-[#78837e] hover:bg-white/[0.025] hover:text-white": menuTab() !== "library",
-                      }}
-                      aria-pressed={menuTab() === "library"}
+                      class={[
+                        "flex h-10 flex-1 items-center justify-center gap-2 text-[10px] font-semibold tracking-[0.08em] uppercase transition",
+                        {
+                          "bg-[#1c2523] text-[#ece8dd]": menuTab() === "library",
+                          "text-[#78837e] hover:bg-white/[0.025] hover:text-white": menuTab() !== "library",
+                        },
+                      ]}
+                      aria-pressed={menuTab() === "library" ? "true" : "false"}
                       onClick={() => setMenuTab("library")}
                       type="button"
                     >
                       <FiGrid size={13} /> Library
                     </button>
                     <button
-                      class="flex h-10 flex-1 items-center justify-center gap-2 text-[10px] font-semibold tracking-[0.08em] uppercase transition"
-                      classList={{
-                        "bg-[#1c2523] text-[#ece8dd]": menuTab() === "options",
-                        "text-[#78837e] hover:bg-white/[0.025] hover:text-white": menuTab() !== "options",
-                      }}
-                      aria-pressed={menuTab() === "options"}
+                      class={[
+                        "flex h-10 flex-1 items-center justify-center gap-2 text-[10px] font-semibold tracking-[0.08em] uppercase transition",
+                        {
+                          "bg-[#1c2523] text-[#ece8dd]": menuTab() === "options",
+                          "text-[#78837e] hover:bg-white/[0.025] hover:text-white": menuTab() !== "options",
+                        },
+                      ]}
+                      aria-pressed={menuTab() === "options" ? "true" : "false"}
                       onClick={() => setMenuTab("options")}
                       type="button"
                     >
                       <FiSettings size={13} /> Options
                     </button>
                     <button
-                      class="flex h-10 flex-1 items-center justify-center gap-2 text-[10px] font-semibold tracking-[0.08em] uppercase transition"
-                      classList={{
-                        "bg-[#1c2523] text-[#ece8dd]": menuTab() === "shortcuts",
-                        "text-[#78837e] hover:bg-white/[0.025] hover:text-white": menuTab() !== "shortcuts",
-                      }}
-                      aria-pressed={menuTab() === "shortcuts"}
+                      class={[
+                        "flex h-10 flex-1 items-center justify-center gap-2 text-[10px] font-semibold tracking-[0.08em] uppercase transition",
+                        {
+                          "bg-[#1c2523] text-[#ece8dd]": menuTab() === "shortcuts",
+                          "text-[#78837e] hover:bg-white/[0.025] hover:text-white": menuTab() !== "shortcuts",
+                        },
+                      ]}
+                      aria-pressed={menuTab() === "shortcuts" ? "true" : "false"}
                       onClick={() => setMenuTab("shortcuts")}
                       type="button"
                     >
@@ -978,43 +1021,49 @@ export const App = () => {
                       <p class="px-2 text-[9px] font-bold tracking-[0.2em] text-[#59645f] uppercase">Menu</p>
                       <div class="mt-4 space-y-1">
                         <button
-                          class="flex w-full items-center gap-3 px-3 py-2.5 text-xs transition"
-                          classList={{
-                            "bg-[#1c2523] font-semibold text-[#ece8dd]": menuTab() === "library",
-                            "text-[#7d8883] hover:bg-white/[0.025] hover:text-[#cbd0cc]": menuTab() !== "library",
-                          }}
-                          aria-pressed={menuTab() === "library"}
+                          class={[
+                            "flex w-full items-center gap-3 px-3 py-2.5 text-xs transition",
+                            {
+                              "bg-[#1c2523] font-semibold text-[#ece8dd]": menuTab() === "library",
+                              "text-[#7d8883] hover:bg-white/[0.025] hover:text-[#cbd0cc]": menuTab() !== "library",
+                            },
+                          ]}
+                          aria-pressed={menuTab() === "library" ? "true" : "false"}
                           onClick={() => setMenuTab("library")}
                           type="button"
                         >
-                          <FiGrid size={14} class="text-[#e25a4d]" /> Library{" "}
+                          <FiGrid color="#e25a4d" size={14} /> Library{" "}
                           <span class="ml-auto text-[10px] text-[#7c8681]">
                             {String(library().length).padStart(2, "0")}
                           </span>
                         </button>
                         <button
-                          class="flex w-full items-center gap-3 px-3 py-2.5 text-xs transition"
-                          classList={{
-                            "bg-[#1c2523] font-semibold text-[#ece8dd]": menuTab() === "options",
-                            "text-[#7d8883] hover:bg-white/[0.025] hover:text-[#cbd0cc]": menuTab() !== "options",
-                          }}
-                          aria-pressed={menuTab() === "options"}
+                          class={[
+                            "flex w-full items-center gap-3 px-3 py-2.5 text-xs transition",
+                            {
+                              "bg-[#1c2523] font-semibold text-[#ece8dd]": menuTab() === "options",
+                              "text-[#7d8883] hover:bg-white/[0.025] hover:text-[#cbd0cc]": menuTab() !== "options",
+                            },
+                          ]}
+                          aria-pressed={menuTab() === "options" ? "true" : "false"}
                           onClick={() => setMenuTab("options")}
                           type="button"
                         >
-                          <FiSettings size={14} class="text-[#e25a4d]" /> Options
+                          <FiSettings color="#e25a4d" size={14} /> Options
                         </button>
                         <button
-                          class="flex w-full items-center gap-3 px-3 py-2.5 text-xs transition"
-                          classList={{
-                            "bg-[#1c2523] font-semibold text-[#ece8dd]": menuTab() === "shortcuts",
-                            "text-[#7d8883] hover:bg-white/[0.025] hover:text-[#cbd0cc]": menuTab() !== "shortcuts",
-                          }}
-                          aria-pressed={menuTab() === "shortcuts"}
+                          class={[
+                            "flex w-full items-center gap-3 px-3 py-2.5 text-xs transition",
+                            {
+                              "bg-[#1c2523] font-semibold text-[#ece8dd]": menuTab() === "shortcuts",
+                              "text-[#7d8883] hover:bg-white/[0.025] hover:text-[#cbd0cc]": menuTab() !== "shortcuts",
+                            },
+                          ]}
+                          aria-pressed={menuTab() === "shortcuts" ? "true" : "false"}
                           onClick={() => setMenuTab("shortcuts")}
                           type="button"
                         >
-                          <FiCommand size={14} class="text-[#e25a4d]" /> Shortcuts
+                          <FiCommand color="#e25a4d" size={14} /> Shortcuts
                         </button>
                       </div>
 
@@ -1042,8 +1091,10 @@ export const App = () => {
                     </nav>
 
                     <section
-                      class="min-w-0 overflow-y-auto px-4 pt-7 pb-12 sm:px-7 lg:px-10 lg:pt-9"
-                      classList={{hidden: menuTab() !== "library"}}
+                      class={[
+                        "min-w-0 overflow-y-auto px-4 pt-7 pb-12 sm:px-7 lg:px-10 lg:pt-9",
+                        {hidden: menuTab() !== "library"},
+                      ]}
                     >
                       <div class="flex flex-col justify-between gap-6 lg:flex-row lg:items-end">
                         <div>
@@ -1094,15 +1145,21 @@ export const App = () => {
                           </Show>
                         </label>
                         <div class="flex h-10 items-center gap-1 overflow-x-auto bg-[#19211f] p-1">
-                          <FiSliders class="mx-2 shrink-0 text-[#68736e]" size={13} />
+                          <FiSliders
+                            size={13}
+                            color="#68736e"
+                            style={{marginLeft: "0.5rem", marginRight: "0.5rem", flexShrink: 0}}
+                          />
                           <For each={Object.entries(languageLabels) as [LanguageFilter, string][]}>
                             {(entry) => (
                               <button
-                                class="h-8 shrink-0 px-3 text-[10px] font-semibold transition"
-                                classList={{
-                                  "bg-[#ede7d9] text-[#18201f]": language() === entry[0],
-                                  "text-[#77827d] hover:text-white": language() !== entry[0],
-                                }}
+                                class={[
+                                  "h-8 shrink-0 px-3 text-[10px] font-semibold transition",
+                                  {
+                                    "bg-[#ede7d9] text-[#18201f]": language() === entry[0],
+                                    "text-[#77827d] hover:text-white": language() !== entry[0],
+                                  },
+                                ]}
                                 onClick={() => setLanguage(entry[0])}
                               >
                                 {entry[1]}
@@ -1114,11 +1171,13 @@ export const App = () => {
 
                       <div class="scrollbar-themed-x mt-4 flex gap-2 overflow-x-auto pb-1">
                         <button
-                          class="shrink-0 border px-3 py-1.5 text-[9px] font-semibold tracking-wide uppercase transition"
-                          classList={{
-                            "border-[#d64e42] bg-[#d64e42]/10 text-[#e46a60]": tag() === null,
-                            "border-white/8 text-[#69746f] hover:border-white/15": tag() !== null,
-                          }}
+                          class={[
+                            "shrink-0 border px-3 py-1.5 text-[9px] font-semibold tracking-wide uppercase transition",
+                            {
+                              "border-[#d64e42] bg-[#d64e42]/10 text-[#e46a60]": tag() === null,
+                              "border-white/8 text-[#69746f] hover:border-white/15": tag() !== null,
+                            },
+                          ]}
                           onClick={() => setTag(null)}
                         >
                           All tags
@@ -1126,12 +1185,14 @@ export const App = () => {
                         <For each={visibleTags()}>
                           {(catalogTag) => (
                             <button
-                              class="shrink-0 border px-3 py-1.5 text-[9px] font-semibold tracking-wide uppercase transition"
-                              classList={{
-                                "border-[#d64e42] bg-[#d64e42]/10 text-[#e46a60]": tag() === catalogTag,
-                                "border-white/8 text-[#69746f] hover:border-white/15 hover:text-[#aeb5b1]":
-                                  tag() !== catalogTag,
-                              }}
+                              class={[
+                                "shrink-0 border px-3 py-1.5 text-[9px] font-semibold tracking-wide uppercase transition",
+                                {
+                                  "border-[#d64e42] bg-[#d64e42]/10 text-[#e46a60]": tag() === catalogTag,
+                                  "border-white/8 text-[#69746f] hover:border-white/15 hover:text-[#aeb5b1]":
+                                    tag() !== catalogTag,
+                                },
+                              ]}
                               onClick={() => setTag(catalogTag)}
                             >
                               {catalogTag}
@@ -1164,7 +1225,7 @@ export const App = () => {
                           fallback={
                             <div class="grid min-h-72 place-items-center border border-dashed border-white/10 text-center">
                               <div>
-                                <FiSearch class="mx-auto text-[#53605a]" size={20} />
+                                <FiSearch size={20} color="#53605a" style={{display: "block", margin: "0 auto"}} />
                                 <p class="mt-4 text-sm text-[#9ba49f]">Nothing on this shelf</p>
                                 <button
                                   class="mt-3 text-[10px] font-semibold text-[#d65a4f]"

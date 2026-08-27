@@ -1,5 +1,5 @@
 import {FiHardDrive, FiPlay, FiTrash2, FiX} from "solid-icons/fi";
-import {For, Show, createResource, createSignal, onCleanup, onMount} from "solid-js";
+import {Errored, For, Loading, Show, createMemo, createSignal, onSettled, refresh} from "solid-js";
 
 import {arcadeFolderRomUrl, listArcadeFolderRoms} from "~/arcade/romFolders";
 import {deleteSavedRom, getSavedRomUrl, listSavedRoms, saveRomBlob, type ArcadeRomSummary} from "~/arcade/romLibrary";
@@ -41,40 +41,29 @@ export type ArcadeBrowserProps = {
  * which are kept in this machine's local library.
  */
 export const ArcadeBrowser = (props: ArcadeBrowserProps) => {
-  const defaultSystem = ARCADE_SYSTEMS[0]!;
+  const defaultSystem = ARCADE_SYSTEMS[0];
+  if (!defaultSystem) throw new Error("The arcade system catalog is empty.");
   const [selectedSystemId, setSelectedSystemId] = createSignal(defaultSystem.id);
   const [query, setQuery] = createSignal("");
   const [savedRoms, setSavedRoms] = createSignal<ArcadeRomSummary[]>([]);
   const [error, setError] = createSignal<string>();
 
-  void listSavedRoms()
-    .then(setSavedRoms)
-    .catch(() => {});
-
-  const [folder, {refetch, mutate}] = createResource(selectedSystemId, (systemId) => listArcadeFolderRoms(systemId));
+  const folder = createMemo(() => listArcadeFolderRoms(selectedSystemId()));
 
   // Quietly re-reads the listing so ROMs dropped into a folder appear without
-  // reopening the picker. Mutates the resource in place: no spinner flash and
-  // a failed refresh keeps whatever is already on screen.
-  let quietRefreshRequest = 0;
-  const quietRefresh = async () => {
-    const request = ++quietRefreshRequest;
-    const systemId = selectedSystemId();
-    try {
-      const result = await listArcadeFolderRoms(systemId);
-      if (request !== quietRefreshRequest || selectedSystemId() !== systemId) return;
-      mutate(result);
-    } catch {
-      return;
-    }
-  };
+  // reopening the picker. Loading keeps the current content visible while
+  // the async memo refreshes.
+  const quietRefresh = () => refresh(folder);
 
-  onMount(() => {
+  onSettled(() => {
+    void listSavedRoms()
+      .then(setSavedRoms)
+      .catch(() => {});
     const timer = window.setInterval(() => {
       if (document.visibilityState !== "visible" || !document.hasFocus()) return;
       void quietRefresh();
     }, ROM_LISTING_REFRESH_INTERVAL_MS);
-    onCleanup(() => window.clearInterval(timer));
+    return () => window.clearInterval(timer);
   });
 
   const readyFolder = () => {
@@ -200,7 +189,7 @@ export const ArcadeBrowser = (props: ArcadeBrowserProps) => {
             <For each={ARCADE_SYSTEMS}>
               {(system) => (
                 <button
-                  classList={{
+                  class={{
                     "flex shrink-0 items-center justify-between gap-2 px-3 py-2 text-left text-[11px] font-semibold transition": true,
                     "bg-white/8 text-[#f1eadc]": selectedSystemId() === system.id,
                     "text-[#98a39e] hover:bg-white/4 hover:text-[#e5e0d5]": selectedSystemId() !== system.id,
@@ -218,7 +207,7 @@ export const ArcadeBrowser = (props: ArcadeBrowserProps) => {
             <div class="flex items-center gap-2 border-b border-white/8 px-4 py-3">
               <input
                 class="h-9 w-full border border-white/12 bg-[#0a1110] px-3 text-sm text-[#f0ebdf] outline-none placeholder:text-[#4f5b57] focus:border-[#c7554b]"
-                maxLength={64}
+                maxlength={64}
                 onInput={(event) => setQuery(event.currentTarget.value)}
                 placeholder={`Search ${findArcadeSystem(selectedSystemId())?.shortLabel ?? "system"}…`}
                 value={query()}
@@ -242,23 +231,21 @@ export const ArcadeBrowser = (props: ArcadeBrowserProps) => {
             </div>
 
             <div class="min-h-40 flex-1 overflow-y-auto p-2">
-              <Show
-                when={!folder.error}
+              <Errored
                 fallback={
                   <p class="p-6 text-center text-xs leading-5 text-[#dc7167]" role="alert">
                     The ROM folder could not be read. Check that Afterleaf's server is still running, then retry.
                     <button
                       class="mt-3 block w-full border border-white/12 py-2 text-[9px] font-bold tracking-[0.14em] text-[#98a39e] uppercase transition hover:bg-white/5 hover:text-white"
                       type="button"
-                      onClick={() => void refetch()}
+                      onClick={() => refresh(folder)}
                     >
                       Retry
                     </button>
                   </p>
                 }
               >
-                <Show
-                  when={!folder.loading}
+                <Loading
                   fallback={
                     <div class="space-y-2 p-6">
                       <span class="mx-auto block size-5 animate-spin rounded-full border-2 border-[#758b84] border-t-[#e55749]" />
@@ -324,8 +311,8 @@ export const ArcadeBrowser = (props: ArcadeBrowserProps) => {
                       </For>
                     </div>
                   </Show>
-                </Show>
-              </Show>
+                </Loading>
+              </Errored>
             </div>
 
             <footer class="space-y-2 border-t border-white/8 px-4 py-3">

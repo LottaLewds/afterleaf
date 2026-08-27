@@ -22,7 +22,7 @@ Code conventions:
 - When using event listeners, prefer `abortController` creation and using `{signal: abortController.signal}` for cleanup
 - Look at existing code to discover patterns in the codebase
 - Run `bun check` (which autofixes, formats, type checks, and run tests) after groups of changes to verify your work
-- Do not start or restart dev servers unless I explicitly ask for it. I will run my own servers when I want browser verification.
+- Assume the Vite development server is already running for browser verification. Do not start or restart it; use the active server when booting CDP.
 - For CDP timing measurements (FPS, boot, stutter) always use the real Windows Chrome via `bun run chrome:profile:wsl`; headless browsers render on software rasterizers and produce invalid timings. Verify the endpoint answers as non-headless Chrome first; see docs/CDP_PROFILING.md ("Real Windows Chrome vs headless browsers").
 - Do not add, suggest, or prioritize reduced-motion branches or reduced-motion handling in this project unless I explicitly ask for it.
 - In SolidJS, prefer `<Show when={thing()}>{(thing) => ...}</Show>` for conditionals in JSX

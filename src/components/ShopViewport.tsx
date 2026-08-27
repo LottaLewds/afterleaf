@@ -1,16 +1,5 @@
 import {FiCheck, FiChevronLeft, FiChevronRight, FiLoader, FiTrash2, FiX} from "solid-icons/fi";
-import {
-  DEV,
-  For,
-  Show,
-  createEffect,
-  createRenderEffect,
-  createSignal,
-  on,
-  onCleanup,
-  onMount,
-  type Accessor,
-} from "solid-js";
+import {DEV, For, Show, createEffect, createRenderEffect, createSignal, onSettled, type Accessor} from "solid-js";
 
 import type {CatalogAtlases, CatalogIdentity, CatalogItem} from "~/catalog";
 import {importArtFrameImage} from "~/artFrames/browserClient";
@@ -106,15 +95,18 @@ export const ShopViewport = (props: ShopViewportProps) => {
 
   // Publish this component's slice to the shared UiMode root so global
   // shortcuts, overlays, and future consumers key off one source of truth.
-  createEffect(() => {
-    uiMode.reportViewport({
+  createEffect(
+    () => ({
       arcadeStatus: gameState().arcadeStatus,
       dialogOpen: signEditor() !== undefined || mediaChannelEditor() !== undefined,
       error: error() !== undefined,
       inspectionSpread: gameState().inspectionMode === "spread",
       ready: ready(),
-    });
-  });
+    }),
+    (viewport) => {
+      uiMode.reportViewport(viewport);
+    },
+  );
 
   // Modal scopes: the shared stack gives the most recently opened surface
   // first crack at Escape, so dialogs and arcade sessions no longer depend
@@ -207,7 +199,7 @@ export const ShopViewport = (props: ShopViewportProps) => {
     void importChannel();
   };
 
-  onMount(() => {
+  onSettled(() => {
     props.onControlsChange?.(controls);
     const sceneCanvas = canvas;
     if (!sceneCanvas) return;
@@ -295,28 +287,26 @@ export const ShopViewport = (props: ShopViewportProps) => {
     })();
   });
 
-  onCleanup(() => {
-    props.onControlsChange?.(undefined);
-    worldSaveAbortController.abort();
-    shopScene?.dispose();
+  onSettled(() => {
+    return () => {
+      props.onControlsChange?.(undefined);
+      worldSaveAbortController.abort();
+      shopScene?.dispose();
+    };
   });
 
   createRenderEffect(
-    on(
-      shouldBePointerLocked,
-      (shouldLock) => {
-        if (!shouldLock) shopScene?.releasePointerLock();
-      },
-      {defer: true},
-    ),
+    shouldBePointerLocked,
+    (shouldLock) => {
+      if (!shouldLock) shopScene?.releasePointerLock();
+    },
+    {defer: true},
   );
 
   createEffect(
-    on(
-      () => props.unstuckRequest?.(),
-      () => shopScene?.unstuckPlayer(),
-      {defer: true},
-    ),
+    () => props.unstuckRequest?.(),
+    () => shopScene?.unstuckPlayer(),
+    {defer: true},
   );
 
   const carriedTitle = () => {
@@ -375,7 +365,7 @@ export const ShopViewport = (props: ShopViewportProps) => {
           <div class="pointer-events-none absolute top-24 left-1/2 z-20 -translate-x-1/2 border border-white/10 bg-[#08100f]/88 px-4 py-2 text-[9px] font-semibold tracking-[0.12em] uppercase shadow-lg backdrop-blur-sm">
             <Show when={gameState().posterImporting}>
               <span class="flex items-center gap-2 text-[#cbd5d0]">
-                <FiLoader class="size-3 animate-spin text-[#d94c3f]" />
+                <FiLoader size={12} color="#d94c3f" style={{animation: "spin 1s linear infinite"}} />
                 Optimizing pasted poster…
               </span>
             </Show>
@@ -387,7 +377,7 @@ export const ShopViewport = (props: ShopViewportProps) => {
             </Show>
             <Show when={gameState().digitalArtFrameImporting}>
               <span class="flex items-center gap-2 text-[#cbd5d0]">
-                <FiLoader class="size-3 animate-spin text-[#d94c3f]" />
+                <FiLoader size={12} color="#d94c3f" style={{animation: "spin 1s linear infinite"}} />
                 Optimizing pasted art…
               </span>
             </Show>
@@ -396,7 +386,7 @@ export const ShopViewport = (props: ShopViewportProps) => {
             </Show>
             <Show when={gameState().tvVideoImporting}>
               <span class="flex items-center gap-2 text-[#cbd5d0]">
-                <FiLoader class="size-3 animate-spin text-[#d94c3f]" />
+                <FiLoader size={12} color="#d94c3f" style={{animation: "spin 1s linear infinite"}} />
                 Downloading pasted video…
               </span>
             </Show>
@@ -406,7 +396,7 @@ export const ShopViewport = (props: ShopViewportProps) => {
             <Show when={gameState().tvVideoImportMessage}>
               {(message) => (
                 <span class="flex max-w-96 items-center gap-2 text-[#b8d7c1]">
-                  <FiCheck class="size-3 shrink-0 text-[#62b47c]" />
+                  <FiCheck size={12} color="#62b47c" style={{flexShrink: 0}} />
                   <span class="truncate">{message()}</span>
                 </span>
               )}
@@ -531,7 +521,7 @@ export const ShopViewport = (props: ShopViewportProps) => {
                     title="Previous page"
                     type="button"
                   >
-                    <FiChevronLeft class="size-3" />
+                    <FiChevronLeft size={12} />
                   </button>
                   <input
                     aria-label="Current page"
@@ -551,7 +541,7 @@ export const ShopViewport = (props: ShopViewportProps) => {
                     title="Next page"
                     type="button"
                   >
-                    <FiChevronRight class="size-3" />
+                    <FiChevronRight size={12} />
                   </button>
                   <span
                     class="grid min-w-5 shrink-0 place-items-center tabular-nums"
@@ -561,7 +551,7 @@ export const ShopViewport = (props: ShopViewportProps) => {
                     title={gameState().inspectionPagesLoading ? "Streaming pages…" : undefined}
                   >
                     <Show when={gameState().inspectionPagesLoading} fallback={pageCount()}>
-                      <FiLoader class="size-3 animate-spin text-[#d94c3f]" />
+                      <FiLoader size={12} color="#d94c3f" style={{animation: "spin 1s linear infinite"}} />
                     </Show>
                   </span>
                 </div>
@@ -611,7 +601,7 @@ export const ShopViewport = (props: ShopViewportProps) => {
                       mediaChannelInput = element;
                     }}
                     class="mt-2 h-11 w-full border border-white/12 bg-[#0a1110] px-3 text-sm text-[#f0ebdf] transition outline-none placeholder:text-[#4f5b57] focus:border-[#c7554b]"
-                    maxLength={64}
+                    maxlength={64}
                     onInput={(event) => {
                       setMediaChannelName(event.currentTarget.value);
                       setMediaChannelError(undefined);
@@ -696,7 +686,7 @@ export const ShopViewport = (props: ShopViewportProps) => {
                       signTitleInput = element;
                     }}
                     class="mt-2 h-11 w-full border border-white/12 bg-[#0a1110] px-3 text-sm text-[#f0ebdf] transition outline-none placeholder:text-[#4f5b57] focus:border-[#c7554b]"
-                    maxLength={48}
+                    maxlength={48}
                     onInput={(event) => setSignTitle(event.currentTarget.value)}
                     placeholder="Adult Comics"
                     value={signTitle()}
@@ -706,7 +696,7 @@ export const ShopViewport = (props: ShopViewportProps) => {
                   <span class="text-[9px] font-bold tracking-[0.14em] text-[#8f9b96] uppercase">Subtitle</span>
                   <input
                     class="mt-2 h-11 w-full border border-white/12 bg-[#0a1110] px-3 text-sm text-[#f0ebdf] transition outline-none placeholder:text-[#4f5b57] focus:border-[#c7554b]"
-                    maxLength={72}
+                    maxlength={72}
                     onInput={(event) => setSignSubtitle(event.currentTarget.value)}
                     placeholder="Aisle 01 · New releases"
                     value={signSubtitle()}

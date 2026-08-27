@@ -35,11 +35,12 @@
     "@gltf-transform/core": "^4.4.2",
     "@gltf-transform/extensions": "^4.4.2",
     "@gltf-transform/functions": "^4.4.2",
+    "@solidjs/web": "^2.0.0-rc.0",
     "clsx": "^2.1.1",
     "node-unrar-js": "^2.0.2",
     "sharp": "^0.35.3",
     "solid-icons": "^1.2.0",
-    "solid-js": "^1.9.9",
+    "solid-js": "^2.0.0-rc.0",
     "tailwind-merge": "^3.0.1",
     "three": "0.185.1",
     "yauzl": "^2.10.0"
@@ -57,6 +58,7 @@
     "@emulatorjs/core-snes9x": "4.2.3",
     "@emulatorjs/core-stella2014": "4.2.3",
     "@emulatorjs/emulatorjs": "4.2.3",
+    "@solidjs/vite-plugin": "^3.0.0-next.28",
     "@tailwindcss/vite": "^4.1.11",
     "@types/node": "^22.13.5",
     "@types/three": "0.185.1",
@@ -70,8 +72,7 @@
     "oxlint-tsgolint": "^0.16.0",
     "tailwindcss": "^4.1.11",
     "typescript": "^7.0.2",
-    "vite": "^7.0.6",
-    "vite-plugin-solid": "^2.11.8"
+    "vite": "^7.0.6"
   },
   "engines": {
     "node": ">=22"

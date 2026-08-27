@@ -117,7 +117,6 @@ const DiagramShape = (props: {
   const stroke = () => (props.mapped || props.capturingId !== undefined ? ACCENT : STROKE_MUTED);
   const outlineWidth = () => (props.capturingId !== undefined ? "2.5" : props.mapped ? "2" : "1.5");
   const clickable = {
-    class: "cursor-pointer",
     onClick: () => props.onSelect(props.element.controlIds[0] as number),
   } as const;
   // Element data is static per instance, so shape selection happens once;
@@ -126,7 +125,7 @@ const DiagramShape = (props: {
     case "dpad":
       return (
         <g>
-          <g stroke={stroke()} fill={FILL_DARK} classList={{"animate-pulse": props.capturingId !== undefined}}>
+          <g stroke={stroke()} fill={FILL_DARK} class={{"animate-pulse": props.capturingId !== undefined}}>
             <rect x={placement.x - 21} y={placement.y - 7} width="42" height="14" rx="4" />
             <rect x={placement.x - 7} y={placement.y - 21} width="14" height="42" rx="4" />
           </g>
@@ -136,7 +135,11 @@ const DiagramShape = (props: {
     case "stick":
       return (
         <g>
-          <g stroke={stroke()} classList={{"animate-pulse": props.capturingId !== undefined}} {...clickable}>
+          <g
+            stroke={stroke()}
+            class={["cursor-pointer", {"animate-pulse": props.capturingId !== undefined}]}
+            {...clickable}
+          >
             <circle cx={placement.x} cy={placement.y} r="18" fill={BODY_FILL} stroke-width={outlineWidth()} />
             <circle cx={placement.x} cy={placement.y} r="10" fill={FILL_DARK} />
           </g>
@@ -148,7 +151,7 @@ const DiagramShape = (props: {
       return (
         <g
           stroke={stroke()}
-          classList={{
+          class={{
             "cursor-pointer": true,
             "animate-pulse": props.capturingId !== undefined,
           }}
@@ -178,7 +181,7 @@ const DiagramShape = (props: {
       return (
         <g
           stroke={stroke()}
-          classList={{
+          class={{
             "cursor-pointer": true,
             "animate-pulse": props.capturingId !== undefined,
           }}
@@ -214,7 +217,7 @@ const DiagramShape = (props: {
       return (
         <g
           stroke={stroke()}
-          classList={{
+          class={{
             "cursor-pointer": true,
             "animate-pulse": props.capturingId !== undefined,
           }}

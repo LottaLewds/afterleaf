@@ -1,4 +1,4 @@
-import {batch, createSignal, onCleanup} from "solid-js";
+import {createSignal, onSettled} from "solid-js";
 import {browseLibraryLocation} from "~/content/libraryUpdate/browserClient";
 import type {LibraryDirectoryListing} from "~/content/libraryUpdate/browserClient";
 
@@ -29,12 +29,10 @@ export const createFolderBrowser = () => {
       if (request !== browseRequest) return;
       const displayedPath =
         options.preserveTrailingSeparator && directory && /[\\/]$/u.test(directory) ? directory : nextListing.path;
-      batch(() => {
-        setListing(nextListing);
-        setPathInput(displayedPath);
-        setConfirmedPathInput(displayedPath);
-        setBrowserOpen(true);
-      });
+      setListing(nextListing);
+      setPathInput(displayedPath);
+      setConfirmedPathInput(displayedPath);
+      setBrowserOpen(true);
     } catch (error) {
       if (request !== browseRequest || options.reportError === false) return;
       setBrowserError(error instanceof Error ? error.message : "Could not browse that folder");
@@ -65,7 +63,7 @@ export const createFolderBrowser = () => {
   };
   const canChooseCurrentFolder = () => !browserPending() && pathInput().trim() === confirmedPathInput();
   const close = () => setBrowserOpen(false);
-  onCleanup(() => {
+  onSettled(() => () => {
     if (browseTimer) clearTimeout(browseTimer);
     browseRequest += 1;
   });

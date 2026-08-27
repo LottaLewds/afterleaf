@@ -1,4 +1,4 @@
-import {createEffect, on, onCleanup, type Accessor} from "solid-js";
+import {createEffect, type Accessor} from "solid-js";
 
 export type ModalModeScope = {
   /** Stable diagnostic identifier; also the default pop key. */
@@ -71,14 +71,12 @@ export const modalModes = new ModalModeStack();
  */
 export const createEscapeScope = (id: string, active: Accessor<unknown>, onEscape: () => boolean) => {
   createEffect(
-    on(
-      () => Boolean(active()),
-      (isActive) => {
-        // The initial false run no-ops, so an explicit defer is unnecessary.
-        if (!isActive) return;
-        modalModes.push({id, onEscape});
-        onCleanup(() => void modalModes.pop(id));
-      },
-    ),
+    () => Boolean(active()),
+    (isActive) => {
+      // The initial false run no-ops, so an explicit defer is unnecessary.
+      if (!isActive) return;
+      modalModes.push({id, onEscape});
+      return () => void modalModes.pop(id);
+    },
   );
 };

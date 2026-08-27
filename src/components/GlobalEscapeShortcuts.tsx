@@ -1,7 +1,7 @@
 import {isEditableTarget} from "~/game/input/inputManager";
 import {modalModes} from "~/game/modalModes";
 import {createModeListener, useUiMode} from "~/game/uiMode";
-import {onCleanup} from "solid-js";
+import {onSettled} from "solid-js";
 
 /**
  * Window of time after a stack-consumed Escape during which the menu
@@ -34,22 +34,24 @@ const isDialogDescendant = (target: EventTarget | null): boolean =>
  */
 export const GlobalEscapeShortcuts = (props: {onFallback: () => void}) => {
   const {escapeFallbackArmed} = useUiMode();
-  const routerAbortController = new AbortController();
   // Written by whichever press the stack consumed most recently.
   let lastStackConsumeAt = Number.NEGATIVE_INFINITY;
-  window.addEventListener(
-    "keydown",
-    (event) => {
-      if (event.key !== "Tab" || isEditableTarget(event.target)) return;
-      if (isDialogDescendant(event.target)) return;
-      if (event.defaultPrevented || event.repeat) return;
-      if (!modalModes.consumeEscape()) return;
-      lastStackConsumeAt = performance.now();
-      event.preventDefault();
-    },
-    {signal: routerAbortController.signal},
-  );
-  onCleanup(() => routerAbortController.abort());
+  onSettled(() => {
+    const routerAbortController = new AbortController();
+    window.addEventListener(
+      "keydown",
+      (event) => {
+        if (event.key !== "Tab" || isEditableTarget(event.target)) return;
+        if (isDialogDescendant(event.target)) return;
+        if (event.defaultPrevented || event.repeat) return;
+        if (!modalModes.consumeEscape()) return;
+        lastStackConsumeAt = performance.now();
+        event.preventDefault();
+      },
+      {signal: routerAbortController.signal},
+    );
+    return () => routerAbortController.abort();
+  });
   createModeListener(escapeFallbackArmed, (signal) => {
     window.addEventListener(
       "keydown",

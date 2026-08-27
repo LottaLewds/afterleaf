@@ -1,6 +1,6 @@
 import tailwindcss from "@tailwindcss/vite";
 import {defineConfig, type Plugin, type PreviewServer, type ViteDevServer} from "vite";
-import solid from "vite-plugin-solid";
+import solid from "@solidjs/vite-plugin";
 import {spawn} from "node:child_process";
 import {randomUUID} from "node:crypto";
 import {createReadStream, existsSync, readFileSync, statSync} from "node:fs";
