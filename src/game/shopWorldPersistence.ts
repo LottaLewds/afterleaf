@@ -8,17 +8,17 @@ import type {DiscardBin} from "~/game/discardBin";
 import type {MovablePropLifecycle} from "~/game/movablePropSystem";
 import type {PosterSystem} from "~/game/posters/PosterSystem";
 import type {ShopPhysicsWorld} from "~/game/ShopPhysicsWorld";
-import type {ShopSignSystem} from "~/game/signs/ShopSignSystem";
-import {shopSignKey} from "~/game/signs/ShopSignSystem";
-import type {
-  WorldBookSave,
-  WorldModelPropSave,
-  WorldPropSave,
-  WorldSaveV1,
-  WorldTelevisionChannels,
-  WorldTelevisionVolumes,
+import {shopSignKey, type ShopSignSystem} from "~/game/signs/ShopSignSystem";
+import {
+  worldSaveCanReconcileCatalog,
+  worldSaveMatchesCatalog,
+  type WorldBookSave,
+  type WorldModelPropSave,
+  type WorldPropSave,
+  type WorldSaveV1,
+  type WorldTelevisionChannels,
+  type WorldTelevisionVolumes,
 } from "~/game/worldSave";
-import {worldSaveCanReconcileCatalog, worldSaveMatchesCatalog} from "~/game/worldSave";
 import {createWorldSave} from "~/game/worldSaveSnapshot";
 import {
   adoptLegacyModelPropSaves,
@@ -154,8 +154,16 @@ export class ShopWorldPersistence {
     const exactMatch = worldSaveMatchesCatalog(save, catalog);
     if (!exactMatch && !worldSaveCanReconcileCatalog(save, catalog)) return;
     this.#pendingSave = undefined;
-    if (!exactMatch) this.markDirty();
+    this.#restoreWorldSave(save, exactMatch);
+    return new Map(
+      save.books
+        .filter((book) => !this.#host.discardedPublicationIds().has(book.publicationId))
+        .map((book) => [book.publicationId, book]),
+    );
+  }
 
+  #restoreWorldSave(save: WorldSaveV1, exactMatch: boolean) {
+    if (!exactMatch) this.markDirty();
     this.#restoreSigns(save);
     const legacyTrashcanPosition = migrateLegacyTrashcanPosition(save);
     if (legacyTrashcanPosition)
@@ -169,11 +177,6 @@ export class ShopWorldPersistence {
     const playerMigration = migrateLegacyPlayerPosition(save.player.position);
     if (playerMigration.migrated) this.markDirty();
     this.#host.applyPlayerPose(playerMigration.position, save.player.quaternion);
-    return new Map(
-      save.books
-        .filter((book) => !this.#host.discardedPublicationIds().has(book.publicationId))
-        .map((book) => [book.publicationId, book]),
-    );
   }
 
   readonly #scheduleSave = () => {
@@ -204,17 +207,24 @@ export class ShopWorldPersistence {
 
   #restoreSigns(save: WorldSaveV1) {
     const signs = this.#host.signs();
-    if (save.shelfSigns) {
-      for (const slot of signs.slots.values()) {
-        if (slot.kind === "shelf" && slot.column !== undefined) signs.setShelfSign(slot.column, "");
-      }
-      for (const sign of save.shelfSigns) signs.setShelfSign(sign.column, sign.text, sign.subtitle);
+    this.#restoreShelfSigns(signs, save.shelfSigns);
+    this.#restoreAisleSigns(signs, save.aisleSigns);
+  }
+
+  #restoreShelfSigns(signs: ShopSignSystem, shelfSigns: WorldSaveV1["shelfSigns"]) {
+    if (!shelfSigns) return;
+    for (const slot of signs.slots.values()) {
+      if (slot.kind === "shelf" && slot.column !== undefined) signs.setShelfSign(slot.column, "");
     }
-    if (!save.aisleSigns) return;
+    for (const sign of shelfSigns) signs.setShelfSign(sign.column, sign.text, sign.subtitle);
+  }
+
+  #restoreAisleSigns(signs: ShopSignSystem, aisleSigns: WorldSaveV1["aisleSigns"]) {
+    if (!aisleSigns) return;
     for (const [key, slot] of signs.slots) {
       if (slot.kind === "aisle") signs.setSign(key, "", "");
     }
-    for (const sign of save.aisleSigns) signs.setSign(shopSignKey("aisle", sign.id), sign.title, sign.subtitle ?? "");
+    for (const sign of aisleSigns) signs.setSign(shopSignKey("aisle", sign.id), sign.title, sign.subtitle ?? "");
   }
 
   #restoreProps(savedProps: readonly WorldPropSave[], savedModelProps: readonly WorldModelPropSave[]) {

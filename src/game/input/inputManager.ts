@@ -115,40 +115,8 @@ export class InputManager {
   }
 
   attach(signal: AbortSignal) {
-    window.addEventListener(
-      "keydown",
-      (event) => {
-        this.#syncShortcuts();
-        // Typing into inputs must never be hijacked by bindings.
-        if (isEditableTarget(event.target)) return;
-        if (!event.repeat && !hasReservedModifier(event)) this.#keysDown.add(event.code);
-        this.#onKeyEvent?.(event);
-        // The interceptor owns modal raw-key routing (arcade emulation).
-        if (this.#keyboardInterceptor?.(event)) return;
-        // Repeats never dispatch: held actions are queried via isActionDown.
-        if (event.repeat || !this.#inputActive()) return;
-        if (hasReservedModifier(event)) return;
-        const actions = this.#actionsByKeyCode.get(event.code);
-        if (actions === undefined) return;
-        event.preventDefault();
-        this.#dispatchCandidateList(actions, "down", "keyboard");
-      },
-      {signal},
-    );
-    window.addEventListener(
-      "keyup",
-      (event) => {
-        // Always release held state, even when typing or inactive.
-        this.#keysDown.delete(event.code);
-        if (isEditableTarget(event.target)) return;
-        if (this.#keyboardInterceptor?.(event)) return;
-        const actions = this.#actionsByKeyCode.get(event.code);
-        if (actions === undefined || !this.#inputActive() || hasReservedModifier(event)) return;
-        event.preventDefault();
-        this.#dispatchCandidateList(actions, "up", "keyboard");
-      },
-      {signal},
-    );
+    window.addEventListener("keydown", this.#handleKeyDown, {signal});
+    window.addEventListener("keyup", this.#handleKeyUp, {signal});
     window.addEventListener("blur", () => this.suspend(), {signal});
     this.gamepad.attach(signal);
     this.#syncShortcuts();
@@ -167,26 +135,8 @@ export class InputManager {
     // (Tab); every other mode keeps Start as the menu toggle.
     if (mode !== "arcade" && this.gamepad.justPressed("Start")) this.#onMenuToggle?.();
 
-    if (mode === "shop") {
-      for (const [name, actions] of this.#actionsByButtonName) {
-        const down = this.gamepad.justPressed(name);
-        const up = this.gamepad.justReleased(name);
-        if (!down && !up) continue;
-        this.#dispatchCandidateList(actions, down ? "down" : "up", "gamepad");
-      }
-      return;
-    }
-    if (mode === "arcade") {
-      const forward = this.#rawGamepadForward;
-      if (!forward) return;
-      for (let index = 0; index < BUTTON_NAME_BY_INDEX.length; index++) {
-        const name = BUTTON_NAME_BY_INDEX[index];
-        if (!name) continue;
-        if (this.gamepad.justPressed(name)) forward(name, true);
-        else if (this.gamepad.justReleased(name)) forward(name, false);
-      }
-      this.#forwardLeftStickArrows(forward);
-    }
+    if (mode === "shop") return this.#updateShopGamepad();
+    if (mode === "arcade") this.#updateArcadeGamepad();
   }
 
   /**
@@ -229,6 +179,58 @@ export class InputManager {
   /** Installs arcade-mode gamepad button forwarding. */
   setRawGamepadForward(forward: ((name: GamepadButtonName, down: boolean) => void) | undefined) {
     this.#rawGamepadForward = forward;
+  }
+
+  #handleKeyDown = (event: KeyboardEvent) => {
+    this.#syncShortcuts();
+    // Typing into inputs must never be hijacked by bindings.
+    if (isEditableTarget(event.target)) return;
+    if (!event.repeat && !hasReservedModifier(event)) this.#keysDown.add(event.code);
+    this.#onKeyEvent?.(event);
+    // The interceptor owns modal raw-key routing (arcade emulation).
+    if (this.#keyboardInterceptor?.(event)) return;
+    // Repeats never dispatch: held actions are queried via isActionDown.
+    if (!this.#canDispatchKeyDown(event)) return;
+    const actions = this.#actionsByKeyCode.get(event.code);
+    if (actions === undefined) return;
+    event.preventDefault();
+    this.#dispatchCandidateList(actions, "down", "keyboard");
+  };
+
+  #canDispatchKeyDown(event: KeyboardEvent) {
+    return !event.repeat && this.#inputActive() && !hasReservedModifier(event);
+  }
+
+  #handleKeyUp = (event: KeyboardEvent) => {
+    // Always release held state, even when typing or inactive.
+    this.#keysDown.delete(event.code);
+    if (isEditableTarget(event.target)) return;
+    if (this.#keyboardInterceptor?.(event)) return;
+    const actions = this.#actionsByKeyCode.get(event.code);
+    if (actions === undefined || !this.#inputActive() || hasReservedModifier(event)) return;
+    event.preventDefault();
+    this.#dispatchCandidateList(actions, "up", "keyboard");
+  };
+
+  #updateShopGamepad() {
+    for (const [name, actions] of this.#actionsByButtonName) {
+      const down = this.gamepad.justPressed(name);
+      const up = this.gamepad.justReleased(name);
+      if (!down && !up) continue;
+      this.#dispatchCandidateList(actions, down ? "down" : "up", "gamepad");
+    }
+  }
+
+  #updateArcadeGamepad() {
+    const forward = this.#rawGamepadForward;
+    if (!forward) return;
+    for (let index = 0; index < BUTTON_NAME_BY_INDEX.length; index++) {
+      const name = BUTTON_NAME_BY_INDEX[index];
+      if (!name) continue;
+      if (this.gamepad.justPressed(name)) forward(name, true);
+      else if (this.gamepad.justReleased(name)) forward(name, false);
+    }
+    this.#forwardLeftStickArrows(forward);
   }
 
   /** False while menus or dialogs own the page (keyboard must pass through). */

@@ -1,4 +1,4 @@
-import {NhentaiClient, type NhentaiGallery} from "./client";
+import type {NhentaiClient, NhentaiGallery} from "./client";
 import {readFile, writeFile} from "node:fs/promises";
 import {resolve} from "node:path";
 import type {LibraryProviderSparsePageRequest} from "@afterleaf/provider-sdk";

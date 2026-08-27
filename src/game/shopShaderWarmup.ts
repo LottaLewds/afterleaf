@@ -1,4 +1,4 @@
-import {BoxGeometry, Color, Mesh, PerspectiveCamera, Scene, WebGLRenderer} from "three";
+import {BoxGeometry, Color, Mesh, type PerspectiveCamera, type Scene, type WebGLRenderer} from "three";
 import {DEV} from "solid-js";
 
 import {createBookExteriorMaterial} from "~/game/bookExteriorMaterial";

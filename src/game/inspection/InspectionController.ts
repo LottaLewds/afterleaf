@@ -1,5 +1,11 @@
-import {LinearFilter, MathUtils, SRGBColorSpace, Vector2, Vector3, Quaternion} from "three";
 import {
+  LinearFilter,
+  MathUtils,
+  Quaternion,
+  SRGBColorSpace,
+  Vector2,
+  Vector3,
+  type Euler,
   type PerspectiveCamera,
   type Raycaster,
   type Scene,
@@ -25,8 +31,14 @@ import {
 import {physicalBookWidth} from "~/game/bookDimensions";
 import type {CatalogItem} from "~/catalog";
 import type {BookRecord} from "~/game/bookFactory";
-import type {ActiveLeafDeformationTarget, ActiveLeafVertex} from "~/game/PageTurnGeometry";
-import {getPageBlockSplit, writeActiveLeafDeformation, writeActiveLeafPositions} from "~/game/PageTurnGeometry";
+import type {BookTextureRuntime} from "~/game/bookTextureRuntime";
+import {
+  getPageBlockSplit,
+  writeActiveLeafDeformation,
+  writeActiveLeafPositions,
+  type ActiveLeafDeformationTarget,
+  type ActiveLeafVertex,
+} from "~/game/PageTurnGeometry";
 import {PageTextureCache} from "~/game/PageTextureCache";
 import {ReaderPagePreloader} from "~/reader/ReaderPagePreloader";
 import {createReaderPagePreloadPlan} from "~/reader/pagePreloadPlan";
@@ -46,13 +58,12 @@ import {
   INSPECTION_READER_EMISSIVE_INTENSITY,
   INSPECTION_SURFACE_GAP,
   INSPECTION_TRANSITION_POSITION_EPSILON_SQ,
-} from "~/game/bookInspectionTuning";
-import {
   SHELF_PREVIEW_ROTATION_SPEED,
   SHELF_PREVIEW_TRANSLATION_SPEED,
   SHELF_RETURN_CLOSE_HANDOFF_ANGLE,
   SHELF_RETURN_ROTATION_HANDOFF_EPSILON,
 } from "~/game/bookInspectionTuning";
+import type {BookPhysicsPose, MutableBookPhysicsTransform, ShopPhysicsWorld} from "~/game/ShopPhysicsWorld";
 import type {InspectionCloseAction, InspectionMode} from "~/game/shopTypes";
 
 export type InspectionShelfReturnPhase = "close" | "rotate" | "translate";
@@ -68,19 +79,19 @@ export type InspectionHost = {
   emitGameState: () => void;
   scene: () => Scene;
   carriedPublicationId: () => string | undefined;
-  physicsWorld: () => import("~/game/ShopPhysicsWorld").ShopPhysicsWorld;
+  physicsWorld: () => ShopPhysicsWorld;
   camera: () => PerspectiveCamera;
   catalogItems: () => readonly CatalogItem[];
-  bookTextures: () => import("~/game/bookTextureRuntime").BookTextureRuntime;
+  bookTextures: () => BookTextureRuntime;
   onPageIndexChange: (publicationId: string, pageIndex: number) => void;
   physicsPosePosition: () => Vector3;
   physicsPoseRotation: () => Quaternion;
-  physicsPose: () => import("~/game/ShopPhysicsWorld").BookPhysicsPose;
-  physicsPoseEuler: () => import("three").Euler;
+  physicsPose: () => BookPhysicsPose;
+  physicsPoseEuler: () => Euler;
   canvas: () => HTMLCanvasElement;
   horizontalFieldOfView: () => number;
   disposed: () => boolean;
-  physicsTransform: () => import("~/game/ShopPhysicsWorld").MutableBookPhysicsTransform;
+  physicsTransform: () => MutableBookPhysicsTransform;
   setHoveredPublicationId: (publicationId: string | undefined) => void;
   onSelectPublication: ((publicationId: string) => void) | undefined;
   initialPageIndex: (publicationId: string) => number;
@@ -98,7 +109,7 @@ export type InspectionHost = {
   textureLoader: () => TextureLoader;
   renderer: () => WebGLRenderer;
   spreadDistance: () => number;
-  heldTargetPose: () => import("~/game/ShopPhysicsWorld").BookPhysicsPose;
+  heldTargetPose: () => BookPhysicsPose;
 };
 
 /**
@@ -193,51 +204,65 @@ export class InspectionController {
   inspectionQueuedTurn: ReaderNavigation | undefined;
 
   advanceInspectionMode(publicationId = this.#host.carriedPublicationId()) {
+    const target = this.#inspectionTarget(publicationId);
+    if (!target) return;
+    const {publication, record} = target;
+
+    if (this.inspectionMode !== "none") {
+      this.startInspectionClose("return");
+      return;
+    }
+
+    if (!this.#beginInspectionSession(record, publication)) return;
+    this.configureInspectionPages(record, publication);
+    this.#hideInspectionDuringOpening(record);
+    void this.syncInspectionPageTextures(publication);
+    this.#host.emitGameState();
+  }
+
+  #inspectionTarget(publicationId: string | undefined) {
     if (!publicationId) return;
     const publication = this.#host.catalogItems().find((item) => item.id === publicationId);
     if (!publication || publication.pages.length === 0) return;
     const record = this.#host.booksById().get(publication.id);
     if (!record) return;
+    return {publication, record};
+  }
 
-    if (this.inspectionMode === "none") {
-      const inspectableFromShelf = record.state.status === "shelved";
-      if (publication.id !== this.#host.carriedPublicationId() && !inspectableFromShelf) return;
-      this.inspectionPublicationId = publication.id;
-      const bookmarkedPage = clampPageIndex(this.#host.initialPageIndex(publication.id), publication.pages.length);
-      const firstInteriorPage = publication.pages.length > 1 ? 1 : 0;
-      this.inspectionResumePageIndex = getReaderSpread(
-        bookmarkedPage === 0 ? firstInteriorPage : bookmarkedPage,
-        publication.pages.length,
-        "spread",
-        getWideReaderPageIndices(publication.pages),
-      ).start;
-      this.inspectionPageIndex = 0;
-      this.inspectionMode = "spread";
-      this.inspectionShelfFocusPending = inspectableFromShelf && record.shelfPresentation === "spine";
-      this.inspectionOpeningHalf = publication.direction === "LTR" ? "left" : "right";
-      this.inspectionCloseAction = undefined;
-      this.inspectionOpenAngle = INSPECTION_OPEN_ANGLE;
-      this.inspectionOpenAngleTarget = INSPECTION_OPEN_ANGLE;
-      this.inspectionOpeningDelay = INSPECTION_OPENING_DELAY_SECONDS;
-      this.applyInspectionOpenAngle(record);
-      this.resetInspectionZoom();
-      this.#host.bookTextures().promoteBookCoverTexture(publication.id, record);
-      this.#host.setHoveredPublicationId(undefined);
-      this.#host.onSelectPublication?.(publication.id);
-      this.#host.applyBookStates();
-      this.#host.releasePointerLock();
-    } else {
-      this.startInspectionClose("return");
-      return;
-    }
+  #beginInspectionSession(record: BookRecord, publication: CatalogItem) {
+    const inspectableFromShelf = record.state.status === "shelved";
+    if (publication.id !== this.#host.carriedPublicationId() && !inspectableFromShelf) return false;
+    this.inspectionPublicationId = publication.id;
+    const bookmarkedPage = clampPageIndex(this.#host.initialPageIndex(publication.id), publication.pages.length);
+    const firstInteriorPage = publication.pages.length > 1 ? 1 : 0;
+    this.inspectionResumePageIndex = getReaderSpread(
+      bookmarkedPage === 0 ? firstInteriorPage : bookmarkedPage,
+      publication.pages.length,
+      "spread",
+      getWideReaderPageIndices(publication.pages),
+    ).start;
+    this.inspectionPageIndex = 0;
+    this.inspectionMode = "spread";
+    this.inspectionShelfFocusPending = inspectableFromShelf && record.shelfPresentation === "spine";
+    this.inspectionOpeningHalf = publication.direction === "LTR" ? "left" : "right";
+    this.inspectionCloseAction = undefined;
+    this.inspectionOpenAngle = INSPECTION_OPEN_ANGLE;
+    this.inspectionOpenAngleTarget = INSPECTION_OPEN_ANGLE;
+    this.inspectionOpeningDelay = INSPECTION_OPENING_DELAY_SECONDS;
+    this.applyInspectionOpenAngle(record);
+    this.resetInspectionZoom();
+    this.#host.bookTextures().promoteBookCoverTexture(publication.id, record);
+    this.#host.setHoveredPublicationId(undefined);
+    this.#host.onSelectPublication?.(publication.id);
+    this.#host.applyBookStates();
+    this.#host.releasePointerLock();
+    return true;
+  }
 
-    this.configureInspectionPages(record, publication);
-    if (this.inspectionOpeningDelay > 0) {
-      record.inspectionGroup.visible = false;
-      record.exteriorMaterial.visible = true;
-    }
-    void this.syncInspectionPageTextures(publication);
-    this.#host.emitGameState();
+  #hideInspectionDuringOpening(record: BookRecord) {
+    if (this.inspectionOpeningDelay <= 0) return;
+    record.inspectionGroup.visible = false;
+    record.exteriorMaterial.visible = true;
   }
 
   animateInspectionLighting(record: BookRecord, focused: boolean, deltaSeconds: number) {
@@ -296,22 +321,7 @@ export class InspectionController {
     if (this.inspectionDragging) return;
     if (Math.abs(this.inspectionTurnProgress - this.inspectionTurnProgressTarget) > 0.002) return;
     this.inspectionTurnProgress = this.inspectionTurnProgressTarget;
-    if (this.inspectionTurnWillCommit) {
-      const destinationMaterial =
-        this.inspectionTurnPage === "left" ? record.inspectionLeftMaterial : record.inspectionRightMaterial;
-      destinationMaterial.map = this.inspectionTurnDestinationTexture;
-      destinationMaterial.needsUpdate = true;
-      this.inspectionPageIndex = this.inspectionTurnTargetPageIndex;
-    } else {
-      const sourceMaterial =
-        this.inspectionTurnSourceSide === "left" ? record.inspectionLeftMaterial : record.inspectionRightMaterial;
-      sourceMaterial.map = this.inspectionTurnSourceTexture;
-      sourceMaterial.needsUpdate = true;
-      const destinationMaterial =
-        this.inspectionTurnPage === "left" ? record.inspectionLeftMaterial : record.inspectionRightMaterial;
-      destinationMaterial.map = this.inspectionTurnDestinationPreviousTexture;
-      destinationMaterial.needsUpdate = true;
-    }
+    this.#applyInspectionTurnResult(record);
     turningPage.visible = false;
     record.inspectionTurningFrontMaterial.map = null;
     this.setInspectionTurningBackTexture(record, null);
@@ -338,6 +348,25 @@ export class InspectionController {
     void this.syncInspectionPageTextures(publication);
     this.flushQueuedInspectionTurn();
     this.releaseInspectionTurnTextures();
+  }
+
+  #applyInspectionTurnResult(record: BookRecord) {
+    if (this.inspectionTurnWillCommit) {
+      const destinationMaterial =
+        this.inspectionTurnPage === "left" ? record.inspectionLeftMaterial : record.inspectionRightMaterial;
+      destinationMaterial.map = this.inspectionTurnDestinationTexture;
+      destinationMaterial.needsUpdate = true;
+      this.inspectionPageIndex = this.inspectionTurnTargetPageIndex;
+      return;
+    }
+    const sourceMaterial =
+      this.inspectionTurnSourceSide === "left" ? record.inspectionLeftMaterial : record.inspectionRightMaterial;
+    sourceMaterial.map = this.inspectionTurnSourceTexture;
+    sourceMaterial.needsUpdate = true;
+    const destinationMaterial =
+      this.inspectionTurnPage === "left" ? record.inspectionLeftMaterial : record.inspectionRightMaterial;
+    destinationMaterial.map = this.inspectionTurnDestinationPreviousTexture;
+    destinationMaterial.needsUpdate = true;
   }
 
   animateInspectionPhysicsReturn(record: BookRecord, deltaSeconds: number) {
@@ -467,32 +496,20 @@ export class InspectionController {
     const intersection = intersections[0];
     const page = intersection?.object;
     if (!page) return;
-    const clickedSide: "left" | "right" =
-      record.inspectionLeftPage.visible && record.inspectionRightPage.visible
-        ? page === record.inspectionLeftPage
-          ? "left"
-          : "right"
-        : pointerX < 0
-          ? "left"
-          : "right";
+    let clickedSide: "left" | "right";
+    if (record.inspectionLeftPage.visible && record.inspectionRightPage.visible)
+      clickedSide = page === record.inspectionLeftPage ? "left" : "right";
+    else clickedSide = pointerX < 0 ? "left" : "right";
     return {clickedSide, intersection};
   }
 
-  beginInspectionPointerTurn(event: PointerEvent) {
-    const publication = this.inspectionPublication();
-    if (
-      !publication ||
-      this.inspectionMode !== "spread" ||
-      this.inspectionOpeningDelay > 0 ||
-      this.inspectionOpenAngle > 0.08 ||
-      this.inspectionTurnPage !== undefined
-    )
-      return;
-    const record = this.#host.booksById().get(publication.id);
-    if (!record) return;
-    const pointerHit = this.#findInspectionPointerHit(event, record);
-    if (!pointerHit) return;
-    const {clickedSide, intersection} = pointerHit;
+  #beginInspectionPointerDrag(
+    event: PointerEvent,
+    publication: CatalogItem,
+    clickedSide: "left" | "right",
+    textureU: number | undefined,
+    textureV: number | undefined,
+  ) {
     const forwardSide = publication.direction === "LTR" ? "right" : "left";
     const navigation = clickedSide === forwardSide ? "forward" : "backward";
     this.inspectionDragging = true;
@@ -501,10 +518,39 @@ export class InspectionController {
     this.inspectionDragReleaseDecision = undefined;
     this.inspectionDragStartX = event.clientX;
     this.inspectionDragCurrentX = event.clientX;
-    const textureU = intersection?.uv?.x ?? 1;
-    this.inspectionTurnAnchorX = MathUtils.clamp(clickedSide === "right" ? textureU : 1 - textureU, 0.08, 1);
-    this.inspectionTurnAnchorY = intersection?.uv?.y ?? 0.5;
+    const resolvedTextureU = textureU ?? 1;
+    this.inspectionTurnAnchorX = MathUtils.clamp(
+      clickedSide === "right" ? resolvedTextureU : 1 - resolvedTextureU,
+      0.08,
+      1,
+    );
+    this.inspectionTurnAnchorY = textureV ?? 0.5;
     this.turnInspectionPages(navigation);
+  }
+
+  beginInspectionPointerTurn(event: PointerEvent) {
+    const publication = this.inspectionPublication();
+    if (!publication || !this.#canBeginInspectionPointerTurn()) return;
+    const record = this.#host.booksById().get(publication.id);
+    if (!record) return;
+    const pointerHit = this.#findInspectionPointerHit(event, record);
+    if (!pointerHit) return;
+    this.#beginInspectionPointerDrag(
+      event,
+      publication,
+      pointerHit.clickedSide,
+      pointerHit.intersection?.uv?.x,
+      pointerHit.intersection?.uv?.y,
+    );
+  }
+
+  #canBeginInspectionPointerTurn() {
+    return (
+      this.inspectionMode === "spread" &&
+      this.inspectionOpeningDelay <= 0 &&
+      this.inspectionOpenAngle <= 0.08 &&
+      this.inspectionTurnPage === undefined
+    );
   }
 
   cancelInspectionPageTurn(record: BookRecord, publication: CatalogItem) {
@@ -537,21 +583,9 @@ export class InspectionController {
   }
 
   configureInspectionPages(record: BookRecord, publication: CatalogItem) {
-    record.inspectionGroup.visible = true;
-    record.exteriorMaterial.visible = false;
     const pageZ = record.thickness / 2 + INSPECTION_SURFACE_GAP;
     const pageCenterOffset = record.width / 2 + INSPECTION_PAGE_GUTTER / 2;
-    record.inspectionLeftAssembly.position.x = 0;
-    record.inspectionRightAssembly.position.x = 0;
-    record.inspectionLeftAssembly.visible = true;
-    record.inspectionRightAssembly.visible = true;
-    record.inspectionLeftPage.rotation.y = 0;
-    record.inspectionRightPage.rotation.y = 0;
-    if (this.inspectionTurnPage === undefined) {
-      record.inspectionTurningPage.visible = false;
-      record.inspectionTurningFrontMaterial.map = null;
-      this.setInspectionTurningBackTexture(record, null);
-    }
+    this.#resetInspectionPageMeshes(record);
     const widePages = getWideReaderPageIndices(publication.pages);
     const spread = getReaderSpread(this.inspectionPageIndex, publication.pages.length, "spread", widePages);
     const isWideSpread = widePages.has(spread.start);
@@ -559,19 +593,7 @@ export class InspectionController {
     const openingFromBack = this.inspectionOpenAngleTarget === 0 && isTerminalBackSide;
     record.inspectionFrontCover.visible = !openingFromBack;
     record.inspectionBackCover.visible = openingFromBack;
-    const paperDepth = Math.max(0.012, record.thickness);
-    const pageBlocks = getPageBlockSplit({
-      committedPageIndex: this.inspectionPageIndex,
-      direction: publication.direction,
-      totalDepth: paperDepth,
-      totalPages: publication.pages.length,
-    });
-    record.inspectionLeftBlock.scale.z = pageBlocks.left.fraction;
-    record.inspectionRightBlock.scale.z = pageBlocks.right.fraction;
-    record.inspectionLeftBlock.position.z = record.thickness / 2 - pageBlocks.left.depth / 2;
-    record.inspectionRightBlock.position.z = record.thickness / 2 - pageBlocks.right.depth / 2;
-    record.inspectionLeftBlock.visible = pageBlocks.left.depth > 0;
-    record.inspectionRightBlock.visible = pageBlocks.right.depth > 0;
+    this.#configureInspectionPageBlocks(record, publication);
     const visiblePageCount = spread.pageIndices.length;
     record.inspectionLeftPage.position.set(-pageCenterOffset, 0, pageZ);
     record.inspectionRightPage.position.set(pageCenterOffset, 0, pageZ);
@@ -580,8 +602,57 @@ export class InspectionController {
       record.inspectionRightPage.visible = true;
       return;
     }
-    const isClosedSide = spread.start === 0 || isTerminalBackSide;
-    if (!isClosedSide) {
+    this.#configureSingleInspectionPage(
+      record,
+      publication,
+      widePages,
+      spread,
+      isTerminalBackSide,
+      openingFromBack,
+      pageCenterOffset,
+    );
+  }
+
+  #resetInspectionPageMeshes(record: BookRecord) {
+    record.inspectionGroup.visible = true;
+    record.exteriorMaterial.visible = false;
+    record.inspectionLeftAssembly.position.x = 0;
+    record.inspectionRightAssembly.position.x = 0;
+    record.inspectionLeftAssembly.visible = true;
+    record.inspectionRightAssembly.visible = true;
+    record.inspectionLeftPage.rotation.y = 0;
+    record.inspectionRightPage.rotation.y = 0;
+    if (this.inspectionTurnPage !== undefined) return;
+    record.inspectionTurningPage.visible = false;
+    record.inspectionTurningFrontMaterial.map = null;
+    this.setInspectionTurningBackTexture(record, null);
+  }
+
+  #configureInspectionPageBlocks(record: BookRecord, publication: CatalogItem) {
+    const pageBlocks = getPageBlockSplit({
+      committedPageIndex: this.inspectionPageIndex,
+      direction: publication.direction,
+      totalDepth: Math.max(0.012, record.thickness),
+      totalPages: publication.pages.length,
+    });
+    record.inspectionLeftBlock.scale.z = pageBlocks.left.fraction;
+    record.inspectionRightBlock.scale.z = pageBlocks.right.fraction;
+    record.inspectionLeftBlock.position.z = record.thickness / 2 - pageBlocks.left.depth / 2;
+    record.inspectionRightBlock.position.z = record.thickness / 2 - pageBlocks.right.depth / 2;
+    record.inspectionLeftBlock.visible = pageBlocks.left.depth > 0;
+    record.inspectionRightBlock.visible = pageBlocks.right.depth > 0;
+  }
+
+  #configureSingleInspectionPage(
+    record: BookRecord,
+    publication: CatalogItem,
+    widePages: ReadonlySet<number>,
+    spread: ReturnType<typeof getReaderSpread>,
+    isTerminalBackSide: boolean,
+    openingFromBack: boolean,
+    pageCenterOffset: number,
+  ) {
+    if (spread.start !== 0 && !isTerminalBackSide) {
       // A wide scan discovered on the next source page can leave one physical
       // face unprinted. Keep the book open and render that face as bare paper.
       record.inspectionLeftPage.visible = true;
@@ -598,11 +669,7 @@ export class InspectionController {
     const singlePageVisible = !openingFromBack || this.inspectionOpenAngle < INSPECTION_OPEN_ANGLE / 2;
     record.inspectionLeftPage.visible = singlePageIsLeft && singlePageVisible;
     record.inspectionRightPage.visible = !singlePageIsLeft && singlePageVisible;
-    if (this.inspectionOpenAngleTarget === INSPECTION_OPEN_ANGLE) {
-      record.inspectionLeftAssembly.visible = true;
-      record.inspectionRightAssembly.visible = true;
-      return;
-    }
+    if (this.inspectionOpenAngleTarget === INSPECTION_OPEN_ANGLE) return;
     record.inspectionLeftAssembly.visible = singlePageIsLeft;
     record.inspectionRightAssembly.visible = !singlePageIsLeft;
     if (singlePageIsLeft) record.inspectionLeftAssembly.position.x = pageCenterOffset;
@@ -723,8 +790,7 @@ export class InspectionController {
 
   loadInspectionPageTexture(url: string) {
     return new Promise<Texture>((resolvePromise, rejectPromise) => {
-      let requestedTexture: Texture | undefined;
-      requestedTexture = this.#host.textureLoader().load(
+      const requestedTexture = this.#host.textureLoader().load(
         url,
         (texture) => {
           const image = texture.image;
@@ -759,19 +825,64 @@ export class InspectionController {
   openInspectionBook() {
     const publication = this.inspectionPublication();
     if (!publication || this.inspectionMode !== "spread" || this.inspectionOpenAngleTarget === 0) return;
-    const record = this.#host.booksById().get(publication.id);
-    if (!record) return;
+    if (!this.#host.booksById().has(publication.id)) return;
+    void this.#openInspectionBookWhenReady(publication, this.inspectionResumePageIndex);
+  }
 
-    this.inspectionPageIndex = this.inspectionResumePageIndex;
+  async #openInspectionBookWhenReady(publication: CatalogItem, pageIndex: number) {
+    const revision = ++this.inspectionTextureRevision;
+    const pageUrls = this.inspectionPageUrls(publication, pageIndex);
+    const requestedUrls = new Set([pageUrls.left, pageUrls.right].filter((url): url is string => url !== undefined));
+    const preloadPlan = this.#inspectionPagePreloadPlan(publication, pageIndex, requestedUrls);
+    this.#preloadInspectionPageSources(preloadPlan);
+    const textures = await this.#loadInspectionPageTextures(requestedUrls);
+    if (this.#inspectionPageViewLoadIsStale(publication, revision, pageIndex)) {
+      for (const url of textures.keys()) this.inspectionPageTextureCache.release(url);
+      return;
+    }
+    const record = this.#host.booksById().get(publication.id);
+    if (!record) {
+      for (const url of textures.keys()) this.inspectionPageTextureCache.release(url);
+      return;
+    }
+    this.#replaceInspectionPageTextures(record, pageUrls, textures);
+    this.inspectionPageIndex = pageIndex;
     this.inspectionOpenAngleTarget = 0;
     this.configureInspectionPages(record, publication);
     if (this.inspectionOpeningDelay > 0) {
       record.inspectionGroup.visible = false;
       record.exteriorMaterial.visible = true;
     }
-    void this.syncInspectionPageTextures(publication);
+    this.#preloadInspectionPageTextures(preloadPlan);
     this.#host.onPageIndexChange?.(publication.id, this.inspectionPageIndex);
     this.#host.emitGameState();
+  }
+
+  #inspectionPageViewLoadIsStale(publication: CatalogItem, revision: number, pageIndex: number) {
+    return (
+      this.#inspectionPageTextureSyncIsStale(publication, revision, this.inspectionTurnRevision) ||
+      this.inspectionMode !== "spread" ||
+      this.inspectionOpenAngleTarget === 0 ||
+      this.inspectionResumePageIndex !== pageIndex
+    );
+  }
+
+  #inspectionPagePreloadPlan(publication: CatalogItem, pageIndex: number, requestedUrls: ReadonlySet<string>) {
+    return createReaderPagePreloadPlan({
+      pageCount: publication.pages.length,
+      pageIndex,
+      pageUrl: (index) => this.inspectionPageUrl(publication, index),
+      requestedUrls,
+      widePageIndices: getWideReaderPageIndices(publication.pages),
+    });
+  }
+
+  #preloadInspectionPageSources(preloadPlan: ReturnType<typeof createReaderPagePreloadPlan>) {
+    for (const url of preloadPlan.httpUrls) void this.inspectionPagePreloader.preload(url).catch(() => {});
+  }
+
+  #preloadInspectionPageTextures(preloadPlan: ReturnType<typeof createReaderPagePreloadPlan>) {
+    for (const url of preloadPlan.textureUrls) void this.inspectionPageTextureCache.prefetch(url).catch(() => {});
   }
 
   async #acquireInspectionTurnTextures(currentUrls: InspectionPageUrls, targetUrls: InspectionPageUrls) {
@@ -793,17 +904,13 @@ export class InspectionController {
     return textures;
   }
 
-  #prepareInspectionTurnSides(
-    record: BookRecord,
+  #configureInspectionTurnMode(
     publication: CatalogItem,
-    nextPageIndex: number,
+    currentSpread: ReturnType<typeof getReaderSpread>,
+    targetSpread: ReturnType<typeof getReaderSpread>,
+    widePages: ReadonlySet<number>,
     navigation: ReaderNavigation,
-    targetUrls: InspectionPageUrls,
-    textures: Map<string, Texture>,
   ) {
-    const widePages = getWideReaderPageIndices(publication.pages);
-    const currentSpread = getReaderSpread(this.inspectionPageIndex, publication.pages.length, "spread", widePages);
-    const targetSpread = getReaderSpread(nextPageIndex, publication.pages.length, "spread", widePages);
     const currentIsClosedSide =
       currentSpread.start === 0 ||
       (currentSpread.start === publication.pages.length - 1 && !widePages.has(currentSpread.start));
@@ -815,26 +922,25 @@ export class InspectionController {
     this.inspectionTurnBackSourceRevealed = false;
     this.inspectionTurnToSingle = !currentIsClosedSide && targetIsClosedSide;
     this.inspectionTurnNavigation = navigation;
-    const ltr = publication.direction === "LTR";
+  }
+
+  #resolveInspectionTurnSides(
+    record: BookRecord,
+    publication: CatalogItem,
+    navigation: ReaderNavigation,
+    targetUrls: InspectionPageUrls,
+    textures: Map<string, Texture>,
+  ) {
     const forward = navigation === "forward";
-    const sourceSide: "left" | "right" = forward === ltr ? "right" : "left";
+    const sourceSide: "left" | "right" = forward === (publication.direction === "LTR") ? "right" : "left";
     const destinationSide: "left" | "right" = sourceSide === "left" ? "right" : "left";
-    const sourceMaterial = sourceSide === "left" ? record.inspectionLeftMaterial : record.inspectionRightMaterial;
-    this.inspectionTurnSourceSide = sourceSide;
-    this.inspectionTurnSourceTexture = sourceMaterial.map;
-    this.inspectionTurnTargetPageIndex = nextPageIndex;
-    const sourceTargetUrl = targetUrls[sourceSide];
-    const sourceDestinationTexture = sourceTargetUrl ? (textures.get(sourceTargetUrl) ?? null) : null;
-    const destinationTargetUrl = targetUrls[destinationSide];
-    const destinationTexture = destinationTargetUrl ? (textures.get(destinationTargetUrl) ?? null) : null;
-    const destinationMaterial =
-      destinationSide === "left" ? record.inspectionLeftMaterial : record.inspectionRightMaterial;
-    const sourceAssembly = sourceSide === "left" ? record.inspectionLeftAssembly : record.inspectionRightAssembly;
-    const destinationAssembly =
-      destinationSide === "left" ? record.inspectionLeftAssembly : record.inspectionRightAssembly;
-    this.inspectionTurnDestinationPreviousTexture = destinationMaterial.map;
-    this.inspectionTurnDestinationTexture = destinationTexture;
-    this.inspectionTurnSourceDestinationTexture = sourceDestinationTexture;
+    const sourceDestinationTexture = this.#inspectionTurnTexture(targetUrls[sourceSide], textures);
+    const destinationTexture = this.#inspectionTurnTexture(targetUrls[destinationSide], textures);
+    const {sourceMaterial, destinationMaterial, sourceAssembly, destinationAssembly} = this.#inspectionTurnSideObjects(
+      record,
+      sourceSide,
+      destinationSide,
+    );
     return {
       destinationAssembly,
       destinationMaterial,
@@ -843,8 +949,46 @@ export class InspectionController {
       forward,
       sourceAssembly,
       sourceDestinationTexture,
+      sourceSide,
       sourceMaterial,
     };
+  }
+
+  #inspectionTurnTexture(url: string | undefined, textures: Map<string, Texture>) {
+    if (!url) return null;
+    return textures.get(url) ?? null;
+  }
+
+  #inspectionTurnSideObjects(record: BookRecord, sourceSide: "left" | "right", destinationSide: "left" | "right") {
+    return {
+      sourceMaterial: sourceSide === "left" ? record.inspectionLeftMaterial : record.inspectionRightMaterial,
+      destinationMaterial: destinationSide === "left" ? record.inspectionLeftMaterial : record.inspectionRightMaterial,
+      sourceAssembly: sourceSide === "left" ? record.inspectionLeftAssembly : record.inspectionRightAssembly,
+      destinationAssembly: destinationSide === "left" ? record.inspectionLeftAssembly : record.inspectionRightAssembly,
+    };
+  }
+
+  #prepareInspectionTurnSides(
+    record: BookRecord,
+    publication: CatalogItem,
+    nextPageIndex: number,
+    navigation: ReaderNavigation,
+    targetUrls: InspectionPageUrls,
+    textures: Map<string, Texture>,
+  ) {
+    const widePages = getWideReaderPageIndices(publication.pages);
+    const currentSpread = getReaderSpread(this.inspectionPageIndex, publication.pages.length, "spread", widePages);
+    const targetSpread = getReaderSpread(nextPageIndex, publication.pages.length, "spread", widePages);
+    this.#configureInspectionTurnMode(publication, currentSpread, targetSpread, widePages, navigation);
+    const sides = this.#resolveInspectionTurnSides(record, publication, navigation, targetUrls, textures);
+    const {destinationMaterial, destinationTexture, sourceDestinationTexture, sourceSide, sourceMaterial} = sides;
+    this.inspectionTurnSourceSide = sourceSide;
+    this.inspectionTurnSourceTexture = sourceMaterial.map;
+    this.inspectionTurnTargetPageIndex = nextPageIndex;
+    this.inspectionTurnDestinationPreviousTexture = destinationMaterial.map;
+    this.inspectionTurnDestinationTexture = destinationTexture;
+    this.inspectionTurnSourceDestinationTexture = sourceDestinationTexture;
+    return sides;
   }
 
   #configureInspectionTurn(
@@ -973,7 +1117,8 @@ export class InspectionController {
     this.inspectionDragReleaseDecision = undefined;
     this.inspectionTurnWillCommit = decision === "commit";
     const forward = this.inspectionTurnNavigation === "forward";
-    this.inspectionTurnProgressTarget = decision === "commit" ? (forward ? 1 : 0) : forward ? 0 : 1;
+    if (decision === "commit") this.inspectionTurnProgressTarget = forward ? 1 : 0;
+    else this.inspectionTurnProgressTarget = forward ? 0 : 1;
   }
 
   setInspectionPointer(clientX: number, clientY: number) {
@@ -1059,45 +1204,67 @@ export class InspectionController {
     const turnRevision = this.inspectionTurnRevision;
     const pageUrls = this.inspectionPageUrls(publication, this.inspectionPageIndex);
     const requestedUrls = new Set([pageUrls.left, pageUrls.right].filter((url): url is string => url !== undefined));
-    const textures = new Map<string, Texture>();
-    const preloadPlan = createReaderPagePreloadPlan({
-      pageCount: publication.pages.length,
-      pageIndex: this.inspectionPageIndex,
-      pageUrl: (pageIndex) => this.inspectionPageUrl(publication, pageIndex),
-      requestedUrls,
-      widePageIndices: getWideReaderPageIndices(publication.pages),
-    });
-    const requestedTextureLoads = [...requestedUrls].map(async (url) => {
-      try {
-        textures.set(url, await this.inspectionPageTextureCache.acquire(url));
-      } catch {
-        // The paper color remains visible when an individual page is absent.
-      }
-    });
-    for (const url of preloadPlan.httpUrls) void this.inspectionPagePreloader.preload(url).catch(() => {});
-    await Promise.all(requestedTextureLoads);
-    if (
-      this.#host.disposed() ||
-      revision !== this.inspectionTextureRevision ||
-      // A page turn prepared after this sync started owns the surface
-      // materials; applying spread textures here would flash mid-turn.
-      turnRevision !== this.inspectionTurnRevision ||
-      this.inspectionPublication()?.id !== publication.id
-    ) {
+    const preloadPlan = this.#inspectionPagePreloadPlan(publication, this.inspectionPageIndex, requestedUrls);
+    this.#preloadInspectionPageSources(preloadPlan);
+    const textures = await this.#loadInspectionPageTextures(requestedUrls);
+    if (this.#inspectionPageTextureSyncIsStale(publication, revision, turnRevision)) {
       for (const url of textures.keys()) this.inspectionPageTextureCache.release(url);
       return;
     }
 
-    for (const url of this.inspectionTextureUrls) this.inspectionPageTextureCache.release(url);
-    this.inspectionTextureUrls = new Set(textures.keys());
     const record = this.#host.booksById().get(publication.id);
-    if (!record) return;
+    if (!record) {
+      for (const url of textures.keys()) this.inspectionPageTextureCache.release(url);
+      return;
+    }
+    this.#replaceInspectionPageTextures(record, pageUrls, textures);
+    this.#preloadInspectionPageTextures(preloadPlan);
+  }
+
+  async #loadInspectionPageTextures(requestedUrls: ReadonlySet<string>) {
+    const textures = new Map<string, Texture>();
+    await Promise.all(
+      [...requestedUrls].map(async (url) => {
+        try {
+          textures.set(url, await this.inspectionPageTextureCache.acquire(url));
+        } catch {
+          // The paper color remains visible when an individual page is absent.
+        }
+      }),
+    );
+    return textures;
+  }
+
+  #inspectionPageTextureSyncIsStale(publication: CatalogItem, revision: number, turnRevision: number) {
+    // A page turn prepared after this sync started owns the surface
+    // materials; applying spread textures here would flash mid-turn.
+    return (
+      this.#host.disposed() ||
+      revision !== this.inspectionTextureRevision ||
+      turnRevision !== this.inspectionTurnRevision ||
+      this.inspectionPublication()?.id !== publication.id
+    );
+  }
+
+  #applyInspectionPageTextures(
+    record: BookRecord,
+    pageUrls: InspectionPageUrls,
+    textures: ReadonlyMap<string, Texture>,
+  ) {
     record.inspectionLeftMaterial.map = pageUrls.left ? (textures.get(pageUrls.left) ?? null) : null;
     record.inspectionRightMaterial.map = pageUrls.right ? (textures.get(pageUrls.right) ?? null) : null;
     record.inspectionLeftMaterial.needsUpdate = true;
     record.inspectionRightMaterial.needsUpdate = true;
+  }
 
-    for (const url of preloadPlan.textureUrls) void this.inspectionPageTextureCache.prefetch(url).catch(() => {});
+  #replaceInspectionPageTextures(
+    record: BookRecord,
+    pageUrls: InspectionPageUrls,
+    textures: ReadonlyMap<string, Texture>,
+  ) {
+    for (const url of this.inspectionTextureUrls) this.inspectionPageTextureCache.release(url);
+    this.inspectionTextureUrls = new Set(textures.keys());
+    this.#applyInspectionPageTextures(record, pageUrls, textures);
   }
 
   turnInspectionPages(navigation: ReaderNavigation) {

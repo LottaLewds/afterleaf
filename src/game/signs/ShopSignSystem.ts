@@ -427,7 +427,10 @@ export class ShopSignSystem {
       const targeted = key === this.#targetedKey;
       const shelfPreview = key === this.#previewKey && slot.sign === undefined;
       slot.target.visible = targeted || shelfPreview;
-      slot.target.material.opacity = targeted ? 0.32 : shelfPreview ? 0.2 : 0;
+      let opacity = 0;
+      if (shelfPreview) opacity = 0.2;
+      if (targeted) opacity = 0.32;
+      slot.target.material.opacity = opacity;
     }
   }
 

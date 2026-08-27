@@ -5,13 +5,13 @@ import {
   MeshBasicMaterial,
   Path,
   PlaneGeometry,
-  Quaternion,
   Shape,
   ShapeGeometry,
-  Vector3,
+  type Group,
   type MeshStandardMaterial,
+  type Quaternion,
+  type Vector3,
 } from "three";
-import type {Group} from "three";
 import {createWallpaperBoxGeometry} from "~/game/wallpaperMaterials";
 import {createCeilingBoxGeometry} from "~/game/ceilingMaterials";
 import {createUpholsteryBoxGeometry} from "~/game/upholsteryMaterials";
@@ -137,7 +137,7 @@ export const createHorizontalShape = (
   return mesh;
 };
 
-/** Cloned-material tiled floor surface on the upper storey. */
+/** Adds a tiled floor surface using the caller's shared material. */
 export const createTiledFloorSurface = (
   parent: Group,
   bounds: HorizontalBounds,
@@ -145,9 +145,7 @@ export const createTiledFloorSurface = (
   holes: readonly HorizontalBounds[] = [],
   y = SHOP_UPPER_FLOOR_Y + 0.002,
 ) => {
-  const material = floorMaterial.clone();
-  const floor = createHorizontalShape(parent, bounds, holes, y, material);
-  return floor;
+  return createHorizontalShape(parent, bounds, holes, y, floorMaterial);
 };
 
 /**

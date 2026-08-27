@@ -1,6 +1,10 @@
 import {MathUtils, Vector3, type Object3D, type PerspectiveCamera} from "three";
-import type {ArcadeSessionStatus, ShopArcadeCabinet, ShopArcadePlayRequest} from "~/game/ShopArcadeCabinet";
-import {ARCADE_CABINET_HEIGHT} from "~/game/ShopArcadeCabinet";
+import {
+  ARCADE_CABINET_HEIGHT,
+  type ArcadeSessionStatus,
+  type ShopArcadeCabinet,
+  type ShopArcadePlayRequest,
+} from "~/game/ShopArcadeCabinet";
 import {DEFAULT_PITCH_LIMIT} from "~/game/shopGameplay";
 
 export type ShopArcadeSessionControllerHost = {

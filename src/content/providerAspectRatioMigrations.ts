@@ -39,7 +39,7 @@ const localPageDimensions = async (
       return;
     return await readImageDimensions(await readFile(resolvedPage));
   } catch {
-    return;
+    // An unreadable local page cannot provide migration dimensions.
   }
 };
 

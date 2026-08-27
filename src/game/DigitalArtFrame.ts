@@ -261,6 +261,33 @@ export class DigitalArtFrame {
     return images.find((image) => image.id === imageId) ?? images[0];
   }
 
+  #applyLoadedImage(image: ArtFrameImage, loadedTexture: Texture, notify: boolean) {
+    if (this.#currentImage?.id === image.id && !this.#transition) {
+      this.#releaseTexture(image.id);
+      this.#currentImage = image;
+      this.#displayImage = image;
+      this.#updateMappings();
+      this.#preloadNextImage();
+      return;
+    }
+    this.#finishTransition();
+    this.#currentImage = image;
+    if (this.#displayImage) {
+      this.#transition = {elapsedSeconds: 0, image, texture: loadedTexture};
+      this.#display.incomingMap.value = loadedTexture;
+      this.#display.transitionProgress.value = 0;
+    } else {
+      this.#displayImage = image;
+      this.#display.material.map = loadedTexture;
+      this.#display.incomingMap.value = loadedTexture;
+      this.#display.material.needsUpdate = true;
+      this.#display.mesh.visible = true;
+    }
+    this.#updateMappings();
+    if (notify) this.#onImageChange?.();
+    if (!this.#transition) this.#preloadNextImage();
+  }
+
   async #showImage(image: ArtFrameImage, notify: boolean) {
     const revision = (this.#revision += 1);
     const preloadedImage = this.#preloadedImage?.image.id === image.id ? this.#preloadedImage : undefined;
@@ -277,33 +304,8 @@ export class DigitalArtFrame {
         ownsTexture = false;
         return;
       }
-      if (this.#currentImage?.id === image.id && !this.#transition) {
-        this.#releaseTexture(image.id);
-        ownsTexture = false;
-        this.#currentImage = image;
-        this.#displayImage = image;
-        this.#updateMappings();
-        this.#preloadNextImage();
-        return;
-      }
-      this.#finishTransition();
       ownsTexture = false;
-      this.#currentImage = image;
-      if (this.#displayImage) {
-        this.#transition = {elapsedSeconds: 0, image, texture: loadedTexture};
-        this.#display.incomingMap.value = loadedTexture;
-        this.#display.transitionProgress.value = 0;
-        this.#updateMappings();
-      } else {
-        this.#displayImage = image;
-        this.#display.material.map = loadedTexture;
-        this.#display.incomingMap.value = loadedTexture;
-        this.#display.material.needsUpdate = true;
-        this.#display.mesh.visible = true;
-        this.#updateMappings();
-      }
-      if (notify) this.#onImageChange?.();
-      if (!this.#transition) this.#preloadNextImage();
+      this.#applyLoadedImage(image, loadedTexture, notify);
     } catch (error) {
       if (ownsTexture) this.#releaseTexture(image.id);
       if (DEV) console.warn(`Afterleaf could not load art frame image ${image.id}.`, error);

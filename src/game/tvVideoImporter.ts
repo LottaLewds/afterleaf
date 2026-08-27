@@ -40,6 +40,23 @@ export class TvVideoImporter {
     this.#messageTimer = undefined;
   }
 
+  #completeImport(
+    television: ShopTelevision,
+    channelId: string,
+    channelLabel: string,
+    video: TvVideo,
+    selectImportedChannel: boolean,
+  ) {
+    if (selectImportedChannel) television.playImportedChannel(channelId, video, channelLabel);
+    else television.playVideoIfChannelSelected(channelId, video, channelLabel);
+    this.#message = `Added ${video.id} to ${channelLabel}`;
+    this.#messageTimer = window.setTimeout(() => {
+      this.#messageTimer = undefined;
+      this.#message = undefined;
+      if (!this.#host.isDisposed()) this.#host.emitGameState();
+    }, 6_000);
+  }
+
   async import(
     television: ShopTelevision,
     url: string,
@@ -58,14 +75,7 @@ export class TvVideoImporter {
     try {
       const video = await importVideo(url, channelId, this.#host.abortSignal);
       if (this.#host.isDisposed()) return false;
-      if (selectImportedChannel) television.playImportedChannel(channelId, video, channelLabel);
-      else television.playVideoIfChannelSelected(channelId, video, channelLabel);
-      this.#message = `Added ${video.id} to ${channelLabel}`;
-      this.#messageTimer = window.setTimeout(() => {
-        this.#messageTimer = undefined;
-        this.#message = undefined;
-        if (!this.#host.isDisposed()) this.#host.emitGameState();
-      }, 6_000);
+      this.#completeImport(television, channelId, channelLabel, video, selectImportedChannel);
       return true;
     } catch (error) {
       if (this.#host.abortSignal.aborted) return false;

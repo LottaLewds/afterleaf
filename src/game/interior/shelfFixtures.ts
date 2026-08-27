@@ -1,5 +1,12 @@
-import {Mesh, MeshBasicMaterial, PlaneGeometry, Vector3, type MeshStandardMaterial, type Object3D} from "three";
-import type {Group} from "three";
+import {
+  Mesh,
+  MeshBasicMaterial,
+  PlaneGeometry,
+  Vector3,
+  type Group,
+  type MeshStandardMaterial,
+  type Object3D,
+} from "three";
 import {BOOK_HEIGHT} from "~/game/bookTuning";
 import {
   SPINE_SHELF_BACKING_THICKNESS,
@@ -133,7 +140,30 @@ const createSpineShelfSignTargets = (
   return signKeys;
 };
 
-const createSpineShelfFace = (
+const SPINE_SHELF_FACE_LAYOUTS = {
+  x: {
+    negative: {axis: [1, 0, 0] as const, face: "north", normal: [0, 0, -1] as const, rotationY: Math.PI},
+    positive: {axis: [1, 0, 0] as const, face: "south", normal: [0, 0, 1] as const, rotationY: 0},
+  },
+  z: {
+    negative: {axis: [0, 0, 1] as const, face: "west", normal: [-1, 0, 0] as const, rotationY: -Math.PI / 2},
+    positive: {axis: [0, 0, 1] as const, face: "east", normal: [1, 0, 0] as const, rotationY: Math.PI / 2},
+  },
+} as const;
+
+const getSpineShelfFaceLayout = (normal: -1 | 1, alongX: boolean) => {
+  const axis = alongX ? "x" : "z";
+  const direction = normal > 0 ? "positive" : "negative";
+  const layout = SPINE_SHELF_FACE_LAYOUTS[axis][direction];
+  return {
+    axis: new Vector3(...layout.axis),
+    face: layout.face,
+    normal: new Vector3(...layout.normal),
+    rotationY: layout.rotationY,
+  };
+};
+
+const createSpineShelfRows = (
   parent: Group,
   fixtureId: string,
   x: number,
@@ -146,31 +176,12 @@ const createSpineShelfFace = (
   bayWidth: number,
   backingThickness: number,
   deps: SpineShelfFixtureDeps,
+  layout: ReturnType<typeof getSpineShelfFaceLayout>,
+  signKeys: Map<number, string>,
 ) => {
-  const shelfAxis = new Vector3(alongX ? 1 : 0, 0, alongX ? 0 : 1);
-  const shelfNormal = new Vector3(alongX ? 0 : normal, 0, alongX ? normal : 0);
-  let targetRotationY = normal > 0 ? Math.PI / 2 : -Math.PI / 2;
-  if (alongX) targetRotationY = normal > 0 ? 0 : Math.PI;
-  let face = normal > 0 ? "east" : "west";
-  if (alongX) face = normal > 0 ? "south" : "north";
-  const signKeys = createSpineShelfSignTargets(
-    parent,
-    fixtureId,
-    x,
-    z,
-    length,
-    bayCount,
-    normal,
-    elevation,
-    alongX,
-    bayWidth,
-    targetRotationY,
-    face,
-    deps,
-  );
   for (let row = 0; row < 4; row += 1) {
     for (let bay = 0; bay < bayCount; bay += 1) {
-      const shelfId = `${fixtureId}:${face}:${row}:${bay}`;
+      const shelfId = `${fixtureId}:${layout.face}:${row}:${bay}`;
       const bayCenter = -length / 2 + bayWidth * (bay + 0.5);
       const frontCenter = new Vector3(
         alongX ? x + bayCenter : x + normal * SPINE_SHELF_FRONT_OFFSET,
@@ -178,14 +189,14 @@ const createSpineShelfFace = (
         alongX ? z + normal * SPINE_SHELF_FRONT_OFFSET : z + bayCenter,
       );
       const definition: SpineShelfDefinition = {
-        axis: shelfAxis,
+        axis: layout.axis,
         backInset: SPINE_SHELF_FRONT_OFFSET - backingThickness / 2,
         faceInset: FACE_OUT_SHELF_INSET,
         faceTilt: 0,
         frontCenter,
         halfWidth: (bayWidth - 0.18) / 2,
         id: shelfId,
-        normal: shelfNormal,
+        normal: layout.normal,
       };
       const signKey = signKeys.get(bay);
       if (signKey) definition.signKey = signKey;
@@ -203,7 +214,7 @@ const createSpineShelfFace = (
       // Invisible raycast proxy - see mixed-shelf-target note above.
       target.visible = false;
       target.position.copy(frontCenter);
-      target.rotation.y = targetRotationY;
+      target.rotation.y = layout.rotationY;
       target.userData.shelfId = shelfId;
       parent.add(target);
       deps.shelfTargetMeshes.push(target);
@@ -211,28 +222,68 @@ const createSpineShelfFace = (
   }
 };
 
-/**
- * Builds one spine-shelf fixture: backing, boards, dividers, end poster
- * surfaces, per-bay sign slots with preview proxies, and the shelf target
- * registry entries the book interaction logic aims at.
- */
-export const createSpineShelfFixture = (
+const createSpineShelfFace = (
   parent: Group,
   fixtureId: string,
   x: number,
   z: number,
   length: number,
   bayCount: number,
-  faceNormals: readonly (-1 | 1)[],
+  normal: -1 | 1,
+  elevation: number,
+  alongX: boolean,
+  bayWidth: number,
+  backingThickness: number,
+  deps: SpineShelfFixtureDeps,
+) => {
+  const layout = getSpineShelfFaceLayout(normal, alongX);
+  const signKeys = createSpineShelfSignTargets(
+    parent,
+    fixtureId,
+    x,
+    z,
+    length,
+    bayCount,
+    normal,
+    elevation,
+    alongX,
+    bayWidth,
+    layout.rotationY,
+    layout.face,
+    deps,
+  );
+  createSpineShelfRows(
+    parent,
+    fixtureId,
+    x,
+    z,
+    length,
+    bayCount,
+    normal,
+    elevation,
+    alongX,
+    bayWidth,
+    backingThickness,
+    deps,
+    layout,
+    signKeys,
+  );
+};
+
+const createSpineShelfStructure = (
+  parent: Group,
+  x: number,
+  z: number,
+  length: number,
+  bayCount: number,
+  elevation: number,
+  alongX: boolean,
   woodMaterial: MeshStandardMaterial,
   backingMaterial: MeshStandardMaterial,
   shelfEdgeMaterial: MeshStandardMaterial,
-  backingThickness: number = SPINE_SHELF_BACKING_THICKNESS,
-  elevation = 0,
-  axis: "x" | "z" = "z",
+  backingThickness: number,
   deps: SpineShelfFixtureDeps,
 ) => {
-  const alongX = axis === "x";
   deps.addBox(
     parent,
     alongX ? [length, SPINE_SHELF_HEIGHT, backingThickness] : [backingThickness, SPINE_SHELF_HEIGHT, length],
@@ -265,6 +316,45 @@ export const createSpineShelfFixture = (
         : [x, elevation + SPINE_SHELF_DIVIDER_HEIGHT / 2, z - length / 2 + divider * bayWidth],
       shelfEdgeMaterial,
     );
+  return bayWidth;
+};
+
+/**
+ * Builds one spine-shelf fixture: backing, boards, dividers, end poster
+ * surfaces, per-bay sign slots with preview proxies, and the shelf target
+ * registry entries the book interaction logic aims at.
+ */
+export const createSpineShelfFixture = (
+  parent: Group,
+  fixtureId: string,
+  x: number,
+  z: number,
+  length: number,
+  bayCount: number,
+  faceNormals: readonly (-1 | 1)[],
+  woodMaterial: MeshStandardMaterial,
+  backingMaterial: MeshStandardMaterial,
+  shelfEdgeMaterial: MeshStandardMaterial,
+  backingThickness: number = SPINE_SHELF_BACKING_THICKNESS,
+  elevation = 0,
+  axis: "x" | "z" = "z",
+  deps: SpineShelfFixtureDeps,
+) => {
+  const alongX = axis === "x";
+  const bayWidth = createSpineShelfStructure(
+    parent,
+    x,
+    z,
+    length,
+    bayCount,
+    elevation,
+    alongX,
+    woodMaterial,
+    backingMaterial,
+    shelfEdgeMaterial,
+    backingThickness,
+    deps,
+  );
   createShelfEndPosterSurfaces(parent, fixtureId, x, z, length, elevation, alongX, deps.createPosterSurface);
 
   for (const normal of faceNormals) {
@@ -418,6 +508,46 @@ export const createFaceOutDisplay = (
   deps.signs.createShelfSignSlots(parent);
 };
 
+const createHorizontalWallPosterSurfaces = (
+  parent: Group,
+  id: string,
+  surfaceWidth: number,
+  surfaceHeight: number,
+  depth: number,
+  position: readonly [x: number, y: number, z: number],
+  createPosterSurfaceTarget: CreatePosterSurfaceFn,
+) => {
+  for (const side of [-1, 1] as const)
+    createPosterSurfaceTarget(
+      parent,
+      `${id}:${side < 0 ? "north" : "south"}`,
+      surfaceWidth,
+      surfaceHeight,
+      [position[0], position[1], position[2] + side * (depth / 2 + POSTER_SURFACE_OFFSET)],
+      side < 0 ? Math.PI : 0,
+    );
+};
+
+const createVerticalWallPosterSurfaces = (
+  parent: Group,
+  id: string,
+  surfaceWidth: number,
+  surfaceHeight: number,
+  width: number,
+  position: readonly [x: number, y: number, z: number],
+  createPosterSurfaceTarget: CreatePosterSurfaceFn,
+) => {
+  for (const side of [-1, 1] as const)
+    createPosterSurfaceTarget(
+      parent,
+      `${id}:${side < 0 ? "west" : "east"}`,
+      surfaceWidth,
+      surfaceHeight,
+      [position[0] + side * (width / 2 + POSTER_SURFACE_OFFSET), position[1], position[2]],
+      side < 0 ? -Math.PI / 2 : Math.PI / 2,
+    );
+};
+
 export const createWallPosterSurfaces = (
   parent: Group,
   id: string,
@@ -433,26 +563,26 @@ export const createWallPosterSurfaces = (
   if (width >= depth) {
     const surfaceWidth = width - 0.16;
     if (surfaceWidth < MIN_POSTER_HEIGHT) return;
-    for (const side of [-1, 1] as const)
-      createPosterSurfaceTarget(
-        parent,
-        `${id}:${side < 0 ? "north" : "south"}`,
-        surfaceWidth,
-        surfaceHeight,
-        [wall.position[0], wall.position[1], wall.position[2] + side * (depth / 2 + POSTER_SURFACE_OFFSET)],
-        side < 0 ? Math.PI : 0,
-      );
+    createHorizontalWallPosterSurfaces(
+      parent,
+      id,
+      surfaceWidth,
+      surfaceHeight,
+      depth,
+      wall.position,
+      createPosterSurfaceTarget,
+    );
     return;
   }
   const surfaceWidth = depth - 0.16;
   if (surfaceWidth < MIN_POSTER_HEIGHT) return;
-  for (const side of [-1, 1] as const)
-    createPosterSurfaceTarget(
-      parent,
-      `${id}:${side < 0 ? "west" : "east"}`,
-      surfaceWidth,
-      surfaceHeight,
-      [wall.position[0] + side * (width / 2 + POSTER_SURFACE_OFFSET), wall.position[1], wall.position[2]],
-      side < 0 ? -Math.PI / 2 : Math.PI / 2,
-    );
+  createVerticalWallPosterSurfaces(
+    parent,
+    id,
+    surfaceWidth,
+    surfaceHeight,
+    width,
+    wall.position,
+    createPosterSurfaceTarget,
+  );
 };

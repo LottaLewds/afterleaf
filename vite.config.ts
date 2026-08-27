@@ -4,8 +4,7 @@ import solid from "@solidjs/vite-plugin";
 import {spawn} from "node:child_process";
 import {randomUUID} from "node:crypto";
 import {createReadStream, existsSync, readFileSync, statSync} from "node:fs";
-import {copyFile} from "node:fs/promises";
-import {mkdir, readFile, readdir, rename, rm, stat, writeFile} from "node:fs/promises";
+import {copyFile, mkdir, readFile, readdir, rename, rm, stat, writeFile} from "node:fs/promises";
 import type {IncomingMessage, ServerResponse} from "node:http";
 import path from "node:path";
 
@@ -857,12 +856,12 @@ const localLibraryOperationsPlugin = (): Plugin => {
               : undefined;
           if (!requestedPath) throw new Error("Library root enrollment requires a path");
           const config = await readAfterleafLibraryConfig(import.meta.dirname);
-          const configuredBookPaths = new Set([
+          const configuredRootPaths = new Set([
             ...config.comicPaths,
             ...config.mangaPaths,
             ...(config.mediaPaths ?? []),
           ]);
-          if (!configuredBookPaths.has(requestedPath))
+          if (!configuredRootPaths.has(requestedPath))
             throw new Error("Only a configured book root can be re-enrolled");
           await reenrollLibraryRootPath(requestedPath, libraryRootRegistryPath(import.meta.dirname));
           sendJson(response, 200, {ok: true});
@@ -1026,7 +1025,7 @@ const localLibraryOperationsPlugin = (): Plugin => {
                       sizeBytes: romStat.size,
                     });
                   } catch {
-                    return;
+                    // A file can disappear while the directory listing is being processed.
                   }
                 }),
             );
@@ -2252,8 +2251,8 @@ const serveShopMediaCatalog = async (request: IncomingMessage, response: ServerR
   try {
     const [artFrames, models, posters, tv] = await Promise.all([
       artFrameCatalogDocument(),
-      discoverModels([modelsDirectory], modelMediaUrl).then((models) => ({
-        models: models.map(({id, label, url}) => ({id, label, url})),
+      discoverModels([modelsDirectory], modelMediaUrl).then((discoveredModels) => ({
+        models: discoveredModels.map(({id, label, url}) => ({id, label, url})),
       })),
       posterCatalogDocument(),
       tvChannelCatalogDocument(),
@@ -2367,14 +2366,10 @@ const serveActiveLibraryAsset = (request: IncomingMessage, response: ServerRespo
   }
   response.statusCode = 200;
   response.setHeader("Content-Type", contentTypes[path.extname(assetPath).toLowerCase()] ?? "application/octet-stream");
-  response.setHeader(
-    "Cache-Control",
-    pathname === "/catalog.json"
-      ? "no-store"
-      : !explicitPublicDirectory && cachedSnapshotId
-        ? "private, max-age=31536000, immutable"
-        : "private, max-age=3600",
-  );
+  let cacheControl = "private, max-age=3600";
+  if (pathname === "/catalog.json") cacheControl = "no-store";
+  else if (!explicitPublicDirectory && cachedSnapshotId) cacheControl = "private, max-age=31536000, immutable";
+  response.setHeader("Cache-Control", cacheControl);
   if (pathname === "/catalog.json" && !explicitPublicDirectory && cachedSnapshotId)
     response.setHeader("X-Afterleaf-Snapshot-Id", cachedSnapshotId);
   if (request.method === "HEAD") return response.end();

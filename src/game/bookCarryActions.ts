@@ -1,5 +1,4 @@
-import {Euler, type Object3D, type PerspectiveCamera, Quaternion, type Scene, Vector3} from "three";
-import {MathUtils} from "three";
+import {Euler, MathUtils, Quaternion, Vector3, type Object3D, type PerspectiveCamera, type Scene} from "three";
 import type {BookRecord} from "~/game/bookFactory";
 import type {BookTextureRuntime} from "~/game/bookTextureRuntime";
 import {BOOK_HEIGHT} from "~/game/bookTuning";
@@ -123,6 +122,64 @@ export class BookCarryActions {
     host.markWorldStateDirty();
     host.emitGameState();
     if (flushWorldSave) host.flushWorldSave();
+  }
+
+  #clearThrowCharge() {
+    if (!this.throwChargeActive) return;
+    this.throwChargeActive = false;
+    this.#throwChargeBucket = -1;
+    this.#throwChargeSeconds = 0;
+  }
+
+  #resolveDropPose(record: BookRecord, fromCurrentPose: boolean, publicationId: string): BookPhysicsPose {
+    const host = this.#host;
+    if (fromCurrentPose) {
+      record.mesh.updateMatrixWorld(true);
+      record.mesh.getWorldPosition(host.physicsPosePosition());
+      record.mesh.getWorldQuaternion(host.physicsPoseRotation());
+      return host.physicsPose();
+    }
+    host.updateHeldPhysicsTarget();
+    const carriedIndex = host.carriedPublicationIds().indexOf(publicationId);
+    if (carriedIndex >= 0) host.writeHeldBookTargetPose(carriedIndex, publicationId);
+    return host.heldTargetPose();
+  }
+
+  #resolveDropVelocity(throwBook: boolean, throwCharge: number): Vector3 {
+    const host = this.#host;
+    if (!throwBook) return host.playerVelocity();
+    const charge = MathUtils.clamp(throwCharge, 0, 1);
+    const throwSpeed = MathUtils.lerp(THROW_MIN_SPEED, THROW_MAX_SPEED, charge);
+    const throwLift = MathUtils.lerp(THROW_MIN_LIFT, THROW_MAX_LIFT, charge);
+    return host
+      .throwVelocity()
+      .copy(host.viewDirection())
+      .multiplyScalar(throwSpeed)
+      .add(host.playerVelocity())
+      .setY(host.viewDirection().y * throwSpeed + host.playerVelocity().y + throwLift);
+  }
+
+  #dropBookPhysics(publicationId: string, throwBook: boolean, linearVelocity: Vector3, pose: BookPhysicsPose) {
+    const physics = {linearVelocity, pose, ...(throwBook ? {angularVelocity: this.#throwAngularVelocity} : {})};
+    this.#host.physicsWorld().dropBook(publicationId, physics);
+  }
+
+  #setDroppedBookBasePose(record: BookRecord) {
+    const host = this.#host;
+    record.basePosition.set(
+      MathUtils.clamp(
+        host.camera().position.x + host.viewDirection().x * 0.95,
+        SHOP_BOUNDS.minX + record.width,
+        SHOP_BOUNDS.maxX - record.width,
+      ),
+      record.thickness / 2 + 0.014,
+      MathUtils.clamp(
+        host.camera().position.z + host.viewDirection().z * 0.95,
+        SHOP_BOUNDS.minZ + BOOK_HEIGHT,
+        SHOP_BOUNDS.maxZ - BOOK_HEIGHT,
+      ),
+    );
+    record.baseRotation.set(-Math.PI / 2, host.lookYaw(), -0.04);
   }
 
   pickUpBook(publicationId: string): void {
@@ -298,97 +355,37 @@ export class BookCarryActions {
     const record = host.booksById().get(publicationId);
     if (!record) return;
     if (this.throwChargeActive) {
-      this.throwChargeActive = false;
-      this.#throwChargeBucket = -1;
-      this.#throwChargeSeconds = 0;
+      this.#clearThrowCharge();
     }
     const transition = transitionBookInteraction(record.state, {type: "drop"});
     if (!transition.ok) return;
 
-    let dropPose = host.heldTargetPose();
-    if (fromCurrentPose) {
-      record.mesh.updateMatrixWorld(true);
-      record.mesh.getWorldPosition(host.physicsPosePosition());
-      record.mesh.getWorldQuaternion(host.physicsPoseRotation());
-      dropPose = host.physicsPose();
-    } else {
-      host.updateHeldPhysicsTarget();
-      const carriedIndex = host.carriedPublicationIds().indexOf(publicationId);
-      if (carriedIndex >= 0) host.writeHeldBookTargetPose(carriedIndex, publicationId);
-      dropPose = host.heldTargetPose();
-    }
+    const dropPose = this.#resolveDropPose(record, fromCurrentPose, publicationId);
     host.scene().attach(record.mesh);
     host.camera().getWorldDirection(host.viewDirection());
     record.state = transition.state;
     host.bookTextures().restoreCompactBookCoverTexture(record);
-    const charge = MathUtils.clamp(throwCharge, 0, 1);
-    const throwSpeed = MathUtils.lerp(THROW_MIN_SPEED, THROW_MAX_SPEED, charge);
-    const throwLift = MathUtils.lerp(THROW_MIN_LIFT, THROW_MAX_LIFT, charge);
-    const linearVelocity = throwBook
-      ? host
-          .throwVelocity()
-          .copy(host.viewDirection())
-          .multiplyScalar(throwSpeed)
-          .add(host.playerVelocity())
-          .setY(host.viewDirection().y * throwSpeed + host.playerVelocity().y + throwLift)
-      : host.playerVelocity();
-    host.physicsWorld().dropBook(publicationId, {
-      ...(throwBook ? {angularVelocity: this.#throwAngularVelocity} : {}),
-      linearVelocity,
-      pose: dropPose,
-    });
+    this.#dropBookPhysics(publicationId, throwBook, this.#resolveDropVelocity(throwBook, throwCharge), dropPose);
     host.physicsWorld().setBookCollisionlessWithHeld(publicationId, true);
-    record.basePosition.set(
-      MathUtils.clamp(
-        host.camera().position.x + host.viewDirection().x * 0.95,
-        SHOP_BOUNDS.minX + record.width,
-        SHOP_BOUNDS.maxX - record.width,
-      ),
-      record.thickness / 2 + 0.014,
-      MathUtils.clamp(
-        host.camera().position.z + host.viewDirection().z * 0.95,
-        SHOP_BOUNDS.minZ + BOOK_HEIGHT,
-        SHOP_BOUNDS.maxZ - BOOK_HEIGHT,
-      ),
-    );
-    record.baseRotation.set(-Math.PI / 2, host.lookYaw(), -0.04);
+    this.#setDroppedBookBasePose(record);
     host.removeCarriedPublication(publicationId);
     this.discardError = undefined;
     this.#refreshAfterBookMutation();
   }
 
-  async discardCarriedBook(): Promise<void> {
-    const host = this.#host;
-    const publicationId = host.carriedPublicationId();
-    if (!publicationId || this.discardBusy || !host.trashTargeted()) return;
-    const record = host.booksById().get(publicationId);
-    if (!record) return;
-
-    this.discardBusy = true;
-    this.discardError = undefined;
-    this.pendingDiscardPublicationId = publicationId;
-    host.emitGameState();
-
-    let discarded = false;
+  async #requestDiscard(publicationId: string): Promise<boolean> {
     try {
-      discarded = (await host.onDiscardPublication?.()?.(publicationId)) === true;
+      return (await this.#host.onDiscardPublication?.()?.(publicationId)) === true;
     } catch (error) {
-      if (!host.disposed())
+      if (!this.#host.disposed())
         this.discardError =
           error instanceof Error && error.message ? error.message : "The library rejected the discard.";
+      return false;
     }
-    if (host.disposed()) return;
-    this.discardBusy = false;
-    this.pendingDiscardPublicationId = undefined;
+  }
 
-    if (!discarded) {
-      this.discardError ??= host.onDiscardPublication
-        ? "The library rejected the discard."
-        : "Discard is unavailable in this library.";
-      host.emitGameState();
-      return;
-    }
-
+  #completeDiscard(publicationId: string, record: BookRecord) {
+    const host = this.#host;
     this.discardError = undefined;
     this.discardedPublicationIds.add(publicationId);
     const currentRecord = host.booksById().get(publicationId);
@@ -413,6 +410,34 @@ export class BookCarryActions {
     };
     host.removeCarriedPublication(publicationId);
     this.#refreshAfterBookMutation(true, true);
+  }
+
+  async discardCarriedBook(): Promise<void> {
+    const host = this.#host;
+    const publicationId = host.carriedPublicationId();
+    if (!publicationId || this.discardBusy || !host.trashTargeted()) return;
+    const record = host.booksById().get(publicationId);
+    if (!record) return;
+
+    this.discardBusy = true;
+    this.discardError = undefined;
+    this.pendingDiscardPublicationId = publicationId;
+    host.emitGameState();
+
+    const discarded = await this.#requestDiscard(publicationId);
+    if (host.disposed()) return;
+    this.discardBusy = false;
+    this.pendingDiscardPublicationId = undefined;
+
+    if (!discarded) {
+      this.discardError ??= host.onDiscardPublication
+        ? "The library rejected the discard."
+        : "Discard is unavailable in this library.";
+      host.emitGameState();
+      return;
+    }
+
+    this.#completeDiscard(publicationId, record);
   }
 
   finishShelveAnimation(): void {

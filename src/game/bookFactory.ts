@@ -7,6 +7,7 @@ import {
   Group,
   Mesh,
   MeshBasicMaterial,
+  type MeshBasicMaterialParameters,
   MeshStandardMaterial,
   PlaneGeometry,
   type Texture,
@@ -151,6 +152,121 @@ type BookRecordSetup = Pick<
   width: number;
 };
 
+const createInitialBookState = (initialTaskBook: boolean, slotIndex: number): BookRecord["state"] => {
+  if (initialTaskBook) return {status: "floor"};
+  return {
+    shelfId: faceDisplayShelfId(Math.floor(slotIndex / FACE_DISPLAY_COLUMNS) % FACE_DISPLAY_ROWS),
+    slotIndex: slotIndex % FACE_DISPLAY_COLUMNS,
+    status: "shelved",
+  };
+};
+
+const createFreshBookPlacement = (initialTaskBook: boolean, slotIndex: number) => ({
+  shelfOffset: initialTaskBook ? 0 : faceDisplayShelfOffset(slotIndex),
+  shelfPresentation: initialTaskBook ? ("spine" as const) : ("face" as const),
+  slotIndex,
+  state: createInitialBookState(initialTaskBook, slotIndex),
+  taskBook: initialTaskBook,
+});
+
+const resolveBookPlacement = (
+  retainedGameplay: RetainedBookGameplay | undefined,
+  initialTaskBook: boolean,
+  slotIndex: number,
+): Pick<BookRecord, "shelfOffset" | "shelfPresentation" | "slotIndex" | "state" | "taskBook"> => {
+  if (retainedGameplay)
+    return {
+      shelfOffset: retainedGameplay.shelfOffset,
+      shelfPresentation: retainedGameplay.shelfPresentation,
+      slotIndex: retainedGameplay.slotIndex,
+      state: retainedGameplay.state,
+      taskBook: retainedGameplay.taskBook,
+    };
+  return createFreshBookPlacement(initialTaskBook, slotIndex);
+};
+
+type InspectionTurningSetup = Pick<
+  BookRecord,
+  | "inspectionTurningBackMaterial"
+  | "inspectionTurningFrontMaterial"
+  | "inspectionTurningPage"
+  | "inspectionTurningPositions"
+  | "inspectionTurningTargets"
+  | "inspectionTurningUvs"
+>;
+
+const createInspectionTurningUvs = (source: ArrayLike<number>, direction: CatalogItem["direction"]) => {
+  const uvs = source instanceof Float32Array ? new Float32Array(source.length) : new Float32Array();
+  for (let index = 0; index < uvs.length; index += 2) {
+    const textureU = source[index] ?? 0;
+    uvs[index] = direction === "LTR" ? textureU : 1 - textureU;
+    uvs[index + 1] = source[index + 1] ?? 0;
+  }
+  return uvs;
+};
+
+const createInspectionTurningSetup = (
+  width: number,
+  materialOptions: MeshBasicMaterialParameters,
+  direction: CatalogItem["direction"],
+): InspectionTurningSetup => {
+  const inspectionTurningFrontMaterial = new MeshBasicMaterial({
+    ...materialOptions,
+    polygonOffsetFactor: -4,
+    polygonOffsetUnits: -4,
+    side: FrontSide,
+  });
+  const inspectionTurningBackMaterial = new MeshBasicMaterial({
+    ...materialOptions,
+    polygonOffsetFactor: -4,
+    polygonOffsetUnits: -4,
+    side: BackSide,
+  });
+  const inspectionTurningGeometry = new PlaneGeometry(
+    width,
+    BOOK_HEIGHT,
+    INSPECTION_PAGE_SEGMENTS_X,
+    INSPECTION_PAGE_SEGMENTS_Y,
+  );
+  const turningIndexCount = inspectionTurningGeometry.index?.count ?? 0;
+  inspectionTurningGeometry.clearGroups();
+  inspectionTurningGeometry.addGroup(0, turningIndexCount, 0);
+  inspectionTurningGeometry.addGroup(0, turningIndexCount, 1);
+  const inspectionTurningPage = new Mesh(inspectionTurningGeometry, [
+    inspectionTurningFrontMaterial,
+    inspectionTurningBackMaterial,
+  ]);
+  const turningUvArray = inspectionTurningGeometry.getAttribute("uv").array;
+  const turningPositionArray = inspectionTurningGeometry.getAttribute("position").array;
+  const inspectionTurningUvs = createInspectionTurningUvs(turningUvArray, direction);
+  const inspectionTurningPositions =
+    turningPositionArray instanceof Float32Array ? turningPositionArray : new Float32Array();
+  return {
+    inspectionTurningBackMaterial,
+    inspectionTurningFrontMaterial,
+    inspectionTurningPage,
+    inspectionTurningPositions,
+    inspectionTurningTargets: new Float32Array(inspectionTurningPositions.length),
+    inspectionTurningUvs,
+  };
+};
+
+const finishBookRecord = (
+  record: BookRecord,
+  retainedGameplay: RetainedBookGameplay | undefined,
+  placeBookOnFloor: (record: BookRecord, floorIndex: number, seedValue: string) => void,
+  slotIndex: number,
+  itemId: string,
+) => {
+  if (retainedGameplay) {
+    record.basePosition.copy(retainedGameplay.basePosition);
+    record.baseRotation.copy(retainedGameplay.baseRotation);
+    return record;
+  }
+  if (record.state.status === "floor") placeBookOnFloor(record, slotIndex, itemId);
+  return record;
+};
+
 const createBookRecord = ({
   exteriorMaterial,
   exteriorUniforms,
@@ -185,78 +301,69 @@ const createBookRecord = ({
   spineNormalSign,
   thickness,
   width,
-}: BookRecordSetup): BookRecord => ({
-  atlasPlacement: undefined,
-  backTexture: undefined,
-  backTextureReady: item.back === undefined,
-  backTextureUrl: item.back,
-  basePosition: new Vector3(),
-  baseRotation: new Vector3(),
-  coverTextureUrl: item.cover,
-  coverTextureReady: false,
-  detailCoverUrl: item.detailCover,
-  detailTexture: undefined,
-  detailTextureLoading: false,
-  detailTextureReady: false,
-  exteriorMaterial,
-  exteriorUniforms,
-  inspectionBackCover,
-  inspectionBackCoverMaterial,
-  inspectionFrontCover,
-  inspectionFrontCoverMaterial,
-  inspectionGroup,
-  inspectionLightingBlend: 0,
-  inspectionLeftAssembly,
-  inspectionLeftBlock,
-  inspectionLeftMaterial,
-  inspectionLeftPage,
-  inspectionPaperMaterial,
-  inspectionPaperSimulation,
-  inspectionRightAssembly,
-  inspectionRightBlock,
-  inspectionRightMaterial,
-  inspectionRightPage,
-  inspectionTurningBackMaterial,
-  inspectionTurningFrontMaterial,
-  inspectionTurningPage,
-  inspectionTurningPositions,
-  inspectionTurningTargets,
-  inspectionTurningUvs,
-  hoverTarget,
-  mesh,
-  physicsRegistered: false,
-  publicationAccent: item.accent,
-  publicationLanguage: item.language,
-  publicationTitle: item.title,
-  sceneEmissive: new Color(),
-  sceneEmissiveIntensity: 0.2,
-  shelfPosition: new Vector3(),
-  shelfOffset: retainedGameplay?.shelfOffset ?? (initialTaskBook ? 0 : faceDisplayShelfOffset(slotIndex)),
-  shelfPresentation: retainedGameplay?.shelfPresentation ?? (initialTaskBook ? "spine" : "face"),
-  signature,
-  slotIndex: retainedGameplay?.slotIndex ?? slotIndex,
-  spineNormalSign,
-  spineTexture: undefined,
-  spineTextureReady: false,
-  spineTextureUrl: item.spine,
-  standaloneTexturesReady: false,
-  state:
-    retainedGameplay?.state ??
-    (initialTaskBook
-      ? {status: "floor"}
-      : {
-          shelfId: faceDisplayShelfId(Math.floor(slotIndex / FACE_DISPLAY_COLUMNS) % FACE_DISPLAY_ROWS),
-          slotIndex: slotIndex % FACE_DISPLAY_COLUMNS,
-          status: "shelved",
-        }),
-  taskBook: retainedGameplay?.taskBook ?? initialTaskBook,
-  shelfPreview: 0,
-  targetLift: 0,
-  targetScale: 1,
-  thickness,
-  texture: undefined,
-  width,
-});
+}: BookRecordSetup): BookRecord => {
+  const placement = resolveBookPlacement(retainedGameplay, initialTaskBook, slotIndex);
+  return {
+    atlasPlacement: undefined,
+    backTexture: undefined,
+    backTextureReady: item.back === undefined,
+    backTextureUrl: item.back,
+    basePosition: new Vector3(),
+    baseRotation: new Vector3(),
+    coverTextureUrl: item.cover,
+    coverTextureReady: false,
+    detailCoverUrl: item.detailCover,
+    detailTexture: undefined,
+    detailTextureLoading: false,
+    detailTextureReady: false,
+    exteriorMaterial,
+    exteriorUniforms,
+    inspectionBackCover,
+    inspectionBackCoverMaterial,
+    inspectionFrontCover,
+    inspectionFrontCoverMaterial,
+    inspectionGroup,
+    inspectionLightingBlend: 0,
+    inspectionLeftAssembly,
+    inspectionLeftBlock,
+    inspectionLeftMaterial,
+    inspectionLeftPage,
+    inspectionPaperMaterial,
+    inspectionPaperSimulation,
+    inspectionRightAssembly,
+    inspectionRightBlock,
+    inspectionRightMaterial,
+    inspectionRightPage,
+    inspectionTurningBackMaterial,
+    inspectionTurningFrontMaterial,
+    inspectionTurningPage,
+    inspectionTurningPositions,
+    inspectionTurningTargets,
+    inspectionTurningUvs,
+    hoverTarget,
+    mesh,
+    physicsRegistered: false,
+    publicationAccent: item.accent,
+    publicationLanguage: item.language,
+    publicationTitle: item.title,
+    sceneEmissive: new Color(),
+    sceneEmissiveIntensity: 0.2,
+    shelfPosition: new Vector3(),
+    ...placement,
+    signature,
+    spineNormalSign,
+    spineTexture: undefined,
+    spineTextureReady: false,
+    spineTextureUrl: item.spine,
+    standaloneTexturesReady: false,
+    shelfPreview: 0,
+    targetLift: 0,
+    targetScale: 1,
+    thickness,
+    texture: undefined,
+    width,
+  };
+};
 
 export const createBook = (
   item: CatalogItem,
@@ -345,46 +452,17 @@ export const createBook = (
   } as const;
   const inspectionLeftMaterial = new MeshBasicMaterial(inspectionMaterialOptions);
   const inspectionRightMaterial = new MeshBasicMaterial(inspectionMaterialOptions);
-  const inspectionTurningFrontMaterial = new MeshBasicMaterial({
-    ...inspectionMaterialOptions,
-    polygonOffsetFactor: -4,
-    polygonOffsetUnits: -4,
-    side: FrontSide,
-  });
-  const inspectionTurningBackMaterial = new MeshBasicMaterial({
-    ...inspectionMaterialOptions,
-    polygonOffsetFactor: -4,
-    polygonOffsetUnits: -4,
-    side: BackSide,
-  });
   const inspectionLeftPage = new Mesh(new PlaneGeometry(width, BOOK_HEIGHT), inspectionLeftMaterial);
   const inspectionRightPage = new Mesh(new PlaneGeometry(width, BOOK_HEIGHT), inspectionRightMaterial);
-  const inspectionTurningGeometry = new PlaneGeometry(
-    width,
-    BOOK_HEIGHT,
-    INSPECTION_PAGE_SEGMENTS_X,
-    INSPECTION_PAGE_SEGMENTS_Y,
-  );
-  const turningIndexCount = inspectionTurningGeometry.index?.count ?? 0;
-  inspectionTurningGeometry.clearGroups();
-  inspectionTurningGeometry.addGroup(0, turningIndexCount, 0);
-  inspectionTurningGeometry.addGroup(0, turningIndexCount, 1);
-  const inspectionTurningPage = new Mesh(inspectionTurningGeometry, [
-    inspectionTurningFrontMaterial,
+  const inspectionTurning = createInspectionTurningSetup(width, inspectionMaterialOptions, item.direction);
+  const {
     inspectionTurningBackMaterial,
-  ]);
-  const turningUvArray = inspectionTurningGeometry.getAttribute("uv").array;
-  const turningPositionArray = inspectionTurningGeometry.getAttribute("position").array;
-  const inspectionTurningUvs =
-    turningUvArray instanceof Float32Array ? new Float32Array(turningUvArray.length) : new Float32Array();
-  const inspectionTurningPositions =
-    turningPositionArray instanceof Float32Array ? turningPositionArray : new Float32Array();
-  const inspectionTurningTargets = new Float32Array(inspectionTurningPositions.length);
-  for (let index = 0; index < inspectionTurningUvs.length; index += 2) {
-    const textureU = turningUvArray[index] ?? 0;
-    inspectionTurningUvs[index] = item.direction === "LTR" ? textureU : 1 - textureU;
-    inspectionTurningUvs[index + 1] = turningUvArray[index + 1] ?? 0;
-  }
+    inspectionTurningFrontMaterial,
+    inspectionTurningPage,
+    inspectionTurningPositions,
+    inspectionTurningTargets,
+    inspectionTurningUvs,
+  } = inspectionTurning;
   inspectionLeftPage.name = "inspection-left-page";
   inspectionRightPage.name = "inspection-right-page";
   inspectionTurningPage.name = "inspection-turning-page";
@@ -443,10 +521,5 @@ export const createBook = (
     thickness,
     width,
   });
-  if (retainedGameplay) {
-    record.basePosition.copy(retainedGameplay.basePosition);
-    record.baseRotation.copy(retainedGameplay.baseRotation);
-  } else if (record.state.status === "floor") placeBookOnFloor(record, slotIndex, item.id);
-
-  return record;
+  return finishBookRecord(record, retainedGameplay, placeBookOnFloor, slotIndex, item.id);
 };

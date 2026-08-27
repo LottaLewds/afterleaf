@@ -25,6 +25,7 @@ import {
   createSignal,
   isPending,
   resolve,
+  untrack,
 } from "solid-js";
 import {loadShortcuts, saveShortcuts, type ShortcutsConfig} from "~/game/input/bindings";
 
@@ -196,7 +197,7 @@ export const App = () => {
   const [blacklistedTags, setBlacklistedTags] = createSignal(loadTagBlacklist());
   const [runtimeLibraryRefresh, setRuntimeLibraryRefresh] = createSignal(0, {equals: false});
   const runtimeLibrary = createMemo(
-    async () => {
+    () => {
       runtimeLibraryRefresh();
       return loadRuntimeLibrary();
     },
@@ -204,23 +205,20 @@ export const App = () => {
   );
   const refetch = async () => {
     setRuntimeLibraryRefresh((revision) => revision + 1);
-    return resolve(() => runtimeLibrary());
+    return resolve(runtimeLibrary);
   };
   type LibraryProvidersState = {
     providers: readonly LibraryProviderDescriptor[];
     error: string | undefined;
   };
   const libraryProviders = createMemo<LibraryProvidersState>(
-    async () => {
-      try {
-        return {providers: await loadLibraryProviders(), error: undefined};
-      } catch (error) {
-        return {
+    () =>
+      loadLibraryProviders()
+        .then((providers) => ({providers, error: undefined}))
+        .catch((error) => ({
           providers: [],
           error: error instanceof Error ? error.message : "The library providers could not be loaded.",
-        };
-      }
-    },
+        })),
     {loadingValue: {providers: [], error: undefined}},
   );
   let latestLibrarySourceStatus = {
@@ -229,31 +227,27 @@ export const App = () => {
   };
   const [librarySourceStatusRefresh, setLibrarySourceStatusRefresh] = createSignal(0, {equals: false});
   const librarySourceStatus = createMemo(
-    async () => {
+    () => {
       librarySourceStatusRefresh();
-      try {
-        latestLibrarySourceStatus = await loadLibrarySourceStatus();
-      } catch {
-        // Keep the last safety status if a later health check is interrupted.
-      }
-      return latestLibrarySourceStatus;
+      return loadLibrarySourceStatus()
+        .then((status) => {
+          latestLibrarySourceStatus = status;
+          return latestLibrarySourceStatus;
+        })
+        .catch(() => {
+          // Keep the last safety status if a later health check is interrupted.
+          return latestLibrarySourceStatus;
+        });
     },
     {loadingValue: latestLibrarySourceStatus},
   );
   const refetchLibrarySourceStatus = async () => {
     setLibrarySourceStatusRefresh((revision) => revision + 1);
-    return resolve(() => librarySourceStatus());
+    return resolve(librarySourceStatus);
   };
-  const blacklistedPublications = createMemo(
-    async () => {
-      try {
-        return await loadBlacklistedPublications();
-      } catch {
-        return [] as readonly string[];
-      }
-    },
-    {loadingValue: [] as readonly string[]},
-  );
+  const blacklistedPublications = createMemo(() => loadBlacklistedPublications().catch(() => [] as readonly string[]), {
+    loadingValue: [] as readonly string[],
+  });
   const [blacklistedPublicationOverride, setBlacklistedPublicationOverride] = createSignal<readonly string[]>();
   const resolvedRuntimeLibrary = () => runtimeLibrary();
   const availableLibraryProviders = createMemo(() => libraryProviders().providers);
@@ -267,8 +261,8 @@ export const App = () => {
   };
   createEffect(
     () => [availableLibraryProviders(), selectedProviderId()] as const,
-    ([providers, selectedProviderId]) => {
-      if (providers.some((provider) => provider.id === selectedProviderId)) return;
+    ([providers, selectedProviderIdValue]) => {
+      if (providers.some((provider) => provider.id === selectedProviderIdValue)) return;
       const fallback = providers[0];
       if (!fallback) return;
       setSelectedProviderId(fallback.id);
@@ -279,7 +273,7 @@ export const App = () => {
     () => unavailableBookPathCount(),
     (count) => {
       if (count === 0) return;
-      const sourceStatusInterval = window.setInterval(() => void refetchLibrarySourceStatus(), 3_000);
+      const sourceStatusInterval = window.setInterval(() => void untrack(refetchLibrarySourceStatus), 3_000);
       return () => window.clearInterval(sourceStatusInterval);
     },
   );
@@ -303,7 +297,7 @@ export const App = () => {
     return publications.map((publication) => {
       const direction =
         respectMetadata && !publication.readingDirectionUnspecified ? publication.direction : defaultDirection;
-      return publication.direction === direction ? publication : {...publication, direction};
+      return publication.direction === direction ? publication : Object.assign({}, publication, {direction});
     });
   });
   const queryTokens = createMemo(() => query().trim().toLowerCase().split(/\s+/).filter(Boolean));
@@ -331,7 +325,7 @@ export const App = () => {
     setLibraryOperation(undefined);
   };
   const scanButtonLabel = () => {
-    if (isPending(() => runtimeLibrary())) return "Loading…";
+    if (isPending(runtimeLibrary)) return "Loading…";
     if (libraryOperation() === "scan")
       return `${libraryScanMode() === "repair" ? "Repairing" : "Scanning"} · ${libraryUpdateElapsedSeconds()}s`;
     if (libraryUpdating()) return "Library busy…";
@@ -452,14 +446,18 @@ export const App = () => {
 
   const startLibraryStatusPolling = () => {
     if (libraryUpdateTimer !== undefined) window.clearInterval(libraryUpdateTimer);
-    libraryUpdateTimer = window.setInterval(() => {
-      const job = activeLibraryJob;
-      if (job) void refreshLibraryUpdateStatus(job);
-      setLibraryUpdateElapsedSeconds(Math.floor((performance.now() - libraryUpdateStartedAt) / 1_000));
-    }, 1_000);
+    libraryUpdateTimer = window.setInterval(
+      () =>
+        untrack(() => {
+          const job = activeLibraryJob;
+          if (job) void refreshLibraryUpdateStatus(job);
+          setLibraryUpdateElapsedSeconds(Math.floor((performance.now() - libraryUpdateStartedAt) / 1_000));
+        }),
+      1_000,
+    );
   };
 
-  const beginLibraryUpdate = (operation: LibraryOperation, query?: string) => {
+  const beginLibraryUpdate = (operation: LibraryOperation, operationQuery?: string) => {
     libraryUpdateStartedAt = performance.now();
     activeLibraryJob = undefined;
     setLibraryUpdateElapsedSeconds(0);
@@ -470,7 +468,9 @@ export const App = () => {
     setLibraryUpdateTotalSteps(3);
     setLibraryUpdateSubProgress(undefined);
     setLibraryUpdateProgressMessage(
-      operation === "fetch-more" && query ? `Starting provider search for “${query}”` : "Starting library job",
+      operation === "fetch-more" && operationQuery
+        ? `Starting provider search for “${operationQuery}”`
+        : "Starting library job",
     );
     setLibraryUpdating(true);
     startLibraryStatusPolling();
@@ -519,8 +519,8 @@ export const App = () => {
     if (libraryUpdating()) return;
     const providerId = options.providerId ?? selectedProviderId();
     const provider = availableLibraryProviders().find((candidate) => candidate.id === providerId);
-    const query = options.query ?? provider?.defaultQuery ?? "";
-    beginLibraryUpdate("fetch-more", query);
+    const searchQuery = options.query ?? provider?.defaultQuery ?? "";
+    beginLibraryUpdate("fetch-more", searchQuery);
     setLibraryUpdateNotice(undefined);
     if (!options.transient) {
       setSelectedProviderId(providerId);
@@ -553,7 +553,7 @@ export const App = () => {
         limit: acquisitionLimit,
         maxSearchPages: searchPageLimit,
         providerId,
-        ...(query ? {query} : {}),
+        ...(searchQuery ? {query: searchQuery} : {}),
       });
       monitorLibraryJob(job, options.automatic === true);
     } catch (error) {
@@ -765,11 +765,13 @@ export const App = () => {
     if (selectedTag && nextTags.includes(normalizeTag(selectedTag))) setTag(null);
   };
 
-  onSettled(() => {
-    // Reattach to a job that survived the reload before the boot fetch can
-    // consider starting a second one; adoption marks the library busy.
-    void reconnectActiveLibraryJob().then(() => maybeFetchOnBoot());
-  });
+  onSettled(() =>
+    untrack(() => {
+      // Reattach to a job that survived the reload before the boot fetch can
+      // consider starting a second one; adoption marks the library busy.
+      void reconnectActiveLibraryJob().then(() => untrack(maybeFetchOnBoot));
+    }),
+  );
   // Modal scopes mirror their dialog signals; the stack decides which one
   // owns Escape instead of a fixed priority chain in the key handler.
   createEscapeScope("purge-blacklisted", purgeBlacklistedOpen, () => {
@@ -873,7 +875,7 @@ export const App = () => {
                   class="fixed top-4 left-1/2 z-40 flex w-[min(42rem,calc(100vw-2rem))] -translate-x-1/2 items-start gap-3 border border-[#d94c3f]/60 bg-[#250d0b]/95 px-4 py-3 text-[#ff796c] shadow-[0_16px_50px_#000b] backdrop-blur-md"
                   aria-live="assertive"
                 >
-                  <FiAlertTriangle size={16} style={{marginTop: "0.125rem", flexShrink: 0}} />
+                  <FiAlertTriangle size={16} style={{"margin-top": "0.125rem", "flex-shrink": "0"}} />
                   <p class="text-[11px] leading-5">
                     {count()} configured book {count() === 1 ? "path is" : "paths are"} unavailable. Library updates are
                     locked so the current books cannot be removed. Remount the expected storage and restore its
@@ -906,7 +908,7 @@ export const App = () => {
                     </div>
                     <div class="ml-auto flex items-center gap-2 sm:gap-3">
                       <div class="mr-2 hidden items-center gap-2 text-[10px] text-[#6f7b76] md:flex">
-                        <span class="size-1.5 rounded-full bg-[#75aa91] shadow-[0_0_8px_#75aa91]"></span> Local library
+                        <span class="size-1.5 rounded-full bg-[#75aa91] shadow-[0_0_8px_#75aa91]" /> Local library
                       </div>
                       <button
                         class="flex h-9 items-center gap-2 border border-white/10 px-3 text-[11px] text-[#aab2ae] transition hover:border-white/20 hover:bg-white/5 hover:text-white disabled:cursor-wait disabled:opacity-50"
@@ -1111,8 +1113,8 @@ export const App = () => {
                         </div>
                         <div class="flex items-center gap-3 border border-white/8 bg-[#151e1c] px-4 py-3">
                           <span class="relative flex size-7 items-center justify-center">
-                            <span class="absolute size-6 rounded-full border border-[#70a28b]/20"></span>
-                            <span class="size-2 rounded-full bg-[#70a28b] shadow-[0_0_10px_#70a28b]"></span>
+                            <span class="absolute size-6 rounded-full border border-[#70a28b]/20" />
+                            <span class="size-2 rounded-full bg-[#70a28b] shadow-[0_0_10px_#70a28b]" />
                           </span>
                           <div>
                             <p class="text-[10px] font-semibold text-[#b8c1bc]">Library is current</p>
@@ -1148,7 +1150,7 @@ export const App = () => {
                           <FiSliders
                             size={13}
                             color="#68736e"
-                            style={{marginLeft: "0.5rem", marginRight: "0.5rem", flexShrink: 0}}
+                            style={{"margin-left": "0.5rem", "margin-right": "0.5rem", "flex-shrink": "0"}}
                           />
                           <For each={Object.entries(languageLabels) as [LanguageFilter, string][]}>
                             {(entry) => (
@@ -1371,13 +1373,13 @@ export const App = () => {
                 providers={availableLibraryProviders()}
                 providerError={libraryProviderError()}
                 onCancel={closeLibraryUpdate}
-                onConfirm={(rememberBootFetch, providerId, query, fetchLimit, maxSearchPages) =>
+                onConfirm={(rememberBootFetch, providerId, queryText, fetchLimit, maxSearchPages) =>
                   void fetchMoreLibrary({
                     limit: fetchLimit,
                     maxSearchPages,
                     rememberBootFetch,
                     providerId,
-                    query,
+                    query: queryText,
                   })
                 }
                 onFetchOnBootChange={setFetchOnBoot}

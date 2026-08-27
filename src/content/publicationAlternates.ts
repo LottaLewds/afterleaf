@@ -63,30 +63,32 @@ export const associatePublicationAlternates = <Entry extends AlternateEntry>(
       sourceId: canonical.reference.sourceId,
       message: `Associated ${alternateIds.map((id) => JSON.stringify(id)).join(", ")} as alternate${alternateIds.length === 1 ? "" : "s"} of ${JSON.stringify(canonical.candidate.document.id)}`,
     });
-    return {
-      ...canonical,
-      candidate: {
-        ...canonical.candidate,
-        alternates: alternates.map(({candidate}) => ({
-          id: candidate.document.id,
-          originalTags: normalizeTags(candidate.document.tags),
-          ...(candidate.document.source === undefined ? {} : {source: candidate.document.source}),
-          title: candidate.document.title,
-        })),
-        normalizedTags: normalizeTags(ordered.flatMap(({candidate}) => candidate.normalizedTags)),
-      },
-      material: {
-        ...canonical.material,
-        alternates: alternates.map(({candidate, material}) => {
-          const page0 = material.pages[0] ?? material.front;
-          if (!page0) throw new Error(`Alternate publication ${candidate.document.id} has no page zero`);
-          return {
-            id: candidate.document.id,
-            page0,
-            sourceDirectory: candidate.sourceDirectory,
-          };
-        }),
-      },
-    } as Entry;
+    const candidate = Object.assign({}, canonical.candidate, {
+      alternates: alternates.map(({candidate: alternateCandidate}) =>
+        Object.assign(
+          {
+            id: alternateCandidate.document.id,
+            originalTags: normalizeTags(alternateCandidate.document.tags),
+            title: alternateCandidate.document.title,
+          },
+          alternateCandidate.document.source === undefined ? {} : {source: alternateCandidate.document.source},
+        ),
+      ),
+      normalizedTags: normalizeTags(
+        ordered.flatMap(({candidate: orderedCandidate}) => orderedCandidate.normalizedTags),
+      ),
+    });
+    const material = Object.assign({}, canonical.material, {
+      alternates: alternates.map(({candidate: alternateCandidate, material: alternateMaterial}) => {
+        const page0 = alternateMaterial.pages[0] ?? alternateMaterial.front;
+        if (!page0) throw new Error(`Alternate publication ${alternateCandidate.document.id} has no page zero`);
+        return {
+          id: alternateCandidate.document.id,
+          page0,
+          sourceDirectory: alternateCandidate.sourceDirectory,
+        };
+      }),
+    });
+    return Object.assign({}, canonical, {candidate, material}) as Entry;
   });
 };

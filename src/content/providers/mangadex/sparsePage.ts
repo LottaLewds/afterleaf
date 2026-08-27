@@ -2,7 +2,7 @@ import {readFile, writeFile} from "node:fs/promises";
 import {resolve} from "node:path";
 
 import type {LibraryProviderSparsePageRequest} from "@afterleaf/provider-sdk";
-import {MangaDexClient, type MangaDexAtHomeServer} from "./client";
+import type {MangaDexAtHomeServer, MangaDexClient} from "./client";
 import {
   MANGADEX_SPARSE_METADATA_FILE,
   createMangaDexSparseMetadata,
@@ -65,9 +65,9 @@ export const createMangaDexSparsePageMaterializer = (client: MangaDexSparsePageC
       if (!loadedFromDisk) throw error;
       server = await client.getAtHomeServer(remoteId);
       if (server.chapter.data.length !== pageCount)
-        throw new Error("Remote MangaDex metadata changed; fetch the book again");
+        throw new Error("Remote MangaDex metadata changed; fetch the book again", {cause: error});
       filename = server.chapter.data[pageNumber - 1];
-      if (!filename) throw new Error("Remote MangaDex page metadata is incomplete");
+      if (!filename) throw new Error("Remote MangaDex page metadata is incomplete", {cause: error});
       await writeFile(
         metadataPath,
         `${JSON.stringify(createMangaDexSparseMetadata(remoteId, metadataHash, server), null, 2)}\n`,

@@ -1,4 +1,4 @@
-import type {AnimationClip, Object3D, Quaternion, Vector3} from "three";
+import type {AnimationClip, AnimationMixer, Object3D, Quaternion, Vector3} from "three";
 
 import type {InteractionPromptToken} from "~/game/input/hints";
 import type {ShortcutAction} from "~/game/input/bindings";
@@ -48,7 +48,7 @@ export type MovablePropRecord = {
   modelAnimations?: readonly AnimationClip[];
   modelAsset?: ModelAsset;
   modelBaseSize?: Vector3;
-  modelMixer?: import("three").AnimationMixer;
+  modelMixer?: AnimationMixer;
   modelScale?: number;
   object: Object3D;
   placementSupport: Object3D;

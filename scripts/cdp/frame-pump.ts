@@ -10,7 +10,7 @@
  * discarded - captures are tiny (320x180, 1-in-30, jpeg q5) so the encode
  * cost stays negligible next to the scene's own submission cost.
  */
-import {CdpSession} from "./client";
+import type {CdpSession} from "./client";
 
 export type FramePump = {
   /** Screencast frames received (and discarded) since the pump started. */

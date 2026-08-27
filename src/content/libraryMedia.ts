@@ -179,12 +179,16 @@ export const importLocalMedia = async (
       path,
       protectsExistingLibrary: false,
     })),
-    ...configMediaPaths.map((entry) => ({
-      optional: true,
-      path: entry.path,
-      protectsExistingLibrary: !defaultMediaPathSet.has(entry.path),
-      ...(entry.readingDirection === undefined ? {} : {readingDirection: entry.readingDirection}),
-    })),
+    ...configMediaPaths.map((entry) =>
+      Object.assign(
+        {
+          optional: true,
+          path: entry.path,
+          protectsExistingLibrary: !defaultMediaPathSet.has(entry.path),
+        },
+        entry.readingDirection === undefined ? {} : {readingDirection: entry.readingDirection},
+      ),
+    ),
     ...cliMediaPaths.map((path) => ({
       optional: false,
       path: resolve(path),
@@ -214,6 +218,7 @@ export const importLocalMedia = async (
       if (mediaPath.optional && (error as NodeJS.ErrnoException).code === "ENOENT") continue;
       throw new Error(
         `Could not access library media path ${mediaPath.path}: ${error instanceof Error ? error.message : String(error)}`,
+        {cause: error},
       );
     }
     if (mediaStat.isFile() && !isContentArchivePath(mediaPath.path))

@@ -1,6 +1,5 @@
 import {expect, test} from "bun:test";
-import type {ShopInteractionCommandsHost} from "~/game/shopInteractionCommands";
-import {createShopInteractionCommands} from "~/game/shopInteractionCommands";
+import {createShopInteractionCommands, type ShopInteractionCommandsHost} from "~/game/shopInteractionCommands";
 
 test("interaction commands preserve placement precedence", () => {
   const calls: string[] = [];

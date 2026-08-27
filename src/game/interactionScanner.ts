@@ -1,14 +1,15 @@
 import {
+  MathUtils,
   Mesh,
+  MeshBasicMaterial,
+  type Raycaster,
   type Object3D,
   type PerspectiveCamera,
   PlaneGeometry,
   Quaternion,
-  Raycaster,
   Vector2,
   Vector3,
 } from "three";
-import {MathUtils, MeshBasicMaterial} from "three";
 import {BOOK_HEIGHT} from "~/game/bookTuning";
 import {FACE_DISPLAY_COLUMNS, FACE_DISPLAY_COLUMN_SPACING, FACE_SHELF_ID} from "~/game/shopLayout";
 import {
@@ -18,7 +19,7 @@ import {
   type ShelfPresentation,
 } from "~/game/shelfPlacement";
 import type {ShelveAnimation} from "~/game/bookCarryActions";
-import {shopSignKey} from "~/game/signs/ShopSignSystem";
+import {shopSignKey, type ShopSignSystem} from "~/game/signs/ShopSignSystem";
 import {POSTER_INTERACTION_DISTANCE} from "~/game/wallDecorTuning";
 import {MAX_CARRIED_BOOKS} from "~/game/worldSave";
 import type {BookRecord} from "~/game/bookFactory";
@@ -27,7 +28,6 @@ import type {ArcadeSessionStatus, ShopArcadeCabinet} from "~/game/ShopArcadeCabi
 import type {ShopTelevision, ShopTelevisionInteraction} from "~/game/ShopTelevision";
 import type {ArtFrameSystem} from "~/game/artFrameSystem";
 import type {PosterSystem} from "~/game/posters/PosterSystem";
-import type {ShopSignSystem} from "~/game/signs/ShopSignSystem";
 
 const SPINE_SHELF_GAP = 0.018;
 const SHELF_INTERACTION_DISTANCE = 2.75;
@@ -323,16 +323,23 @@ export class InteractionScanner {
     const host = this.#host;
     if (trashTargeted || host.carriedPublicationIds().length >= MAX_CARRIED_BOOKS) return undefined;
     const directIntersection = host.raycaster().intersectObjects(host.interactiveMeshes(), false)[0];
-    const directPublicationId =
-      directIntersection && directIntersection.distance <= SHELF_INTERACTION_DISTANCE
-        ? directIntersection.object.userData.publicationId
-        : undefined;
-    const directRecord =
-      typeof directPublicationId === "string" ? host.booksById().get(directPublicationId) : undefined;
-    if (directRecord?.state.status === "floor") return directPublicationId;
-    const shelfPublicationId = this.#findShelfHoverTargetPublicationId();
-    const shelfRecord = shelfPublicationId ? host.booksById().get(shelfPublicationId) : undefined;
-    return shelfRecord?.state.status === "shelved" ? shelfPublicationId : undefined;
+    return this.#findFloorBookPickupId(directIntersection) ?? this.#findShelvedBookPickupId();
+  }
+
+  #findFloorBookPickupId(directIntersection: ReturnType<Raycaster["intersectObjects"]>[number] | undefined) {
+    const host = this.#host;
+    if (!directIntersection || directIntersection.distance > SHELF_INTERACTION_DISTANCE) return;
+    const publicationId = directIntersection.object.userData.publicationId;
+    if (typeof publicationId !== "string") return;
+    const record = host.booksById().get(publicationId);
+    return record?.state.status === "floor" ? publicationId : undefined;
+  }
+
+  #findShelvedBookPickupId() {
+    const host = this.#host;
+    const publicationId = this.#findShelfHoverTargetPublicationId();
+    const record = publicationId ? host.booksById().get(publicationId) : undefined;
+    return record?.state.status === "shelved" ? publicationId : undefined;
   }
 
   #findCarriedBookShelfSelection() {
@@ -509,18 +516,7 @@ export class InteractionScanner {
   #updateSignTargeting() {
     const host = this.#host;
     host.setTrashTargeted(false);
-    const shelfIntersection = host
-      .raycaster()
-      .intersectObjects(host.signs().previewTargetMeshes, false)
-      .find((candidate) => candidate.distance <= SHELF_INTERACTION_DISTANCE);
-    const shelfId = shelfIntersection?.object.userData.shelfId;
-    const shelf = typeof shelfId === "string" ? host.spineShelfDefinitions().get(shelfId) : undefined;
-    const shelfOffset =
-      shelf && shelfIntersection
-        ? this.#shelfTargetOffset.copy(shelfIntersection.point).sub(shelf.frontCenter).dot(shelf.axis)
-        : undefined;
-    const shelfSignPreviewKey =
-      typeof shelfId === "string" ? this.#shelfSignKeyForTarget(shelfId, shelfOffset) : undefined;
+    const shelfSignPreviewKey = this.#resolveShelfSignPreviewKey();
     const signIntersection = host
       .raycaster()
       .intersectObjects(host.signs().targetMeshes, false)
@@ -541,6 +537,20 @@ export class InteractionScanner {
     host.artFrames().setDigitalArtFrameTargeted();
     host.setHoveredPublicationId(undefined);
     return true;
+  }
+
+  #resolveShelfSignPreviewKey() {
+    const host = this.#host;
+    const shelfIntersection = host
+      .raycaster()
+      .intersectObjects(host.signs().previewTargetMeshes, false)
+      .find((candidate) => candidate.distance <= SHELF_INTERACTION_DISTANCE);
+    const shelfId = shelfIntersection?.object.userData.shelfId;
+    if (typeof shelfId !== "string") return undefined;
+    const shelf = host.spineShelfDefinitions().get(shelfId);
+    if (!shelf || !shelfIntersection) return undefined;
+    const shelfOffset = this.#shelfTargetOffset.copy(shelfIntersection.point).sub(shelf.frontCenter).dot(shelf.axis);
+    return this.#shelfSignKeyForTarget(shelfId, shelfOffset);
   }
 
   #updateArtFrameTargeting() {
@@ -578,15 +588,27 @@ export class InteractionScanner {
 
   #updateBookTargeting(directBookIntersection: ReturnType<Raycaster["intersectObjects"]>[number] | undefined) {
     const host = this.#host;
-    const directPublicationId =
-      directBookIntersection && directBookIntersection.distance <= SHELF_INTERACTION_DISTANCE
-        ? directBookIntersection.object.userData.publicationId
-        : undefined;
-    const directRecord =
-      typeof directPublicationId === "string" ? host.booksById().get(directPublicationId) : undefined;
+    const naturallyTargetedPublicationId = this.#resolveNaturalBookTarget(directBookIntersection);
+    const publicationId = this.#applyShelfBrowseTarget(naturallyTargetedPublicationId);
+    host.setHoveredPublicationId(typeof publicationId === "string" ? publicationId : undefined);
+  }
+
+  #resolveNaturalBookTarget(directBookIntersection: ReturnType<Raycaster["intersectObjects"]>[number] | undefined) {
+    const host = this.#host;
+    const directPublicationId = this.#directBookPublicationId(directBookIntersection);
+    const directRecord = directPublicationId ? host.booksById().get(directPublicationId) : undefined;
     const shelfPublicationId = this.#findShelfHoverTargetPublicationId();
-    let publicationId =
-      directRecord?.state.status === "floor" ? directPublicationId : (shelfPublicationId ?? directPublicationId);
+    return directRecord?.state.status === "floor" ? directPublicationId : (shelfPublicationId ?? directPublicationId);
+  }
+
+  #directBookPublicationId(directBookIntersection: ReturnType<Raycaster["intersectObjects"]>[number] | undefined) {
+    if (!directBookIntersection || directBookIntersection.distance > SHELF_INTERACTION_DISTANCE) return;
+    const publicationId = directBookIntersection.object.userData.publicationId;
+    return typeof publicationId === "string" ? publicationId : undefined;
+  }
+
+  #applyShelfBrowseTarget(publicationId: string | undefined) {
+    const host = this.#host;
     const browsedRecord = this.shelfBrowsePublicationId
       ? host.booksById().get(this.shelfBrowsePublicationId)
       : undefined;
@@ -596,9 +618,9 @@ export class InteractionScanner {
       naturallyTargetedRecord?.state.status === "shelved" &&
       browsedRecord.state.shelfId === naturallyTargetedRecord.state.shelfId
     )
-      publicationId = this.shelfBrowsePublicationId;
+      return this.shelfBrowsePublicationId;
     else this.shelfBrowsePublicationId = undefined;
-    host.setHoveredPublicationId(typeof publicationId === "string" ? publicationId : undefined);
+    return publicationId;
   }
 
   #updateWorldTargeting() {
@@ -633,6 +655,11 @@ export class InteractionScanner {
       return;
     }
 
+    this.#updatePointerLockedTargets();
+  }
+
+  #updatePointerLockedTargets() {
+    const host = this.#host;
     // Aiming results feed highlight prompts and clicks, which tolerate a
     // frame or two of latency - so the full-shop reticle sweep runs on a
     // fixed-rate budget instead of every tick, capping its cost while the
@@ -667,6 +694,23 @@ export class InteractionScanner {
   updateShelfTargetVisuals() {
     const host = this.#host;
     const selection = this.shelfTargetSelection;
+    this.#updateShelfTargetMeshes(selection);
+    const carriedPublicationId = host.carriedPublicationId();
+    const carriedRecord = carriedPublicationId ? host.booksById().get(carriedPublicationId) : undefined;
+    if (!selection || !carriedRecord) {
+      this.shelfSnapMesh.visible = false;
+      return;
+    }
+    const shelf = host.spineShelfDefinitions().get(selection.shelfId);
+    if (!shelf) {
+      this.shelfSnapMesh.visible = false;
+      return;
+    }
+    this.#showShelfSnapMesh(selection, carriedRecord, shelf);
+  }
+
+  #updateShelfTargetMeshes(selection: ShelfTargetSelection | undefined) {
+    const host = this.#host;
     for (const target of host.shelfTargetMeshes()) {
       const material = target.material;
       if (!(material instanceof MeshBasicMaterial)) continue;
@@ -674,18 +718,10 @@ export class InteractionScanner {
       material.opacity = selectedShelf ? 0.13 : 0;
       material.color.set("#78b594");
     }
-    const carriedPublicationId = host.carriedPublicationId();
-    const carriedRecord = carriedPublicationId ? host.booksById().get(carriedPublicationId) : undefined;
-    if (!selection || !carriedRecord) {
-      this.shelfSnapMesh.visible = false;
-      return;
-    }
+  }
+
+  #showShelfSnapMesh(selection: ShelfTargetSelection, carriedRecord: BookRecord, shelf: SpineShelfDefinition) {
     this.shelfSnapMesh.visible = true;
-    const shelf = host.spineShelfDefinitions().get(selection.shelfId);
-    if (!shelf) {
-      this.shelfSnapMesh.visible = false;
-      return;
-    }
     const normalOffset =
       selection.presentation === "face"
         ? -shelf.faceInset

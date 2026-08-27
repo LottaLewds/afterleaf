@@ -40,18 +40,18 @@ export type ShopInteractionCommands = {
   interact: (allowNonBookPropPickup?: boolean) => void;
 };
 
+const canCycleCarriedBook = (host: ShopInteractionCommandsHost, direction: number) =>
+  direction !== 0 &&
+  !host.bookActions().discardBusy &&
+  !host.bookActions().throwChargeActive &&
+  host.inspection().inspectionMode === "none" &&
+  host.carriedPublicationIds().length >= 2;
+
 /** Routes player interaction to the already-owned book, prop, and media systems. */
 export const createShopInteractionCommands = (commandHost: ShopInteractionCommandsHost): ShopInteractionCommands => {
   const cycleCarriedBook = (direction: number) => {
     const host = commandHost;
-    if (
-      direction === 0 ||
-      host.bookActions().discardBusy ||
-      host.bookActions().throwChargeActive ||
-      host.inspection().inspectionMode !== "none" ||
-      host.carriedPublicationIds().length < 2
-    )
-      return false;
+    if (!canCycleCarriedBook(host, direction)) return false;
     if (direction > 0) {
       const front = host.carriedPublicationIds().shift();
       if (front) host.carriedPublicationIds().push(front);
@@ -153,23 +153,28 @@ export const createShopInteractionCommands = (commandHost: ShopInteractionComman
     return true;
   };
 
+  const interactSpecialTarget = (allowNonBookPropPickup: boolean): boolean => {
+    const host = commandHost;
+    const targetedArcadeCabinet = host.targetedArcadeCabinet();
+    if (targetedArcadeCabinet) {
+      targetedArcadeCabinet.interact();
+      return true;
+    }
+    if (interactTelevision(allowNonBookPropPickup)) return true;
+    if (interactTargetedProp(allowNonBookPropPickup)) return true;
+    if (host.signs().targetedKey !== undefined) {
+      host.signs().requestEdit();
+      return true;
+    }
+    if (interactDigitalArtFrame()) return true;
+    return interactPoster();
+  };
+
   const interact = (allowNonBookPropPickup = true) => {
     const host = commandHost;
     if (host.bookActions().discardBusy || host.bookActions().shelveAnimation) return;
     if (interactPlacement() || interactCarriedBook()) return;
-    const targetedArcadeCabinet = host.targetedArcadeCabinet();
-    if (targetedArcadeCabinet) {
-      targetedArcadeCabinet.interact();
-      return;
-    }
-    if (interactTelevision(allowNonBookPropPickup)) return;
-    if (interactTargetedProp(allowNonBookPropPickup)) return;
-    if (host.signs().targetedKey !== undefined) {
-      host.signs().requestEdit();
-      return;
-    }
-    if (interactDigitalArtFrame()) return;
-    if (interactPoster()) return;
+    if (interactSpecialTarget(allowNonBookPropPickup)) return;
     const hoveredPublicationId = host.hoveredPublicationId();
     if (hoveredPublicationId) host.bookActions().pickUpBook(hoveredPublicationId);
   };

@@ -26,14 +26,13 @@ export class AsyncLruCache<Value> {
       return cached.promise;
     }
 
-    let entry: AsyncLruCacheEntry<Value>;
     const promise = Promise.resolve()
       .then(() => this.#load(key))
       .catch((error: unknown) => {
         if (this.#entries.get(key) === entry) this.#entries.delete(key);
         throw error;
       });
-    entry = {promise};
+    const entry: AsyncLruCacheEntry<Value> = {promise};
     this.#entries.set(key, entry);
     this.#trim();
     return promise;

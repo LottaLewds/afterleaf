@@ -10,6 +10,7 @@ const GLB_JSON_CHUNK = 0x4e4f534a;
 const GLB_HEADER_BYTE_LENGTH = 20;
 const LEGACY_SPEC_GLOSS_EXTENSION = "KHR_materials_pbrSpecularGlossiness";
 const MODEL_COMPATIBILITY_CACHE_VERSION = 1;
+const TRAILING_NULL_BYTES = new RegExp(`${String.fromCharCode(0)}+$`, "u");
 
 type PreparedModel = {
   byteLength: number;
@@ -44,7 +45,7 @@ const readGlbJson = async (filePath: string) => {
     const json = Buffer.alloc(jsonByteLength);
     const result = await file.read(json, 0, jsonByteLength, 20);
     if (result.bytesRead !== jsonByteLength) return;
-    return JSON.parse(json.toString("utf8").replace(/\0+$/u, "")) as unknown;
+    return JSON.parse(json.toString("utf8").replace(TRAILING_NULL_BYTES, "")) as unknown;
   } finally {
     await file.close();
   }

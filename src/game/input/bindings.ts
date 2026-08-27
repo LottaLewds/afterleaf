@@ -390,17 +390,20 @@ const STORAGE_KEY = "afterleaf:shortcuts:v1";
 
 const GAMEPAD_BUTTON_NAME_SET: ReadonlySet<string> = new Set(GAMEPAD_BUTTON_NAMES);
 
+const isShortcutBinding = (value: unknown): value is ShortcutBinding => {
+  if (typeof value !== "object" || value === null) return false;
+  const binding = value as {code?: unknown; device?: unknown};
+  if (typeof binding.code !== "string") return false;
+  return binding.device === "gamepad" ? GAMEPAD_BUTTON_NAME_SET.has(binding.code) : binding.device === "keyboard";
+};
+
 const isShortcutsConfig = (value: unknown): value is Partial<ShortcutsConfig> => {
   if (typeof value !== "object" || value === null) return false;
   for (const action of Object.keys(DEFAULT_SHORTCUTS)) {
     const bindings = (value as Record<string, unknown>)[action];
     if (bindings === undefined) continue;
     if (!Array.isArray(bindings)) return false;
-    for (const binding of bindings) {
-      if (typeof binding !== "object" || binding === null || typeof binding.code !== "string") return false;
-      if (binding.device === "gamepad" ? !GAMEPAD_BUTTON_NAME_SET.has(binding.code) : binding.device !== "keyboard")
-        return false;
-    }
+    if (bindings.some((binding) => !isShortcutBinding(binding))) return false;
   }
   return true;
 };
@@ -432,17 +435,23 @@ export const saveShortcuts = (config: ShortcutsConfig): void => {
   }
 };
 
+const KEYBOARD_CODE_LABELS: Readonly<Record<string, string>> = {
+  AltLeft: "Alt",
+  AltRight: "Alt",
+  Backspace: "Back",
+  ControlLeft: "Ctrl",
+  ControlRight: "Ctrl",
+  Delete: "Del",
+  Escape: "Esc",
+  ShiftLeft: "Shift",
+  ShiftRight: "Shift",
+  Space: "Space",
+};
+
 export const formatKeyboardCode = (code: string): string => {
   if (code.startsWith("Key")) return code.slice(3);
-  if (code === "Space") return "Space";
-  if (code === "Escape") return "Esc";
   if (code.startsWith("Digit")) return code.slice(5);
-  if (code === "ShiftLeft" || code === "ShiftRight") return "Shift";
-  if (code === "ControlLeft" || code === "ControlRight") return "Ctrl";
-  if (code === "AltLeft" || code === "AltRight") return "Alt";
-  if (code === "Delete") return "Del";
-  if (code === "Backspace") return "Back";
-  return code;
+  return KEYBOARD_CODE_LABELS[code] ?? code;
 };
 
 export const formatBinding = (binding: ShortcutBinding, style: GamepadStyle = "xbox"): string =>

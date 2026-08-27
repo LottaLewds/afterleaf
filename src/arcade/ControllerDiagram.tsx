@@ -1,4 +1,4 @@
-import {For, Show, createMemo, type Accessor} from "solid-js";
+import {For, Match, Show, Switch, createMemo, type Accessor} from "solid-js";
 
 import type {ArcadeConsoleControl, ControlDiagramPlacement} from "~/arcade/controllerMappings";
 
@@ -74,14 +74,16 @@ const DirectionHitZones = (props: {
   capturingId: number | undefined;
   onSelect: (controlId: number) => void;
 }) => {
-  const {placement} = props.element;
-  const points = quadrantPoints(placement.x, placement.y);
+  const points = createMemo(() => {
+    const {placement} = props.element;
+    return quadrantPoints(placement.x, placement.y);
+  });
   return (
     <g>
       <For each={props.element.controlIds}>
         {(controlId, index) => (
           <polygon
-            points={points[index()]}
+            points={points()[index()]}
             fill="transparent"
             class="cursor-pointer"
             onClick={() => props.onSelect(controlId)}
@@ -93,8 +95,8 @@ const DirectionHitZones = (props: {
       {/* Ring highlight while this group is being captured. */}
       <Show when={props.capturingId !== undefined && props.element.controlIds.includes(props.capturingId)}>
         <circle
-          cx={placement.x}
-          cy={placement.y}
+          cx={props.element.placement.x}
+          cy={props.element.placement.y}
           r={HIT_RADIUS}
           fill="none"
           stroke={ACCENT}
@@ -113,42 +115,58 @@ const DiagramShape = (props: {
   capturingId: number | undefined;
   onSelect: (controlId: number) => void;
 }) => {
-  const {placement} = props.element;
+  const placement = () => props.element.placement;
+  const shape = () => placement().shape;
+  const x = () => placement().x;
+  const y = () => placement().y;
+  const width = () => {
+    const current = placement();
+    return "w" in current ? current.w : 0;
+  };
+  const height = () => {
+    const current = placement();
+    return "h" in current ? current.h : 0;
+  };
+  const radius = () => {
+    const current = placement();
+    return current.shape === "face" ? (current.r ?? 12) : 12;
+  };
   const stroke = () => (props.mapped || props.capturingId !== undefined ? ACCENT : STROKE_MUTED);
-  const outlineWidth = () => (props.capturingId !== undefined ? "2.5" : props.mapped ? "2" : "1.5");
+  const outlineWidth = () => {
+    if (props.capturingId !== undefined) return "2.5";
+    if (props.mapped) return "2";
+    return "1.5";
+  };
   const clickable = {
     onClick: () => props.onSelect(props.element.controlIds[0] as number),
   } as const;
-  // Element data is static per instance, so shape selection happens once;
-  // state flows through reactive attribute expressions.
-  switch (placement.shape) {
-    case "dpad":
-      return (
+  // Element data normally stays stable per instance; shape selection lives in
+  // JSX so reactive updates are reconciled without re-running component setup.
+  return (
+    <Switch fallback={null}>
+      <Match when={shape() === "dpad"}>
         <g>
           <g stroke={stroke()} fill={FILL_DARK} class={{"animate-pulse": props.capturingId !== undefined}}>
-            <rect x={placement.x - 21} y={placement.y - 7} width="42" height="14" rx="4" />
-            <rect x={placement.x - 7} y={placement.y - 21} width="14" height="42" rx="4" />
+            <rect x={x() - 21} y={y() - 7} width="42" height="14" rx="4" />
+            <rect x={x() - 7} y={y() - 21} width="14" height="42" rx="4" />
           </g>
           <DirectionHitZones {...props} />
         </g>
-      );
-    case "stick":
-      return (
+      </Match>
+      <Match when={shape() === "stick"}>
         <g>
           <g
             stroke={stroke()}
             class={["cursor-pointer", {"animate-pulse": props.capturingId !== undefined}]}
             {...clickable}
           >
-            <circle cx={placement.x} cy={placement.y} r="18" fill={BODY_FILL} stroke-width={outlineWidth()} />
-            <circle cx={placement.x} cy={placement.y} r="10" fill={FILL_DARK} />
+            <circle cx={x()} cy={y()} r="18" fill={BODY_FILL} stroke-width={outlineWidth()} />
+            <circle cx={x()} cy={y()} r="10" fill={FILL_DARK} />
           </g>
           <DirectionHitZones {...props} />
         </g>
-      );
-    case "face": {
-      const radius = placement.r ?? 12;
-      return (
+      </Match>
+      <Match when={shape() === "face"}>
         <g
           stroke={stroke()}
           class={{
@@ -158,13 +176,13 @@ const DiagramShape = (props: {
           onClick={() => props.onSelect(props.element.controlIds[0] as number)}
         >
           <title>{`Remap ${props.element.label}`}</title>
-          <circle cx={placement.x} cy={placement.y} r={radius} fill={FILL_DARK} stroke-width={outlineWidth()} />
-          {props.element.shortLabel.length > 0 && (
+          <circle cx={x()} cy={y()} r={radius()} fill={FILL_DARK} stroke-width={outlineWidth()} />
+          <Show when={props.element.shortLabel.length > 0}>
             <text
-              x={placement.x}
-              y={placement.y}
+              x={x()}
+              y={y()}
               fill={LABEL}
-              font-size={String(radius > 13 ? 11 : 9)}
+              font-size={String(radius() > 13 ? 11 : 9)}
               font-weight="700"
               text-anchor="middle"
               dominant-baseline="central"
@@ -173,12 +191,10 @@ const DiagramShape = (props: {
             >
               {props.element.shortLabel}
             </text>
-          )}
+          </Show>
         </g>
-      );
-    }
-    case "pill":
-      return (
+      </Match>
+      <Match when={shape() === "pill"}>
         <g
           stroke={stroke()}
           class={{
@@ -189,17 +205,17 @@ const DiagramShape = (props: {
         >
           <title>{`Remap ${props.element.label}`}</title>
           <rect
-            x={placement.x - placement.w / 2}
-            y={placement.y - 8}
-            width={placement.w}
+            x={x() - width() / 2}
+            y={y() - 8}
+            width={width()}
             height="16"
             rx="8"
             fill={FILL_DARK}
             stroke-width={outlineWidth()}
           />
           <text
-            x={placement.x}
-            y={placement.y}
+            x={x()}
+            y={y()}
             fill={LABEL}
             font-size="7.5"
             font-weight="700"
@@ -212,9 +228,8 @@ const DiagramShape = (props: {
             {props.element.shortLabel.toUpperCase()}
           </text>
         </g>
-      );
-    case "rect":
-      return (
+      </Match>
+      <Match when={shape() === "rect"}>
         <g
           stroke={stroke()}
           class={{
@@ -225,17 +240,17 @@ const DiagramShape = (props: {
         >
           <title>{`Remap ${props.element.label}`}</title>
           <rect
-            x={placement.x}
-            y={placement.y}
-            width={placement.w}
-            height={placement.h}
+            x={x()}
+            y={y()}
+            width={width()}
+            height={height()}
             rx="6"
             fill={FILL_DARK}
             stroke-width={outlineWidth()}
           />
           <text
-            x={placement.x + placement.w / 2}
-            y={placement.y + placement.h / 2}
+            x={x() + width() / 2}
+            y={y() + height() / 2}
             fill={LABEL}
             font-size="9"
             font-weight="700"
@@ -247,8 +262,9 @@ const DiagramShape = (props: {
             {props.element.shortLabel}
           </text>
         </g>
-      );
-  }
+      </Match>
+    </Switch>
+  );
 };
 
 export const ControllerDiagram = (props: {

@@ -26,7 +26,11 @@ type ArtFrameMetadataCacheEntry = {
 
 const metadataCache = new Map<string, ArtFrameMetadataCacheEntry>();
 
-const compareNames = (left: string, right: string) => (left < right ? -1 : left > right ? 1 : 0);
+const compareNames = (left: string, right: string) => {
+  if (left < right) return -1;
+  if (left > right) return 1;
+  return 0;
+};
 
 const isSafeChannelId = (value: string) => /^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/u.test(value);
 
@@ -62,9 +66,9 @@ const discoverArtFrameChannelsIn = async (
       .sort((left, right) => compareNames(left.name, right.name))
       .map(async (entry): Promise<DiscoveredArtFrameChannel | undefined> => {
         const channelDirectory = resolve(root, entry.name);
-        let entries;
+        let channelEntries;
         try {
-          entries = await readdir(channelDirectory, {
+          channelEntries = await readdir(channelDirectory, {
             withFileTypes: true,
           });
         } catch (error) {
@@ -72,7 +76,7 @@ const discoverArtFrameChannelsIn = async (
           if (code === "ENOENT" || code === "ENOTDIR") return;
           throw error;
         }
-        const imageEntries = entries
+        const imageEntries = channelEntries
           .filter(
             (imageEntry) => !imageEntry.name.startsWith(".") && !imageEntry.isSymbolicLink() && imageEntry.isFile(),
           )
@@ -102,7 +106,7 @@ const discoverArtFrameChannelsIn = async (
               if (!label) return;
               return {aspectRatio, filePath, id, label, url: mediaUrl(id)};
             } catch {
-              return;
+              // Skip files that cannot be inspected as art frame images.
             }
           }),
         );

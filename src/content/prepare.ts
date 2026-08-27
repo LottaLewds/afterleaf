@@ -282,16 +282,14 @@ export const prepareLocalCatalog = async (options: ContentPrepareOptions): Promi
   let skippedCount = 0;
   const discovery = await discoverLocalMedia(rootDirectory);
   diagnostics.push(
-    ...discovery.diagnostics.map((diagnostic) => ({
-      code: diagnostic.code,
-      directory: diagnostic.path,
-      message:
-        diagnostic.code === "ignored-container-images"
-          ? `Ignored loose images in organizational directory ${diagnostic.path} because it contains nested publications`
-          : diagnostic.code === "shadowed-manifest"
-            ? `Ignored outer manifest ${diagnostic.path} because nested publication manifests take precedence`
-            : `Skipped symbolic link ${diagnostic.path}`,
-    })),
+    ...discovery.diagnostics.map((diagnostic) => {
+      let message = `Skipped symbolic link ${diagnostic.path}`;
+      if (diagnostic.code === "ignored-container-images")
+        message = `Ignored loose images in organizational directory ${diagnostic.path} because it contains nested publications`;
+      else if (diagnostic.code === "shadowed-manifest")
+        message = `Ignored outer manifest ${diagnostic.path} because nested publication manifests take precedence`;
+      return {code: diagnostic.code, directory: diagnostic.path, message};
+    }),
   );
   const publicationDirectories = discovery.publicationDirectories;
   const claimedPublicationIds = new Set<string>();

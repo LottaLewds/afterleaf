@@ -3,47 +3,41 @@ import {
   AmbientLight,
   Euler,
   MathUtils,
-  Mesh,
-  MeshStandardMaterial,
   PCFSoftShadowMap,
   PerspectiveCamera,
   Quaternion,
   Raycaster,
   Scene,
   SRGBColorSpace,
-  Texture,
   TextureLoader,
   Vector3,
   WebGLRenderer,
+  type Mesh,
+  type MeshStandardMaterial,
+  type Texture,
 } from "three";
-import {TRASH_CAN_PROP_ID} from "~/game/discardBin";
+import {DiscardBin, TRASH_CAN_PROP_ID} from "~/game/discardBin";
 import {physicalBookWidth} from "~/game/bookDimensions";
-import {INSPECTION_FRAME_FILL, INSPECTION_PAGE_GUTTER} from "~/game/bookInspectionTuning";
+import {INSPECTION_FRAME_FILL, INSPECTION_PAGE_GUTTER, INSPECTION_TRANSITION_SPEED} from "~/game/bookInspectionTuning";
 import {dotWithPhysicsQuaternion} from "~/game/mathHelpers";
 import {BOOK_HEIGHT} from "~/game/bookTuning";
-import {type ShopArcadeCabinet} from "~/game/ShopArcadeCabinet";
-import {KTX2Loader} from "three/examples/jsm/loaders/KTX2Loader.js";
+import type {ShopArcadeCabinet, ShopArcadePlayRequest} from "~/game/ShopArcadeCabinet";
+import type {KTX2Loader} from "three/examples/jsm/loaders/KTX2Loader.js";
 import {RectAreaLightUniformsLib} from "three/examples/jsm/lights/RectAreaLightUniformsLib.js";
-import {DEV} from "solid-js";
+import {DEV, untrack} from "solid-js";
 import {ShopAudioManager} from "~/game/ShopAudioManager";
 import {FpsHud} from "~/game/FpsHud";
 import type {BookRecord} from "~/game/bookFactory";
-import {INSPECTION_TRANSITION_SPEED} from "~/game/bookInspectionTuning";
-import type {ShopArcadePlayRequest} from "~/game/ShopArcadeCabinet";
 import {disposeObject} from "~/game/threeDisposal";
 import type {MovablePropRegistration} from "~/game/propRegistration";
 import {GameStateEmitter, type GameSnapshotInput} from "~/game/gameStateEmitter";
-import type {ShopSignKind} from "~/game/signs/ShopSignSystem";
-import {shopSignKey} from "~/game/signs/ShopSignSystem";
-import type {DigitalArtFramePasteTarget} from "~/game/artFrameSystem";
+import {shopSignKey, ShopSignSystem, type ShopSignEditRequest, type ShopSignKind} from "~/game/signs/ShopSignSystem";
+import {ArtFrameSystem, type DigitalArtFramePasteTarget} from "~/game/artFrameSystem";
 import {createFaceOutDisplay} from "~/game/interior/shelfFixtures";
 import {buildShopInterior} from "~/game/interior/shopComposition";
 import {InspectionController} from "~/game/inspection/InspectionController";
-import {ShopSignSystem} from "~/game/signs/ShopSignSystem";
-import {DiscardBin} from "~/game/discardBin";
 import {DoorSystem} from "~/game/interior/doors";
 import {PosterSystem} from "~/game/posters/PosterSystem";
-import {ArtFrameSystem} from "~/game/artFrameSystem";
 import {TvVideoImporter} from "~/game/tvVideoImporter";
 import {ArtFrameTextureCache} from "~/game/artFrameTextureCache";
 import {BookTextureRuntime} from "~/game/bookTextureRuntime";
@@ -55,7 +49,7 @@ import {ShopBookLifecycle} from "~/game/shopBookLifecycle";
 import {ShopBookPresentation, type ShopBookPresentationHost} from "~/game/shopBookPresentation";
 import {ShopPlayerMovement} from "~/game/shopPlayerMovement";
 import {ShopWorldPersistence} from "~/game/shopWorldPersistence";
-import {cloneFloorMaterial, ShopInteriorAssets} from "~/game/shopInteriorAssets";
+import {ShopInteriorAssets} from "~/game/shopInteriorAssets";
 import {ShopMediaController} from "~/game/shopMediaController";
 import {bookSignature as catalogBookSignature, ShopCatalogSync} from "~/game/shopCatalogSync";
 import {createShopInteractionCommands, type ShopInteractionCommands} from "~/game/shopInteractionCommands";
@@ -65,18 +59,16 @@ import {createShopTargetState, type ShopTargetState} from "~/game/shopTargetStat
 import {ShopArcadeSessionController} from "~/game/shopArcadeSessionController";
 
 import type {CatalogAtlases, CatalogIdentity, CatalogItem} from "~/catalog";
-import type {ArtFrameImage} from "~/artFrames/protocol";
-import {artFrameChannelId} from "~/artFrames/protocol";
-import type {ShopSignEditRequest} from "~/game/signs/ShopSignSystem";
-import {type UiMode} from "~/game/uiMode";
+import {artFrameChannelId, type ArtFrameImage} from "~/artFrames/protocol";
+import type {UiMode} from "~/game/uiMode";
 
-import {type ShopCollisionWorld} from "~/game/shopGameplay";
+import type {ShopCollisionWorld} from "~/game/shopGameplay";
 import {loadShortcuts, type ShortcutsConfig} from "~/game/input/bindings";
 import {InputManager, type InputMode} from "~/game/input/inputManager";
 import {loadPadMappingOverrides, padForwardEvent, type ArcadePadMappingOverrides} from "~/arcade/controllerMappings";
 import {findArcadeSystem} from "~/arcade/systems";
 
-import {ShelfPresentation} from "~/game/shelfPlacement";
+import type {ShelfPresentation} from "~/game/shelfPlacement";
 import {SHOP_BOUNDS, SHOP_INTERIOR_FOOTPRINTS} from "~/game/shopLayout";
 import {
   ShopPhysicsWorld,
@@ -84,7 +76,7 @@ import {
   type BookPhysicsPose,
   type MutableBookPhysicsTransform,
 } from "~/game/ShopPhysicsWorld";
-import {ShopTelevision, type ShopTelevisionInteraction} from "~/game/ShopTelevision";
+import type {ShopTelevision, ShopTelevisionInteraction} from "~/game/ShopTelevision";
 import type {ShopMediaCatalog} from "~/game/shopMediaCatalog";
 import type {WorldSaveV1} from "~/game/worldSave";
 import {getWideReaderPageIndices, readerPageSourceUrl, subscribeToWideReaderPages} from "~/reader/pageSpreadDetection";
@@ -108,6 +100,8 @@ const SHOP_COLLISION_WORLD: ShopCollisionWorld = {
   bounds: SHOP_BOUNDS,
   obstacles: SHOP_INTERIOR_FOOTPRINTS,
 };
+
+const valueOrDefault = <T>(value: T | null | undefined, fallback: T) => value ?? fallback;
 
 export type ShopSceneOptions = {
   canvas: HTMLCanvasElement;
@@ -291,34 +285,8 @@ export class ShopScene {
   #targetedTelevision: ShopTelevision | undefined;
   #televisionTableMaterial: MeshStandardMaterial | undefined;
 
-  constructor(options: ShopSceneOptions) {
-    this.#canvas = options.canvas;
-    this.#catalogAtlases = options.catalogAtlases;
-    this.#catalogAvailable = options.catalogAvailable;
-    this.#catalogIdentity = options.catalogIdentity;
-    this.#catalogItems = options.catalogItems;
-    this.#newPublicationIds = options.newPublicationIds ?? (() => []);
-    this.#initialPageIndex = options.initialPageIndex ?? (() => 0);
-    this.#mouseSensitivity = options.mouseSensitivity ?? (() => 1);
-    this.#gamepadLookSensitivity = options.gamepadLookSensitivity ?? (() => 1);
-    this.#tvScreenLighting = options.tvScreenLighting ?? (() => false);
-    this.#mode = options.mode;
-    this.#selectedPublicationId = options.selectedPublicationId;
-    this.#onSelectPublication = options.onSelectPublication;
-    this.#onDiscardPublication = options.onDiscardPublication;
-    this.#onMediaChannelCreateRequest = options.onMediaChannelCreateRequest;
-    this.#onGameStateChange = options.onGameStateChange;
-    this.#onPageIndexChange = options.onPageIndexChange;
-    this.#onReady = options.onReady;
-    this.#paused = options.paused ?? (() => false);
-    this.#onResumeRequest = options.onResumeRequest;
-    this.#onPauseRequest = options.onPauseRequest;
-    // The fallback config is read once; callers pass a live accessor when
-    // rebinding from the menu should apply without rebuilding the scene.
-    const fallbackShortcuts = loadShortcuts();
-    this.#getShortcuts = options.shortcutsConfig ?? (() => fallbackShortcuts);
-    this.#getPadMappingOverrides = options.padMappingOverrides ?? loadPadMappingOverrides;
-    this.#input = new InputManager({
+  #createInputManager() {
+    const input = new InputManager({
       getShortcuts: this.#getShortcuts,
       handleAction: (action, phase) => {
         if (phase === "up") return this.#inputController.handleActionUp(action);
@@ -333,8 +301,8 @@ export class ShopScene {
       },
       onKeyEvent: (event) => this.#inputController.observeKeyboardEvent(event),
     });
-    this.#input.setKeyboardInterceptor((event) => this.#inputController.forwardArcadeKey(event));
-    this.#input.setRawGamepadForward((name, down) => {
+    input.setKeyboardInterceptor((event) => this.#inputController.forwardArcadeKey(event));
+    input.setRawGamepadForward((name, down) => {
       const cabinet =
         this.#arcadeSessionController.activeArcadeCabinet?.sessionStatus === "playing"
           ? this.#arcadeSessionController.activeArcadeCabinet
@@ -350,6 +318,37 @@ export class ShopScene {
       if (!keyEvent) return;
       cabinet.forwardKey(down, keyEvent);
     });
+    return input;
+  }
+
+  constructor(options: ShopSceneOptions) {
+    this.#canvas = options.canvas;
+    this.#catalogAtlases = options.catalogAtlases;
+    this.#catalogAvailable = options.catalogAvailable;
+    this.#catalogIdentity = options.catalogIdentity;
+    this.#catalogItems = options.catalogItems;
+    this.#newPublicationIds = valueOrDefault(options.newPublicationIds, () => []);
+    this.#initialPageIndex = valueOrDefault(options.initialPageIndex, () => 0);
+    this.#mouseSensitivity = valueOrDefault(options.mouseSensitivity, () => 1);
+    this.#gamepadLookSensitivity = valueOrDefault(options.gamepadLookSensitivity, () => 1);
+    this.#tvScreenLighting = valueOrDefault(options.tvScreenLighting, () => false);
+    this.#mode = options.mode;
+    this.#selectedPublicationId = options.selectedPublicationId;
+    this.#onSelectPublication = options.onSelectPublication;
+    this.#onDiscardPublication = options.onDiscardPublication;
+    this.#onMediaChannelCreateRequest = options.onMediaChannelCreateRequest;
+    this.#onGameStateChange = options.onGameStateChange;
+    this.#onPageIndexChange = options.onPageIndexChange;
+    this.#onReady = options.onReady;
+    this.#paused = valueOrDefault(options.paused, () => false);
+    this.#onResumeRequest = options.onResumeRequest;
+    this.#onPauseRequest = options.onPauseRequest;
+    // The fallback config is read once; callers pass a live accessor when
+    // rebinding from the menu should apply without rebuilding the scene.
+    const fallbackShortcuts = loadShortcuts();
+    this.#getShortcuts = valueOrDefault(options.shortcutsConfig, () => fallbackShortcuts);
+    this.#getPadMappingOverrides = valueOrDefault(options.padMappingOverrides, loadPadMappingOverrides);
+    this.#input = this.#createInputManager();
 
     this.#renderer = new WebGLRenderer({
       antialias: true,
@@ -623,7 +622,7 @@ export class ShopScene {
       inspectionPublication: () => this.#inspection.inspectionPublication(),
       keyboardLayout: () => this.#inputController.state.keyboardLayout,
       mode: () => this.#mode,
-      modelAnimationLabel: (record) => this.#props.modelAnimationLabel(record) ?? "",
+      modelAnimationLabel: (record) => valueOrDefault(this.#props.modelAnimationLabel(record), ""),
       modelImportError: () => this.#props.modelImportError,
       modelPlacement: () => this.#props.modelPlacement,
       onGameStateChange: () => this.#onGameStateChange,
@@ -699,15 +698,14 @@ export class ShopScene {
       artFrames: () => this.#artFrames,
       importArtFrameImage: options.importArtFrameImage,
       importPoster: options.importPoster,
-      loadMediaCatalog:
-        options.loadMediaCatalog ??
-        (() =>
-          Promise.resolve({
-            artFrames: {channels: []},
-            models: {models: []},
-            posters: {posters: []},
-            tv: {channels: []},
-          })),
+      loadMediaCatalog: valueOrDefault(options.loadMediaCatalog, () =>
+        Promise.resolve({
+          artFrames: {channels: []},
+          models: {models: []},
+          posters: {posters: []},
+          tv: {channels: []},
+        }),
+      ),
       onTextPaste: options.onTextPaste,
       paused: () => this.#paused(),
       posters: () => this.#posters,
@@ -779,7 +777,6 @@ export class ShopScene {
       addBox: (p, size, pos, mat, castShadow) => this.#interiorAssets.addBox(p, size, pos, mat, castShadow),
       artFrames: this.#artFrames,
       cacheBuiltinPropTemplate: (registration) => this.#props.cacheBuiltinPropTemplate(registration),
-      cloneFloorMaterial,
       createFloorMaterial: () => this.#interiorAssets.createFloorMaterial(),
       createPosterSurface: (p, id, w, h, pos, rot) => this.#interiorAssets.createPosterSurface(p, id, w, h, pos, rot),
       createFaceOutDisplay: (p, wood, backing, deps) => createFaceOutDisplay(p, wood, backing, deps),
@@ -916,11 +913,7 @@ export class ShopScene {
     }
   }
 
-  dispose() {
-    if (this.#disposed) return;
-    this.#worldPersistence.stopScheduler();
-    this.#worldPersistence.flush();
-    this.#disposed = true;
+  #disposeInteractionSystems() {
     if (this.#props.carriedProp) this.#props.restoreGhostedObject(this.#props.carriedProp.ghostMaterialSwaps);
     this.#inputController.releasePointerLock();
     this.#abortController.abort();
@@ -938,6 +931,34 @@ export class ShopScene {
     this.#targetedTelevision = undefined;
     this.#props.televisionProps.clear();
     this.#audioManager.dispose();
+  }
+
+  #disposeAnimationResources() {
+    if (this.#frameHandle !== undefined) cancelAnimationFrame(this.#frameHandle);
+    this.#frameHandle = undefined;
+    if (this.#mediaCatalogRefreshHandle !== undefined) window.clearInterval(this.#mediaCatalogRefreshHandle);
+    this.#mediaCatalogRefreshHandle = undefined;
+  }
+
+  #disposeBookResources() {
+    this.#bookTextures.bumpRevision();
+    this.#bookTextures.disposeBookAtlasBatches();
+    for (const record of this.#booksById.values()) this.#bookLifecycle.disposeBookRecord(record);
+    this.#booksById.clear();
+    this.#bookTextures.clearStandaloneIds();
+    this.#interactiveMeshes = [];
+  }
+
+  #disposeRendererResources() {
+    this.#renderer.renderLists.dispose();
+    this.#renderer.dispose();
+    const performanceDebugWindow = window as ShopPerformanceDebugWindow;
+    if (DEV && performanceDebugWindow.__AFTERLEAF_PERFORMANCE_DEBUG__?.renderer === this.#renderer)
+      delete performanceDebugWindow.__AFTERLEAF_PERFORMANCE_DEBUG__;
+    this.#canvas.style.cursor = "";
+  }
+
+  #disposeSceneResources() {
     for (const record of this.#artFrames.records.values()) record.frame.dispose();
     this.#artFrames.clearRecords();
     this.#artFrames.preview?.dispose();
@@ -948,18 +969,10 @@ export class ShopScene {
     this.#viewportController.dispose();
     this.#ktx2Loader?.dispose();
     this.#ktx2Loader = undefined;
-    if (this.#frameHandle !== undefined) cancelAnimationFrame(this.#frameHandle);
-    this.#frameHandle = undefined;
-    if (this.#mediaCatalogRefreshHandle !== undefined) window.clearInterval(this.#mediaCatalogRefreshHandle);
-    this.#mediaCatalogRefreshHandle = undefined;
+    this.#disposeAnimationResources();
     this.#shaderWarmup.dispose();
 
-    this.#bookTextures.bumpRevision();
-    this.#bookTextures.disposeBookAtlasBatches();
-    for (const record of this.#booksById.values()) this.#bookLifecycle.disposeBookRecord(record);
-    this.#booksById.clear();
-    this.#bookTextures.clearStandaloneIds();
-    this.#interactiveMeshes = [];
+    this.#disposeBookResources();
     disposeObject(this.#scene);
     this.#scene.clear();
     this.#moonEnvironment?.dispose();
@@ -967,12 +980,45 @@ export class ShopScene {
     this.#posters.disposePendingTextures();
     this.#artFrameTextures.cancelPreparation();
     this.#artFrameTextures.disposeAll();
-    this.#renderer.renderLists.dispose();
-    this.#renderer.dispose();
-    const performanceDebugWindow = window as ShopPerformanceDebugWindow;
-    if (DEV && performanceDebugWindow.__AFTERLEAF_PERFORMANCE_DEBUG__?.renderer === this.#renderer)
-      delete performanceDebugWindow.__AFTERLEAF_PERFORMANCE_DEBUG__;
-    this.#canvas.style.cursor = "";
+    this.#disposeRendererResources();
+  }
+
+  dispose() {
+    if (this.#disposed) return;
+    this.#worldPersistence.stopScheduler();
+    this.#worldPersistence.flush();
+    this.#disposed = true;
+    this.#disposeInteractionSystems();
+    this.#disposeSceneResources();
+  }
+
+  #resolveInputMode(paused: boolean): InputMode {
+    if (paused) return "paused";
+    if (this.#arcadeSessionController.activeArcadeCabinet?.sessionStatus === "playing") return "arcade";
+    return "shop";
+  }
+
+  #animatePausedOrArcade(deltaSeconds: number, paused: boolean) {
+    if (paused) {
+      if (!this.#inputSuspended) {
+        this.#inputSuspended = true;
+        this.#inputController.suspendInput();
+      }
+      this.#frameHandle = requestAnimationFrame(this.#animate);
+      return true;
+    }
+    const arcadeActive = this.#arcadeSessionController.arcadeStatusForUi() !== undefined;
+    if (!arcadeActive) {
+      this.#inputSuspended = false;
+      return false;
+    }
+    // While an arcade session is active the world holds still around the
+    // player (no movement, targeting, or physics) but keeps rendering so
+    // every cabinet's attract mode and live screens stay animated.
+    this.#inputController.updateCameraLook(deltaSeconds);
+    this.#renderer.render(this.#scene, this.#camera);
+    this.#frameHandle = requestAnimationFrame(this.#animate);
+    return true;
   }
 
   readonly #animate = (time: number) => {
@@ -988,37 +1034,14 @@ export class ShopScene {
     const paused = this.#paused();
     // Polling runs in every mode so Start keeps toggling the menu and arcade
     // sessions keep receiving forwarded pad buttons.
-    const inputMode: InputMode = paused
-      ? "paused"
-      : this.#arcadeSessionController.activeArcadeCabinet?.sessionStatus === "playing"
-        ? "arcade"
-        : "shop";
-    this.#input.update(inputMode);
+    this.#input.update(this.#resolveInputMode(paused));
     for (const television of this.#televisions) {
       television.setSuspended(paused);
       television.update(deltaSeconds);
     }
     this.#arcadeSessionController.update(deltaSeconds);
     this.#fpsHud.update(deltaSeconds, this.#arcadeSessionController.activeArcadeCabinet?.perfSample);
-    if (paused) {
-      if (!this.#inputSuspended) {
-        this.#inputSuspended = true;
-        this.#inputController.suspendInput();
-      }
-      this.#frameHandle = requestAnimationFrame(this.#animate);
-      return;
-    }
-    // While an arcade session is active the world holds still around the
-    // player (no movement, targeting, or physics) but keeps rendering so
-    // every cabinet's attract mode and live screens stay animated.
-    const arcadeActive = this.#arcadeSessionController.arcadeStatusForUi() !== undefined;
-    if (arcadeActive) {
-      this.#inputController.updateCameraLook(deltaSeconds);
-      this.#renderer.render(this.#scene, this.#camera);
-      this.#frameHandle = requestAnimationFrame(this.#animate);
-      return;
-    }
-    this.#inputSuspended = false;
+    if (this.#animatePausedOrArcade(deltaSeconds, paused)) return;
 
     this.#inputController.consumePointerMovement(deltaSeconds);
     this.#inputController.updateCameraLook(deltaSeconds);
@@ -1152,7 +1175,10 @@ export class ShopScene {
   }
 
   #emitGameState() {
-    this.#gameStateEmitter.emit(this.#snapshotInput);
+    // Snapshot assembly is imperative; callers may originate in a Solid
+    // effect callback, but emitting state must not subscribe that effect to
+    // every accessor the snapshot reads.
+    untrack(() => this.#gameStateEmitter.emit(this.#snapshotInput));
   }
 
   #applyPlayerPose(position: WorldSaveV1["player"]["position"], quaternion: WorldSaveV1["player"]["quaternion"]) {

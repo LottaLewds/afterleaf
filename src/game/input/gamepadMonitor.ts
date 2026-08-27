@@ -79,8 +79,8 @@ export class GamepadMonitor {
     if (axes.length >= 2) {
       const x = axes[STANDARD_AXES.leftX] ?? 0;
       const y = axes[STANDARD_AXES.leftY] ?? 0;
-      if (x > LEFT_STICK_DEADZONE || x < -LEFT_STICK_DEADZONE) this.movement.right += x;
-      if (y > LEFT_STICK_DEADZONE || y < -LEFT_STICK_DEADZONE) this.movement.forward -= y;
+      this.movement.right += applyDeadzone(x, LEFT_STICK_DEADZONE);
+      this.movement.forward -= applyDeadzone(y, LEFT_STICK_DEADZONE);
     }
     // D-pad contributes to look while R2 is held; otherwise it moves. A
     // diagonal D-pad press never turns and pitches simultaneously.
@@ -88,10 +88,8 @@ export class GamepadMonitor {
       this.movement.forward += Number(this.pressed[12] !== 0) - Number(this.pressed[13] !== 0);
       this.movement.right += Number(this.pressed[15] !== 0) - Number(this.pressed[14] !== 0);
     }
-    if (this.movement.forward > 1) this.movement.forward = 1;
-    else if (this.movement.forward < -1) this.movement.forward = -1;
-    if (this.movement.right > 1) this.movement.right = 1;
-    else if (this.movement.right < -1) this.movement.right = -1;
+    this.movement.forward = clampToUnit(this.movement.forward);
+    this.movement.right = clampToUnit(this.movement.right);
   }
 
   #readLook(axes: readonly number[]) {
@@ -105,8 +103,8 @@ export class GamepadMonitor {
     if (axes.length >= 4) {
       const x = axes[STANDARD_AXES.rightX] ?? 0;
       const y = axes[STANDARD_AXES.rightY] ?? 0;
-      if (x > RIGHT_STICK_DEADZONE || x < -RIGHT_STICK_DEADZONE) this.look.yaw += x;
-      if (y > RIGHT_STICK_DEADZONE || y < -RIGHT_STICK_DEADZONE) this.look.pitch += y;
+      this.look.yaw += applyDeadzone(x, RIGHT_STICK_DEADZONE);
+      this.look.pitch += applyDeadzone(y, RIGHT_STICK_DEADZONE);
     }
   }
 
@@ -130,6 +128,10 @@ const STANDARD_AXES = {leftX: 0, leftY: 1, rightX: 2, rightY: 3} as const;
 const GAMEPAD_BUTTON_INDEX_R2 = gamepadButtonIndex("R2");
 const LEFT_STICK_DEADZONE = 0.15;
 const RIGHT_STICK_DEADZONE = 0.18;
+
+const applyDeadzone = (value: number, deadzone: number) => (Math.abs(value) > deadzone ? value : 0);
+
+const clampToUnit = (value: number) => Math.min(Math.max(value, -1), 1);
 
 /** First connected pad, or undefined. Allocation-free beyond the API array. */
 const findGamepad = (): Gamepad | undefined => {

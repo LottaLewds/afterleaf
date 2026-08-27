@@ -1,5 +1,4 @@
-import {Mesh, MeshBasicMaterial, MeshStandardMaterial, PlaneGeometry, type Object3D} from "three";
-import type {Group} from "three";
+import {Mesh, MeshBasicMaterial, PlaneGeometry, type Group, type MeshStandardMaterial, type Object3D} from "three";
 import {
   createStackableStairBoxes,
   SHOP_ATRIUM,
@@ -241,6 +240,78 @@ const createUpperWindow = (
     addBox(parent, [UPPER_WINDOW_WIDTH + 0.12, 0.09, 0.12], [x, frameY, glassZ], frameMaterial, true);
 };
 
+const createUpperWindowWallPier = (
+  parent: Group,
+  z: number,
+  rotationY: number,
+  run: {max: number; min: number},
+  index: number,
+  wallMaterial: MeshStandardMaterial,
+  addBox: AddBox,
+  createPosterSurface: CreatePosterSurface,
+  windowWallId: string,
+) => {
+  addBox(parent, [run.max - run.min, 3.5, 0.18], [(run.min + run.max) / 2, 7.35, z], wallMaterial);
+  const surfaceWidth = run.max - run.min - 0.12;
+  if (surfaceWidth <= MIN_POSTER_HEIGHT) return;
+  createPosterSurface(
+    parent,
+    `${windowWallId}-pier-${index + 1}`,
+    surfaceWidth,
+    3.34,
+    [(run.min + run.max) / 2, 7.35, z + (rotationY === 0 ? 0.105 : -0.105)],
+    rotationY,
+  );
+};
+
+const createUpperWindowWallPiers = (
+  parent: Group,
+  z: number,
+  rotationY: number,
+  solidRuns: readonly {max: number; min: number}[],
+  wallMaterial: MeshStandardMaterial,
+  addBox: AddBox,
+  createPosterSurface: CreatePosterSurface,
+  windowWallId: string,
+) => {
+  for (const [index, run] of solidRuns.entries())
+    createUpperWindowWallPier(
+      parent,
+      z,
+      rotationY,
+      run,
+      index,
+      wallMaterial,
+      addBox,
+      createPosterSurface,
+      windowWallId,
+    );
+};
+
+const createUpperWindowWallWindows = (
+  parent: Group,
+  glassZ: number,
+  rotationY: number,
+  frameMaterial: MeshStandardMaterial,
+  glassMaterial: MeshBasicMaterial,
+  addBox: AddBox,
+) => {
+  for (const x of UPPER_WINDOW_CENTERS)
+    createUpperWindow(parent, x, glassZ, rotationY, frameMaterial, glassMaterial, addBox);
+};
+
+const createUpperWindowWallSolidRuns = () => {
+  const solidRuns: {max: number; min: number}[] = [];
+  let min = -12.5;
+  for (const center of UPPER_WINDOW_CENTERS) {
+    const openingMin = center - UPPER_WINDOW_WIDTH / 2;
+    solidRuns.push({max: openingMin, min});
+    min = center + UPPER_WINDOW_WIDTH / 2;
+  }
+  solidRuns.push({max: 12.5, min});
+  return solidRuns;
+};
+
 export const createUpperWindowWall = (
   parent: Group,
   z: number,
@@ -253,34 +324,10 @@ export const createUpperWindowWall = (
 ) => {
   addBox(parent, [25, 0.7, 0.18], [0, 5.25, z], wallMaterial);
   addBox(parent, [25, 0.7, 0.18], [0, 9.45, z], wallMaterial);
-  const openings = UPPER_WINDOW_CENTERS.map((center) => ({
-    max: center + UPPER_WINDOW_WIDTH / 2,
-    min: center - UPPER_WINDOW_WIDTH / 2,
-  }));
-  const solidRuns = [
-    {max: openings[0]?.min ?? -12.5, min: -12.5},
-    {max: openings[1]?.min ?? 0, min: openings[0]?.max ?? 0},
-    {max: openings[2]?.min ?? 0, min: openings[1]?.max ?? 0},
-    {max: 12.5, min: openings[2]?.max ?? 12.5},
-  ];
+  const solidRuns = createUpperWindowWallSolidRuns();
   const windowWallId = z < 0 ? "upper-north-window-wall" : "upper-south-window-wall";
-  for (const [index, run] of solidRuns.entries()) {
-    addBox(parent, [run.max - run.min, 3.5, 0.18], [(run.min + run.max) / 2, 7.35, z], wallMaterial);
-
-    const surfaceWidth = run.max - run.min - 0.12;
-    if (surfaceWidth <= MIN_POSTER_HEIGHT) continue;
-    createPosterSurface(
-      parent,
-      `${windowWallId}-pier-${index + 1}`,
-      surfaceWidth,
-      3.34,
-      [(run.min + run.max) / 2, 7.35, z + (rotationY === 0 ? 0.105 : -0.105)],
-      rotationY,
-    );
-  }
+  createUpperWindowWallPiers(parent, z, rotationY, solidRuns, wallMaterial, addBox, createPosterSurface, windowWallId);
 
   const glassZ = z + (rotationY === 0 ? 0.105 : -0.105);
-  for (const x of UPPER_WINDOW_CENTERS) {
-    createUpperWindow(parent, x, glassZ, rotationY, frameMaterial, glassMaterial, addBox);
-  }
+  createUpperWindowWallWindows(parent, glassZ, rotationY, frameMaterial, glassMaterial, addBox);
 };

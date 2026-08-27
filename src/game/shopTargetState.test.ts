@@ -2,8 +2,7 @@ import {expect, test} from "bun:test";
 import type {ShopBookLifecycle} from "~/game/shopBookLifecycle";
 import type {BookTextureRuntime} from "~/game/bookTextureRuntime";
 import type {InteractionScanner} from "~/game/interactionScanner";
-import type {ShopTargetStateHost} from "~/game/shopTargetState";
-import {createShopTargetState} from "~/game/shopTargetState";
+import {createShopTargetState, type ShopTargetStateHost} from "~/game/shopTargetState";
 import type {ShopTelevision} from "~/game/ShopTelevision";
 
 test("target state clears television state and resets its scrub session", () => {

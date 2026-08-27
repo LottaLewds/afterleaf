@@ -14,7 +14,11 @@ export type DiscoveredPoster = PosterAsset & {
   filePath: string;
 };
 
-const compareNames = (left: string, right: string) => (left < right ? -1 : left > right ? 1 : 0);
+const compareNames = (left: string, right: string) => {
+  if (left < right) return -1;
+  if (left > right) return 1;
+  return 0;
+};
 
 type PosterMetadataCacheEntry = {
   aspectRatio?: number;
@@ -100,7 +104,7 @@ export const discoverPosters = async (
             url: mediaUrl(id),
           };
         } catch {
-          return;
+          // Skip files that cannot be inspected as poster images.
         }
       }),
     );

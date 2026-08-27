@@ -2,7 +2,7 @@ import {readFile, writeFile} from "node:fs/promises";
 import {resolve} from "node:path";
 
 import type {LibraryProviderSparsePageRequest} from "@afterleaf/provider-sdk";
-import {WeebCentralClient} from "./client";
+import type {WeebCentralClient} from "./client";
 import {
   WEEBCENTRAL_SPARSE_METADATA_FILE,
   createWeebCentralSparseMetadata,
@@ -63,9 +63,10 @@ export const createWeebCentralSparsePageMaterializer = (client: WeebCentralSpars
     } catch (error) {
       if (!loadedFromDisk) throw error;
       pageUrls = await client.getPageList(remoteId);
-      if (pageUrls.length !== pageCount) throw new Error("Remote WeebCentral metadata changed; fetch the book again");
+      if (pageUrls.length !== pageCount)
+        throw new Error("Remote WeebCentral metadata changed; fetch the book again", {cause: error});
       pageUrl = pageUrls[pageNumber - 1];
-      if (!pageUrl) throw new Error("Remote WeebCentral page metadata is incomplete");
+      if (!pageUrl) throw new Error("Remote WeebCentral page metadata is incomplete", {cause: error});
       await writeFile(
         metadataPath,
         `${JSON.stringify(createWeebCentralSparseMetadata(remoteId, metadataHash, pageUrls), null, 2)}\n`,

@@ -1,13 +1,13 @@
 import {access, readFile, stat} from "node:fs/promises";
 import {dirname, isAbsolute, relative, resolve, sep} from "node:path";
 import {createHash} from "node:crypto";
-import {
-  type ContentSeedDiagnostic,
-  type PublicationCandidate,
-  type PublicationMaterial,
-  type PublicationSearchQuery,
-  type PublicationSource,
-  type PublicationSourceReference,
+import type {
+  ContentSeedDiagnostic,
+  PublicationCandidate,
+  PublicationMaterial,
+  PublicationSearchQuery,
+  PublicationSource,
+  PublicationSourceReference,
 } from "~/content/schema";
 import {languagePriority, normalizeTags, parseSupportedLanguage} from "~/content/normalize";
 import {discoverLocalMedia, LOCAL_PUBLICATION_MANIFEST} from "~/content/localMediaDiscovery";
@@ -80,10 +80,7 @@ const materialFingerprint = async (sourceDirectory: string, material: Publicatio
   for (let batchStart = 0; batchStart < assets.length; batchStart += FINGERPRINT_STAT_CONCURRENCY) {
     const batch = assets.slice(batchStart, batchStart + FINGERPRINT_STAT_CONCURRENCY);
     const metadata = await Promise.all(
-      batch.map(async (asset) => ({
-        ...asset,
-        metadata: await stat(asset.path),
-      })),
+      batch.map(async (asset) => Object.assign({}, asset, {metadata: await stat(asset.path)})),
     );
     for (const {metadata: assetMetadata, path, role} of metadata)
       hash

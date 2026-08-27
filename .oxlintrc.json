@@ -10,6 +10,11 @@
   "ignorePatterns": ["dist/**", "node_modules/**", ".bun-cache/**"],
   "rules": {
     "import/no-cycle": "error",
+    "eslint/prefer-const": "error",
+    "eslint/no-duplicate-imports": "error",
+    "eslint/no-nested-ternary": "error",
+    "eslint/no-param-reassign": "error",
+    "eslint/no-shadow": "warn",
     "eslint/no-unassigned-vars": "off",
     "eslint/no-unused-vars": [
       "error",
@@ -22,6 +27,8 @@
       }
     ],
     "typescript/no-explicit-any": "error",
+    "typescript/consistent-type-imports": "warn",
+    "typescript/no-import-type-side-effects": "warn",
     "typescript/no-floating-promises": "error",
     "typescript/no-non-null-assertion": "warn",
     "typescript/no-redundant-type-constituents": "warn",
@@ -42,18 +49,53 @@
     "typescript/unbound-method": "off",
     "eslint/eqeqeq": ["error", "always"],
     "eslint/no-implicit-coercion": "error",
+    "eslint/no-alert": "error",
+    "eslint/no-constant-condition": "error",
+    "eslint/no-debugger": "error",
+    "eslint/no-eval": "error",
+    "eslint/no-implied-eval": "error",
+    "eslint/no-new-wrappers": "error",
+    "eslint/no-self-compare": "error",
+    "eslint/no-throw-literal": "error",
+    "eslint/no-unreachable": "error",
+    "eslint/no-useless-assignment": "error",
+    "eslint/no-useless-catch": "error",
+    "eslint/no-useless-concat": "error",
+    "eslint/no-useless-return": "error",
+    "eslint/no-var": "error",
+    "eslint/preserve-caught-error": "error",
+    "oxc/no-map-spread": "warn",
+    "oxc/branches-sharing-code": "warn",
+    "solid/event-handlers": "error",
+    "solid/imports": "error",
+    "solid/jsx-no-duplicate-props": "error",
+    "solid/jsx-no-script-url": "error",
+    "solid/jsx-no-undef": "error",
+    "solid/no-destructure": "error",
+    "solid/no-react-deps": "error",
+    "solid/no-react-specific-props": "error",
+    "solid/no-unknown-namespaces": "error",
+    "solid/prefer-for": "error",
+    "solid/self-closing-comp": "error",
+    "solid/style-prop": "error",
     "solid/reactivity": "warn",
     "solid/components-return-once": "warn",
     "solid/no-innerhtml": "warn"
   },
   "overrides": [
     {
+      "files": ["src/**/*.ts", "src/**/*.tsx"],
+      "rules": {
+        "eslint/no-console": ["error", {"allow": ["error", "info", "warn"]}]
+      }
+    },
+    {
       "files": ["src/game/**/*.ts", "src/game/**/*.tsx"],
       "rules": {
         "eslint/complexity": [
           "error",
           {
-            "max": 20,
+            "max": 10,
             "variant": "modified"
           }
         ]

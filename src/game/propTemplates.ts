@@ -1,5 +1,5 @@
 import {clone as cloneWithSkeleton} from "three/examples/jsm/utils/SkeletonUtils.js";
-import {type Object3D, type PerspectiveCamera, Vector3} from "three";
+import type {Object3D, PerspectiveCamera, Vector3} from "three";
 import type {ModelAsset} from "~/models/protocol";
 import {
   BUILTIN_ARCADE_CABINET_ASSET_ID,

@@ -1,16 +1,15 @@
 import {
   EquirectangularReflectionMapping,
-  Group,
-  Mesh,
   MeshStandardMaterial,
   NoColorSpace,
   RepeatWrapping,
   SRGBColorSpace,
-  TextureLoader,
   Vector2,
-  WebGLRenderer,
   type ColorSpace,
-  type Texture,
+  type Group,
+  type Mesh,
+  type TextureLoader,
+  type WebGLRenderer,
 } from "three";
 
 import floorAlbedoUrl from "~/assets/materials/laminate-floor-albedo.webp";
@@ -18,12 +17,11 @@ import floorNormalUrl from "~/assets/materials/laminate-floor-normal.webp";
 import floorSurfaceUrl from "~/assets/materials/laminate-floor-surface.webp";
 import moonriseSkyUrl from "~/assets/materials/qwantani-moonrise-sky.webp";
 import type {MovablePropLifecycle} from "~/game/movablePropSystem";
-import {addInteriorBox, createPosterSurface} from "~/game/interior/interiorPrimitives";
+import {addInteriorBox, createPosterSurface, type PosterSurface} from "~/game/interior/interiorPrimitives";
 import {createDeskLamps} from "~/game/interior/lightingProps";
 import {createReadingChairInstance} from "~/game/interior/readingFurniture";
 import {READING_FURNITURE_BOXES} from "~/game/shopLayout";
 import {SHOP_UPPER_FLOOR_Y} from "~/game/shopExpansionLayout";
-import type {PosterSurface} from "~/game/interior/interiorPrimitives";
 import type {ReadingFurnitureMaterials} from "~/game/propRegistration";
 
 export type ShopInteriorAssetsHost = {
@@ -33,26 +31,6 @@ export type ShopInteriorAssetsHost = {
   props: () => MovablePropLifecycle;
   renderer: () => WebGLRenderer;
   textureLoader: () => TextureLoader;
-};
-
-export const cloneFloorMaterial = (source: MeshStandardMaterial, repeatX: number, repeatY: number) => {
-  const material = source.clone();
-  const clones = new Map<Texture, Texture>();
-  const cloneTexture = (texture: Texture | null) => {
-    if (!texture) return null;
-    const existing = clones.get(texture);
-    if (existing) return existing;
-    const clone = texture.clone();
-    clone.repeat.set(repeatX, repeatY);
-    clone.needsUpdate = true;
-    clones.set(texture, clone);
-    return clone;
-  };
-  material.aoMap = cloneTexture(source.aoMap);
-  material.map = cloneTexture(source.map);
-  material.normalMap = cloneTexture(source.normalMap);
-  material.roughnessMap = cloneTexture(source.roughnessMap);
-  return material;
 };
 
 /** Creates the reusable materials and small fixture primitives used by the shop builder. */
@@ -70,7 +48,9 @@ export class ShopInteriorAssets {
       texture.colorSpace = colorSpace;
       texture.wrapS = RepeatWrapping;
       texture.wrapT = RepeatWrapping;
-      texture.repeat.set(6.5, 9.75);
+      // Floor ShapeGeometry stores UVs in world-coordinate units, so a 4 m
+      // tile uses a quarter-repeat on the shared material.
+      texture.repeat.set(0.25, 0.25);
       texture.anisotropy = anisotropy;
       return texture;
     };

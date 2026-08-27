@@ -1,4 +1,5 @@
 import type {Collider, KinematicCharacterController, RigidBody, RigidBodyDesc, World} from "@dimforge/rapier3d-compat";
+import type * as Rapier from "@dimforge/rapier3d-compat";
 
 import {SHOP_COLLISION_BOXES} from "~/game/shopLayout";
 import {SHOP_EXPANSION_COLLISION_BOXES} from "~/game/shopExpansionLayout";
@@ -60,7 +61,12 @@ const PLAYER_CAPSULE_HALF_HEIGHT = (SHOP_PHYSICS_PLAYER_BODY_HEIGHT - SHOP_PHYSI
 const PLAYER_CONTROLLER_OFFSET = 0.01;
 const PLAYER_CHARACTER_MASS = 70;
 
-type RapierModule = typeof import("@dimforge/rapier3d-compat");
+const bookCollisionGroups = (held: boolean, collisionlessWhileHeld: boolean, releasedCollisionless: boolean) => {
+  if (held) return collisionlessWhileHeld ? GHOST_PROP_COLLISION_GROUPS : HELD_BOOK_COLLISION_GROUPS;
+  return releasedCollisionless ? RELEASED_BOOK_COLLISION_GROUPS : DYNAMIC_BOOK_COLLISION_GROUPS;
+};
+
+type RapierModule = typeof Rapier;
 
 let rapierImportPromise: Promise<RapierModule> | undefined;
 let initializedRapierPromise: Promise<RapierModule> | undefined;
@@ -218,6 +224,27 @@ const isValidThickness = (thickness: number) => Number.isFinite(thickness) && th
 
 const isValidBodyDimension = (dimension: number) => Number.isFinite(dimension) && dimension >= MIN_BODY_DIMENSION;
 
+const resolveFixedStep = (fixedStepSeconds: number | undefined) =>
+  fixedStepSeconds && Number.isFinite(fixedStepSeconds)
+    ? Math.min(Math.max(fixedStepSeconds, 1 / 240), 1 / 20)
+    : DEFAULT_FIXED_STEP_SECONDS;
+
+const resolveMaxSubsteps = (maxSubsteps: number | undefined) =>
+  Number.isFinite(maxSubsteps)
+    ? Math.min(Math.max(Math.floor(maxSubsteps ?? DEFAULT_MAX_SUBSTEPS), 1), 12)
+    : DEFAULT_MAX_SUBSTEPS;
+
+const resolveGravity = (gravity: PhysicsVector3 | undefined) =>
+  gravity && isFiniteVector(gravity) ? {x: gravity.x, y: gravity.y, z: gravity.z} : {x: 0, y: DEFAULT_GRAVITY, z: 0};
+
+const resolveRapierLoader = (initializeRapier: (() => Promise<void>) | undefined) => {
+  if (!initializeRapier) return importInitializedRapier;
+  return async () => {
+    const [rapier] = await Promise.all([importRapier(), initializeRapier()]);
+    return rapier;
+  };
+};
+
 const physicsPropId = (id: string) => `${PHYSICS_PROP_PREFIX}${id}`;
 
 const copyVector = (output: MutableVector3, value: PhysicsVector3) => {
@@ -342,27 +369,10 @@ export class ShopPhysicsWorld {
   #world: World | undefined;
 
   constructor(options: ShopPhysicsWorldOptions = {}) {
-    const fixedStepSeconds = options.fixedStepSeconds;
-    this.#fixedStepSeconds =
-      fixedStepSeconds && Number.isFinite(fixedStepSeconds)
-        ? Math.min(Math.max(fixedStepSeconds, 1 / 240), 1 / 20)
-        : DEFAULT_FIXED_STEP_SECONDS;
-    const maxSubsteps = options.maxSubsteps;
-    this.#maxSubsteps = Number.isFinite(maxSubsteps)
-      ? Math.min(Math.max(Math.floor(maxSubsteps ?? DEFAULT_MAX_SUBSTEPS), 1), 12)
-      : DEFAULT_MAX_SUBSTEPS;
-    const gravity = options.gravity;
-    this.#gravity =
-      gravity && isFiniteVector(gravity)
-        ? {x: gravity.x, y: gravity.y, z: gravity.z}
-        : {x: 0, y: DEFAULT_GRAVITY, z: 0};
-    const initializeRapier = options.initializeRapier;
-    this.#loadRapier = initializeRapier
-      ? async () => {
-          const [rapier] = await Promise.all([importRapier(), initializeRapier()]);
-          return rapier;
-        }
-      : importInitializedRapier;
+    this.#fixedStepSeconds = resolveFixedStep(options.fixedStepSeconds);
+    this.#maxSubsteps = resolveMaxSubsteps(options.maxSubsteps);
+    this.#gravity = resolveGravity(options.gravity);
+    this.#loadRapier = resolveRapierLoader(options.initializeRapier);
     if (options.playerEyePosition && isFiniteVector(options.playerEyePosition))
       copyVector(this.#playerEyePosition, options.playerEyePosition);
   }
@@ -477,28 +487,43 @@ export class ShopPhysicsWorld {
     output.z = this.#playerEyePosition.z;
   }
 
-  #createBookBody(rapier: RapierModule, world: World, record: BookPhysicsRecord) {
+  #detectPlayerCeilingHit(controller: KinematicCharacterController, desiredY: number, collisionCount: number) {
+    if (desiredY <= 0) return false;
+    for (let index = 0; index < collisionCount; index += 1) {
+      const collision = controller.computedCollision(index);
+      if (!collision || collision.normal1.y >= -0.5) continue;
+      return true;
+    }
+    return false;
+  }
+
+  #createBookBodyDescriptor(rapier: RapierModule, record: BookPhysicsRecord) {
     const held = record.mode === "held";
     const shelved = record.mode === "shelved";
-    const preservePlacedCollider = isFixedRecord(record) && held;
     const fixed = isFixedRecord(record);
-    const descriptor: RigidBodyDesc = fixed
-      ? rapier.RigidBodyDesc.fixed()
-      : rapier.RigidBodyDesc.dynamic()
-          .setCanSleep(true)
-          .setSleeping(shelved)
-          .setCcdEnabled(!shelved)
-          .setGravityScale(held ? 0 : 1)
-          .setLinearDamping(held ? HELD_LINEAR_DAMPING : DYNAMIC_LINEAR_DAMPING)
-          .setAngularDamping(held ? HELD_ANGULAR_DAMPING : DYNAMIC_ANGULAR_DAMPING);
-    descriptor
-      .setTranslation(record.pose.position.x, record.pose.position.y, record.pose.position.z)
-      .setRotation(record.pose.rotation);
-    const body = world.createRigidBody(descriptor);
-    record.body = body;
-    record.colliders.length = 0;
+    return (
+      fixed
+        ? rapier.RigidBodyDesc.fixed()
+        : rapier.RigidBodyDesc.dynamic()
+            .setCanSleep(true)
+            .setSleeping(shelved)
+            .setCcdEnabled(!shelved)
+            .setGravityScale(held ? 0 : 1)
+            .setLinearDamping(held ? HELD_LINEAR_DAMPING : DYNAMIC_LINEAR_DAMPING)
+            .setAngularDamping(held ? HELD_ANGULAR_DAMPING : DYNAMIC_ANGULAR_DAMPING)
+    ) as RigidBodyDesc;
+  }
+
+  #createBookColliders(
+    rapier: RapierModule,
+    world: World,
+    body: RigidBody,
+    record: BookPhysicsRecord,
+    held: boolean,
+    preservePlacedCollider: boolean,
+  ) {
     const colliderParts = record.colliderParts;
-    if (colliderParts)
+    if (colliderParts) {
       for (const part of colliderParts) {
         const collider = this.#createBookCollider(
           rapier,
@@ -512,22 +537,36 @@ export class ShopPhysicsWorld {
         ).setTranslation(part.position.x, part.position.y, part.position.z);
         record.colliders.push(world.createCollider(collider, body));
       }
-    else
-      record.colliders.push(
-        world.createCollider(
-          this.#createBookCollider(
-            rapier,
-            record.thickness,
-            record.width,
-            record.height,
-            record.density,
-            held && !preservePlacedCollider,
-            record.collisionlessWhileHeld,
-            record.releasedCollisionless,
-          ),
-          body,
+      return;
+    }
+    record.colliders.push(
+      world.createCollider(
+        this.#createBookCollider(
+          rapier,
+          record.thickness,
+          record.width,
+          record.height,
+          record.density,
+          held && !preservePlacedCollider,
+          record.collisionlessWhileHeld,
+          record.releasedCollisionless,
         ),
-      );
+        body,
+      ),
+    );
+  }
+
+  #createBookBody(rapier: RapierModule, world: World, record: BookPhysicsRecord) {
+    const held = record.mode === "held";
+    const preservePlacedCollider = isFixedRecord(record) && held;
+    const descriptor = this.#createBookBodyDescriptor(rapier, record);
+    descriptor
+      .setTranslation(record.pose.position.x, record.pose.position.y, record.pose.position.z)
+      .setRotation(record.pose.rotation);
+    const body = world.createRigidBody(descriptor);
+    record.body = body;
+    record.colliders.length = 0;
+    this.#createBookColliders(rapier, world, body, record, held, preservePlacedCollider);
     if (record.mode === "shelved") body.setEnabled(false);
     this.#syncActiveRecord(record);
   }
@@ -557,28 +596,14 @@ export class ShopPhysicsWorld {
     releasedCollisionless = false,
   ) {
     return rapier.ColliderDesc.cuboid(width * 0.5, height * 0.5, thickness * 0.5)
-      .setCollisionGroups(
-        held
-          ? collisionlessWhileHeld
-            ? GHOST_PROP_COLLISION_GROUPS
-            : HELD_BOOK_COLLISION_GROUPS
-          : releasedCollisionless
-            ? RELEASED_BOOK_COLLISION_GROUPS
-            : DYNAMIC_BOOK_COLLISION_GROUPS,
-      )
+      .setCollisionGroups(bookCollisionGroups(held, collisionlessWhileHeld, releasedCollisionless))
       .setDensity(density)
       .setFriction(0.82)
       .setRestitution(0.08);
   }
 
   #setBookColliderHeld(record: BookPhysicsRecord, held: boolean) {
-    const collisionGroups = held
-      ? record.collisionlessWhileHeld
-        ? GHOST_PROP_COLLISION_GROUPS
-        : HELD_BOOK_COLLISION_GROUPS
-      : record.releasedCollisionless
-        ? RELEASED_BOOK_COLLISION_GROUPS
-        : DYNAMIC_BOOK_COLLISION_GROUPS;
+    const collisionGroups = bookCollisionGroups(held, record.collisionlessWhileHeld, record.releasedCollisionless);
     for (const collider of record.colliders) collider.setCollisionGroups(collisionGroups);
   }
 
@@ -650,13 +675,7 @@ export class ShopPhysicsWorld {
     copyVector(output.eyePosition, this.#playerEyePosition);
     output.grounded = controller.computedGrounded();
     output.collisionCount = controller.numComputedCollisions();
-    if (desiredDisplacement.y > 0)
-      for (let index = 0; index < output.collisionCount; index += 1) {
-        const collision = controller.computedCollision(index);
-        if (!collision || collision.normal1.y >= -0.5) continue;
-        output.ceilingHit = true;
-        break;
-      }
+    output.ceilingHit = this.#detectPlayerCeilingHit(controller, desiredDisplacement.y, output.collisionCount);
     return true;
   }
 
@@ -669,10 +688,16 @@ export class ShopPhysicsWorld {
       !definition.publicationId ||
       this.#books.has(definition.publicationId) ||
       !isValidThickness(definition.thickness) ||
+      this.#hasInvalidBookDimensions(definition) ||
+      !isValidPose(definition.pose)
+    );
+  }
+
+  #hasInvalidBookDimensions(definition: BookPhysicsDefinition) {
+    return (
       (definition.width !== undefined && (!Number.isFinite(definition.width) || definition.width <= 0)) ||
       (definition.height !== undefined && !isValidBodyDimension(definition.height)) ||
-      (definition.density !== undefined && (!Number.isFinite(definition.density) || definition.density <= 0)) ||
-      !isValidPose(definition.pose)
+      (definition.density !== undefined && (!Number.isFinite(definition.density) || definition.density <= 0))
     );
   }
 
@@ -915,21 +940,23 @@ export class ShopPhysicsWorld {
     if (!record) return false;
     if (!this.#isValidBookUpdate(update)) return false;
 
-    const body = record.body;
-    if (update.pose) {
-      copyPose(record.pose, update.pose);
-      copyPose(record.previousPose, update.pose);
-      if (record.mode === "held") copyPose(record.target, update.pose);
-      body?.setTranslation(record.pose.position, record.mode !== "shelved");
-      body?.setRotation(record.pose.rotation, record.mode !== "shelved");
-      if (record.mode === "shelved") body?.setEnabled(false);
-    }
+    this.#applyBookPoseUpdate(record, update.pose);
 
     const nextThickness = update.thickness ?? record.thickness;
     const nextHeight = update.height ?? record.height;
     const nextWidth = update.width ?? record.width;
     this.#updateBookDimensions(record, nextThickness, nextHeight, nextWidth);
     return true;
+  }
+
+  #applyBookPoseUpdate(record: BookPhysicsRecord, pose: BookPhysicsPose | undefined) {
+    if (!pose) return;
+    copyPose(record.pose, pose);
+    copyPose(record.previousPose, pose);
+    if (record.mode === "held") copyPose(record.target, pose);
+    record.body?.setTranslation(record.pose.position, record.mode !== "shelved");
+    record.body?.setRotation(record.pose.rotation, record.mode !== "shelved");
+    if (record.mode === "shelved") record.body?.setEnabled(false);
   }
 
   removeBook(publicationId: string) {
@@ -1044,20 +1071,15 @@ export class ShopPhysicsWorld {
     return true;
   }
 
-  dropBook(publicationId: string, drop: BookPhysicsDrop) {
-    if (
-      this.#disposed ||
-      !isValidPose(drop.pose) ||
-      (drop.linearVelocity && !isFiniteVector(drop.linearVelocity)) ||
-      (drop.angularVelocity && !isFiniteVector(drop.angularVelocity))
-    )
-      return false;
-    const record = this.#books.get(publicationId);
-    if (!record || record.mode !== "held") return false;
-    record.mode = "dynamic";
-    copyPose(record.pose, drop.pose);
-    copyPose(record.previousPose, drop.pose);
+  #isValidBookDrop(drop: BookPhysicsDrop) {
+    return (
+      isValidPose(drop.pose) &&
+      (!drop.linearVelocity || isFiniteVector(drop.linearVelocity)) &&
+      (!drop.angularVelocity || isFiniteVector(drop.angularVelocity))
+    );
+  }
 
+  #configureDroppedBookBody(record: BookPhysicsRecord, drop: BookPhysicsDrop) {
     const body = record.body;
     if (!body) {
       this.#syncActiveRecord(record);
@@ -1088,6 +1110,16 @@ export class ShopPhysicsWorld {
     }
     this.#syncActiveRecord(record);
     return true;
+  }
+
+  dropBook(publicationId: string, drop: BookPhysicsDrop) {
+    if (this.#disposed || !this.#isValidBookDrop(drop)) return false;
+    const record = this.#books.get(publicationId);
+    if (!record || record.mode !== "held") return false;
+    record.mode = "dynamic";
+    copyPose(record.pose, drop.pose);
+    copyPose(record.previousPose, drop.pose);
+    return this.#configureDroppedBookBody(record, drop);
   }
 
   /** Teleports an escaped book into the world as a stationary dynamic body. */
@@ -1196,6 +1228,12 @@ export class ShopPhysicsWorld {
       Math.floor((this.#accumulatorSeconds + Number.EPSILON) / this.#fixedStepSeconds),
       this.#maxSubsteps,
     );
+    this.#stepSubsteps(world, substeps);
+    this.#accumulatorSeconds = Math.max(0, this.#accumulatorSeconds - substeps * this.#fixedStepSeconds);
+    return substeps;
+  }
+
+  #stepSubsteps(world: World, substeps: number) {
     for (let index = 0; index < substeps; index += 1) {
       for (const publicationId of this.#activePhysicsIds) {
         const record = this.#books.get(publicationId);
@@ -1213,8 +1251,6 @@ export class ShopPhysicsWorld {
       }
       this.#syncDynamicBookCcd();
     }
-    this.#accumulatorSeconds = Math.max(0, this.#accumulatorSeconds - substeps * this.#fixedStepSeconds);
-    return substeps;
   }
 
   #updateReleasedBookCollisionGrace() {
@@ -1296,19 +1332,23 @@ export class ShopPhysicsWorld {
       const body = record.body;
       if (!body || record.mode !== "dynamic") continue;
       if (isFixedRecord(record)) {
-        if (body.isDynamic() && body.isSleeping()) {
-          const rapier = this.#rapier;
-          if (!rapier) continue;
-          body.setBodyType(rapier.RigidBodyType.Fixed, false);
-          body.enableCcd(false);
-          this.#syncActiveRecord(record);
-        }
+        if (!this.#convertSleepingFixedRecord(record, body)) continue;
         if (!body.isDynamic()) continue;
       }
       const shouldEnableCcd = !body.isSleeping();
       if (body.isCcdEnabled() !== shouldEnableCcd) body.enableCcd(shouldEnableCcd);
       this.#syncActiveRecord(record);
     }
+  }
+
+  #convertSleepingFixedRecord(record: BookPhysicsRecord, body: RigidBody) {
+    if (!body.isDynamic() || !body.isSleeping()) return true;
+    const rapier = this.#rapier;
+    if (!rapier) return false;
+    body.setBodyType(rapier.RigidBodyType.Fixed, false);
+    body.enableCcd(false);
+    this.#syncActiveRecord(record);
+    return true;
   }
 
   dispose() {

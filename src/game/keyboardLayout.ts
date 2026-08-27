@@ -12,7 +12,7 @@ export const readKeyboardLayout = async (): Promise<KeyboardLayout | undefined> 
   try {
     return await keyboard.getLayoutMap();
   } catch {
-    return;
+    // Browsers may expose the API but reject access to the layout map.
   }
 };
 

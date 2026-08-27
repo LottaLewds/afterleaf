@@ -5,6 +5,7 @@ import {findArcadeSystem} from "~/arcade/systems";
 import type {ArcadeSessionStatus, ShopArcadeCabinet} from "~/game/ShopArcadeCabinet";
 import type {ArtFrameSystem} from "~/game/artFrameSystem";
 import type {BookRecord} from "~/game/bookFactory";
+import type {DigitalArtFrame} from "~/game/DigitalArtFrame";
 import {MAX_CARRIED_BOOKS} from "~/game/worldSave";
 import type {
   InspectionCloseAction,
@@ -85,7 +86,7 @@ export type InteractionView = {
   interactions: ShopInteraction[];
 };
 
-export const resolveShopInteractionMode = (state: InteractionUiState): ShopInteractionMode => {
+const resolveActiveInteractionMode = (state: InteractionUiState): ShopInteractionMode | undefined => {
   if (state.inspectionMode === "spread") return "inspection-spread";
   if (state.inspectionMode === "closing") return "inspection-closing";
   if (state.shelveAnimation) return "shelving";
@@ -94,6 +95,9 @@ export const resolveShopInteractionMode = (state: InteractionUiState): ShopInter
   if (state.modelPlacement && !state.carriedProp) return "model-placement";
   if (state.carriedProp) return "carried-prop";
   if (state.carriedRecord) return "carried-book";
+};
+
+const resolveTargetedInteractionMode = (state: InteractionUiState): ShopInteractionMode => {
   if (state.arcadeStatusForUi === "playing") return "arcade-session";
   if (state.targetedArcadeCabinet) return "arcade-target";
   if (state.televisionTargeted) return "television";
@@ -105,13 +109,15 @@ export const resolveShopInteractionMode = (state: InteractionUiState): ShopInter
   return "none";
 };
 
+export const resolveShopInteractionMode = (state: InteractionUiState): ShopInteractionMode =>
+  resolveActiveInteractionMode(state) ?? resolveTargetedInteractionMode(state);
+
 const resolveInspectionPrompt = (state: InteractionUiState) => {
-  if (state.inspectionMode === "closing")
-    return state.inspectionCloseAction === "drop"
-      ? "Closing book before dropping…"
-      : state.inspectionCloseAction === "throw"
-        ? "Closing book before throwing…"
-        : "Closing book…";
+  if (state.inspectionMode === "closing") {
+    if (state.inspectionCloseAction === "drop") return "Closing book before dropping…";
+    if (state.inspectionCloseAction === "throw") return "Closing book before throwing…";
+    return "Closing book…";
+  }
   const shelfInspection = state.inspectionPublication?.id !== state.carriedPublicationId;
   const openInspectionKey = state.inspectionPublication?.direction === "RTL" ? "A" : "D";
   if (state.inspectionOpenAngleTarget > 0)
@@ -150,11 +156,8 @@ const resolvePosterPlacementPrompt = (state: InteractionUiState) => {
     : `Aim ${asset.label} at a wall or shelf end · Q/E previous/next · Wheel resize · Shift+wheel rotate · Paste image · T exit`;
 };
 
-const resolveCarriedBookPrompt = (state: InteractionUiState) => {
-  const record = state.carriedRecord;
-  if (!record) return undefined;
-  if (state.hoveredRecord && !state.discardBusy && !state.throwChargeActive)
-    return `E pick up ${state.hoveredRecord.publicationTitle} · ${state.carriedPublicationIds.length}/${MAX_CARRIED_BOOKS} carried${state.carriedPublicationIds.length > 1 ? " · Wheel cycle books" : ""}`;
+const resolveCarriedBookActionPrompt = (state: InteractionUiState, record: BookRecord) => {
+  const cycleBooksPrompt = state.carriedPublicationIds.length > 1 ? " · Wheel cycle books" : "";
   if (state.throwChargeActive)
     return `Throw charged ${Math.round(state.throwChargeProgress * 100)}% · Release F to launch upstairs`;
   if (state.discardBusy) return `Discarding ${record.publicationTitle}…`;
@@ -162,8 +165,16 @@ const resolveCarriedBookPrompt = (state: InteractionUiState) => {
     return `Discard failed · E retry · Hold F charge throw · G keep ${record.publicationTitle}`;
   if (state.trashTargeted) return `E discard ${record.publicationTitle} · Hold F charge throw · G keep`;
   if (state.shelfTargeted)
-    return `E shelve ${state.shelfTargetSelection?.presentation ?? state.shelfPresentation}-out · Q switch shelf presentation · Hold F charge throw · G drop · R inspect${state.carriedPublicationIds.length > 1 ? " · Wheel cycle books" : ""}`;
-  return `Q ${state.shelfPresentation}-out · Aim at a shelf · Hold F charge throw · G drop · R inspect${state.carriedPublicationIds.length > 1 ? " · Wheel cycle books" : ""}`;
+    return `E shelve ${state.shelfTargetSelection?.presentation ?? state.shelfPresentation}-out · Q switch shelf presentation · Hold F charge throw · G drop · R inspect${cycleBooksPrompt}`;
+  return `Q ${state.shelfPresentation}-out · Aim at a shelf · Hold F charge throw · G drop · R inspect${cycleBooksPrompt}`;
+};
+
+const resolveCarriedBookPrompt = (state: InteractionUiState) => {
+  const record = state.carriedRecord;
+  if (!record) return undefined;
+  if (state.hoveredRecord && !state.discardBusy && !state.throwChargeActive)
+    return `E pick up ${state.hoveredRecord.publicationTitle} · ${state.carriedPublicationIds.length}/${MAX_CARRIED_BOOKS} carried${state.carriedPublicationIds.length > 1 ? " · Wheel cycle books" : ""}`;
+  return resolveCarriedBookActionPrompt(state, record);
 };
 
 const resolveCarriedPropPrompt = (state: InteractionUiState) => {
@@ -192,10 +203,12 @@ const resolveArcadeTargetPrompt = (state: InteractionUiState) => {
 const resolveTelevisionPrompt = (state: InteractionUiState) => {
   const television = state.targetedTelevision;
   const televisionProp = television ? state.televisionProps.get(television) : undefined;
+  let lockPrompt: string | undefined;
+  if (televisionProp) lockPrompt = televisionProp.locked ? "L unlock" : "L lock";
   const prompts = [
     television?.prompt,
     television ? "Paste video URL · N new channel" : undefined,
-    televisionProp ? (televisionProp.locked ? "L unlock" : "L lock") : undefined,
+    lockPrompt,
     televisionProp?.spawned ? "Del remove" : undefined,
   ];
   return prompts.filter((prompt): prompt is string => Boolean(prompt)).join(" · ");
@@ -210,13 +223,19 @@ const resolvePropPrompt = (state: InteractionUiState) => {
 
 const resolveArtFramePrompt = (state: InteractionUiState) => {
   const frame = state.artFrames.targetedId ? state.artFrames.records.get(state.artFrames.targetedId)?.frame : undefined;
-  const interval = frame?.intervalSeconds() ?? 0;
+  return `Paste → ${resolveArtFramePasteChannel(state, frame)} · N new channel · T move · Del remove · Q/E channel · F shuffle · R ${frame?.fit() ?? "contain"} · I ${resolveArtFrameTimerPrompt(frame)}`;
+};
+
+const resolveArtFramePasteChannel = (state: InteractionUiState, frame: DigitalArtFrame | undefined) => {
   const pendingChannel = state.artFrames.targetImportChannel;
-  const pasteChannel =
-    pendingChannel !== undefined && pendingChannel.frameId === state.artFrames.targetedId
-      ? pendingChannel.channelId
-      : (frame?.channelLabel() ?? "unavailable");
-  return `Paste → ${pasteChannel} · N new channel · T move · Del remove · Q/E channel · F shuffle · R ${frame?.fit() ?? "contain"} · I ${interval === 0 ? "timer off" : `${interval}s timer`}`;
+  if (pendingChannel !== undefined && pendingChannel.frameId === state.artFrames.targetedId)
+    return pendingChannel.channelId;
+  return frame?.channelLabel() ?? "unavailable";
+};
+
+const resolveArtFrameTimerPrompt = (frame: DigitalArtFrame | undefined) => {
+  const interval = frame?.intervalSeconds() ?? 0;
+  return interval === 0 ? "timer off" : `${interval}s timer`;
 };
 
 const resolvePosterPrompt = (state: InteractionUiState) => {
@@ -490,15 +509,62 @@ const arcadeSessionInteractions = (state: InteractionUiState): InteractionResult
 
 const arcadeTargetInteractionsWithContext = (state: InteractionUiState): InteractionResult => {
   const cabinet = state.targetedArcadeCabinet;
+  let context: string | undefined;
+  if (cabinet) context = cabinet.sessionStatus ? `Arcade · ${cabinet.sessionRomName ?? "cabinet"}` : "Arcade cabinet";
   return {
-    context: cabinet
-      ? cabinet.sessionStatus
-        ? `Arcade · ${cabinet.sessionRomName ?? "cabinet"}`
-        : "Arcade cabinet"
-      : undefined,
+    context,
     interactions: arcadeTargetInteractions(state),
   };
 };
+
+const televisionInteractionControls = (
+  television: ShopTelevision | undefined,
+  televisionProp: MovablePropRecord | undefined,
+): ShopInteraction[] => [
+  {
+    key: "E",
+    label: televisionPowerLabel(television),
+    actions: ["interact"] as const,
+  },
+  {key: "T", label: "Move TV", actions: ["pickUpCancel"] as const},
+  {
+    key: "L",
+    label: movablePropLockLabel(televisionProp, "TV"),
+    actions: ["propPinToggle"] as const,
+  },
+  {
+    key: "Q",
+    label: "Previous channel",
+    actions: ["tvPreviousChannel"] as const,
+  },
+  {key: "F", label: "Skip", actions: ["throw"] as const},
+  {key: "N", label: "New channel", actions: ["channelEditorOpen"] as const},
+  {
+    key: "M",
+    label: `Mute (${television?.volumePercent() ?? 0}%)`,
+    actions: ["tvMute"] as const,
+  },
+  {key: "Wheel", label: "Scrub video"},
+  {
+    key: "Ctrl + Wheel",
+    label: `Volume: ${television?.volumePercent() ?? 0}%`,
+  },
+  ...(televisionProp?.spawned
+    ? [
+        {
+          key: "Del",
+          label: "Remove prop",
+          actions: ["removeTargeted"] as const,
+        },
+      ]
+    : []),
+];
+
+const televisionPowerLabel = (television: ShopTelevision | undefined) =>
+  television?.powered() ? "Next channel" : "Turn on";
+
+const movablePropLockLabel = (prop: MovablePropRecord | undefined, label: string) =>
+  prop?.locked ? `Unlock ${label}` : `Lock ${label}`;
 
 const televisionInteractions = (state: InteractionUiState): InteractionResult => {
   const television = state.targetedTelevision;
@@ -508,45 +574,7 @@ const televisionInteractions = (state: InteractionUiState): InteractionResult =>
       television?.selectedChannelLabel() ??
       television?.selectedChannelId() ??
       (television ? "Afterleaf TV" : undefined),
-    interactions: [
-      {
-        key: "E",
-        label: television?.powered() ? "Next channel" : "Turn on",
-        actions: ["interact"] as const,
-      },
-      {key: "T", label: "Move TV", actions: ["pickUpCancel"] as const},
-      {
-        key: "L",
-        label: televisionProp?.locked ? "Unlock TV" : "Lock TV",
-        actions: ["propPinToggle"] as const,
-      },
-      {
-        key: "Q",
-        label: "Previous channel",
-        actions: ["tvPreviousChannel"] as const,
-      },
-      {key: "F", label: "Skip", actions: ["throw"] as const},
-      {key: "N", label: "New channel", actions: ["channelEditorOpen"] as const},
-      {
-        key: "M",
-        label: `Mute (${television?.volumePercent() ?? 0}%)`,
-        actions: ["tvMute"] as const,
-      },
-      {key: "Wheel", label: "Scrub video"},
-      {
-        key: "Ctrl + Wheel",
-        label: `Volume: ${television?.volumePercent() ?? 0}%`,
-      },
-      ...(televisionProp?.spawned
-        ? [
-            {
-              key: "Del",
-              label: "Remove prop",
-              actions: ["removeTargeted"] as const,
-            },
-          ]
-        : []),
-    ],
+    interactions: televisionInteractionControls(television, televisionProp),
   };
 };
 
@@ -627,23 +655,26 @@ const signInteractions = (): InteractionResult => ({
   interactions: [{key: "E", label: "Customize sign", actions: ["interact"] as const}],
 });
 
-const bookInteractions = (state: InteractionUiState): InteractionResult => ({
-  context: undefined,
-  interactions:
-    state.hoveredRecord?.state.status === "shelved"
-      ? [
-          {key: "E", label: "Pick up book", actions: ["interact"] as const},
-          {
-            key: "R",
-            label: "Read book",
-            actions: ["inspectionReturn"] as const,
-          },
-          {key: "Hold F + Wheel", label: "Browse shelf"},
-        ]
-      : state.hoveredRecord
-        ? [{key: "E", label: "Pick up book", actions: ["interact"] as const}]
-        : [],
-});
+const bookInteractions = (state: InteractionUiState): InteractionResult => {
+  if (!state.hoveredRecord) return {context: undefined, interactions: []};
+  if (state.hoveredRecord.state.status === "shelved")
+    return {
+      context: undefined,
+      interactions: [
+        {key: "E", label: "Pick up book", actions: ["interact"] as const},
+        {
+          key: "R",
+          label: "Read book",
+          actions: ["inspectionReturn"] as const,
+        },
+        {key: "Hold F + Wheel", label: "Browse shelf"},
+      ],
+    };
+  return {
+    context: undefined,
+    interactions: [{key: "E", label: "Pick up book", actions: ["interact"] as const}],
+  };
+};
 
 const defaultInteractions = (state: InteractionUiState): InteractionResult => ({
   context: undefined,

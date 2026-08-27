@@ -26,6 +26,7 @@ const archiveSourcePath = (publication: ArchiveBackedPublication) => {
   } catch (error) {
     throw new Error(
       `Publication has an invalid archive source URL: ${error instanceof Error ? error.message : String(error)}`,
+      {cause: error},
     );
   }
   const remoteIdSegments = source.remoteId.split("/");

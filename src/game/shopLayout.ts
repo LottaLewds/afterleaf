@@ -26,36 +26,36 @@ export type SpineShelfSpec = {
   z: number;
 };
 
-/** Builds backing, per-board, and divider colliders for one shelf fixture. */
-export const createSpineShelfCollisionBoxes = ({
-  axis = "z",
-  bayCount = 0,
-  elevation = 0,
-  length,
-  x,
-  z,
-}: SpineShelfSpec): readonly ShopCollisionBox[] => {
-  const alongX = axis === "x";
-  const boxes: ShopCollisionBox[] = [
-    {
-      halfExtents: {
-        x: (alongX ? length : SPINE_SHELF_BACKING_THICKNESS) / 2,
-        y: SPINE_SHELF_HEIGHT / 2,
-        z: (alongX ? SPINE_SHELF_BACKING_THICKNESS : length) / 2,
-      },
-      position: {x, y: elevation + SPINE_SHELF_HEIGHT / 2, z},
+const createSpineShelfBaseBoxes = (alongX: boolean, elevation: number, length: number, x: number, z: number) => [
+  {
+    halfExtents: {
+      x: (alongX ? length : SPINE_SHELF_BACKING_THICKNESS) / 2,
+      y: SPINE_SHELF_HEIGHT / 2,
+      z: (alongX ? SPINE_SHELF_BACKING_THICKNESS : length) / 2,
     },
-    ...SPINE_SHELF_BOARD_Y_OFFSETS.map((offset) => ({
-      halfExtents: {
-        x: (alongX ? length : SPINE_SHELF_BOARD_DEPTH) / 2,
-        y: SPINE_SHELF_BOARD_THICKNESS / 2,
-        z: (alongX ? SPINE_SHELF_BOARD_DEPTH : length) / 2,
-      },
-      position: {x, y: elevation + offset, z},
-    })),
-  ];
-  if (bayCount <= 0) return boxes;
+    position: {x, y: elevation + SPINE_SHELF_HEIGHT / 2, z},
+  },
+  ...SPINE_SHELF_BOARD_Y_OFFSETS.map((offset) => ({
+    halfExtents: {
+      x: (alongX ? length : SPINE_SHELF_BOARD_DEPTH) / 2,
+      y: SPINE_SHELF_BOARD_THICKNESS / 2,
+      z: (alongX ? SPINE_SHELF_BOARD_DEPTH : length) / 2,
+    },
+    position: {x, y: elevation + offset, z},
+  })),
+];
+
+const createSpineShelfDividers = (
+  alongX: boolean,
+  bayCount: number,
+  elevation: number,
+  length: number,
+  x: number,
+  z: number,
+) => {
+  if (bayCount <= 0) return [];
   const bayWidth = length / bayCount;
+  const boxes: ShopCollisionBox[] = [];
   for (let divider = 0; divider <= bayCount; divider += 1) {
     const along = -length / 2 + divider * bayWidth;
     boxes.push({
@@ -72,6 +72,22 @@ export const createSpineShelfCollisionBoxes = ({
     });
   }
   return boxes;
+};
+
+/** Builds backing, per-board, and divider colliders for one shelf fixture. */
+export const createSpineShelfCollisionBoxes = ({
+  axis = "z",
+  bayCount = 0,
+  elevation = 0,
+  length,
+  x,
+  z,
+}: SpineShelfSpec): readonly ShopCollisionBox[] => {
+  const alongX = axis === "x";
+  return [
+    ...createSpineShelfBaseBoxes(alongX, elevation, length, x, z),
+    ...createSpineShelfDividers(alongX, bayCount, elevation, length, x, z),
+  ];
 };
 
 export type ReadingFurnitureMaterial = "leg" | "upholstery" | "wood";
@@ -114,31 +130,31 @@ const createReadingFurnitureBoxes = () => {
           position: {x, y: 0.4, z: tableZ + zOffset},
         });
 
-    for (const x of [-1.72, 1.72])
+    for (const chairX of [-1.72, 1.72])
       for (const zOffset of [-0.34, 0.34]) {
         const chairZ = tableZ + zOffset;
-        const normal = x < 0 ? -1 : 1;
-        const movableId = `reading-chair-${(chairIndex += 1)}`;
+        const normal = chairX < 0 ? -1 : 1;
+        const chairMovableId = `reading-chair-${(chairIndex += 1)}`;
         boxes.push(
           {
             halfExtents: {x: 0.29, y: 0.06, z: 0.27},
             material: "upholstery",
-            movableId,
-            position: {x, y: 0.48, z: chairZ},
+            movableId: chairMovableId,
+            position: {x: chairX, y: 0.48, z: chairZ},
           },
           {
             halfExtents: {x: 0.06, y: 0.41, z: 0.29},
             material: "wood",
-            movableId,
-            position: {x: x + normal * 0.27, y: 0.76, z: chairZ},
+            movableId: chairMovableId,
+            position: {x: chairX + normal * 0.27, y: 0.76, z: chairZ},
           },
         );
         for (const legZOffset of [-0.2, 0.2])
           boxes.push({
             halfExtents: {x: 0.04, y: 0.225, z: 0.04},
             material: "leg",
-            movableId,
-            position: {x, y: 0.225, z: chairZ + legZOffset},
+            movableId: chairMovableId,
+            position: {x: chairX, y: 0.225, z: chairZ + legZOffset},
           });
       }
   }

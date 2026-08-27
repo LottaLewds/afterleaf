@@ -38,18 +38,26 @@ export class ShopCatalogSync {
     if (!host.catalogAvailable()) return;
     const items = host.catalogItems();
     const newPublicationIds = host.newPublicationIds();
+    this.#syncCatalogChanges(items, newPublicationIds);
+    this.#syncSelectedPublication();
+  }
+
+  #syncCatalogChanges(items: readonly CatalogItem[], newPublicationIds: readonly string[]) {
+    const host = this.#host;
     const itemsChanged = items !== this.#lastItems;
     const arrivalsChanged = newPublicationIds !== this.#lastNewPublicationIds;
-    if (itemsChanged || arrivalsChanged) {
-      const hasUnobservedArrivals =
-        arrivalsChanged && newPublicationIds.some((publicationId) => !host.observedArrivalIds.has(publicationId));
-      const discardOnlyUpdate = itemsChanged && !hasUnobservedArrivals && this.#isDiscardOnlyCatalogUpdate(items);
-      this.#lastItems = items;
-      this.#lastNewPublicationIds = newPublicationIds;
-      if ((itemsChanged || hasUnobservedArrivals) && !discardOnlyUpdate)
-        host.bookLifecycle().syncBooks(items, newPublicationIds);
-    }
+    if (!itemsChanged && !arrivalsChanged) return;
+    const hasUnobservedArrivals =
+      arrivalsChanged && newPublicationIds.some((publicationId) => !host.observedArrivalIds.has(publicationId));
+    const discardOnlyUpdate = itemsChanged && !hasUnobservedArrivals && this.#isDiscardOnlyCatalogUpdate(items);
+    this.#lastItems = items;
+    this.#lastNewPublicationIds = newPublicationIds;
+    if ((itemsChanged || hasUnobservedArrivals) && !discardOnlyUpdate)
+      host.bookLifecycle().syncBooks(items, newPublicationIds);
+  }
 
+  #syncSelectedPublication() {
+    const host = this.#host;
     const selectedPublicationId = host.selectedPublicationId();
     if (selectedPublicationId === host.lastSelectedPublicationId()) return;
     host.setLastSelectedPublicationId(selectedPublicationId);

@@ -1,4 +1,4 @@
-import {BatchedMesh, BufferGeometry, Mesh, Object3D, Texture, type Material} from "three";
+import {BatchedMesh, Mesh, Texture, type BufferGeometry, type Material, type Object3D} from "three";
 
 export const disposeMaterial = (material: Material, textures: Set<Texture>) => {
   for (const value of Object.values(material)) {

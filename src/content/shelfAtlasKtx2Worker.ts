@@ -27,13 +27,13 @@ if (!port) throw new Error("Shelf atlas encoder must run inside a worker");
  */
 const withSilencedStreams = async <T>(work: () => Promise<T>): Promise<T> => {
   const sinks = [process.stdout, process.stderr];
-  const originals = sinks.map((stream) => stream.write);
+  const originals = sinks.map((stream) => [stream, stream.write] as const);
   const sink = () => true;
   for (const stream of sinks) stream.write = sink as typeof stream.write;
   try {
     return await work();
   } finally {
-    for (const [index, stream] of sinks.entries()) stream.write = originals[index]!;
+    for (const [stream, original] of originals) stream.write = original;
   }
 };
 

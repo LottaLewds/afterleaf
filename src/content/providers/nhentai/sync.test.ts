@@ -105,18 +105,18 @@ const createFetcher = async (galleries: GalleryFixture[], searchPageSize = galle
     }
     if (url.pathname === "/api/v2/tags/ids") {
       const requestedIds = new Set(url.searchParams.get("ids")?.split(",").map(Number) ?? []);
-      const tags = new Map(
+      const tagsById = new Map(
         galleries
           .flatMap(({tags}) => tags)
           .filter(({id}) => requestedIds.has(id))
           .map((tag) => [tag.id, tag]),
       );
-      return Response.json([...tags.values()]);
+      return Response.json([...tagsById.values()]);
     }
     if (url.pathname.startsWith("/api/v2/galleries/")) {
       const id = Number(url.pathname.split("/").at(-1));
       galleryDetailRequestIds.push(id);
-      const matchingGallery = galleries.find((gallery) => gallery.id === id);
+      const matchingGallery = galleries.find((candidateGallery) => candidateGallery.id === id);
       if (!matchingGallery) return new Response("missing", {status: 404});
       return Response.json(galleryDetail(matchingGallery));
     }

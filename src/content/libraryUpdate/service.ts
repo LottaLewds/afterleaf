@@ -2,18 +2,18 @@ import {randomUUID} from "node:crypto";
 import {readFile, rm} from "node:fs/promises";
 import {resolve} from "node:path";
 import {LocalCatalogSource} from "~/content/localCatalogSource";
-import {
-  type LibraryPublicationDiff,
-  type LibraryFetchMoreRequest,
-  type LibraryFetchMoreResult,
-  type LibraryScanRequest,
-  type LibraryScanResult,
-  type LibrarySnapshotDescriptor,
-  type LibrarySnapshotIndex,
-  type LibraryUpdateClient,
-  type LibraryUpdatePhase,
-  type LibraryUpdateState,
-  type LibraryUpdateStateListener,
+import type {
+  LibraryPublicationDiff,
+  LibraryFetchMoreRequest,
+  LibraryFetchMoreResult,
+  LibraryScanRequest,
+  LibraryScanResult,
+  LibrarySnapshotDescriptor,
+  LibrarySnapshotIndex,
+  LibraryUpdateClient,
+  LibraryUpdatePhase,
+  LibraryUpdateState,
+  LibraryUpdateStateListener,
 } from "~/content/libraryUpdate/protocol";
 import {
   activeSnapshotFromIndex,
