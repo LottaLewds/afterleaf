@@ -133,12 +133,28 @@ const createSpineShelfSignTargets = (
   return signKeys;
 };
 
-const getSpineShelfFaceLayout = (normal: -1 | 1, alongX: boolean) => ({
-  axis: new Vector3(alongX ? 1 : 0, 0, alongX ? 0 : 1),
-  face: alongX ? (normal > 0 ? "south" : "north") : normal > 0 ? "east" : "west",
-  normal: new Vector3(alongX ? 0 : normal, 0, alongX ? normal : 0),
-  rotationY: alongX ? (normal > 0 ? 0 : Math.PI) : normal > 0 ? Math.PI / 2 : -Math.PI / 2,
-});
+const SPINE_SHELF_FACE_LAYOUTS = {
+  x: {
+    negative: {axis: [1, 0, 0] as const, face: "north", normal: [0, 0, -1] as const, rotationY: Math.PI},
+    positive: {axis: [1, 0, 0] as const, face: "south", normal: [0, 0, 1] as const, rotationY: 0},
+  },
+  z: {
+    negative: {axis: [0, 0, 1] as const, face: "west", normal: [-1, 0, 0] as const, rotationY: -Math.PI / 2},
+    positive: {axis: [0, 0, 1] as const, face: "east", normal: [1, 0, 0] as const, rotationY: Math.PI / 2},
+  },
+} as const;
+
+const getSpineShelfFaceLayout = (normal: -1 | 1, alongX: boolean) => {
+  const axis = alongX ? "x" : "z";
+  const direction = normal > 0 ? "positive" : "negative";
+  const layout = SPINE_SHELF_FACE_LAYOUTS[axis][direction];
+  return {
+    axis: new Vector3(...layout.axis),
+    face: layout.face,
+    normal: new Vector3(...layout.normal),
+    rotationY: layout.rotationY,
+  };
+};
 
 const createSpineShelfRows = (
   parent: Group,
@@ -247,28 +263,20 @@ const createSpineShelfFace = (
   );
 };
 
-/**
- * Builds one spine-shelf fixture: backing, boards, dividers, end poster
- * surfaces, per-bay sign slots with preview proxies, and the shelf target
- * registry entries the book interaction logic aims at.
- */
-export const createSpineShelfFixture = (
+const createSpineShelfStructure = (
   parent: Group,
-  fixtureId: string,
   x: number,
   z: number,
   length: number,
   bayCount: number,
-  faceNormals: readonly (-1 | 1)[],
+  elevation: number,
+  alongX: boolean,
   woodMaterial: MeshStandardMaterial,
   backingMaterial: MeshStandardMaterial,
   shelfEdgeMaterial: MeshStandardMaterial,
-  backingThickness: number = SPINE_SHELF_BACKING_THICKNESS,
-  elevation = 0,
-  axis: "x" | "z" = "z",
+  backingThickness: number,
   deps: SpineShelfFixtureDeps,
 ) => {
-  const alongX = axis === "x";
   deps.addBox(
     parent,
     alongX ? [length, SPINE_SHELF_HEIGHT, backingThickness] : [backingThickness, SPINE_SHELF_HEIGHT, length],
@@ -301,6 +309,45 @@ export const createSpineShelfFixture = (
         : [x, elevation + SPINE_SHELF_DIVIDER_HEIGHT / 2, z - length / 2 + divider * bayWidth],
       shelfEdgeMaterial,
     );
+  return bayWidth;
+};
+
+/**
+ * Builds one spine-shelf fixture: backing, boards, dividers, end poster
+ * surfaces, per-bay sign slots with preview proxies, and the shelf target
+ * registry entries the book interaction logic aims at.
+ */
+export const createSpineShelfFixture = (
+  parent: Group,
+  fixtureId: string,
+  x: number,
+  z: number,
+  length: number,
+  bayCount: number,
+  faceNormals: readonly (-1 | 1)[],
+  woodMaterial: MeshStandardMaterial,
+  backingMaterial: MeshStandardMaterial,
+  shelfEdgeMaterial: MeshStandardMaterial,
+  backingThickness: number = SPINE_SHELF_BACKING_THICKNESS,
+  elevation = 0,
+  axis: "x" | "z" = "z",
+  deps: SpineShelfFixtureDeps,
+) => {
+  const alongX = axis === "x";
+  const bayWidth = createSpineShelfStructure(
+    parent,
+    x,
+    z,
+    length,
+    bayCount,
+    elevation,
+    alongX,
+    woodMaterial,
+    backingMaterial,
+    shelfEdgeMaterial,
+    backingThickness,
+    deps,
+  );
   createShelfEndPosterSurfaces(parent, fixtureId, x, z, length, elevation, alongX, deps.createPosterSurface);
 
   for (const normal of faceNormals) {
@@ -454,6 +501,46 @@ export const createFaceOutDisplay = (
   deps.signs.createShelfSignSlots(parent);
 };
 
+const createHorizontalWallPosterSurfaces = (
+  parent: Group,
+  id: string,
+  surfaceWidth: number,
+  surfaceHeight: number,
+  depth: number,
+  position: readonly [x: number, y: number, z: number],
+  createPosterSurfaceTarget: CreatePosterSurfaceFn,
+) => {
+  for (const side of [-1, 1] as const)
+    createPosterSurfaceTarget(
+      parent,
+      `${id}:${side < 0 ? "north" : "south"}`,
+      surfaceWidth,
+      surfaceHeight,
+      [position[0], position[1], position[2] + side * (depth / 2 + POSTER_SURFACE_OFFSET)],
+      side < 0 ? Math.PI : 0,
+    );
+};
+
+const createVerticalWallPosterSurfaces = (
+  parent: Group,
+  id: string,
+  surfaceWidth: number,
+  surfaceHeight: number,
+  width: number,
+  position: readonly [x: number, y: number, z: number],
+  createPosterSurfaceTarget: CreatePosterSurfaceFn,
+) => {
+  for (const side of [-1, 1] as const)
+    createPosterSurfaceTarget(
+      parent,
+      `${id}:${side < 0 ? "west" : "east"}`,
+      surfaceWidth,
+      surfaceHeight,
+      [position[0] + side * (width / 2 + POSTER_SURFACE_OFFSET), position[1], position[2]],
+      side < 0 ? -Math.PI / 2 : Math.PI / 2,
+    );
+};
+
 export const createWallPosterSurfaces = (
   parent: Group,
   id: string,
@@ -469,26 +556,26 @@ export const createWallPosterSurfaces = (
   if (width >= depth) {
     const surfaceWidth = width - 0.16;
     if (surfaceWidth < MIN_POSTER_HEIGHT) return;
-    for (const side of [-1, 1] as const)
-      createPosterSurfaceTarget(
-        parent,
-        `${id}:${side < 0 ? "north" : "south"}`,
-        surfaceWidth,
-        surfaceHeight,
-        [wall.position[0], wall.position[1], wall.position[2] + side * (depth / 2 + POSTER_SURFACE_OFFSET)],
-        side < 0 ? Math.PI : 0,
-      );
+    createHorizontalWallPosterSurfaces(
+      parent,
+      id,
+      surfaceWidth,
+      surfaceHeight,
+      depth,
+      wall.position,
+      createPosterSurfaceTarget,
+    );
     return;
   }
   const surfaceWidth = depth - 0.16;
   if (surfaceWidth < MIN_POSTER_HEIGHT) return;
-  for (const side of [-1, 1] as const)
-    createPosterSurfaceTarget(
-      parent,
-      `${id}:${side < 0 ? "west" : "east"}`,
-      surfaceWidth,
-      surfaceHeight,
-      [wall.position[0] + side * (width / 2 + POSTER_SURFACE_OFFSET), wall.position[1], wall.position[2]],
-      side < 0 ? -Math.PI / 2 : Math.PI / 2,
-    );
+  createVerticalWallPosterSurfaces(
+    parent,
+    id,
+    surfaceWidth,
+    surfaceHeight,
+    width,
+    wall.position,
+    createPosterSurfaceTarget,
+  );
 };

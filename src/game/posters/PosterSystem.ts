@@ -301,6 +301,30 @@ export class PosterSystem {
     desiredHeight = DEFAULT_POSTER_HEIGHT,
     rotation = 0,
   ) {
+    const placement = this.#preparePosterPlacement(assetIndex, movingPosterId, desiredHeight, rotation);
+    if (!placement) return;
+    try {
+      const preview = await this.#createPosterMesh(placement.asset, desiredHeight, placement.depthLayer);
+      if (!this.#posterPlacementIsCurrent(placement.revision, placement.normalizedIndex)) {
+        this.#disposePosterMesh(preview);
+        return;
+      }
+      this.#configurePosterPlacementPreview(preview, placement.asset.id);
+      this.#preview = preview;
+      this.#scene.add(preview);
+      this.updatePosterPlacementTarget();
+    } catch (error) {
+      if (DEV) console.warn(`Afterleaf could not load poster ${placement.asset.id}.`, error);
+      if (placement.revision === this.#placementRevision) this.cancelPosterPlacement();
+    }
+  }
+
+  #preparePosterPlacement(
+    assetIndex: number,
+    movingPosterId: string | undefined,
+    desiredHeight: number,
+    rotation: number,
+  ) {
     if (this.#assets.length === 0) return;
     const normalizedIndex = (assetIndex + this.#assets.length) % this.#assets.length;
     const asset = this.#assets[normalizedIndex];
@@ -322,28 +346,23 @@ export class PosterSystem {
     this.#placementSelection = undefined;
     this.#targetedId = undefined;
     this.#host.emitGameState();
-    try {
-      const preview = await this.#createPosterMesh(asset, desiredHeight, depthLayer);
-      if (
-        this.#host.isDisposed() ||
-        revision !== this.#placementRevision ||
-        this.#placement?.assetIndex !== normalizedIndex
-      ) {
-        this.#disposePosterMesh(preview);
-        return;
-      }
-      preview.name = `poster-placement-preview-${asset.id}`;
-      preview.material.depthWrite = false;
-      preview.material.opacity = 0.72;
-      preview.material.transparent = true;
-      preview.visible = false;
-      this.#preview = preview;
-      this.#scene.add(preview);
-      this.updatePosterPlacementTarget();
-    } catch (error) {
-      if (DEV) console.warn(`Afterleaf could not load poster ${asset.id}.`, error);
-      if (revision === this.#placementRevision) this.cancelPosterPlacement();
-    }
+    return {asset, depthLayer, normalizedIndex, revision};
+  }
+
+  #posterPlacementIsCurrent(revision: number, normalizedIndex: number) {
+    return (
+      !this.#host.isDisposed() &&
+      revision === this.#placementRevision &&
+      this.#placement?.assetIndex === normalizedIndex
+    );
+  }
+
+  #configurePosterPlacementPreview(preview: Mesh<PlaneGeometry, MeshStandardMaterial>, assetId: string) {
+    preview.name = `poster-placement-preview-${assetId}`;
+    preview.material.depthWrite = false;
+    preview.material.opacity = 0.72;
+    preview.material.transparent = true;
+    preview.visible = false;
   }
 
   startEmptyPosterPlacement() {
@@ -460,28 +479,22 @@ export class PosterSystem {
     }
     const asset = this.#assets[placement.assetIndex];
     if (!asset) return;
-    const intersection = this.#raycaster.intersectObjects(this.#raycastMeshes, false)[0];
-    const surfaceId = intersection?.object.userData.posterSurfaceId;
-    const surface = typeof surfaceId === "string" ? this.#surfaces.get(surfaceId) : undefined;
-    if (!intersection || intersection.distance > POSTER_PLACEMENT_DISTANCE || !surface) {
+    const target = this.#findPosterPlacementSurface();
+    if (!target || target.intersection.distance > POSTER_PLACEMENT_DISTANCE) {
       preview.visible = false;
       this.#setPosterPlacementSelection();
       return;
     }
     const height = this.#resolveWallPlacement(
-      surface,
-      intersection.point,
+      target.surface,
+      target.intersection.point,
       asset.aspectRatio,
       placement.desiredHeight,
       placement.rotation,
       0,
       placement.gridSnap,
     );
-    if (height === undefined) {
-      preview.visible = false;
-      this.#setPosterPlacementSelection();
-      return;
-    }
+    if (height === undefined) return this.#hidePosterPlacementPreview(preview);
     preview.position.copy(this.#placementPosition);
     preview.quaternion.copy(this.#placementRotation);
     preview.rotateZ(placement.rotation);
@@ -489,6 +502,20 @@ export class PosterSystem {
     this.#setPosterDepthLayer(preview, placement.depthLayer);
     preview.visible = true;
     this.#setPosterPlacementSelection(height);
+  }
+
+  #findPosterPlacementSurface() {
+    const intersection = this.#raycaster.intersectObjects(this.#raycastMeshes, false)[0];
+    const surfaceId = intersection?.object.userData.posterSurfaceId;
+    if (!intersection || typeof surfaceId !== "string") return;
+    const surface = this.#surfaces.get(surfaceId);
+    if (!surface) return;
+    return {intersection, surface};
+  }
+
+  #hidePosterPlacementPreview(preview: Mesh) {
+    preview.visible = false;
+    this.#setPosterPlacementSelection();
   }
 
   placePoster() {
@@ -564,19 +591,7 @@ export class PosterSystem {
     try {
       const asset = await importPoster(image, this.#host.abortSignal);
       if (this.#host.isDisposed()) return;
-      this.applyPosterCatalog(
-        [...this.#assets.filter((candidate) => candidate.id !== asset.id), asset].sort((left, right) =>
-          left.id.localeCompare(right.id),
-        ),
-      );
-      const assetIndex = this.#assets.findIndex((candidate) => candidate.id === asset.id);
-      if (assetIndex >= 0) this.#assetIndex = assetIndex;
-      const placement = this.#placement;
-      if (!placement) return;
-      const desiredHeight = placement.desiredHeight;
-      const rotation = placement.rotation;
-      this.cancelPosterPlacement();
-      if (assetIndex >= 0) void this.startPosterPlacement(assetIndex, undefined, desiredHeight, rotation);
+      this.#completePosterImport(asset);
     } catch (error) {
       if (this.#host.abortSignal.aborted) return;
       this.#importError =
@@ -585,5 +600,20 @@ export class PosterSystem {
       this.#importCount = Math.max(0, this.#importCount - 1);
       if (!this.#host.isDisposed()) this.#host.emitGameState();
     }
+  }
+
+  #completePosterImport(asset: PosterAsset) {
+    this.applyPosterCatalog(
+      [...this.#assets.filter((candidate) => candidate.id !== asset.id), asset].sort((left, right) =>
+        left.id.localeCompare(right.id),
+      ),
+    );
+    const assetIndex = this.#assets.findIndex((candidate) => candidate.id === asset.id);
+    if (assetIndex >= 0) this.#assetIndex = assetIndex;
+    const placement = this.#placement;
+    if (!placement) return;
+    const {desiredHeight, rotation} = placement;
+    this.cancelPosterPlacement();
+    if (assetIndex >= 0) void this.startPosterPlacement(assetIndex, undefined, desiredHeight, rotation);
   }
 }

@@ -187,47 +187,61 @@ export const getPlanarMovement = (
   return output;
 };
 
+const resolveAxisAgainstObstacle = (
+  start: number,
+  target: number,
+  orthogonal: number,
+  radius: number,
+  axisMin: number,
+  axisMax: number,
+  orthogonalMin: number,
+  orthogonalMax: number,
+) => {
+  const orthogonalDistance =
+    orthogonal < orthogonalMin
+      ? orthogonalMin - orthogonal
+      : orthogonal > orthogonalMax
+        ? orthogonal - orthogonalMax
+        : 0;
+  if (orthogonalDistance >= radius) return target;
+
+  const clearance = Math.sqrt(radius * radius - orthogonalDistance * orthogonalDistance);
+  const obstacleMin = axisMin - clearance;
+  const obstacleMax = axisMax + clearance;
+  if (target > start && start <= obstacleMin && target > obstacleMin) return obstacleMin;
+  if (target < start && start >= obstacleMax && target < obstacleMax) return obstacleMax;
+  return target;
+};
+
 const resolveX = (startX: number, targetX: number, z: number, radius: number, obstacles: readonly ShopObstacle[]) => {
   if (targetX === startX) return targetX;
-  const movingPositive = targetX > startX;
-
-  for (const obstacle of obstacles) {
-    const zDistance = z < obstacle.minZ ? obstacle.minZ - z : z > obstacle.maxZ ? z - obstacle.maxZ : 0;
-    if (zDistance >= radius) continue;
-
-    const clearance = Math.sqrt(radius * radius - zDistance * zDistance);
-    const obstacleMin = obstacle.minX - clearance;
-    const obstacleMax = obstacle.maxX + clearance;
-
-    if (movingPositive && startX <= obstacleMin && targetX > obstacleMin) {
-      targetX = obstacleMin;
-      continue;
-    }
-    if (!movingPositive && startX >= obstacleMax && targetX < obstacleMax) targetX = obstacleMax;
-  }
-
+  for (const obstacle of obstacles)
+    targetX = resolveAxisAgainstObstacle(
+      startX,
+      targetX,
+      z,
+      radius,
+      obstacle.minX,
+      obstacle.maxX,
+      obstacle.minZ,
+      obstacle.maxZ,
+    );
   return targetX;
 };
 
 const resolveZ = (x: number, startZ: number, targetZ: number, radius: number, obstacles: readonly ShopObstacle[]) => {
   if (targetZ === startZ) return targetZ;
-  const movingPositive = targetZ > startZ;
-
-  for (const obstacle of obstacles) {
-    const xDistance = x < obstacle.minX ? obstacle.minX - x : x > obstacle.maxX ? x - obstacle.maxX : 0;
-    if (xDistance >= radius) continue;
-
-    const clearance = Math.sqrt(radius * radius - xDistance * xDistance);
-    const obstacleMin = obstacle.minZ - clearance;
-    const obstacleMax = obstacle.maxZ + clearance;
-
-    if (movingPositive && startZ <= obstacleMin && targetZ > obstacleMin) {
-      targetZ = obstacleMin;
-      continue;
-    }
-    if (!movingPositive && startZ >= obstacleMax && targetZ < obstacleMax) targetZ = obstacleMax;
-  }
-
+  for (const obstacle of obstacles)
+    targetZ = resolveAxisAgainstObstacle(
+      startZ,
+      targetZ,
+      x,
+      radius,
+      obstacle.minZ,
+      obstacle.maxZ,
+      obstacle.minX,
+      obstacle.maxX,
+    );
   return targetZ;
 };
 

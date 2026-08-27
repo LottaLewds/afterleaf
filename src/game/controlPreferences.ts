@@ -36,34 +36,45 @@ export const normalizeGamepadLookSensitivity = (value: number) =>
     DEFAULT_GAMEPAD_LOOK_SENSITIVITY,
   );
 
+const isReadingDirection = (value: unknown): value is ReadingDirection => value === "LTR" || value === "RTL";
+
+const readDefaultReadingDirection = (
+  preferences: Partial<ControlPreferences> & {readingDirection?: unknown},
+): ReadingDirection => {
+  if (isReadingDirection(preferences.defaultReadingDirection)) return preferences.defaultReadingDirection;
+  if (isReadingDirection(preferences.readingDirection)) return preferences.readingDirection;
+  return DEFAULT_READING_DIRECTION;
+};
+
+const readRespectBookReadingDirection = (
+  preferences: Partial<ControlPreferences> & {readingDirection?: unknown},
+): boolean => {
+  if (typeof preferences.respectBookReadingDirection === "boolean") return preferences.respectBookReadingDirection;
+  if (isReadingDirection(preferences.readingDirection)) return false;
+  return DEFAULT_RESPECT_BOOK_READING_DIRECTION;
+};
+
+const readNumberPreference = (value: unknown, fallback: number, normalize: (value: number) => number) =>
+  typeof value === "number" ? normalize(value) : fallback;
+
+const readBooleanPreference = (value: unknown, fallback: boolean) => (typeof value === "boolean" ? value : fallback);
+
 const parseControlPreferences = (value: unknown): ControlPreferences | undefined => {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return;
   const preferences = value as Partial<ControlPreferences> & {
     readingDirection?: unknown;
   };
   if (typeof preferences.mouseSensitivity !== "number") return;
-  const legacyReadingDirection = preferences.readingDirection;
-  let defaultReadingDirection: ReadingDirection = DEFAULT_READING_DIRECTION;
-  if (preferences.defaultReadingDirection === "LTR" || preferences.defaultReadingDirection === "RTL")
-    defaultReadingDirection = preferences.defaultReadingDirection;
-  else if (legacyReadingDirection === "LTR" || legacyReadingDirection === "RTL")
-    defaultReadingDirection = legacyReadingDirection;
-
-  let respectBookReadingDirection = DEFAULT_RESPECT_BOOK_READING_DIRECTION;
-  if (typeof preferences.respectBookReadingDirection === "boolean")
-    respectBookReadingDirection = preferences.respectBookReadingDirection;
-  else if (legacyReadingDirection === "LTR" || legacyReadingDirection === "RTL") respectBookReadingDirection = false;
-  const tvScreenLighting =
-    typeof preferences.tvScreenLighting === "boolean" ? preferences.tvScreenLighting : DEFAULT_TV_SCREEN_LIGHTING;
   return {
-    defaultReadingDirection,
-    gamepadLookSensitivity:
-      typeof preferences.gamepadLookSensitivity === "number"
-        ? normalizeGamepadLookSensitivity(preferences.gamepadLookSensitivity)
-        : DEFAULT_GAMEPAD_LOOK_SENSITIVITY,
+    defaultReadingDirection: readDefaultReadingDirection(preferences),
+    gamepadLookSensitivity: readNumberPreference(
+      preferences.gamepadLookSensitivity,
+      DEFAULT_GAMEPAD_LOOK_SENSITIVITY,
+      normalizeGamepadLookSensitivity,
+    ),
     mouseSensitivity: normalizeMouseSensitivity(preferences.mouseSensitivity),
-    respectBookReadingDirection,
-    tvScreenLighting,
+    respectBookReadingDirection: readRespectBookReadingDirection(preferences),
+    tvScreenLighting: readBooleanPreference(preferences.tvScreenLighting, DEFAULT_TV_SCREEN_LIGHTING),
   };
 };
 

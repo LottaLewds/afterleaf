@@ -33,6 +33,27 @@ export type BookAtlasPlacement = {
   detached: boolean;
 };
 
+const bookSpineNormalDeclaration = (vertexDriven: boolean) => (vertexDriven ? "" : "uniform float spineNormalSign;\n");
+const bookSpineUvDeclaration = (atlasUvs: boolean) =>
+  atlasUvs ? "attribute vec2 bookSpineUv;\nvarying vec2 vBookSpineUv;\n" : "";
+const bookVertexAttributeDeclaration = (vertexDriven: boolean) =>
+  vertexDriven
+    ? "attribute vec3 bookAccent;\nattribute float bookSpineSign;\nvarying vec3 vBookAccent;\nvarying float vBookSign;\n"
+    : "";
+const bookSpineUvAssignment = (atlasUvs: boolean) => (atlasUvs ? "vBookSpineUv = bookSpineUv;" : "");
+const bookSpineSign = (vertexDriven: boolean) => (vertexDriven ? "bookSpineSign" : "spineNormalSign");
+const bookVertexOutputAssignment = (vertexDriven: boolean) =>
+  vertexDriven ? "vBookAccent = bookAccent;\nvBookSign = bookSpineSign;" : "";
+const bookBackTintDeclaration = (vertexDriven: boolean) =>
+  vertexDriven ? "varying vec3 vBookAccent;" : "uniform vec3 backTint;";
+const bookEdgeTintDeclaration = (vertexDriven: boolean) => (vertexDriven ? "" : "uniform vec3 edgeTint;\n");
+const bookSpineTintDeclaration = (vertexDriven: boolean) => (vertexDriven ? "" : "uniform vec3 spineTint;\n");
+const bookSpineUvVarying = (atlasUvs: boolean) => (atlasUvs ? "varying vec2 vBookSpineUv;" : "");
+const bookBackFallback = (vertexDriven: boolean) => (vertexDriven ? "vBookAccent * 0.76" : "backTint");
+const bookSpineUv = (atlasUvs: boolean) => (atlasUvs ? "vBookSpineUv" : "vBookUv");
+const bookSpineFallback = (vertexDriven: boolean) => (vertexDriven ? "vBookAccent * 0.62" : "spineTint");
+const bookEdgeFallback = (vertexDriven: boolean) => (vertexDriven ? "vBookAccent * 0.62" : "edgeTint");
+
 export const createBookExteriorMaterial = (
   accent: Color,
   spineNormalSign: -1 | 1,
@@ -69,26 +90,20 @@ export const createBookExteriorMaterial = (
       .replace(
         "#include <common>",
         `#include <common>
-${vertexDriven ? "" : "uniform float spineNormalSign;\n"}${
-          atlasUvs ? "attribute vec2 bookSpineUv;\nvarying vec2 vBookSpineUv;\n" : ""
-        }${
-          vertexDriven
-            ? "attribute vec3 bookAccent;\nattribute float bookSpineSign;\nvarying vec3 vBookAccent;\nvarying float vBookSign;\n"
-            : ""
-        }varying vec2 vBookUv;
+${bookSpineNormalDeclaration(vertexDriven)}${bookSpineUvDeclaration(atlasUvs)}${bookVertexAttributeDeclaration(vertexDriven)}varying vec2 vBookUv;
 varying float vBookFace;`,
       )
       .replace(
         "#include <beginnormal_vertex>",
         `#include <beginnormal_vertex>
 vBookUv = uv;
-${atlasUvs ? "vBookSpineUv = bookSpineUv;" : ""}
+${bookSpineUvAssignment(atlasUvs)}
 if (objectNormal.z > 0.5) vBookFace = 1.0;
 else if (objectNormal.z < -0.5) vBookFace = 2.0;
-else if (objectNormal.x * ${vertexDriven ? "bookSpineSign" : "spineNormalSign"} > 0.5) vBookFace = 3.0;
+else if (objectNormal.x * ${bookSpineSign(vertexDriven)} > 0.5) vBookFace = 3.0;
 else if (abs(objectNormal.y) > 0.5) vBookFace = 4.0;
 else vBookFace = 5.0;
-${vertexDriven ? "vBookAccent = bookAccent;\nvBookSign = bookSpineSign;" : ""}`,
+${bookVertexOutputAssignment(vertexDriven)}`,
       );
     shader.fragmentShader = shader.fragmentShader
       .replace(
@@ -96,13 +111,13 @@ ${vertexDriven ? "vBookAccent = bookAccent;\nvBookSign = bookSpineSign;" : ""}`,
         `#include <common>
 uniform sampler2D backMap;
 uniform bool backMapEnabled;
-${vertexDriven ? "varying vec3 vBookAccent;" : "uniform vec3 backTint;"}
+${bookBackTintDeclaration(vertexDriven)}
 uniform sampler2D coverMap;
-${vertexDriven ? "" : "uniform vec3 edgeTint;\n"}uniform vec3 pageTint;
+${bookEdgeTintDeclaration(vertexDriven)}uniform vec3 pageTint;
 uniform sampler2D spineMap;
 uniform bool spineMapEnabled;
-${vertexDriven ? "" : "uniform vec3 spineTint;\n"}varying vec2 vBookUv;
-${atlasUvs ? "varying vec2 vBookSpineUv;" : ""}
+${bookSpineTintDeclaration(vertexDriven)}varying vec2 vBookUv;
+${bookSpineUvVarying(atlasUvs)}
 varying float vBookFace;`,
       )
       .replace(
@@ -111,12 +126,12 @@ varying float vBookFace;`,
 if (vBookFace < 1.5) bookSurface = texture2D(coverMap, vBookUv);
 else if (vBookFace < 2.5 && backMapEnabled)
   bookSurface = texture2D(backMap, vBookUv);
-else if (vBookFace < 2.5) bookSurface = vec4(${vertexDriven ? "vBookAccent * 0.76" : "backTint"}, 1.0);
+else if (vBookFace < 2.5) bookSurface = vec4(${bookBackFallback(vertexDriven)}, 1.0);
 else if (vBookFace < 3.5 && spineMapEnabled)
-  bookSurface = texture2D(spineMap, ${atlasUvs ? "vBookSpineUv" : "vBookUv"});
-else if (vBookFace < 3.5) bookSurface = vec4(${vertexDriven ? "vBookAccent * 0.62" : "spineTint"}, 1.0);
+  bookSurface = texture2D(spineMap, ${bookSpineUv(atlasUvs)});
+else if (vBookFace < 3.5) bookSurface = vec4(${bookSpineFallback(vertexDriven)}, 1.0);
 else if (vBookFace < 4.5) bookSurface = vec4(pageTint, 1.0);
-else bookSurface = vec4(${vertexDriven ? "vBookAccent * 0.62" : "edgeTint"}, 1.0);
+else bookSurface = vec4(${bookEdgeFallback(vertexDriven)}, 1.0);
 diffuseColor *= bookSurface;`,
       )
       .replace(

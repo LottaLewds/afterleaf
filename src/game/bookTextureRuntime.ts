@@ -60,6 +60,22 @@ type BookAtlasBatchState = {
   resource: BookAtlasResource;
 };
 
+const hasCompatibleAtlasMetadata = (front: CatalogShelfAtlas, back: CatalogShelfAtlas, spine: CatalogShelfAtlas) =>
+  front.columns === back.columns &&
+  front.rows === back.rows &&
+  front.firstPublicationIndex === back.firstPublicationIndex &&
+  front.firstPublicationIndex === spine.firstPublicationIndex &&
+  front.publicationCount === back.publicationCount &&
+  front.publicationCount === spine.publicationCount;
+
+const getCompatibleAtlasSet = (atlases: CatalogAtlases, atlasIndex: number) => {
+  const front = atlases.front[atlasIndex];
+  const back = atlases.back[atlasIndex];
+  const spine = atlases.spine[atlasIndex];
+  if (!front || !back || !spine || !hasCompatibleAtlasMetadata(front, back, spine)) return;
+  return {back, front, spine};
+};
+
 const atlasUrlPath = (url: string) => url.split(/[?#]/u, 1)[0] ?? url;
 
 const sameShelfAtlasMetadata = (left: CatalogShelfAtlas, right: CatalogShelfAtlas) => {
@@ -76,17 +92,21 @@ const sameShelfAtlasMetadata = (left: CatalogShelfAtlas, right: CatalogShelfAtla
 };
 
 const sameShelfAtlasRegions = (left: CatalogShelfAtlas, right: CatalogShelfAtlas) => {
-  if (left.regions?.length !== right.regions?.length) return false;
-  for (const [index, leftRegion] of (left.regions ?? []).entries()) {
-    const rightRegion = right.regions?.[index];
-    if (!rightRegion) return false;
-    if (leftRegion.height !== rightRegion.height) return false;
-    if (leftRegion.width !== rightRegion.width) return false;
-    if (leftRegion.x !== rightRegion.x) return false;
-    if (leftRegion.y !== rightRegion.y) return false;
-  }
-  return true;
+  const leftRegions = left.regions ?? [];
+  const rightRegions = right.regions ?? [];
+  if (leftRegions.length !== rightRegions.length) return false;
+  return leftRegions.every((leftRegion, index) => sameShelfAtlasRegion(leftRegion, rightRegions[index]));
 };
+
+const sameShelfAtlasRegion = (
+  left: NonNullable<CatalogShelfAtlas["regions"]>[number],
+  right: NonNullable<CatalogShelfAtlas["regions"]>[number] | undefined,
+) =>
+  right !== undefined &&
+  left.height === right.height &&
+  left.width === right.width &&
+  left.x === right.x &&
+  left.y === right.y;
 
 const sameShelfAtlas = (left: CatalogShelfAtlas | undefined, right: CatalogShelfAtlas | undefined) => {
   if (!left || !right) return left === right;
@@ -152,21 +172,9 @@ export class BookTextureRuntime {
     try {
       const loadedResources = await Promise.all(
         atlasIndexes.map(async (atlasIndex) => {
-          const front = atlases.front[atlasIndex];
-          const back = atlases.back[atlasIndex];
-          const spine = atlases.spine[atlasIndex];
-          if (
-            !front ||
-            !back ||
-            !spine ||
-            front.columns !== back.columns ||
-            front.rows !== back.rows ||
-            front.firstPublicationIndex !== back.firstPublicationIndex ||
-            front.firstPublicationIndex !== spine.firstPublicationIndex ||
-            front.publicationCount !== back.publicationCount ||
-            front.publicationCount !== spine.publicationCount
-          )
-            return;
+          const atlasSet = getCompatibleAtlasSet(atlases, atlasIndex);
+          if (!atlasSet) return;
+          const {back, front, spine} = atlasSet;
           const [frontTexture, backTexture, spineTexture] = await Promise.all([
             this.#loadShelfAtlasTexture(front.url),
             this.#loadShelfAtlasTexture(back.url),
@@ -468,13 +476,7 @@ export class BookTextureRuntime {
       record.mesh.visible = true;
       return;
     }
-    const forcedStandalone = record.state.status === "carried" || this.#host.isBookInFlight(publicationId);
-    // A mesh some other system reparented (carry handoff, restore) cannot
-    // render as a batch instance; fall back to standalone.
-    const externallyOwned =
-      record.mesh.parent !== this.#host.scene && !(record.mesh.parent === null && placement.detached);
-    const readyStandalone = record.standaloneTexturesReady && this.#host.isActiveDetailTarget(publicationId);
-    const standalone = forcedStandalone || readyStandalone || externallyOwned;
+    const standalone = this.#shouldRenderStandalone(publicationId, record, placement);
     const batchVisible = record.exteriorMaterial.visible && !standalone;
     this.#syncBookAtlasBatchVisibility(record, placement, standalone, batchVisible);
     if (!batchVisible) return;
@@ -482,6 +484,20 @@ export class BookTextureRuntime {
     if (placement.lastMatrix.equals(record.mesh.matrix)) return;
     placement.lastMatrix.copy(record.mesh.matrix);
     placement.batch.mesh.setMatrixAt(placement.instanceId, record.mesh.matrix);
+  }
+
+  #shouldRenderStandalone(
+    publicationId: string,
+    record: BookRecord,
+    placement: NonNullable<BookRecord["atlasPlacement"]>,
+  ) {
+    const forcedStandalone = record.state.status === "carried" || this.#host.isBookInFlight(publicationId);
+    // A mesh some other system reparented (carry handoff, restore) cannot
+    // render as a batch instance; fall back to standalone.
+    const externallyOwned =
+      record.mesh.parent !== this.#host.scene && !(record.mesh.parent === null && placement.detached);
+    const readyStandalone = record.standaloneTexturesReady && this.#host.isActiveDetailTarget(publicationId);
+    return forcedStandalone || readyStandalone || externallyOwned;
   }
 
   /** Reconciles every placement after a catalog or batch rebuild. */

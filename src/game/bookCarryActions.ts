@@ -125,6 +125,64 @@ export class BookCarryActions {
     if (flushWorldSave) host.flushWorldSave();
   }
 
+  #clearThrowCharge() {
+    if (!this.throwChargeActive) return;
+    this.throwChargeActive = false;
+    this.#throwChargeBucket = -1;
+    this.#throwChargeSeconds = 0;
+  }
+
+  #resolveDropPose(record: BookRecord, fromCurrentPose: boolean, publicationId: string): BookPhysicsPose {
+    const host = this.#host;
+    if (fromCurrentPose) {
+      record.mesh.updateMatrixWorld(true);
+      record.mesh.getWorldPosition(host.physicsPosePosition());
+      record.mesh.getWorldQuaternion(host.physicsPoseRotation());
+      return host.physicsPose();
+    }
+    host.updateHeldPhysicsTarget();
+    const carriedIndex = host.carriedPublicationIds().indexOf(publicationId);
+    if (carriedIndex >= 0) host.writeHeldBookTargetPose(carriedIndex, publicationId);
+    return host.heldTargetPose();
+  }
+
+  #resolveDropVelocity(throwBook: boolean, throwCharge: number): Vector3 {
+    const host = this.#host;
+    if (!throwBook) return host.playerVelocity();
+    const charge = MathUtils.clamp(throwCharge, 0, 1);
+    const throwSpeed = MathUtils.lerp(THROW_MIN_SPEED, THROW_MAX_SPEED, charge);
+    const throwLift = MathUtils.lerp(THROW_MIN_LIFT, THROW_MAX_LIFT, charge);
+    return host
+      .throwVelocity()
+      .copy(host.viewDirection())
+      .multiplyScalar(throwSpeed)
+      .add(host.playerVelocity())
+      .setY(host.viewDirection().y * throwSpeed + host.playerVelocity().y + throwLift);
+  }
+
+  #dropBookPhysics(publicationId: string, throwBook: boolean, linearVelocity: Vector3, pose: BookPhysicsPose) {
+    const physics = {linearVelocity, pose, ...(throwBook ? {angularVelocity: this.#throwAngularVelocity} : {})};
+    this.#host.physicsWorld().dropBook(publicationId, physics);
+  }
+
+  #setDroppedBookBasePose(record: BookRecord) {
+    const host = this.#host;
+    record.basePosition.set(
+      MathUtils.clamp(
+        host.camera().position.x + host.viewDirection().x * 0.95,
+        SHOP_BOUNDS.minX + record.width,
+        SHOP_BOUNDS.maxX - record.width,
+      ),
+      record.thickness / 2 + 0.014,
+      MathUtils.clamp(
+        host.camera().position.z + host.viewDirection().z * 0.95,
+        SHOP_BOUNDS.minZ + BOOK_HEIGHT,
+        SHOP_BOUNDS.maxZ - BOOK_HEIGHT,
+      ),
+    );
+    record.baseRotation.set(-Math.PI / 2, host.lookYaw(), -0.04);
+  }
+
   pickUpBook(publicationId: string): void {
     const host = this.#host;
     if (host.carriedPublicationIds().length >= MAX_CARRIED_BOOKS || host.carriedProp?.() !== undefined) return;
@@ -298,60 +356,19 @@ export class BookCarryActions {
     const record = host.booksById().get(publicationId);
     if (!record) return;
     if (this.throwChargeActive) {
-      this.throwChargeActive = false;
-      this.#throwChargeBucket = -1;
-      this.#throwChargeSeconds = 0;
+      this.#clearThrowCharge();
     }
     const transition = transitionBookInteraction(record.state, {type: "drop"});
     if (!transition.ok) return;
 
-    let dropPose: BookPhysicsPose;
-    if (fromCurrentPose) {
-      record.mesh.updateMatrixWorld(true);
-      record.mesh.getWorldPosition(host.physicsPosePosition());
-      record.mesh.getWorldQuaternion(host.physicsPoseRotation());
-      dropPose = host.physicsPose();
-    } else {
-      host.updateHeldPhysicsTarget();
-      const carriedIndex = host.carriedPublicationIds().indexOf(publicationId);
-      if (carriedIndex >= 0) host.writeHeldBookTargetPose(carriedIndex, publicationId);
-      dropPose = host.heldTargetPose();
-    }
+    const dropPose = this.#resolveDropPose(record, fromCurrentPose, publicationId);
     host.scene().attach(record.mesh);
     host.camera().getWorldDirection(host.viewDirection());
     record.state = transition.state;
     host.bookTextures().restoreCompactBookCoverTexture(record);
-    const charge = MathUtils.clamp(throwCharge, 0, 1);
-    const throwSpeed = MathUtils.lerp(THROW_MIN_SPEED, THROW_MAX_SPEED, charge);
-    const throwLift = MathUtils.lerp(THROW_MIN_LIFT, THROW_MAX_LIFT, charge);
-    const linearVelocity = throwBook
-      ? host
-          .throwVelocity()
-          .copy(host.viewDirection())
-          .multiplyScalar(throwSpeed)
-          .add(host.playerVelocity())
-          .setY(host.viewDirection().y * throwSpeed + host.playerVelocity().y + throwLift)
-      : host.playerVelocity();
-    host.physicsWorld().dropBook(publicationId, {
-      ...(throwBook ? {angularVelocity: this.#throwAngularVelocity} : {}),
-      linearVelocity,
-      pose: dropPose,
-    });
+    this.#dropBookPhysics(publicationId, throwBook, this.#resolveDropVelocity(throwBook, throwCharge), dropPose);
     host.physicsWorld().setBookCollisionlessWithHeld(publicationId, true);
-    record.basePosition.set(
-      MathUtils.clamp(
-        host.camera().position.x + host.viewDirection().x * 0.95,
-        SHOP_BOUNDS.minX + record.width,
-        SHOP_BOUNDS.maxX - record.width,
-      ),
-      record.thickness / 2 + 0.014,
-      MathUtils.clamp(
-        host.camera().position.z + host.viewDirection().z * 0.95,
-        SHOP_BOUNDS.minZ + BOOK_HEIGHT,
-        SHOP_BOUNDS.maxZ - BOOK_HEIGHT,
-      ),
-    );
-    record.baseRotation.set(-Math.PI / 2, host.lookYaw(), -0.04);
+    this.#setDroppedBookBasePose(record);
     host.removeCarriedPublication(publicationId);
     this.discardError = undefined;
     this.#refreshAfterBookMutation();

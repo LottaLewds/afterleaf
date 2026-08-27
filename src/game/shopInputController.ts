@@ -221,10 +221,7 @@ export class ShopInputController {
   readonly #handlePointerMove = (event: PointerEvent) => {
     if (this.#host.paused()) return;
     if (this.#host.inspection().inspectionDragging) {
-      this.#host.inspection().inspectionDragCurrentX = event.clientX;
-      if (Math.abs(this.#host.inspection().inspectionDragCurrentX - this.#host.inspection().inspectionDragStartX) > 4)
-        this.#host.inspection().inspectionDragMoved = true;
-      this.#host.inspection().updateInspectionDragProgress();
+      this.#updateInspectionPointerDrag(event);
       return;
     }
     if (this.#host.inspection().inspectionMode === "spread") {
@@ -233,6 +230,18 @@ export class ShopInputController {
       this.#host.inspection().updateInspectionZoomPanTarget();
       return;
     }
+    this.#updateLockedPointerMovement(event);
+  };
+
+  #updateInspectionPointerDrag(event: PointerEvent) {
+    const inspection = this.#host.inspection();
+    inspection.inspectionDragCurrentX = event.clientX;
+    if (Math.abs(inspection.inspectionDragCurrentX - inspection.inspectionDragStartX) > 4)
+      inspection.inspectionDragMoved = true;
+    inspection.updateInspectionDragProgress();
+  }
+
+  #updateLockedPointerMovement(event: PointerEvent) {
     if (!this.state.pointerLocked) return;
     if (this.state.ignoreNextLockedPointerMove) {
       this.state.ignoreNextLockedPointerMove = false;
@@ -244,17 +253,11 @@ export class ShopInputController {
     this.#host.scanner().shelfBrowsePublicationId = undefined;
     this.state.pendingPointerMovementX += event.movementX;
     this.state.pendingPointerMovementY += event.movementY;
-  };
+  }
 
   consumePointerMovement(deltaSeconds: number) {
     // Gamepad look rides the same smoothed pointer-delta path as the mouse.
-    const padLook = this.#host.input().gamepad.look;
-    if (this.state.pointerLocked && (padLook.yaw !== 0 || padLook.pitch !== 0)) {
-      const padSensitivity = this.#host.gamepadLookSensitivity();
-      const padMultiplier = Number.isFinite(padSensitivity) && padSensitivity > 0 ? padSensitivity : 1;
-      this.state.pendingPointerMovementX += padLook.yaw * GAMEPAD_LOOK_SPEED * padMultiplier * deltaSeconds;
-      this.state.pendingPointerMovementY += padLook.pitch * GAMEPAD_LOOK_SPEED * padMultiplier * deltaSeconds;
-    }
+    this.#addGamepadLookMovement(deltaSeconds);
     const movementX = this.state.pendingPointerMovementX;
     const movementY = this.state.pendingPointerMovementY;
     const anomalousEventCount = this.state.anomalousPointerMovementCount;
@@ -262,15 +265,7 @@ export class ShopInputController {
     this.state.pendingPointerMovementY = 0;
     this.state.anomalousPointerMovementCount = 0;
 
-    if (anomalousEventCount > 0 && DEV && !this.state.didWarnPointerMovement) {
-      this.state.didWarnPointerMovement = true;
-      console.warn("Afterleaf bounded an anomalous pointer-lock movement burst.", {
-        eventCount: anomalousEventCount,
-        frameDeltaMs: deltaSeconds * 1000,
-        movementX,
-        movementY,
-      });
-    }
+    this.#warnAboutPointerMovement(anomalousEventCount, deltaSeconds, movementX, movementY);
     if (movementX === 0 && movementY === 0) return;
 
     const sensitivity = this.#host.mouseSensitivity();
@@ -291,6 +286,27 @@ export class ShopInputController {
     this.state.lookTarget.yaw = this.state.nextLookAngles.yaw;
     this.state.lookTarget.pitch = this.state.nextLookAngles.pitch;
     this.#host.markWorldStateDirty();
+  }
+
+  #addGamepadLookMovement(deltaSeconds: number) {
+    const padLook = this.#host.input().gamepad.look;
+    if (this.state.pointerLocked && (padLook.yaw !== 0 || padLook.pitch !== 0)) {
+      const padSensitivity = this.#host.gamepadLookSensitivity();
+      const padMultiplier = Number.isFinite(padSensitivity) && padSensitivity > 0 ? padSensitivity : 1;
+      this.state.pendingPointerMovementX += padLook.yaw * GAMEPAD_LOOK_SPEED * padMultiplier * deltaSeconds;
+      this.state.pendingPointerMovementY += padLook.pitch * GAMEPAD_LOOK_SPEED * padMultiplier * deltaSeconds;
+    }
+  }
+
+  #warnAboutPointerMovement(anomalousEventCount: number, deltaSeconds: number, movementX: number, movementY: number) {
+    if (anomalousEventCount <= 0 || !DEV || this.state.didWarnPointerMovement) return;
+    this.state.didWarnPointerMovement = true;
+    console.warn("Afterleaf bounded an anomalous pointer-lock movement burst.", {
+      eventCount: anomalousEventCount,
+      frameDeltaMs: deltaSeconds * 1000,
+      movementX,
+      movementY,
+    });
   }
 
   #handleInspectionWheel(event: WheelEvent): boolean {
@@ -339,28 +355,42 @@ export class ShopInputController {
     const carriedProp = this.#host.props().carriedProp;
     if (!this.state.pointerLocked || !carriedProp) return false;
     if (carriedProp.modelBaseSize && event.shiftKey && event.deltaY !== 0) {
-      event.preventDefault();
-      this.#host
-        .props()
-        .setModelPropScale(
-          carriedProp,
-          (carriedProp.modelScale ?? DEFAULT_MODEL_SCALE) * Math.exp(-event.deltaY * 0.0015),
-        );
+      this.#scaleCarriedProp(carriedProp, event);
       return true;
     }
     if (event.ctrlKey && event.deltaY !== 0) {
-      event.preventDefault();
-      const rotationStep = this.#host.props().propPlacementSnapping
-        ? carriedProp.rotationSnapStep
-        : PROP_WHEEL_ROTATION_STEP;
-      this.#host.props().propPlacementYaw = normalizePosterRotation(
-        this.#host.props().propPlacementYaw - Math.sign(event.deltaY) * rotationStep,
-      );
-      this.#host.updateHeldPhysicsTarget();
-      this.#host.markWorldStateDirty();
-      this.#host.emitGameState();
+      this.#rotateCarriedProp(carriedProp, event);
       return true;
     }
+    return this.#moveCarriedProp(event);
+  }
+
+  #scaleCarriedProp(carriedProp: ReturnType<ShopInputHost["props"]>["carriedProp"], event: WheelEvent) {
+    if (!carriedProp) return;
+    event.preventDefault();
+    this.#host
+      .props()
+      .setModelPropScale(
+        carriedProp,
+        (carriedProp.modelScale ?? DEFAULT_MODEL_SCALE) * Math.exp(-event.deltaY * 0.0015),
+      );
+  }
+
+  #rotateCarriedProp(carriedProp: ReturnType<ShopInputHost["props"]>["carriedProp"], event: WheelEvent) {
+    if (!carriedProp) return;
+    event.preventDefault();
+    const rotationStep = this.#host.props().propPlacementSnapping
+      ? carriedProp.rotationSnapStep
+      : PROP_WHEEL_ROTATION_STEP;
+    this.#host.props().propPlacementYaw = normalizePosterRotation(
+      this.#host.props().propPlacementYaw - Math.sign(event.deltaY) * rotationStep,
+    );
+    this.#host.updateHeldPhysicsTarget();
+    this.#host.markWorldStateDirty();
+    this.#host.emitGameState();
+  }
+
+  #moveCarriedProp(event: WheelEvent): boolean {
     const wheelDelta = dominantWheelDelta(event);
     if (Math.abs(wheelDelta) < 1) return true;
     event.preventDefault();
@@ -386,14 +416,20 @@ export class ShopInputController {
   #handleTelevisionWheel(event: WheelEvent): boolean {
     if (!this.state.pointerLocked || !this.#host.televisionTargeted() || event.deltaY === 0) return false;
     const direction = Math.sign(event.deltaY) as -1 | 1;
-    if (event.ctrlKey) {
-      event.preventDefault();
-      this.#host.targetedTelevision()?.adjustVolume(direction === 1 ? -1 : 1);
-      this.state.tvWheelScrubDirection = undefined;
-      this.state.tvWheelScrubLastAt = Number.NEGATIVE_INFINITY;
-      this.state.tvWheelScrubStepIndex = 0;
-      return true;
-    }
+    if (event.ctrlKey) return this.#adjustTelevisionVolume(direction, event);
+    return this.#scrubTelevision(direction, event);
+  }
+
+  #adjustTelevisionVolume(direction: -1 | 1, event: WheelEvent): boolean {
+    event.preventDefault();
+    this.#host.targetedTelevision()?.adjustVolume(direction === 1 ? -1 : 1);
+    this.state.tvWheelScrubDirection = undefined;
+    this.state.tvWheelScrubLastAt = Number.NEGATIVE_INFINITY;
+    this.state.tvWheelScrubStepIndex = 0;
+    return true;
+  }
+
+  #scrubTelevision(direction: -1 | 1, event: WheelEvent): boolean {
     const continuesScrub =
       direction === this.state.tvWheelScrubDirection &&
       event.timeStamp >= this.state.tvWheelScrubLastAt &&
@@ -482,34 +518,45 @@ export class ShopInputController {
   readonly #handlePointerLockChange = () => {
     const wasPointerLocked = this.state.pointerLocked;
     this.state.pointerLocked = document.pointerLockElement === this.#host.canvas();
-    const releaseCompleted = !this.state.pointerLocked && this.state.pointerLockReleasePending;
-    const resumePointerLock = releaseCompleted && this.state.resumePointerLockAfterRelease;
-    if (releaseCompleted) {
-      this.state.pointerLockReleasePending = false;
-      this.state.resumePointerLockAfterRelease = false;
-    }
+    const resumePointerLock = this.#completePointerLockRelease();
     this.#resetPointerMovement();
     this.state.ignoreNextLockedPointerMove = this.state.pointerLocked && !wasPointerLocked;
-    if (!this.state.pointerLocked) {
-      this.#host.input().suspend();
-      this.#host.bookActions().cancelThrowCharge();
-      this.state.jumpQueued = false;
-    }
+    if (!this.state.pointerLocked) this.#suspendUnlockedInput();
     this.#host.canvas().style.cursor = this.state.pointerLocked ? "none" : "pointer";
     this.#host.emitGameState();
     // Pointer lock state is orthogonal to menus: unlocks never open the
     // pause menu. Escape routing owns that (modal stack, then the armed
     // fallback), so programmatic releases and browser lock teardowns around
     // mode changes cannot summon it.
-    if (
-      resumePointerLock &&
-      !this.#host.paused() &&
-      this.#host.inspection().inspectionMode !== "spread" &&
-      !this.#host.arcadeStatusForUi() &&
-      !this.#host.disposed()
-    )
-      this.requestPointerLock();
+    this.#resumePointerLockIfNeeded(resumePointerLock);
   };
+
+  #completePointerLockRelease() {
+    const releaseCompleted = !this.state.pointerLocked && this.state.pointerLockReleasePending;
+    const resumePointerLock = releaseCompleted && this.state.resumePointerLockAfterRelease;
+    if (!releaseCompleted) return false;
+    this.state.pointerLockReleasePending = false;
+    this.state.resumePointerLockAfterRelease = false;
+    return resumePointerLock;
+  }
+
+  #suspendUnlockedInput() {
+    this.#host.input().suspend();
+    this.#host.bookActions().cancelThrowCharge();
+    this.state.jumpQueued = false;
+  }
+
+  #resumePointerLockIfNeeded(resumePointerLock: boolean) {
+    if (
+      !resumePointerLock ||
+      this.#host.paused() ||
+      this.#host.inspection().inspectionMode === "spread" ||
+      this.#host.arcadeStatusForUi() ||
+      this.#host.disposed()
+    )
+      return;
+    this.requestPointerLock();
+  }
 
   #handleInspectionAction(action: ShortcutAction): boolean {
     switch (action) {
@@ -656,49 +703,65 @@ export class ShopInputController {
       case "placementCycleRight":
         return this.#cyclePlacement(1);
       case "placementCycleChannelLeft":
-      case "placementCycleChannelRight": {
-        if (!this.#host.artFrames().placement) return false;
-        this.#host.artFrames().cycleDigitalArtFramePlacementChannel(action === "placementCycleChannelLeft" ? -1 : 1);
-        return true;
-      }
+        return this.#cycleArtFramePlacementChannel(-1);
+      case "placementCycleChannelRight":
+        return this.#cycleArtFramePlacementChannel(1);
       case "placementCycleImageLeft":
-      case "placementCycleImageRight": {
-        if (!this.#host.artFrames().placement) return false;
-        this.#host.artFrames().cycleDigitalArtFramePlacementImage(action === "placementCycleImageLeft" ? -1 : 1);
-        return true;
-      }
-      case "placementToggleFit": {
-        const placement = this.#host.artFrames().placement;
-        if (!placement) return false;
-        placement.fit = placement.fit === "contain" ? "cover" : "contain";
-        this.#host.artFrames().preview?.setFit(placement.fit);
-        this.#host.emitGameState();
-        return true;
-      }
-      case "placementToggleInterval": {
-        const placement = this.#host.artFrames().placement;
-        if (!placement) return false;
-        const intervalIndex = DIGITAL_ART_FRAME_INTERVALS.indexOf(
-          placement.intervalSeconds as (typeof DIGITAL_ART_FRAME_INTERVALS)[number],
-        );
-        const interval =
-          DIGITAL_ART_FRAME_INTERVALS[(Math.max(0, intervalIndex) + 1) % DIGITAL_ART_FRAME_INTERVALS.length];
-        if (interval !== undefined) placement.intervalSeconds = interval;
-        this.#host.emitGameState();
-        return true;
-      }
-      case "placementToggleGridSnap": {
-        if (!this.#host.artFrames().placement && !this.#host.posters().placement) return false;
-        const placement = this.#host.artFrames().placement ?? this.#host.posters().placement;
-        if (placement) placement.gridSnap = !placement.gridSnap;
-        this.#host.artFrames().updateDigitalArtFramePlacementTarget();
-        this.#host.posters().updatePosterPlacementTarget();
-        this.#host.emitGameState();
-        return true;
-      }
+        return this.#cycleArtFramePlacementImage(-1);
+      case "placementCycleImageRight":
+        return this.#cycleArtFramePlacementImage(1);
+      case "placementToggleFit":
+        return this.#toggleArtFramePlacementFit();
+      case "placementToggleInterval":
+        return this.#toggleArtFramePlacementInterval();
+      case "placementToggleGridSnap":
+        return this.#togglePlacementGridSnap();
       default:
         return false;
     }
+  }
+
+  #cycleArtFramePlacementChannel(direction: -1 | 1) {
+    if (!this.#host.artFrames().placement) return false;
+    this.#host.artFrames().cycleDigitalArtFramePlacementChannel(direction);
+    return true;
+  }
+
+  #cycleArtFramePlacementImage(direction: -1 | 1) {
+    if (!this.#host.artFrames().placement) return false;
+    this.#host.artFrames().cycleDigitalArtFramePlacementImage(direction);
+    return true;
+  }
+
+  #toggleArtFramePlacementFit() {
+    const placement = this.#host.artFrames().placement;
+    if (!placement) return false;
+    placement.fit = placement.fit === "contain" ? "cover" : "contain";
+    this.#host.artFrames().preview?.setFit(placement.fit);
+    this.#host.emitGameState();
+    return true;
+  }
+
+  #toggleArtFramePlacementInterval() {
+    const placement = this.#host.artFrames().placement;
+    if (!placement) return false;
+    const intervalIndex = DIGITAL_ART_FRAME_INTERVALS.indexOf(
+      placement.intervalSeconds as (typeof DIGITAL_ART_FRAME_INTERVALS)[number],
+    );
+    const interval = DIGITAL_ART_FRAME_INTERVALS[(Math.max(0, intervalIndex) + 1) % DIGITAL_ART_FRAME_INTERVALS.length];
+    if (interval !== undefined) placement.intervalSeconds = interval;
+    this.#host.emitGameState();
+    return true;
+  }
+
+  #togglePlacementGridSnap() {
+    if (!this.#host.artFrames().placement && !this.#host.posters().placement) return false;
+    const placement = this.#host.artFrames().placement ?? this.#host.posters().placement;
+    if (placement) placement.gridSnap = !placement.gridSnap;
+    this.#host.artFrames().updateDigitalArtFramePlacementTarget();
+    this.#host.posters().updatePosterPlacementTarget();
+    this.#host.emitGameState();
+    return true;
   }
 
   #handlePropPlacementAction(action: ShortcutAction): boolean {
@@ -724,6 +787,10 @@ export class ShopInputController {
 
   #handleRemovalAction(action: ShortcutAction): boolean {
     if (action !== "removeTargeted") return false;
+    return this.#removeTargetedSpawnedProp() || this.#removeTargetedWallDecor();
+  }
+
+  #removeTargetedSpawnedProp() {
     const targetedTelevision = this.#host.targetedTelevision();
     const targetedTelevisionProp = targetedTelevision
       ? this.#host.props().televisionProps.get(targetedTelevision)
@@ -745,6 +812,10 @@ export class ShopInputController {
       this.#host.props().removeSpawnedProp(targetedProp);
       return true;
     }
+    return false;
+  }
+
+  #removeTargetedWallDecor() {
     if (this.#host.artFrames().targetedId) {
       this.#host.artFrames().removeTargetedDigitalArtFrame();
       return true;
@@ -759,6 +830,17 @@ export class ShopInputController {
 
   #handlePickupAction(action: ShortcutAction): boolean {
     if (action !== "pickUpCancel") return false;
+    return (
+      this.#cancelActivePlacement() ||
+      this.#cancelCarriedProp() ||
+      this.#pickUpTargetedArcadeCabinet() ||
+      this.#pickUpTargetedTelevision() ||
+      this.#pickUpTargetedProp() ||
+      this.#interactWithTargetedWallDecor()
+    );
+  }
+
+  #cancelActivePlacement() {
     const props = this.#host.props();
     if (props.modelPlacement) {
       props.cancelModelPlacement();
@@ -772,76 +854,111 @@ export class ShopInputController {
       this.#host.posters().cancelPosterPlacement();
       return true;
     }
-    if (props.carriedProp) {
-      props.cancelCarriedProp();
-      return true;
-    }
-    const targetedArcadeCabinet = this.#host.targetedArcadeCabinet();
-    if (targetedArcadeCabinet) {
-      const cabinetProp = props.arcadeProps.get(targetedArcadeCabinet);
-      if (cabinetProp) props.pickUpProp(cabinetProp);
-      return true;
-    }
-    if (this.#host.televisionTargeted()) {
-      const targetedTelevision = this.#host.targetedTelevision();
-      const televisionProp = targetedTelevision ? props.televisionProps.get(targetedTelevision) : undefined;
-      if (televisionProp) props.pickUpProp(televisionProp);
-      return true;
-    }
-    const targetedProp = this.#host.targetedProp();
-    if (targetedProp) {
-      props.pickUpProp(targetedProp);
-      return true;
-    }
-    if (this.#host.artFrames().targetedId || this.#host.posters().targetedId) {
-      this.#host.interact();
-      return true;
-    }
     return false;
   }
 
+  #cancelCarriedProp() {
+    const carriedProp = this.#host.props().carriedProp;
+    if (!carriedProp) return false;
+    this.#host.props().cancelCarriedProp();
+    return true;
+  }
+
+  #pickUpTargetedArcadeCabinet() {
+    const targetedArcadeCabinet = this.#host.targetedArcadeCabinet();
+    if (!targetedArcadeCabinet) return false;
+    const cabinetProp = this.#host.props().arcadeProps.get(targetedArcadeCabinet);
+    if (cabinetProp) this.#host.props().pickUpProp(cabinetProp);
+    return true;
+  }
+
+  #pickUpTargetedTelevision() {
+    if (!this.#host.televisionTargeted()) return false;
+    const targetedTelevision = this.#host.targetedTelevision();
+    const televisionProp = targetedTelevision ? this.#host.props().televisionProps.get(targetedTelevision) : undefined;
+    if (televisionProp) this.#host.props().pickUpProp(televisionProp);
+    return true;
+  }
+
+  #pickUpTargetedProp() {
+    const targetedProp = this.#host.targetedProp();
+    if (!targetedProp) return false;
+    this.#host.props().pickUpProp(targetedProp);
+    return true;
+  }
+
+  #interactWithTargetedWallDecor() {
+    if (!this.#host.artFrames().targetedId && !this.#host.posters().targetedId) return false;
+    this.#host.interact();
+    return true;
+  }
+
   #handleTargetMediaAction(action: ShortcutAction): boolean {
-    if (action === "artFramePreviousChannel" || action === "artFrameNextChannel") {
-      const targetedId = this.#host.artFrames().targetedId;
-      if (!targetedId) return false;
-      this.#host
-        .artFrames()
-        .records.get(targetedId)
-        ?.frame.changeChannel(action === "artFramePreviousChannel" ? -1 : 1);
-      this.#host.markWorldStateDirty();
-      this.#host.emitGameState();
-      return true;
-    }
     switch (action) {
+      case "artFramePreviousChannel":
+        return this.#changeTargetedArtFrameChannel(-1);
+      case "artFrameNextChannel":
+        return this.#changeTargetedArtFrameChannel(1);
       case "artFrameInterval":
-        if (!this.#host.artFrames().targetedId) return false;
-        this.#host.artFrames().cycleTargetedDigitalArtFrameInterval();
-        return true;
+        return this.#cycleTargetedArtFrameInterval();
       case "artFrameFit":
-        if (!this.#host.artFrames().targetedId) return false;
-        this.#host.artFrames().cycleTargetedDigitalArtFrameFit();
-        return true;
+        return this.#cycleTargetedArtFrameFit();
       case "tvPreviousChannel":
-        if (!this.#host.televisionTargeted()) return false;
-        this.#host.targetedTelevision()?.previousChannel();
-        return true;
+        return this.#changeTargetedTelevisionChannel();
       case "tvMute":
-        if (!this.#host.televisionTargeted()) return false;
-        this.#host.targetedTelevision()?.toggleMuted();
-        return true;
+        return this.#toggleTargetedTelevisionMute();
       default:
         return false;
     }
   }
 
+  #changeTargetedArtFrameChannel(direction: -1 | 1) {
+    const targetedId = this.#host.artFrames().targetedId;
+    if (!targetedId) return false;
+    this.#host.artFrames().records.get(targetedId)?.frame.changeChannel(direction);
+    this.#host.markWorldStateDirty();
+    this.#host.emitGameState();
+    return true;
+  }
+
+  #cycleTargetedArtFrameInterval() {
+    if (!this.#host.artFrames().targetedId) return false;
+    this.#host.artFrames().cycleTargetedDigitalArtFrameInterval();
+    return true;
+  }
+
+  #cycleTargetedArtFrameFit() {
+    if (!this.#host.artFrames().targetedId) return false;
+    this.#host.artFrames().cycleTargetedDigitalArtFrameFit();
+    return true;
+  }
+
+  #changeTargetedTelevisionChannel() {
+    if (!this.#host.televisionTargeted()) return false;
+    this.#host.targetedTelevision()?.previousChannel();
+    return true;
+  }
+
+  #toggleTargetedTelevisionMute() {
+    if (!this.#host.televisionTargeted()) return false;
+    this.#host.targetedTelevision()?.toggleMuted();
+    return true;
+  }
+
   #handleTargetPropertyAction(action: ShortcutAction): boolean {
-    if (action === "toggleShelfPresentation") {
-      if (!this.#host.carriedPublicationId()) return false;
-      this.#host.setShelfPresentation(this.#host.shelfPresentation() === "spine" ? "face" : "spine");
-      this.#host.scanner().update();
-      return true;
-    }
+    if (action === "toggleShelfPresentation") return this.#toggleShelfPresentation();
     if (action !== "propPinToggle") return false;
+    return this.#toggleTargetedPropLock();
+  }
+
+  #toggleShelfPresentation() {
+    if (!this.#host.carriedPublicationId()) return false;
+    this.#host.setShelfPresentation(this.#host.shelfPresentation() === "spine" ? "face" : "spine");
+    this.#host.scanner().update();
+    return true;
+  }
+
+  #toggleTargetedPropLock() {
     // Pin or release whatever movable prop is under the reticle: a
     // locked prop keeps a fixed body that still blocks the player,
     // books, and other props, but nothing can bump it around.
@@ -977,24 +1094,27 @@ export class ShopInputController {
   /** Raw-key interceptor: while an arcade session plays, keys feed it. */
   forwardArcadeKey(event: KeyboardEvent): boolean {
     if (this.#host.paused()) return false;
-    if (this.#host.activeArcadeCabinet()?.sessionStatus !== "playing") return false;
+    const activeArcadeCabinet = this.#host.activeArcadeCabinet();
+    if (activeArcadeCabinet?.sessionStatus !== "playing") return false;
     // Tab owns the menus and must never reach the game; the global modal
     // stack handles it. Escape stays browser-reserved for pointer lock.
-    if (event.type === "keydown" && event.code === "Tab") return true;
-    if (event.type === "keydown" && event.code === "KeyR") {
+    if (this.#handleArcadeControlKey(event)) return true;
+    event.preventDefault();
+    activeArcadeCabinet.forwardKey(event.type === "keydown", describeKeyboardEvent(event));
+    return true;
+  }
+
+  #handleArcadeControlKey(event: KeyboardEvent) {
+    if (event.type !== "keydown") return false;
+    if (event.code === "Tab") return true;
+    if (event.code === "KeyR") {
       event.preventDefault();
       this.#host.stepAwayFromArcade();
       return true;
     }
-    if (event.type === "keydown" && event.code === "KeyP") {
-      event.preventDefault();
-      this.#host.quitActiveArcadeGame();
-      return true;
-    }
+    if (event.code !== "KeyP") return false;
     event.preventDefault();
-    const activeArcadeCabinet = this.#host.activeArcadeCabinet();
-    if (!activeArcadeCabinet) return false;
-    activeArcadeCabinet.forwardKey(event.type === "keydown", describeKeyboardEvent(event));
+    this.#host.quitActiveArcadeGame();
     return true;
   }
 

@@ -1,4 +1,14 @@
-import {Material, Mesh, Quaternion, Vector3, type PerspectiveCamera, type Raycaster, type Scene} from "three";
+import {
+  Material,
+  Mesh,
+  Quaternion,
+  Vector3,
+  type Intersection,
+  type Object3D,
+  type PerspectiveCamera,
+  type Raycaster,
+  type Scene,
+} from "three";
 import type {ArtFrameChannel, ArtFrameImage} from "~/artFrames/protocol";
 import type {ArtFrameFit} from "~/artFrames/aspect";
 import {DigitalArtFrame} from "~/game/DigitalArtFrame";
@@ -449,17 +459,29 @@ export class ArtFrameSystem {
     preview.object.visible = true;
   }
 
+  #clearDigitalArtFramePlacementTarget(preview: DigitalArtFrame | undefined) {
+    if (preview) preview.object.visible = false;
+    this.#setDigitalArtFramePlacementSelection();
+  }
+
+  #placementSurface(intersection: Intersection<Object3D> | undefined) {
+    const surfaceId = intersection?.object.userData.posterSurfaceId;
+    return typeof surfaceId === "string" ? this.#host.getPosterSurface(surfaceId) : undefined;
+  }
+
   updateDigitalArtFramePlacementTarget() {
     const placement = this.#placement;
     const preview = this.#preview;
-    if (!placement || !preview || !this.#host.isPointerLocked()) {
-      if (preview) preview.object.visible = false;
-      this.#setDigitalArtFramePlacementSelection();
+    if (!placement || !preview) {
+      this.#clearDigitalArtFramePlacementTarget(preview);
+      return;
+    }
+    if (!this.#host.isPointerLocked()) {
+      this.#clearDigitalArtFramePlacementTarget(preview);
       return;
     }
     const intersection = this.#raycaster.intersectObjects(this.#raycastMeshes, false)[0];
-    const surfaceId = intersection?.object.userData.posterSurfaceId;
-    const surface = typeof surfaceId === "string" ? this.#host.getPosterSurface(surfaceId) : undefined;
+    const surface = this.#placementSurface(intersection);
     if (!intersection || intersection.distance > POSTER_PLACEMENT_DISTANCE || !surface) {
       this.#showDigitalArtFramePlacementGhost(preview, placement);
       this.#setDigitalArtFramePlacementSelection();

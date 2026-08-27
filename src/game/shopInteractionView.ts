@@ -5,6 +5,7 @@ import {findArcadeSystem} from "~/arcade/systems";
 import type {ArcadeSessionStatus, ShopArcadeCabinet} from "~/game/ShopArcadeCabinet";
 import type {ArtFrameSystem} from "~/game/artFrameSystem";
 import type {BookRecord} from "~/game/bookFactory";
+import type {DigitalArtFrame} from "~/game/DigitalArtFrame";
 import {MAX_CARRIED_BOOKS} from "~/game/worldSave";
 import type {
   InspectionCloseAction,
@@ -157,6 +158,7 @@ const resolvePosterPlacementPrompt = (state: InteractionUiState) => {
 };
 
 const resolveCarriedBookActionPrompt = (state: InteractionUiState, record: BookRecord) => {
+  const cycleBooksPrompt = state.carriedPublicationIds.length > 1 ? " · Wheel cycle books" : "";
   if (state.throwChargeActive)
     return `Throw charged ${Math.round(state.throwChargeProgress * 100)}% · Release F to launch upstairs`;
   if (state.discardBusy) return `Discarding ${record.publicationTitle}…`;
@@ -164,8 +166,8 @@ const resolveCarriedBookActionPrompt = (state: InteractionUiState, record: BookR
     return `Discard failed · E retry · Hold F charge throw · G keep ${record.publicationTitle}`;
   if (state.trashTargeted) return `E discard ${record.publicationTitle} · Hold F charge throw · G keep`;
   if (state.shelfTargeted)
-    return `E shelve ${state.shelfTargetSelection?.presentation ?? state.shelfPresentation}-out · Q switch shelf presentation · Hold F charge throw · G drop · R inspect${state.carriedPublicationIds.length > 1 ? " · Wheel cycle books" : ""}`;
-  return `Q ${state.shelfPresentation}-out · Aim at a shelf · Hold F charge throw · G drop · R inspect${state.carriedPublicationIds.length > 1 ? " · Wheel cycle books" : ""}`;
+    return `E shelve ${state.shelfTargetSelection?.presentation ?? state.shelfPresentation}-out · Q switch shelf presentation · Hold F charge throw · G drop · R inspect${cycleBooksPrompt}`;
+  return `Q ${state.shelfPresentation}-out · Aim at a shelf · Hold F charge throw · G drop · R inspect${cycleBooksPrompt}`;
 };
 
 const resolveCarriedBookPrompt = (state: InteractionUiState) => {
@@ -220,13 +222,19 @@ const resolvePropPrompt = (state: InteractionUiState) => {
 
 const resolveArtFramePrompt = (state: InteractionUiState) => {
   const frame = state.artFrames.targetedId ? state.artFrames.records.get(state.artFrames.targetedId)?.frame : undefined;
-  const interval = frame?.intervalSeconds() ?? 0;
+  return `Paste → ${resolveArtFramePasteChannel(state, frame)} · N new channel · T move · Del remove · Q/E channel · F shuffle · R ${frame?.fit() ?? "contain"} · I ${resolveArtFrameTimerPrompt(frame)}`;
+};
+
+const resolveArtFramePasteChannel = (state: InteractionUiState, frame: DigitalArtFrame | undefined) => {
   const pendingChannel = state.artFrames.targetImportChannel;
-  const pasteChannel =
-    pendingChannel !== undefined && pendingChannel.frameId === state.artFrames.targetedId
-      ? pendingChannel.channelId
-      : (frame?.channelLabel() ?? "unavailable");
-  return `Paste → ${pasteChannel} · N new channel · T move · Del remove · Q/E channel · F shuffle · R ${frame?.fit() ?? "contain"} · I ${interval === 0 ? "timer off" : `${interval}s timer`}`;
+  if (pendingChannel !== undefined && pendingChannel.frameId === state.artFrames.targetedId)
+    return pendingChannel.channelId;
+  return frame?.channelLabel() ?? "unavailable";
+};
+
+const resolveArtFrameTimerPrompt = (frame: DigitalArtFrame | undefined) => {
+  const interval = frame?.intervalSeconds() ?? 0;
+  return interval === 0 ? "timer off" : `${interval}s timer`;
 };
 
 const resolvePosterPrompt = (state: InteractionUiState) => {
@@ -516,13 +524,13 @@ const televisionInteractionControls = (
 ): ShopInteraction[] => [
   {
     key: "E",
-    label: television?.powered() ? "Next channel" : "Turn on",
+    label: televisionPowerLabel(television),
     actions: ["interact"] as const,
   },
   {key: "T", label: "Move TV", actions: ["pickUpCancel"] as const},
   {
     key: "L",
-    label: televisionProp?.locked ? "Unlock TV" : "Lock TV",
+    label: movablePropLockLabel(televisionProp, "TV"),
     actions: ["propPinToggle"] as const,
   },
   {
@@ -552,6 +560,12 @@ const televisionInteractionControls = (
       ]
     : []),
 ];
+
+const televisionPowerLabel = (television: ShopTelevision | undefined) =>
+  television?.powered() ? "Next channel" : "Turn on";
+
+const movablePropLockLabel = (prop: MovablePropRecord | undefined, label: string) =>
+  prop?.locked ? `Unlock ${label}` : `Lock ${label}`;
 
 const televisionInteractions = (state: InteractionUiState): InteractionResult => {
   const television = state.targetedTelevision;

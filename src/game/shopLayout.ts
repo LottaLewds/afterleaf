@@ -26,36 +26,36 @@ export type SpineShelfSpec = {
   z: number;
 };
 
-/** Builds backing, per-board, and divider colliders for one shelf fixture. */
-export const createSpineShelfCollisionBoxes = ({
-  axis = "z",
-  bayCount = 0,
-  elevation = 0,
-  length,
-  x,
-  z,
-}: SpineShelfSpec): readonly ShopCollisionBox[] => {
-  const alongX = axis === "x";
-  const boxes: ShopCollisionBox[] = [
-    {
-      halfExtents: {
-        x: (alongX ? length : SPINE_SHELF_BACKING_THICKNESS) / 2,
-        y: SPINE_SHELF_HEIGHT / 2,
-        z: (alongX ? SPINE_SHELF_BACKING_THICKNESS : length) / 2,
-      },
-      position: {x, y: elevation + SPINE_SHELF_HEIGHT / 2, z},
+const createSpineShelfBaseBoxes = (alongX: boolean, elevation: number, length: number, x: number, z: number) => [
+  {
+    halfExtents: {
+      x: (alongX ? length : SPINE_SHELF_BACKING_THICKNESS) / 2,
+      y: SPINE_SHELF_HEIGHT / 2,
+      z: (alongX ? SPINE_SHELF_BACKING_THICKNESS : length) / 2,
     },
-    ...SPINE_SHELF_BOARD_Y_OFFSETS.map((offset) => ({
-      halfExtents: {
-        x: (alongX ? length : SPINE_SHELF_BOARD_DEPTH) / 2,
-        y: SPINE_SHELF_BOARD_THICKNESS / 2,
-        z: (alongX ? SPINE_SHELF_BOARD_DEPTH : length) / 2,
-      },
-      position: {x, y: elevation + offset, z},
-    })),
-  ];
-  if (bayCount <= 0) return boxes;
+    position: {x, y: elevation + SPINE_SHELF_HEIGHT / 2, z},
+  },
+  ...SPINE_SHELF_BOARD_Y_OFFSETS.map((offset) => ({
+    halfExtents: {
+      x: (alongX ? length : SPINE_SHELF_BOARD_DEPTH) / 2,
+      y: SPINE_SHELF_BOARD_THICKNESS / 2,
+      z: (alongX ? SPINE_SHELF_BOARD_DEPTH : length) / 2,
+    },
+    position: {x, y: elevation + offset, z},
+  })),
+];
+
+const createSpineShelfDividers = (
+  alongX: boolean,
+  bayCount: number,
+  elevation: number,
+  length: number,
+  x: number,
+  z: number,
+) => {
+  if (bayCount <= 0) return [];
   const bayWidth = length / bayCount;
+  const boxes: ShopCollisionBox[] = [];
   for (let divider = 0; divider <= bayCount; divider += 1) {
     const along = -length / 2 + divider * bayWidth;
     boxes.push({
@@ -72,6 +72,22 @@ export const createSpineShelfCollisionBoxes = ({
     });
   }
   return boxes;
+};
+
+/** Builds backing, per-board, and divider colliders for one shelf fixture. */
+export const createSpineShelfCollisionBoxes = ({
+  axis = "z",
+  bayCount = 0,
+  elevation = 0,
+  length,
+  x,
+  z,
+}: SpineShelfSpec): readonly ShopCollisionBox[] => {
+  const alongX = axis === "x";
+  return [
+    ...createSpineShelfBaseBoxes(alongX, elevation, length, x, z),
+    ...createSpineShelfDividers(alongX, bayCount, elevation, length, x, z),
+  ];
 };
 
 export type ReadingFurnitureMaterial = "leg" | "upholstery" | "wood";

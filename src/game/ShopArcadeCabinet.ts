@@ -617,38 +617,32 @@ export class ShopArcadeCabinet {
     for (let y = 0; y < height; y += 3) context.fillRect(0, y, width, 1);
   }
 
-  update(deltaSeconds: number) {
-    if (this.#disposed) return;
-    if (this.#liveCanvas) {
-      // While the volume indicator is visible the material shows the
-      // composite surface instead; refresh it every rendered frame so the
-      // game keeps moving under the pill.
-      if (this.#updateOsd()) return;
-      // The emulator canvas lives in its own WebGL context, so every
-      // needsUpdate costs a GPU-GPU copy (Chromium's cross-context copy).
-      // Copy only when the core actually produced a new emulated frame -
-      // re-copying identical content at high refresh rates just burns
-      // bandwidth. Fail open when the counter is unavailable (always copy).
-      //
-      // A resized backing store always forces a copy, and the GPU allocation
-      // is freed first: copying into the stale allocation makes Chromium's
-      // copy overflow (glCopySubTextureCHROMIUM GL_INVALID_VALUE) and stick
-      // black frames.
-      const canvas = this.#liveCanvas;
-      const frames = this.#host?.frameCount();
-      const resized = canvas.width !== this.#uploadedWidth || canvas.height !== this.#uploadedHeight;
-      if (resized) {
-        this.#uploadedWidth = canvas.width;
-        this.#uploadedHeight = canvas.height;
-        this.#liveTexture.dispose();
-        this.#uploadedFrame = frames;
-        this.#liveTexture.needsUpdate = true;
-      } else if (frames === undefined || frames !== this.#uploadedFrame) {
-        this.#uploadedFrame = frames;
-        this.#liveTexture.needsUpdate = true;
-      }
-      return;
+  #updateLiveCanvas(canvas: HTMLCanvasElement) {
+    // The emulator canvas lives in its own WebGL context, so every
+    // needsUpdate costs a GPU-GPU copy (Chromium's cross-context copy).
+    // Copy only when the core actually produced a new emulated frame -
+    // re-copying identical content at high refresh rates just burns
+    // bandwidth. Fail open when the counter is unavailable (always copy).
+    //
+    // A resized backing store always forces a copy, and the GPU allocation
+    // is freed first: copying into the stale allocation makes Chromium's
+    // copy overflow (glCopySubTextureCHROMIUM GL_INVALID_VALUE) and stick
+    // black frames.
+    const frames = this.#host?.frameCount();
+    const resized = canvas.width !== this.#uploadedWidth || canvas.height !== this.#uploadedHeight;
+    if (resized) {
+      this.#uploadedWidth = canvas.width;
+      this.#uploadedHeight = canvas.height;
+      this.#liveTexture.dispose();
+      this.#uploadedFrame = frames;
+      this.#liveTexture.needsUpdate = true;
+    } else if (frames === undefined || frames !== this.#uploadedFrame) {
+      this.#uploadedFrame = frames;
+      this.#liveTexture.needsUpdate = true;
     }
+  }
+
+  #updateAttractDisplay(deltaSeconds: number) {
     this.#attractTime += deltaSeconds;
     this.#sinceAttractRedraw += deltaSeconds;
     if (this.#sinceAttractRedraw >= 1 / ATTRACT_FPS) {
@@ -657,6 +651,19 @@ export class ShopArcadeCabinet {
       this.#sinceAttractRedraw = 0;
     }
     this.#marqueeLight.intensity = 0.78 + 0.14 * Math.sin(this.#attractTime * 9.1) + (this.#targeted ? 0.16 : 0);
+  }
+
+  update(deltaSeconds: number) {
+    if (this.#disposed) return;
+    if (this.#liveCanvas) {
+      // While the volume indicator is visible the material shows the
+      // composite surface instead; refresh it every rendered frame so the
+      // game keeps moving under the pill.
+      if (this.#updateOsd()) return;
+      this.#updateLiveCanvas(this.#liveCanvas);
+      return;
+    }
+    this.#updateAttractDisplay(deltaSeconds);
   }
 
   dispose() {

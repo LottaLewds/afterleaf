@@ -36,6 +36,56 @@ const subtractFrom = (array: Float32Array, offset: number, delta: number) => {
   array[offset] = (array[offset] ?? 0) - delta;
 };
 
+const addLongConstraints = (
+  index: number,
+  column: number,
+  row: number,
+  columns: number,
+  rows: number,
+  stepX: number,
+  stepY: number,
+  addConstraint: (first: number, second: number, restLength: number, stiffness: number) => void,
+) => {
+  if (column + 2 < columns) addConstraint(index, index + 2, stepX * 2, 0.92);
+  if (row + 2 < rows) addConstraint(index, index + columns * 2, stepY * 2, 0.92);
+  if (column + 4 < columns) addConstraint(index, index + 4, stepX * 4, 0.72);
+  if (row + 4 < rows) addConstraint(index, index + columns * 4, stepY * 4, 0.72);
+};
+
+const createConstraintArrays = (columns: number, rows: number, width: number, height: number) => {
+  const constraintA: number[] = [];
+  const constraintB: number[] = [];
+  const constraintRestLength: number[] = [];
+  const constraintStiffness: number[] = [];
+  const stepX = width / (columns - 1);
+  const stepY = height / (rows - 1);
+  const diagonalLength = Math.hypot(stepX, stepY);
+  const addConstraint = (first: number, second: number, restLength: number, stiffness: number) => {
+    constraintA.push(first);
+    constraintB.push(second);
+    constraintRestLength.push(restLength);
+    constraintStiffness.push(stiffness);
+  };
+  for (let row = 0; row < rows; row += 1) {
+    for (let column = 0; column < columns; column += 1) {
+      const index = row * columns + column;
+      if (column + 1 < columns) addConstraint(index, index + 1, stepX, 0.999);
+      if (row + 1 < rows) addConstraint(index, index + columns, stepY, 0.999);
+      if (column + 1 < columns && row + 1 < rows) {
+        addConstraint(index, index + columns + 1, diagonalLength, 0.985);
+        addConstraint(index + 1, index + columns, diagonalLength, 0.985);
+      }
+      addLongConstraints(index, column, row, columns, rows, stepX, stepY, addConstraint);
+    }
+  }
+  return {
+    a: Uint16Array.from(constraintA),
+    b: Uint16Array.from(constraintB),
+    restLength: Float32Array.from(constraintRestLength),
+    stiffness: Float32Array.from(constraintStiffness),
+  };
+};
+
 export class PaperSheetSimulation {
   readonly #constraintA: Uint16Array;
   readonly #constraintB: Uint16Array;
@@ -59,38 +109,11 @@ export class PaperSheetSimulation {
     for (let index = 0; index < vertexCount; index += 1)
       this.#spineMask[index] = (this.#uvs[index * 2] ?? 1) < 0.001 ? 1 : 0;
 
-    const constraintA: number[] = [];
-    const constraintB: number[] = [];
-    const constraintRestLength: number[] = [];
-    const constraintStiffness: number[] = [];
-    const stepX = options.width / (columns - 1);
-    const stepY = options.height / (rows - 1);
-    const addConstraint = (first: number, second: number, restLength: number, stiffness: number) => {
-      constraintA.push(first);
-      constraintB.push(second);
-      constraintRestLength.push(restLength);
-      constraintStiffness.push(stiffness);
-    };
-    for (let row = 0; row < rows; row += 1) {
-      for (let column = 0; column < columns; column += 1) {
-        const index = row * columns + column;
-        if (column + 1 < columns) addConstraint(index, index + 1, stepX, 0.999);
-        if (row + 1 < rows) addConstraint(index, index + columns, stepY, 0.999);
-        if (column + 1 < columns && row + 1 < rows) {
-          const diagonalLength = Math.hypot(stepX, stepY);
-          addConstraint(index, index + columns + 1, diagonalLength, 0.985);
-          addConstraint(index + 1, index + columns, diagonalLength, 0.985);
-        }
-        if (column + 2 < columns) addConstraint(index, index + 2, stepX * 2, 0.92);
-        if (row + 2 < rows) addConstraint(index, index + columns * 2, stepY * 2, 0.92);
-        if (column + 4 < columns) addConstraint(index, index + 4, stepX * 4, 0.72);
-        if (row + 4 < rows) addConstraint(index, index + columns * 4, stepY * 4, 0.72);
-      }
-    }
-    this.#constraintA = Uint16Array.from(constraintA);
-    this.#constraintB = Uint16Array.from(constraintB);
-    this.#constraintRestLength = Float32Array.from(constraintRestLength);
-    this.#constraintStiffness = Float32Array.from(constraintStiffness);
+    const constraints = createConstraintArrays(columns, rows, options.width, options.height);
+    this.#constraintA = constraints.a;
+    this.#constraintB = constraints.b;
+    this.#constraintRestLength = constraints.restLength;
+    this.#constraintStiffness = constraints.stiffness;
   }
 
   reset(targetPositions: Float32Array) {

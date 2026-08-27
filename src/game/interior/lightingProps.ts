@@ -128,53 +128,56 @@ export const createDeskLamps = async (parent: Group, host: LightingPropsHost) =>
       object.receiveShadow = true;
     });
 
-    // The model is always loaded and always becomes the spawn template;
-    // seeding only decides whether default-positioned copies are placed.
-    for (const [index, z] of READING_TABLE_Z_POSITIONS.entries()) {
-      if (index > 0 && !host.needsSeedPass(INITIAL_WORLD_SEEDING_VERSION)) break;
-      const lamp = index === 0 ? gltf.scene : cloneWithSkeleton(gltf.scene);
-      const spawnClearance = index === 1 ? CRT_TABLE_DESK_LAMP_SPAWN_CLEARANCE : DESK_LAMP_SPAWN_CLEARANCE;
-      lamp.position.y = READING_TABLE_SURFACE_Y + spawnClearance - bounds.min.y * scale;
-      lamp.position.z = z - center.z * scale;
-      const lampBounds = new Box3().setFromObject(lamp);
-      const lampSize = lampBounds.getSize(new Vector3());
-      const lampRoot = new Group();
-      lampRoot.name = `desk-lamp-${index + 1}`;
-      lampRoot.position.copy(lampBounds.getCenter(new Vector3()));
-      lampRoot.attach(lamp);
-      if (index === 0)
-        host.cacheBuiltinPropTemplate({
+    const seedDeskLamps = () => {
+      // The model is always loaded and always becomes the spawn template;
+      // seeding only decides whether default-positioned copies are placed.
+      for (const [index, z] of READING_TABLE_Z_POSITIONS.entries()) {
+        if (index > 0 && !host.needsSeedPass(INITIAL_WORLD_SEEDING_VERSION)) break;
+        const lamp = index === 0 ? gltf.scene : cloneWithSkeleton(gltf.scene);
+        const spawnClearance = index === 1 ? CRT_TABLE_DESK_LAMP_SPAWN_CLEARANCE : DESK_LAMP_SPAWN_CLEARANCE;
+        lamp.position.y = READING_TABLE_SURFACE_Y + spawnClearance - bounds.min.y * scale;
+        lamp.position.z = z - center.z * scale;
+        const lampBounds = new Box3().setFromObject(lamp);
+        const lampSize = lampBounds.getSize(new Vector3());
+        const lampRoot = new Group();
+        lampRoot.name = `desk-lamp-${index + 1}`;
+        lampRoot.position.copy(lampBounds.getCenter(new Vector3()));
+        lampRoot.attach(lamp);
+        if (index === 0)
+          host.cacheBuiltinPropTemplate({
+            density: 8,
+            depth: lampSize.z,
+            heldLocalPosition: new Vector3(0, -0.12, -1.6),
+            height: lampSize.y,
+            id: BUILTIN_DESK_LAMP_ASSET_ID,
+            label: "desk lamp",
+            object: lampRoot,
+            rotationSnapStep: Math.PI / 2,
+            spawnAssetId: BUILTIN_DESK_LAMP_ASSET_ID,
+            templateForSpawning: true,
+            width: lampSize.x,
+          });
+        if (!host.needsSeedPass(INITIAL_WORLD_SEEDING_VERSION)) continue;
+        parent.add(lampRoot);
+        playModelAnimations(host.modelMixers, lamp, gltf.animations);
+        host.registerMovableProp({
           density: 8,
           depth: lampSize.z,
           heldLocalPosition: new Vector3(0, -0.12, -1.6),
           height: lampSize.y,
-          id: BUILTIN_DESK_LAMP_ASSET_ID,
-          label: "desk lamp",
+          id: `desk-lamp-${index + 1}`,
+          label: `desk lamp ${index + 1}`,
+          modelBaseSize: new Vector3(lampSize.x, lampSize.y, lampSize.z),
+          modelScale: DEFAULT_MODEL_SCALE,
           object: lampRoot,
           rotationSnapStep: Math.PI / 2,
           spawnAssetId: BUILTIN_DESK_LAMP_ASSET_ID,
-          templateForSpawning: true,
+          spawned: true,
           width: lampSize.x,
         });
-      if (!host.needsSeedPass(INITIAL_WORLD_SEEDING_VERSION)) continue;
-      parent.add(lampRoot);
-      playModelAnimations(host.modelMixers, lamp, gltf.animations);
-      host.registerMovableProp({
-        density: 8,
-        depth: lampSize.z,
-        heldLocalPosition: new Vector3(0, -0.12, -1.6),
-        height: lampSize.y,
-        id: `desk-lamp-${index + 1}`,
-        label: `desk lamp ${index + 1}`,
-        modelBaseSize: new Vector3(lampSize.x, lampSize.y, lampSize.z),
-        modelScale: DEFAULT_MODEL_SCALE,
-        object: lampRoot,
-        rotationSnapStep: Math.PI / 2,
-        spawnAssetId: BUILTIN_DESK_LAMP_ASSET_ID,
-        spawned: true,
-        width: lampSize.x,
-      });
-    }
+      }
+    };
+    seedDeskLamps();
   } catch (error) {
     if (DEV && !host.isDisposed()) console.warn("Afterleaf could not load the desk lamp model.", error);
   }

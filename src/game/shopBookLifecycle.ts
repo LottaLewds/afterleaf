@@ -411,24 +411,34 @@ export class ShopBookLifecycle {
 
   applyBookStates() {
     for (const [publicationId, record] of this.#host.booksById()) {
-      const selected =
-        publicationId === this.#host.lastSelectedPublicationId() ||
-        publicationId === this.#host.inspection().inspectionPublicationId;
-      const hovered = publicationId === this.#host.hoveredPublicationId();
-      const shelfHovered = hovered && record.state.status === "shelved";
-      let targetScale = 1;
-      if (hovered && !shelfHovered) targetScale = 1.08;
-      else if (selected) targetScale = 1.025;
-      record.targetScale = targetScale;
-      record.targetLift = hovered && !shelfHovered ? 0.08 : 0;
-      const discardTargeted = publicationId === this.#host.carriedPublicationId() && this.#host.scanner().trashTargeted;
-      record.sceneEmissive.set(
-        discardTargeted ? DISCARD_TARGETED_EMISSIVE : hovered ? "#a34437" : selected ? "#49231f" : "#000000",
-      );
-      record.sceneEmissiveIntensity = discardTargeted ? DISCARD_TARGETED_EMISSIVE_INTENSITY : hovered ? 0.55 : 0.2;
-      record.exteriorMaterial.emissive.copy(record.sceneEmissive);
-      record.exteriorMaterial.emissiveIntensity = record.sceneEmissiveIntensity;
-      this.#host.inspection().applyInspectionLighting(record);
+      this.#applyBookState(publicationId, record);
     }
+  }
+
+  #applyBookState(publicationId: string, record: BookRecord) {
+    const selected = this.#isBookSelected(publicationId);
+    const hovered = publicationId === this.#host.hoveredPublicationId();
+    const shelfHovered = hovered && record.state.status === "shelved";
+    record.targetScale = hovered && !shelfHovered ? 1.08 : selected ? 1.025 : 1;
+    record.targetLift = hovered && !shelfHovered ? 0.08 : 0;
+    this.#applyBookEmissive(publicationId, record, selected, hovered);
+    this.#host.inspection().applyInspectionLighting(record);
+  }
+
+  #isBookSelected(publicationId: string) {
+    return (
+      publicationId === this.#host.lastSelectedPublicationId() ||
+      publicationId === this.#host.inspection().inspectionPublicationId
+    );
+  }
+
+  #applyBookEmissive(publicationId: string, record: BookRecord, selected: boolean, hovered: boolean) {
+    const discardTargeted = publicationId === this.#host.carriedPublicationId() && this.#host.scanner().trashTargeted;
+    record.sceneEmissive.set(
+      discardTargeted ? DISCARD_TARGETED_EMISSIVE : hovered ? "#a34437" : selected ? "#49231f" : "#000000",
+    );
+    record.sceneEmissiveIntensity = discardTargeted ? DISCARD_TARGETED_EMISSIVE_INTENSITY : hovered ? 0.55 : 0.2;
+    record.exteriorMaterial.emissive.copy(record.sceneEmissive);
+    record.exteriorMaterial.emissiveIntensity = record.sceneEmissiveIntensity;
   }
 }

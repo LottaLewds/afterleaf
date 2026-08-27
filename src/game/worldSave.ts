@@ -160,6 +160,9 @@ const requiredString = (value: unknown, field: string, maximumLength = MAX_IDENT
 const optionalString = (value: unknown, field: string, maximumLength = MAX_IDENTIFIER_LENGTH) =>
   value === undefined ? undefined : requiredString(value, field, maximumLength);
 
+const parseOptionalValue = <T>(value: unknown, parser: (value: unknown) => T): T | undefined =>
+  value === undefined ? undefined : parser(value);
+
 const finiteCoordinate = (value: unknown, field: string) => {
   if (typeof value !== "number" || !Number.isFinite(value) || Math.abs(value) > MAX_WORLD_COORDINATE)
     throw new Error(`${field} must be a finite world coordinate`);
@@ -201,6 +204,25 @@ const parsePose = (value: unknown, field: string): WorldPose => {
   };
 };
 
+const parseShelfPresentation = (value: unknown, field: string): ShelfPresentation | undefined => {
+  if (value === undefined) return undefined;
+  if (value !== "face" && value !== "spine") throw new Error(`${field}.presentation must be face or spine`);
+  return value;
+};
+
+const parseShelfPlacementFields = (value: Record<string, unknown>, field: string) => {
+  const fields: Pick<WorldShelfPlacement, "bayId" | "displayText" | "facetLabel" | "presentation"> = {};
+  const bayId = optionalString(value.bayId, `${field}.bayId`);
+  if (bayId !== undefined) fields.bayId = bayId;
+  const displayText = optionalString(value.displayText, `${field}.displayText`, MAX_TEXT_LENGTH);
+  if (displayText !== undefined) fields.displayText = displayText;
+  const facetLabel = optionalString(value.facetLabel, `${field}.facetLabel`, MAX_TEXT_LENGTH);
+  if (facetLabel !== undefined) fields.facetLabel = facetLabel;
+  const presentation = parseShelfPresentation(value.presentation, field);
+  if (presentation !== undefined) fields.presentation = presentation;
+  return fields;
+};
+
 const parseTelevisionChannels = (value: unknown): WorldTelevisionChannels => {
   if (!isRecord(value)) throw new Error("televisionChannels must be an object");
   const entries = Object.entries(value);
@@ -231,17 +253,8 @@ const parseShelfPlacement = (value: unknown, field: string): WorldShelfPlacement
   if (!isRecord(value)) throw new Error(`${field} must be an object`);
   if (!Number.isSafeInteger(value.slotIndex) || Number(value.slotIndex) < 0)
     throw new Error(`${field}.slotIndex must be a non-negative safe integer`);
-  const bayId = optionalString(value.bayId, `${field}.bayId`);
-  const displayText = optionalString(value.displayText, `${field}.displayText`, MAX_TEXT_LENGTH);
-  const facetLabel = optionalString(value.facetLabel, `${field}.facetLabel`, MAX_TEXT_LENGTH);
-  const presentation = value.presentation;
-  if (presentation !== undefined && presentation !== "face" && presentation !== "spine")
-    throw new Error(`${field}.presentation must be face or spine`);
   return {
-    ...(bayId === undefined ? {} : {bayId}),
-    ...(displayText === undefined ? {} : {displayText}),
-    ...(facetLabel === undefined ? {} : {facetLabel}),
-    ...(presentation === undefined ? {} : {presentation}),
+    ...parseShelfPlacementFields(value, field),
     shelfId: requiredString(value.shelfId, `${field}.shelfId`),
     slotIndex: Number(value.slotIndex),
   };
@@ -300,14 +313,26 @@ const parsePosters = (value: unknown): readonly WorldPosterSave[] => {
   });
 };
 
-const parseDigitalArtFrameMeasurements = (frame: Record<string, unknown>, field: string) => {
-  const aspectRatio = finiteCoordinate(frame.aspectRatio, `${field}.aspectRatio`);
+const parseArtFrameAspectRatio = (value: unknown, field: string) => {
+  const aspectRatio = finiteCoordinate(value, `${field}.aspectRatio`);
   if (aspectRatio <= 0 || aspectRatio > 100) throw new Error(`${field}.aspectRatio must be between 0 and 100`);
-  const height = finiteCoordinate(frame.height, `${field}.height`);
+  return aspectRatio;
+};
+
+const parseArtFrameHeight = (value: unknown, field: string) => {
+  const height = finiteCoordinate(value, `${field}.height`);
   if (height < MIN_POSTER_HEIGHT || height > MAX_POSTER_HEIGHT)
     throw new Error(`${field}.height must be between ${MIN_POSTER_HEIGHT} and ${MAX_POSTER_HEIGHT}`);
-  if (frame.fit !== "contain" && frame.fit !== "cover") throw new Error(`${field}.fit must be contain or cover`);
-  const intervalSeconds = finiteCoordinate(frame.intervalSeconds, `${field}.intervalSeconds`);
+  return height;
+};
+
+const parseArtFrameFit = (value: unknown, field: string): "contain" | "cover" => {
+  if (value !== "contain" && value !== "cover") throw new Error(`${field}.fit must be contain or cover`);
+  return value;
+};
+
+const parseArtFrameInterval = (value: unknown, field: string) => {
+  const intervalSeconds = finiteCoordinate(value, `${field}.intervalSeconds`);
   if (
     intervalSeconds !== 0 &&
     (intervalSeconds < MIN_ART_FRAME_INTERVAL_SECONDS || intervalSeconds > MAX_ART_FRAME_INTERVAL_SECONDS)
@@ -315,11 +340,23 @@ const parseDigitalArtFrameMeasurements = (frame: Record<string, unknown>, field:
     throw new Error(
       `${field}.intervalSeconds must be 0 or between ${MIN_ART_FRAME_INTERVAL_SECONDS} and ${MAX_ART_FRAME_INTERVAL_SECONDS}`,
     );
-  const rotation = frame.rotation === undefined ? undefined : finiteCoordinate(frame.rotation, `${field}.rotation`);
+  return intervalSeconds;
+};
+
+const parseArtFrameRotation = (value: unknown, field: string) => {
+  const rotation = parseOptionalValue(value, (raw) => finiteCoordinate(raw, `${field}.rotation`));
   if (rotation !== undefined && Math.abs(rotation) > MAX_POSTER_ROTATION)
     throw new Error(`${field}.rotation must be between -PI and PI`);
-  return {aspectRatio, fit: frame.fit as "contain" | "cover", height, intervalSeconds, rotation};
+  return rotation;
 };
+
+const parseDigitalArtFrameMeasurements = (frame: Record<string, unknown>, field: string) => ({
+  aspectRatio: parseArtFrameAspectRatio(frame.aspectRatio, field),
+  fit: parseArtFrameFit(frame.fit, field),
+  height: parseArtFrameHeight(frame.height, field),
+  intervalSeconds: parseArtFrameInterval(frame.intervalSeconds, field),
+  rotation: parseArtFrameRotation(frame.rotation, field),
+});
 
 const parseDigitalArtFrame = (value: unknown, index: number): WorldDigitalArtFrameSave => {
   if (!isRecord(value)) throw new Error(`digitalArtFrames[${index}] must be an object`);
@@ -457,19 +494,17 @@ const parseOptionalWorldFields = (value: Record<string, unknown>): ParsedWorldOp
   if (value.televisionModelVersion !== undefined && value.televisionModelVersion !== 2)
     throw new Error("televisionModelVersion is unsupported");
   return {
-    aisleSigns: value.aisleSigns === undefined ? undefined : parseAisleSigns(value.aisleSigns),
-    digitalArtFrames: value.digitalArtFrames === undefined ? undefined : parseDigitalArtFrames(value.digitalArtFrames),
-    modelProps: value.modelProps === undefined ? undefined : parseModelProps(value.modelProps),
-    posters: value.posters === undefined ? undefined : parsePosters(value.posters),
-    props: value.props === undefined ? undefined : parseProps(value.props),
-    shelfSigns: value.shelfSigns === undefined ? undefined : parseShelfSigns(value.shelfSigns),
-    television: value.television === undefined ? undefined : parsePose(value.television, "television"),
-    televisionChannels:
-      value.televisionChannels === undefined ? undefined : parseTelevisionChannels(value.televisionChannels),
+    aisleSigns: parseOptionalValue(value.aisleSigns, parseAisleSigns),
+    digitalArtFrames: parseOptionalValue(value.digitalArtFrames, parseDigitalArtFrames),
+    modelProps: parseOptionalValue(value.modelProps, parseModelProps),
+    posters: parseOptionalValue(value.posters, parsePosters),
+    props: parseOptionalValue(value.props, parseProps),
+    shelfSigns: parseOptionalValue(value.shelfSigns, parseShelfSigns),
+    television: parseOptionalValue(value.television, (raw) => parsePose(raw, "television")),
+    televisionChannels: parseOptionalValue(value.televisionChannels, parseTelevisionChannels),
     televisionModelVersion: value.televisionModelVersion as 2 | undefined,
-    televisionVolumes:
-      value.televisionVolumes === undefined ? undefined : parseTelevisionVolumes(value.televisionVolumes),
-    trashcan: value.trashcan === undefined ? undefined : parseVector3(value.trashcan, "trashcan"),
+    televisionVolumes: parseOptionalValue(value.televisionVolumes, parseTelevisionVolumes),
+    trashcan: parseOptionalValue(value.trashcan, (raw) => parseVector3(raw, "trashcan")),
   };
 };
 

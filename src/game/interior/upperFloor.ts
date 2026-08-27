@@ -301,6 +301,18 @@ const createUpperWindowWallWindows = (
     createUpperWindow(parent, x, glassZ, rotationY, frameMaterial, glassMaterial, addBox);
 };
 
+const createUpperWindowWallSolidRuns = () => {
+  const solidRuns: {max: number; min: number}[] = [];
+  let min = -12.5;
+  for (const center of UPPER_WINDOW_CENTERS) {
+    const openingMin = center - UPPER_WINDOW_WIDTH / 2;
+    solidRuns.push({max: openingMin, min});
+    min = center + UPPER_WINDOW_WIDTH / 2;
+  }
+  solidRuns.push({max: 12.5, min});
+  return solidRuns;
+};
+
 export const createUpperWindowWall = (
   parent: Group,
   z: number,
@@ -313,16 +325,7 @@ export const createUpperWindowWall = (
 ) => {
   addBox(parent, [25, 0.7, 0.18], [0, 5.25, z], wallMaterial);
   addBox(parent, [25, 0.7, 0.18], [0, 9.45, z], wallMaterial);
-  const openings = UPPER_WINDOW_CENTERS.map((center) => ({
-    max: center + UPPER_WINDOW_WIDTH / 2,
-    min: center - UPPER_WINDOW_WIDTH / 2,
-  }));
-  const solidRuns = [
-    {max: openings[0]?.min ?? -12.5, min: -12.5},
-    {max: openings[1]?.min ?? 0, min: openings[0]?.max ?? 0},
-    {max: openings[2]?.min ?? 0, min: openings[1]?.max ?? 0},
-    {max: 12.5, min: openings[2]?.max ?? 12.5},
-  ];
+  const solidRuns = createUpperWindowWallSolidRuns();
   const windowWallId = z < 0 ? "upper-north-window-wall" : "upper-south-window-wall";
   createUpperWindowWallPiers(parent, z, rotationY, solidRuns, wallMaterial, addBox, createPosterSurface, windowWallId);
 

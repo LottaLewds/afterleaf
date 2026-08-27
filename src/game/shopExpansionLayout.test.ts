@@ -36,6 +36,11 @@ import {
 const boxContainsPlanarPoint = (box: ShopExpansionBox, x: number, z: number) =>
   Math.abs(x - box.position[0]) <= box.size[0] / 2 && Math.abs(z - box.position[2]) <= box.size[2] / 2;
 
+const requireBox = <T>(box: T | undefined) => {
+  if (!box) throw new Error("Expected shop expansion box to exist.");
+  return box;
+};
+
 describe("shop expansion layout", () => {
   test("leaves the atrium open while supporting every side of its walkway", () => {
     const mainFloorBoxes = SHOP_UPPER_FLOOR_BOXES.slice(0, 4);
@@ -49,38 +54,38 @@ describe("shop expansion layout", () => {
   });
 
   test("centers and encloses the theatre hallway", () => {
-    const hallwayFloor = SHOP_UPPER_FLOOR_BOXES.find((box) => box.position[0] === SHOP_THEATRE_HALL.centerX);
-    const hallwayCeiling = SHOP_EXPANSION_WALL_BOXES.find(
-      (box) => box.position[0] === SHOP_THEATRE_HALL.centerX && box.size[1] === 0.18,
+    const hallwayFloor = requireBox(
+      SHOP_UPPER_FLOOR_BOXES.find((box) => box.position[0] === SHOP_THEATRE_HALL.centerX),
     );
-    expect(hallwayFloor).toBeDefined();
-    expect(hallwayCeiling).toBeDefined();
-    expect(hallwayFloor?.position[2]).toBe(SHOP_THEATRE_HALL.centerZ);
-    expect(hallwayFloor?.size[0]).toBe(SHOP_THEATRE_HALL.width);
-    expect(hallwayFloor?.size[2]).toBe(SHOP_THEATRE_HALL.depth);
-    expect(hallwayCeiling?.position[2]).toBe(SHOP_THEATRE_HALL.centerZ);
-    expect(hallwayCeiling?.size[0]).toBe(SHOP_THEATRE_HALL.width);
-    expect(hallwayCeiling?.size[2]).toBe(SHOP_THEATRE_HALL.depth);
+    const hallwayCeiling = requireBox(
+      SHOP_EXPANSION_WALL_BOXES.find((box) => box.position[0] === SHOP_THEATRE_HALL.centerX && box.size[1] === 0.18),
+    );
+    expect(hallwayFloor.position[2]).toBe(SHOP_THEATRE_HALL.centerZ);
+    expect(hallwayFloor.size[0]).toBe(SHOP_THEATRE_HALL.width);
+    expect(hallwayFloor.size[2]).toBe(SHOP_THEATRE_HALL.depth);
+    expect(hallwayCeiling.position[2]).toBe(SHOP_THEATRE_HALL.centerZ);
+    expect(hallwayCeiling.size[0]).toBe(SHOP_THEATRE_HALL.width);
+    expect(hallwayCeiling.size[2]).toBe(SHOP_THEATRE_HALL.depth);
     expect(SHOP_UPPER_FLOOR_BOXES.every((box) => box.size[1] === 0.18)).toBe(true);
 
     const hallwaySideWalls = SHOP_EXPANSION_WALL_BOXES.filter(
       (box) => box.position[0] === SHOP_THEATRE_HALL.centerX && box.position[1] === 6.2,
     ).sort((first, second) => first.position[2] - second.position[2]);
-    const [northHallWall, southHallWall] = hallwaySideWalls;
-    expect(northHallWall).toBeDefined();
-    expect(southHallWall).toBeDefined();
-    expect(northHallWall?.position[2]).toBeCloseTo(SHOP_THEATRE_HALL.centerZ - SHOP_THEATRE_HALL.depth / 2);
-    expect(southHallWall?.position[2]).toBeCloseTo(SHOP_THEATRE_HALL.centerZ + SHOP_THEATRE_HALL.depth / 2);
+    const northHallWall = requireBox(hallwaySideWalls[0]);
+    const southHallWall = requireBox(hallwaySideWalls[1]);
+    expect(northHallWall.position[2]).toBeCloseTo(SHOP_THEATRE_HALL.centerZ - SHOP_THEATRE_HALL.depth / 2);
+    expect(southHallWall.position[2]).toBeCloseTo(SHOP_THEATRE_HALL.centerZ + SHOP_THEATRE_HALL.depth / 2);
 
     const theatreMaxX = SHOP_THEATRE.centerX + SHOP_THEATRE.width / 2;
-    const theatreDoorHeader = SHOP_EXPANSION_WALL_BOXES.find(
-      (box) =>
-        box.position[0] === theatreMaxX &&
-        box.position[2] === SHOP_THEATRE.centerZ &&
-        box.size[2] === SHOP_THEATRE_DOOR_WIDTH,
+    const theatreDoorHeader = requireBox(
+      SHOP_EXPANSION_WALL_BOXES.find(
+        (box) =>
+          box.position[0] === theatreMaxX &&
+          box.position[2] === SHOP_THEATRE.centerZ &&
+          box.size[2] === SHOP_THEATRE_DOOR_WIDTH,
+      ),
     );
-    expect(theatreDoorHeader).toBeDefined();
-    expect((theatreDoorHeader?.position[1] ?? 0) - (theatreDoorHeader?.size[1] ?? 0) / 2).toBeCloseTo(
+    expect(theatreDoorHeader.position[1] - theatreDoorHeader.size[1] / 2).toBeCloseTo(
       SHOP_STOREY_HEIGHT + SHOP_STAIR_DOOR_HEIGHT,
     );
   });

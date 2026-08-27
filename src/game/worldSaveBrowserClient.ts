@@ -48,6 +48,15 @@ export const loadServerWorldSave = async (
   };
 };
 
+const throwWorldSaveUploadError = async (response: Response): Promise<never> => {
+  const message = await response.text();
+  if (response.status === 409)
+    throw new WorldSaveServerChangedError(message || "World save server changed; reload before saving");
+  if (response.status === 412)
+    throw new WorldSaveConflictError(message || "World save changed in another tab; reload before saving");
+  throw new Error(message || `World save upload failed (${response.status})`);
+};
+
 export const saveServerWorldSave = async (
   save: WorldSaveV1,
   serverInstanceId: string,
@@ -69,14 +78,7 @@ export const saveServerWorldSave = async (
     keepalive: bodyByteLength <= 60 * 1_024,
     method: "PUT",
   });
-  if (!response.ok) {
-    const message = await response.text();
-    if (response.status === 409)
-      throw new WorldSaveServerChangedError(message || "World save server changed; reload before saving");
-    if (response.status === 412)
-      throw new WorldSaveConflictError(message || "World save changed in another tab; reload before saving");
-    throw new Error(message || `World save upload failed (${response.status})`);
-  }
+  if (!response.ok) await throwWorldSaveUploadError(response);
   const nextRevision = response.headers.get("ETag")?.trim();
   if (!nextRevision) throw new Error("World save server did not return the new revision");
   return nextRevision;

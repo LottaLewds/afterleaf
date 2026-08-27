@@ -17,7 +17,6 @@ import {applyCeilingShapeUv} from "~/game/ceilingMaterials";
 import {createWallpaperMaterial} from "~/game/wallpaperMaterials";
 import {createSignVisual} from "~/game/signs/ShopSignSystem";
 import {
-  type CreatePosterSurface,
   createAtriumRailings,
   createStackableStairwell,
   createUpperFloorStructures,
@@ -379,6 +378,229 @@ export const buildShopInterior = (ctx: ShopCompositionContext) => {
   batchStaticInteriorMeshes(architecture);
 };
 
+const createExpansionWalls = (
+  ctx: ShopCompositionContext,
+  parent: Group,
+  upperWallMaterial: MeshStandardMaterial,
+  wallMaterial: MeshStandardMaterial,
+  darkWallMaterial: MeshStandardMaterial,
+  frameMaterial: MeshStandardMaterial,
+  glassMaterial: MeshBasicMaterial,
+) => {
+  createUpperWindowWall(
+    parent,
+    -10.5,
+    0,
+    upperWallMaterial,
+    frameMaterial,
+    glassMaterial,
+    ctx.addBox,
+    ctx.createPosterSurface,
+  );
+  createUpperWindowWall(
+    parent,
+    28,
+    Math.PI,
+    upperWallMaterial,
+    frameMaterial,
+    glassMaterial,
+    ctx.addBox,
+    ctx.createPosterSurface,
+  );
+  for (const [index, box] of SHOP_EXPANSION_WALL_BOXES.entries()) {
+    if (index < 2) continue;
+    let roomWall = upperWallMaterial;
+    if (box.position[1] < SHOP_UPPER_FLOOR_Y) roomWall = wallMaterial;
+    else if (box.position[0] < -16) roomWall = darkWallMaterial;
+    ctx.addBox(parent, box.size, box.position, roomWall);
+    createWallPosterSurfaces(parent, `expansion-wall-${index + 1}`, box, ctx.createPosterSurface);
+  }
+};
+
+const createExpansionRoomsAndFixtures = (
+  ctx: ShopCompositionContext,
+  parent: Group,
+  woodMaterial: MeshStandardMaterial,
+  shelfBackingMaterial: MeshStandardMaterial,
+  shelfEdgeMaterial: MeshStandardMaterial,
+  readingFurnitureMaterials: ReadingFurnitureMaterials,
+) => {
+  for (const door of createHallwayDoor(
+    parent,
+    "theatre",
+    SHOP_THEATRE_HALL.centerX + SHOP_THEATRE_HALL.width / 2 + 0.12,
+    SHOP_THEATRE_HALL.centerZ,
+    "x",
+    -1,
+    woodMaterial,
+    ctx.addBox,
+  ))
+    ctx.doors.registerHallwayDoor(door);
+  for (const door of createHallwayDoor(
+    parent,
+    "tv-cave",
+    12.38,
+    SHOP_TV_CAVE_DOOR_CENTER_Z,
+    "x",
+    1,
+    woodMaterial,
+    ctx.addBox,
+  ))
+    ctx.doors.registerHallwayDoor(door);
+
+  createAtriumRailings(parent, woodMaterial, ctx.addBox);
+  createStackableStairwell(parent, woodMaterial, ctx.addBox);
+  createSpineShelfFixture(
+    parent,
+    "mezzanine-west",
+    -11.45,
+    -5,
+    9,
+    3,
+    [1],
+    woodMaterial,
+    shelfBackingMaterial,
+    shelfEdgeMaterial,
+    SPINE_SHELF_BACKING_THICKNESS,
+    SHOP_UPPER_FLOOR_Y,
+    "x",
+    spineFixtureDeps(ctx),
+  );
+  createSpineShelfFixture(
+    parent,
+    "mezzanine-east",
+    11.45,
+    -5,
+    9,
+    3,
+    [-1],
+    woodMaterial,
+    shelfBackingMaterial,
+    shelfEdgeMaterial,
+    SPINE_SHELF_BACKING_THICKNESS,
+    SHOP_UPPER_FLOOR_Y,
+    "x",
+    spineFixtureDeps(ctx),
+  );
+  for (const side of [-1, 1] as const)
+    for (const [index, z] of SHOP_UPPER_STACK_ZS.entries())
+      createSpineShelfFixture(
+        parent,
+        `mezzanine-${side < 0 ? "west" : "east"}-stack-${index + 1}`,
+        side * SHOP_UPPER_STACK_CENTER_X,
+        z,
+        SHOP_UPPER_STACK_LENGTH,
+        2,
+        [-1, 1],
+        woodMaterial,
+        shelfBackingMaterial,
+        shelfEdgeMaterial,
+        SPINE_SHELF_BACKING_THICKNESS,
+        SHOP_UPPER_FLOOR_Y,
+        "x",
+        spineFixtureDeps(ctx),
+      );
+  ctx.createUpperReadingFurniture(parent, woodMaterial, readingFurnitureMaterials);
+  createTheatreSeating(parent, ctx.addBox);
+  createTelevisionRooms(parent, woodMaterial, {
+    addBox: ctx.addBox,
+    createSpawnedCrtTelevision: (asset, id, scale, pose) => ctx.createSpawnedCrtTelevision(asset, id, scale, pose),
+    needsSeedPass: (version) => ctx.needsSeedPass(version),
+    registerPropPlacementSupport: (object) => ctx.registerPropPlacementSupport(object),
+    registerTelevision: (saveId, television) => ctx.registerTelevision(saveId, television),
+    sharedTelevisionOptions: (channelId, volume) => ctx.sharedTelevisionOptions(channelId, volume),
+    textureLoader: ctx.textureLoader,
+    maxTextureAnisotropy: ctx.renderer.capabilities.getMaxAnisotropy(),
+    televisionChannels: ctx.pendingWorldSave?.televisionChannels,
+    televisionVolumes: ctx.pendingWorldSave?.televisionVolumes,
+  });
+  ctx.signs.createRoomSignSlot(
+    parent,
+    "moonlight-theatre",
+    "MOONLIGHT THEATRE",
+    "MOONLIGHT THEATRE",
+    "SCREENING ROOM · WEST HALL",
+    [-12.37, 7.72, 18.5],
+    Math.PI / 2,
+  );
+  ctx.signs.createRoomSignSlot(
+    parent,
+    "tv-cave",
+    "TV CAVE",
+    "TV CAVE",
+    "SIMULCAST CRT ROOM · EAST ANNEX",
+    [12.37, 7.72, SHOP_TV_CAVE_DOOR_CENTER_Z],
+    -Math.PI / 2,
+  );
+};
+
+const createExpansionRoof = (
+  ctx: ShopCompositionContext,
+  parent: Group,
+  ceilingMaterial: MeshStandardMaterial,
+  frameMaterial: MeshStandardMaterial,
+  glassMaterial: MeshBasicMaterial,
+) => {
+  const roofMaterial = ceilingMaterial;
+  const skylight = SHOP_ATRIUM;
+  const skylightWidth = skylight.maxX - skylight.minX;
+  const skylightDepth = skylight.maxZ - skylight.minZ;
+  const skylightCenterX = (skylight.minX + skylight.maxX) / 2;
+  const skylightCenterZ = (skylight.minZ + skylight.maxZ) / 2;
+  const roof = createHorizontalShape(
+    parent,
+    {maxX: 12.5, maxZ: 28, minX: -12.5, minZ: -10.5},
+    [skylight],
+    SHOP_UPPER_CEILING_Y,
+    roofMaterial,
+  );
+  applyCeilingShapeUv(roof.geometry);
+  roof.name = "main-roof";
+  const stairRoof = createHorizontalShape(parent, SHOP_STAIR_ROOM, [], SHOP_UPPER_CEILING_Y, roofMaterial);
+  applyCeilingShapeUv(stairRoof.geometry);
+  stairRoof.name = "stair-tower-roof";
+  const skylightGlass = new Mesh(new PlaneGeometry(skylightWidth, skylightDepth), glassMaterial);
+  skylightGlass.rotation.x = -Math.PI / 2;
+  skylightGlass.position.set(skylightCenterX, SHOP_UPPER_CEILING_Y + 0.015, skylightCenterZ);
+  parent.add(skylightGlass);
+  for (const [size, position] of [
+    [
+      [skylightWidth + 0.15, 0.16, 0.16],
+      [skylightCenterX, SHOP_UPPER_CEILING_Y + 0.07, skylight.minZ],
+    ],
+    [
+      [skylightWidth + 0.15, 0.16, 0.16],
+      [skylightCenterX, SHOP_UPPER_CEILING_Y + 0.07, skylight.maxZ],
+    ],
+    [
+      [0.16, 0.16, skylightDepth + 0.15],
+      [skylight.minX, SHOP_UPPER_CEILING_Y + 0.07, skylightCenterZ],
+    ],
+    [
+      [0.16, 0.16, skylightDepth + 0.15],
+      [skylight.maxX, SHOP_UPPER_CEILING_Y + 0.07, skylightCenterZ],
+    ],
+    [
+      [0.11, 0.12, skylightDepth],
+      [skylightCenterX, SHOP_UPPER_CEILING_Y + 0.09, skylightCenterZ],
+    ],
+  ] as const)
+    ctx.addBox(parent, size, position, frameMaterial, true);
+
+  ctx.addBox(
+    parent,
+    [SHOP_THEATRE.width, 0.18, SHOP_THEATRE.depth],
+    [SHOP_THEATRE.centerX, 15.82, SHOP_THEATRE.centerZ],
+    roofMaterial,
+  );
+  ctx.addBox(
+    parent,
+    [SHOP_TV_CAVE.width, 0.18, SHOP_TV_CAVE.depth],
+    [SHOP_TV_CAVE.centerX, 9.72, SHOP_TV_CAVE.centerZ],
+    roofMaterial,
+  );
+};
+
 const buildShopExpansion = (
   ctx: ShopCompositionContext,
   parent: Group,
@@ -459,208 +681,15 @@ const buildShopExpansion = (
     transparent: true,
   });
   glassMaterial.forceSinglePass = true;
-  const addBox: AddBox = (parent2, size, position2, material, castShadow) =>
-    ctx.addBox(parent2, size, position2, material, castShadow);
-  const createPosterSurface: CreatePosterSurface = (parent2, id, width, height, position2, rotationY) =>
-    ctx.createPosterSurface(parent2, id, width, height, position2, rotationY);
-  createUpperWindowWall(parent, -10.5, 0, upperWallMaterial, frameMaterial, glassMaterial, addBox, createPosterSurface);
-  createUpperWindowWall(
+  createExpansionWalls(ctx, parent, upperWallMaterial, wallMaterial, darkWallMaterial, frameMaterial, glassMaterial);
+  createExpansionRoomsAndFixtures(
+    ctx,
     parent,
-    28,
-    Math.PI,
-    upperWallMaterial,
-    frameMaterial,
-    glassMaterial,
-    addBox,
-    createPosterSurface,
-  );
-  for (const [index, box] of SHOP_EXPANSION_WALL_BOXES.entries()) {
-    if (index < 2) continue;
-    let roomWall = upperWallMaterial;
-    if (box.position[1] < SHOP_UPPER_FLOOR_Y) roomWall = wallMaterial;
-    else if (box.position[0] < -16) roomWall = darkWallMaterial;
-    ctx.addBox(parent, box.size, box.position, roomWall);
-    createWallPosterSurfaces(
-      parent,
-      `expansion-wall-${index + 1}`,
-      box,
-      (p2: Group, id2: string, w2: number, h2: number, pos2: readonly [number, number, number], rot2: number) =>
-        ctx.createPosterSurface(p2, id2, w2, h2, pos2, rot2),
-    );
-  }
-
-  const doorAddBox: AddBox = (parent2, size, position2, material, castShadow) =>
-    ctx.addBox(parent2, size, position2, material, castShadow);
-  for (const door of createHallwayDoor(
-    parent,
-    "theatre",
-    SHOP_THEATRE_HALL.centerX + SHOP_THEATRE_HALL.width / 2 + 0.12,
-    SHOP_THEATRE_HALL.centerZ,
-    "x",
-    -1,
-    woodMaterial,
-    doorAddBox,
-  ))
-    ctx.doors.registerHallwayDoor(door);
-  for (const door of createHallwayDoor(
-    parent,
-    "tv-cave",
-    12.38,
-    SHOP_TV_CAVE_DOOR_CENTER_Z,
-    "x",
-    1,
-    woodMaterial,
-    doorAddBox,
-  ))
-    ctx.doors.registerHallwayDoor(door);
-
-  createAtriumRailings(parent, woodMaterial, (parent2, size, position2, material, castShadow) =>
-    ctx.addBox(parent2, size, position2, material, castShadow),
-  );
-  createStackableStairwell(parent, woodMaterial, (parent2, size, position2, material, castShadow) =>
-    ctx.addBox(parent2, size, position2, material, castShadow),
-  );
-  createSpineShelfFixture(
-    parent,
-    "mezzanine-west",
-    -11.45,
-    -5,
-    9,
-    3,
-    [1],
     woodMaterial,
     shelfBackingMaterial,
     shelfEdgeMaterial,
-    SPINE_SHELF_BACKING_THICKNESS,
-    SHOP_UPPER_FLOOR_Y,
-    "x",
-    spineFixtureDeps(ctx),
-  );
-  createSpineShelfFixture(
-    parent,
-    "mezzanine-east",
-    11.45,
-    -5,
-    9,
-    3,
-    [-1],
-    woodMaterial,
-    shelfBackingMaterial,
-    shelfEdgeMaterial,
-    SPINE_SHELF_BACKING_THICKNESS,
-    SHOP_UPPER_FLOOR_Y,
-    "x",
-    spineFixtureDeps(ctx),
-  );
-  for (const side of [-1, 1] as const)
-    for (const [index, z] of SHOP_UPPER_STACK_ZS.entries())
-      createSpineShelfFixture(
-        parent,
-        `mezzanine-${side < 0 ? "west" : "east"}-stack-${index + 1}`,
-        side * SHOP_UPPER_STACK_CENTER_X,
-        z,
-        SHOP_UPPER_STACK_LENGTH,
-        2,
-        [-1, 1],
-        woodMaterial,
-        shelfBackingMaterial,
-        shelfEdgeMaterial,
-        SPINE_SHELF_BACKING_THICKNESS,
-        SHOP_UPPER_FLOOR_Y,
-        "x",
-        spineFixtureDeps(ctx),
-      );
-  ctx.createUpperReadingFurniture(parent, woodMaterial, readingFurnitureMaterials);
-  createTheatreSeating(parent, (parent2, size, position2, material, castShadow) =>
-    ctx.addBox(parent2, size, position2, material, castShadow),
-  );
-  createTelevisionRooms(parent, woodMaterial, {
-    addBox: (p, size, pos, mat, castShadow) => ctx.addBox(p, size, pos, mat, castShadow),
-    createSpawnedCrtTelevision: (asset, id, scale, pose) => ctx.createSpawnedCrtTelevision(asset, id, scale, pose),
-    needsSeedPass: (version) => ctx.needsSeedPass(version),
-    registerPropPlacementSupport: (object) => ctx.registerPropPlacementSupport(object),
-    registerTelevision: (saveId, television) => ctx.registerTelevision(saveId, television),
-    sharedTelevisionOptions: (channelId, volume) => ctx.sharedTelevisionOptions(channelId, volume),
-    textureLoader: ctx.textureLoader,
-    maxTextureAnisotropy: ctx.renderer.capabilities.getMaxAnisotropy(),
-    televisionChannels: ctx.pendingWorldSave?.televisionChannels,
-    televisionVolumes: ctx.pendingWorldSave?.televisionVolumes,
-  });
-  ctx.signs.createRoomSignSlot(
-    parent,
-    "moonlight-theatre",
-    "MOONLIGHT THEATRE",
-    "MOONLIGHT THEATRE",
-    "SCREENING ROOM · WEST HALL",
-    [-12.37, 7.72, 18.5],
-    Math.PI / 2,
-  );
-  ctx.signs.createRoomSignSlot(
-    parent,
-    "tv-cave",
-    "TV CAVE",
-    "TV CAVE",
-    "SIMULCAST CRT ROOM · EAST ANNEX",
-    [12.37, 7.72, SHOP_TV_CAVE_DOOR_CENTER_Z],
-    -Math.PI / 2,
+    readingFurnitureMaterials,
   );
 
-  const roofMaterial = ceilingMaterial;
-  const skylight = SHOP_ATRIUM;
-  const skylightWidth = skylight.maxX - skylight.minX;
-  const skylightDepth = skylight.maxZ - skylight.minZ;
-  const skylightCenterX = (skylight.minX + skylight.maxX) / 2;
-  const skylightCenterZ = (skylight.minZ + skylight.maxZ) / 2;
-  const roof = createHorizontalShape(
-    parent,
-    {maxX: 12.5, maxZ: 28, minX: -12.5, minZ: -10.5},
-    [skylight],
-    SHOP_UPPER_CEILING_Y,
-    roofMaterial,
-  );
-  applyCeilingShapeUv(roof.geometry);
-  roof.name = "main-roof";
-  const stairRoof = createHorizontalShape(parent, SHOP_STAIR_ROOM, [], SHOP_UPPER_CEILING_Y, roofMaterial);
-  applyCeilingShapeUv(stairRoof.geometry);
-  stairRoof.name = "stair-tower-roof";
-  const skylightGlass = new Mesh(new PlaneGeometry(skylightWidth, skylightDepth), glassMaterial);
-  skylightGlass.rotation.x = -Math.PI / 2;
-  skylightGlass.position.set(skylightCenterX, SHOP_UPPER_CEILING_Y + 0.015, skylightCenterZ);
-  parent.add(skylightGlass);
-  for (const [size, position] of [
-    [
-      [skylightWidth + 0.15, 0.16, 0.16],
-      [skylightCenterX, SHOP_UPPER_CEILING_Y + 0.07, skylight.minZ],
-    ],
-    [
-      [skylightWidth + 0.15, 0.16, 0.16],
-      [skylightCenterX, SHOP_UPPER_CEILING_Y + 0.07, skylight.maxZ],
-    ],
-    [
-      [0.16, 0.16, skylightDepth + 0.15],
-      [skylight.minX, SHOP_UPPER_CEILING_Y + 0.07, skylightCenterZ],
-    ],
-    [
-      [0.16, 0.16, skylightDepth + 0.15],
-      [skylight.maxX, SHOP_UPPER_CEILING_Y + 0.07, skylightCenterZ],
-    ],
-    [
-      [0.11, 0.12, skylightDepth],
-      [skylightCenterX, SHOP_UPPER_CEILING_Y + 0.09, skylightCenterZ],
-    ],
-  ] as const)
-    ctx.addBox(parent, size, position, frameMaterial, true);
-
-  ctx.addBox(
-    parent,
-    [SHOP_THEATRE.width, 0.18, SHOP_THEATRE.depth],
-    [SHOP_THEATRE.centerX, 15.82, SHOP_THEATRE.centerZ],
-    roofMaterial,
-  );
-  ctx.addBox(
-    parent,
-    [SHOP_TV_CAVE.width, 0.18, SHOP_TV_CAVE.depth],
-    [SHOP_TV_CAVE.centerX, 9.72, SHOP_TV_CAVE.centerZ],
-    roofMaterial,
-  );
+  createExpansionRoof(ctx, parent, ceilingMaterial, frameMaterial, glassMaterial);
 };

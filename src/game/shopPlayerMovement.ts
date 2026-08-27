@@ -92,6 +92,18 @@ export class ShopPlayerMovement {
 
   #updatePhysics(deltaSeconds: number, state: ShopInputState, camera: PerspectiveCamera) {
     const host = this.#host;
+    const movementTime = this.#updateVerticalMovement(deltaSeconds, state, camera);
+    this.#playerDesiredDisplacement.set(
+      this.#movementDelta.x,
+      this.#playerVerticalVelocity * deltaSeconds,
+      this.#movementDelta.z,
+    );
+    host.physicsWorld().movePlayer(this.#playerDesiredDisplacement, this.#playerMovement);
+    camera.position.copy(this.#playerMovement.eyePosition);
+    this.#updateGrounding(movementTime);
+  }
+
+  #updateVerticalMovement(deltaSeconds: number, state: ShopInputState, camera: PerspectiveCamera) {
     const movementTime = performance.now();
     const canJump =
       this.#playerGrounded ||
@@ -108,13 +120,10 @@ export class ShopPlayerMovement {
         this.#playerVerticalVelocity + PLAYER_GRAVITY * deltaSeconds,
       );
     state.jumpQueued = jumpBuffered && !canJump;
-    this.#playerDesiredDisplacement.set(
-      this.#movementDelta.x,
-      this.#playerVerticalVelocity * deltaSeconds,
-      this.#movementDelta.z,
-    );
-    host.physicsWorld().movePlayer(this.#playerDesiredDisplacement, this.#playerMovement);
-    camera.position.copy(this.#playerMovement.eyePosition);
+    return movementTime;
+  }
+
+  #updateGrounding(movementTime: number) {
     const correctedY = this.#playerMovement.correctedDisplacement.y;
     const descending = this.#playerVerticalVelocity <= 0;
     const supportedWhileFalling = descending && correctedY > this.#playerDesiredDisplacement.y + 0.0001;

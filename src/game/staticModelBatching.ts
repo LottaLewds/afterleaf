@@ -34,6 +34,50 @@ export type MergedStaticResult = {
  */
 const SHARED_STATIC_GEOMETRY = "afterleafSharedStaticGeometry";
 
+type StaticMergeBucket = {
+  geometries: BufferGeometry[];
+  material: Material;
+  meshes: Mesh[];
+};
+
+const getStaticMergeBucket = (
+  buckets: Map<string, StaticMergeBucket>,
+  key: string,
+  material: Material,
+): StaticMergeBucket => {
+  let bucket = buckets.get(key);
+  if (!bucket) {
+    bucket = {geometries: [], material, meshes: []};
+    buckets.set(key, bucket);
+  }
+  return bucket;
+};
+
+const collectMergedStaticMesh = (
+  object: Object3D,
+  rootInverse: Matrix4,
+  buckets: Map<string, StaticMergeBucket>,
+  exclude: ((mesh: Mesh) => boolean) | undefined,
+) => {
+  if (!(object instanceof Mesh) || object instanceof SkinnedMesh) return;
+  if (exclude?.(object)) return;
+  const material = object.material;
+  if (Array.isArray(material) || material.transparent) return;
+  const geometry = object.geometry;
+  if (!geometry.getAttribute("position")) return;
+  const key = [
+    material.uuid,
+    geometry.index ? "indexed" : "unindexed",
+    Object.keys(geometry.attributes).sort().join("+"),
+    geometry.morphAttributes.position ? "morph" : "plain",
+  ].join("|");
+  const bucket = getStaticMergeBucket(buckets, key, material);
+  bucket.meshes.push(object);
+  const baked = geometry.clone();
+  baked.applyMatrix4(new Matrix4().multiplyMatrices(rootInverse, object.matrixWorld));
+  bucket.geometries.push(baked);
+};
+
 export const isSharedStaticGeometry = (geometry: BufferGeometry): boolean =>
   geometry.userData[SHARED_STATIC_GEOMETRY] === true;
 
@@ -52,36 +96,8 @@ export const buildMergedStaticParts = (root: Object3D, exclude?: (mesh: Mesh) =>
   root.updateMatrixWorld(true);
   const rootInverse = new Matrix4().copy(root.matrixWorld).invert();
 
-  type Bucket = {
-    geometries: BufferGeometry[];
-    material: Material;
-    meshes: Mesh[];
-  };
-  const buckets = new Map<string, Bucket>();
-
-  root.traverse((object) => {
-    if (!(object instanceof Mesh) || object instanceof SkinnedMesh) return;
-    if (exclude?.(object)) return;
-    const material = object.material;
-    if (Array.isArray(material) || material.transparent) return;
-    const geometry = object.geometry;
-    if (!geometry.getAttribute("position")) return;
-    const key = [
-      material.uuid,
-      geometry.index ? "indexed" : "unindexed",
-      Object.keys(geometry.attributes).sort().join("+"),
-      geometry.morphAttributes.position ? "morph" : "plain",
-    ].join("|");
-    let bucket = buckets.get(key);
-    if (!bucket) {
-      bucket = {geometries: [], material, meshes: []};
-      buckets.set(key, bucket);
-    }
-    bucket.meshes.push(object);
-    const baked = geometry.clone();
-    baked.applyMatrix4(new Matrix4().multiplyMatrices(rootInverse, object.matrixWorld));
-    bucket.geometries.push(baked);
-  });
+  const buckets = new Map<string, StaticMergeBucket>();
+  root.traverse((object) => collectMergedStaticMesh(object, rootInverse, buckets, exclude));
 
   const parts: {geometry: BufferGeometry; material: Material}[] = [];
   const consumed: Mesh[] = [];
@@ -174,6 +190,37 @@ export const batchStaticInteriorMeshes = (parent: Group) => {
     return material;
   };
 
+  const createBakedBatchInfo = (object: Mesh, material: MeshStandardMaterial | MeshBasicMaterial, indexed: string) => {
+    const attributesKey = Object.keys(object.geometry.attributes).sort().join("+");
+    // MeshBasicMaterial has no flatShading; the `in` guard keeps
+    // the finish key honest for both material classes.
+    const flatShading = "flatShading" in material && material.flatShading;
+    const signature = [
+      "finish",
+      material.type,
+      String(material.side),
+      String(flatShading),
+      ...(material instanceof MeshStandardMaterial ? [String(material.roughness), String(material.metalness)] : []),
+      attributesKey,
+      indexed,
+    ].join("|");
+    const bucketMaterial = finishMaterialFor(signature, material);
+    // Bake once per mesh; clones keep shared source geometries
+    // untouched when siblings carry different tints.
+    const baked = object.geometry.clone();
+    const vertexCount = baked.getAttribute("position").count;
+    const colors = new Float32Array(vertexCount * 3);
+    const {b, g, r} = material.color;
+    for (let index = 0; index < vertexCount; index += 1) {
+      colors[index * 3] = r;
+      colors[index * 3 + 1] = g;
+      colors[index * 3 + 2] = b;
+    }
+    baked.setAttribute("color", new BufferAttribute(colors, 3));
+    object.geometry = baked;
+    return {bucketMaterial, signature};
+  };
+
   /** Buckets keyed by container node: global for unscoped content. */
   const bucketsByContainer = new Map<Object3D, Map<string, {material: Material; meshes: Mesh[]}>>();
   const bucketFor = (container: Object3D) => {
@@ -200,43 +247,11 @@ export const batchStaticInteriorMeshes = (parent: Group) => {
     )
       return;
     const indexed = object.geometry.getIndex() ? "indexed" : "unindexed";
-    let signature: string;
-    let bucketMaterial = material;
-    if (isBakeableColorMaterial(material)) {
-      const attributesKey = Object.keys(object.geometry.attributes).sort().join("+");
-      // MeshBasicMaterial has no flatShading; the `in` guard keeps
-      // the finish key honest for both material classes.
-      const flatShading = "flatShading" in material && material.flatShading;
-      signature = [
-        "finish",
-        material.type,
-        String(material.side),
-        String(flatShading),
-        ...(material instanceof MeshStandardMaterial ? [String(material.roughness), String(material.metalness)] : []),
-        attributesKey,
-        indexed,
-      ].join("|");
-      bucketMaterial = finishMaterialFor(signature, material);
-      // Bake once per mesh; clones keep shared source geometries
-      // untouched when siblings carry different tints.
-      const baked = object.geometry.clone();
-      const vertexCount = baked.getAttribute("position").count;
-      const colors = new Float32Array(vertexCount * 3);
-      const {b, g, r} = material.color;
-      for (let index = 0; index < vertexCount; index += 1) {
-        colors[index * 3] = r;
-        colors[index * 3 + 1] = g;
-        colors[index * 3 + 2] = b;
-      }
-      baked.setAttribute("color", new BufferAttribute(colors, 3));
-      object.geometry = baked;
-    } else {
-      // Flags deliberately excluded: per-row renderOrder/shadow flags
-      // would otherwise split identical fixtures into singleton buckets.
-      // Opaque draws are depth-sorted by the GPU regardless.
-      signature = [interiorMaterialSignature(bucketMaterial), indexed].join(":");
-    }
-    return {bucketMaterial, signature};
+    if (isBakeableColorMaterial(material)) return createBakedBatchInfo(object, material, indexed);
+    // Flags deliberately excluded: per-row renderOrder/shadow flags
+    // would otherwise split identical fixtures into singleton buckets.
+    // Opaque draws are depth-sorted by the GPU regardless.
+    return {bucketMaterial: material, signature: [interiorMaterialSignature(material), indexed].join(":")};
   };
 
   const addMeshToBucket = (object: Object3D, effectiveContainer: Object3D, excludedFromBatch: boolean) => {
@@ -262,8 +277,7 @@ export const batchStaticInteriorMeshes = (parent: Group) => {
     bucket.meshes.push(object);
   };
 
-  const visit = (object: Object3D, scopeContainer: Object3D | null, excludedFromBatch = false): void => {
-    if (!object.visible) return;
+  const resolveVisitScope = (object: Object3D, scopeContainer: Object3D | null, excludedFromBatch: boolean) => {
     const nextExcludedFromBatch = excludedFromBatch || object.userData.excludeFromStaticBatch === true;
     // Topmost soft match owns the scope; everything under it batches
     // into the container just above that match so the fixture stays
@@ -271,11 +285,20 @@ export const batchStaticInteriorMeshes = (parent: Group) => {
     const scope = scopeContainer ?? (INTERIOR_BATCH_SOFT.test(object.name) ? object : null);
     const container = scope === null ? parent : (scope.parent ?? parent);
     const effectiveContainer = scope === null ? parent : container === parent ? parent : container;
+    const childScope = scope ?? (effectiveContainer === parent ? null : scope);
+    return {childScope, effectiveContainer, nextExcludedFromBatch};
+  };
 
+  const visit = (object: Object3D, scopeContainer: Object3D | null, excludedFromBatch = false): void => {
+    if (!object.visible) return;
+    const {childScope, effectiveContainer, nextExcludedFromBatch} = resolveVisitScope(
+      object,
+      scopeContainer,
+      excludedFromBatch,
+    );
     addMeshToBucket(object, effectiveContainer, nextExcludedFromBatch);
 
-    for (const child of object.children)
-      visit(child, scope ?? (effectiveContainer === parent ? null : scope), nextExcludedFromBatch);
+    for (const child of object.children) visit(child, childScope, nextExcludedFromBatch);
   };
   for (const child of [...parent.children]) visit(child, null);
 
