@@ -132,7 +132,11 @@ const DiagramShape = (props: {
     return current.shape === "face" ? (current.r ?? 12) : 12;
   };
   const stroke = () => (props.mapped || props.capturingId !== undefined ? ACCENT : STROKE_MUTED);
-  const outlineWidth = () => (props.capturingId !== undefined ? "2.5" : props.mapped ? "2" : "1.5");
+  const outlineWidth = () => {
+    if (props.capturingId !== undefined) return "2.5";
+    if (props.mapped) return "2";
+    return "1.5";
+  };
   const clickable = {
     onClick: () => props.onSelect(props.element.controlIds[0] as number),
   } as const;

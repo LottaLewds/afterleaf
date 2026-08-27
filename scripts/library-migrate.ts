@@ -32,14 +32,10 @@ content-packs/demo-v1 is left in place; it is safe to delete.`);
       console.log("Nothing to migrate: no legacy-layout folders were found.");
     } else {
       for (const move of result.moves) {
-        const verb =
-          move.merge === "library-roots"
-            ? "would merge"
-            : move.merge === "append"
-              ? "would append"
-              : write && result.performedMoves.includes(move)
-                ? "moved"
-                : "would move";
+        let verb = "would move";
+        if (move.merge === "library-roots") verb = "would merge";
+        else if (move.merge === "append") verb = "would append";
+        else if (write && result.performedMoves.includes(move)) verb = "moved";
         console.log(`${verb}: ${move.from}\n           -> ${move.to}`);
       }
     }

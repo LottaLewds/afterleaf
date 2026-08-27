@@ -4,16 +4,18 @@ import {
   DoubleSide,
   Euler,
   Group,
+  MathUtils,
   Mesh,
   MeshBasicMaterial,
-  Object3D,
   Quaternion,
   Vector3,
   type Material,
   type MeshStandardMaterial,
   type AnimationMixer,
+  type Object3D,
+  type PerspectiveCamera,
+  type Scene,
 } from "three";
-import {MathUtils} from "three";
 import {GLTFLoader} from "three/examples/jsm/loaders/GLTFLoader.js";
 import {clone as cloneWithSkeleton} from "three/examples/jsm/utils/SkeletonUtils.js";
 import {DEV} from "solid-js";
@@ -22,9 +24,13 @@ import trashCanModelUrl from "~/assets/models/trash_can.glb?url";
 import {createCeilingLightRig, playModelAnimations} from "~/game/interior/lightingProps";
 import {findModelTelevisionScreen, getInitialModelAnimationIndex} from "~/game/modelTelevision";
 import {normalizePosterRotation} from "~/game/wallDecorTuning";
-import {ARCADE_CABINET_HEIGHT} from "~/game/ShopArcadeCabinet";
-import {RARE_ROOM_CENTER_X, RARE_ROOM_CENTER_Z} from "~/game/shopLayout";
-import {SHOP_MODEL_TELEVISION_SCALE, SHOP_MODEL_TELEVISION_SIZE} from "~/game/shopLayout";
+import {ARCADE_CABINET_HEIGHT, ShopArcadeCabinet} from "~/game/ShopArcadeCabinet";
+import {
+  RARE_ROOM_CENTER_X,
+  RARE_ROOM_CENTER_Z,
+  SHOP_MODEL_TELEVISION_SCALE,
+  SHOP_MODEL_TELEVISION_SIZE,
+} from "~/game/shopLayout";
 import {
   BUILTIN_ARCADE_CABINET_ASSET_ID,
   BUILTIN_CEILING_LIGHT_ASSET_ID,
@@ -49,8 +55,7 @@ import {
 } from "~/game/propTemplates";
 import {buildMergedStaticParts} from "~/game/staticModelBatching";
 import {createMovablePropRecord} from "~/game/movablePropRegistry";
-import {ShopArcadeCabinet} from "~/game/ShopArcadeCabinet";
-import {ShopAudioManager} from "~/game/ShopAudioManager";
+import type {ShopAudioManager} from "~/game/ShopAudioManager";
 import type {BookPhysicsPose, ShopPhysicsWorld} from "~/game/ShopPhysicsWorld";
 import {CRT_TV_SAFE_AREA, ShopTelevision} from "~/game/ShopTelevision";
 import type {ModelPlacementSession, ModelTemplate, MovablePropRecord} from "~/game/shopTypes";
@@ -135,7 +140,7 @@ export type MovablePropLifecycleHost = {
   activeArcadeCabinet: () => ShopArcadeCabinet | undefined;
   arcadeCabinets: () => ShopArcadeCabinet[];
   audioManager: () => ShopAudioManager;
-  camera: () => import("three").PerspectiveCamera;
+  camera: () => PerspectiveCamera;
   carriedPublicationId: () => string | undefined;
   discardBin: () => DiscardBin;
   disposed: () => boolean;
@@ -152,7 +157,7 @@ export type MovablePropLifecycleHost = {
   playerVelocity: () => Vector3;
   savedTelevisionChannels: () => WorldTelevisionChannels;
   savedTelevisionVolumes: () => WorldTelevisionVolumes;
-  scene: () => import("three").Scene;
+  scene: () => Scene;
   setActiveArcadeCabinet: (cabinet: ShopArcadeCabinet | undefined) => void;
   setArcadeTargeted: (cabinet: ShopArcadeCabinet | undefined) => void;
   setHoveredPublicationId: (publicationId: string | undefined) => void;

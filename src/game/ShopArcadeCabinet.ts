@@ -17,7 +17,7 @@ import {DEV} from "solid-js";
 import {arcadeGameId, findArcadeSystem} from "~/arcade/systems";
 import {buildDefaultControllers} from "~/arcade/controllerMappings";
 import {launchEmulator, type EmulatorSession, type ForwardedKeyEvent} from "~/arcade/emulatorHost";
-import {type PositionalStreamAudioHandle, type ShopAudioManager} from "~/game/ShopAudioManager";
+import type {PositionalStreamAudioHandle, ShopAudioManager} from "~/game/ShopAudioManager";
 import arcadeCabinetModelUrl from "~/assets/models/arcade_cabinet_ms_pacman.glb?url";
 import {
   findModelTelevisionScreen,

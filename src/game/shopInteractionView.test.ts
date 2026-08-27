@@ -5,8 +5,12 @@ import type {ArtFrameSystem} from "~/game/artFrameSystem";
 import type {BookRecord} from "~/game/bookFactory";
 import type {PosterSystem} from "~/game/posters/PosterSystem";
 import type {ShopArcadeCabinet} from "~/game/ShopArcadeCabinet";
-import type {InteractionUiState, ShopInteractionMode} from "~/game/shopInteractionView";
-import {resolveShopInteractionMode, resolveShopInteractionView} from "~/game/shopInteractionView";
+import {
+  resolveShopInteractionMode,
+  resolveShopInteractionView,
+  type InteractionUiState,
+  type ShopInteractionMode,
+} from "~/game/shopInteractionView";
 import type {ShopSignSystem} from "~/game/signs/ShopSignSystem";
 import type {MovablePropRecord} from "~/game/shopTypes";
 

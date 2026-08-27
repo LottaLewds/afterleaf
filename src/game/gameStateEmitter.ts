@@ -1,4 +1,4 @@
-import {ShopArcadeCabinet, type ArcadeSessionStatus} from "~/game/ShopArcadeCabinet";
+import type {ArcadeSessionStatus, ShopArcadeCabinet} from "~/game/ShopArcadeCabinet";
 import type {ArtFrameSystem} from "~/game/artFrameSystem";
 import type {BookRecord} from "~/game/bookFactory";
 import type {CatalogItem} from "~/catalog";

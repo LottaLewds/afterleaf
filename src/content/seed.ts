@@ -12,6 +12,7 @@ import {
   type PackedPublicationAlternate,
   type PublicationCandidate,
   type PublicationMaterial,
+  type PublicationProvenance,
   type PublicationSource,
   type SeedContentPackOptions,
   type SeedContentPackResult,
@@ -532,6 +533,13 @@ const spineDerivative = async (candidate: PublicationCandidate, width: number) =
     .toBuffer();
 };
 
+const reusableSource = (source: PublicationProvenance | undefined) => {
+  if (!source) return undefined;
+  const reusable = {metadataHash: source.metadataHash, provider: source.provider};
+  if (source.provider === ARCHIVE_SOURCE_PROVIDER) return reusable;
+  return {...reusable, remoteId: source.remoteId};
+};
+
 const reusablePublicationMetadata = (candidate: PublicationCandidate, material: PublicationMaterial) => {
   const document = candidate.document;
   const aspectRatio =
@@ -559,19 +567,7 @@ const reusablePublicationMetadata = (candidate: PublicationCandidate, material: 
       ...(document.physical?.thicknessMm === undefined ? {} : {thicknessMm: document.physical.thicknessMm}),
       ...(document.physical?.trim === undefined ? {} : {trim: document.physical.trim}),
     },
-    source:
-      document.source?.provider === ARCHIVE_SOURCE_PROVIDER
-        ? {
-            metadataHash: document.source.metadataHash,
-            provider: document.source.provider,
-          }
-        : document.source === undefined
-          ? undefined
-          : {
-              metadataHash: document.source.metadataHash,
-              provider: document.source.provider,
-              remoteId: document.source.remoteId,
-            },
+    source: reusableSource(document.source),
     materialPageCount: material.pages.length,
   };
 };
@@ -602,19 +598,7 @@ const previousPublicationMetadata = (previous: PackedPublication, candidate: Pub
     ...(previous.physical.thicknessMm === undefined ? {} : {thicknessMm: previous.physical.thicknessMm}),
     ...(previous.physical.trim === undefined ? {} : {trim: previous.physical.trim}),
   },
-  source:
-    previous.source?.provider === ARCHIVE_SOURCE_PROVIDER
-      ? {
-          metadataHash: previous.source.metadataHash,
-          provider: previous.source.provider,
-        }
-      : previous.source === undefined
-        ? undefined
-        : {
-            metadataHash: previous.source.metadataHash,
-            provider: previous.source.provider,
-            remoteId: previous.source.remoteId,
-          },
+  source: reusableSource(previous.source),
   materialPageCount: previous.materialPageCount ?? previous.assets.pages.length,
 });
 
@@ -1093,13 +1077,18 @@ const materializePublication = async (
       if (!material) throw new Error(`Missing page zero for alternate ${alternate.id}`);
       const image = selection.images.get(material.page0);
       if (!image) throw new Error(`Missing validated image metadata for alternate ${alternate.id}`);
-      return {
-        asset: prepareAsset(`alternates/${alternate.id}/page-000.webp`, await readerDerivative(material.page0, image)),
-        id: alternate.id,
-        originalTags: alternate.originalTags,
-        ...(alternate.source === undefined ? {} : {source: alternate.source}),
-        title: alternate.title,
-      };
+      return Object.assign(
+        {
+          asset: prepareAsset(
+            `alternates/${alternate.id}/page-000.webp`,
+            await readerDerivative(material.page0, image),
+          ),
+          id: alternate.id,
+          originalTags: alternate.originalTags,
+          title: alternate.title,
+        },
+        alternate.source === undefined ? {} : {source: alternate.source},
+      );
     }),
   );
   if (alternateMaterialById.size !== alternateAssets.length)
@@ -1107,10 +1096,7 @@ const materializePublication = async (
   // Hashing happened in prepareAsset during the ordered map above; flush
   // the prepared buffers to disk concurrently here.
   const alternates = await Promise.all(
-    alternateAssets.map(async ({asset, ...alternate}) => ({
-      ...alternate,
-      page0: await commitAsset(asset),
-    })),
+    alternateAssets.map(async ({asset, ...alternate}) => Object.assign(alternate, {page0: await commitAsset(asset)})),
   );
 
   const physical = {
@@ -1419,20 +1405,20 @@ export const seedContentPack = async (
       continue;
     }
     try {
-      const previous = previousPublicationById.get(candidate.document.id);
+      const previousPublication = previousPublicationById.get(candidate.document.id);
       if (
-        previous &&
+        previousPublication &&
         !options.forceRebuild &&
-        canReusePublication(candidate, material, previous) &&
+        canReusePublication(candidate, material, previousPublication) &&
         // The catalog entry can only be reused when its pooled derivatives
         // are actually present; a wiped pool falls back to a full rebuild.
-        (await persistentPublicationExists(previous, options.persistentAssetDirectory))
+        (await persistentPublicationExists(previousPublication, options.persistentAssetDirectory))
       ) {
         selections.push({
           candidate,
           images: new Map(),
           material,
-          previous,
+          previous: previousPublication,
           reusePrevious: true,
         });
         continue;
@@ -1533,7 +1519,7 @@ export const seedContentPack = async (
     if (publications.length === 0 && failedMaterializationCount > 0)
       throw new Error("Every selected publication failed to materialize");
 
-    const selectedPublicationIds = publications.map((publication) => publication.id);
+    const materializedPublicationIds = publications.map((publication) => publication.id);
     const atlases = {
       front: await createAtlases(publications, options.persistentAssetDirectory, "front"),
       back: await createAtlases(publications, options.persistentAssetDirectory, "back"),
@@ -1558,7 +1544,7 @@ export const seedContentPack = async (
       ...catalogWithoutHash,
       contentHash: hashJson(catalogWithoutHash),
     };
-    const report = createReport(source, options, selectedPublicationIds, diagnostics, true);
+    const report = createReport(source, options, materializedPublicationIds, diagnostics, true);
     await Promise.all([
       writeFile(resolve(outputDirectory, "catalog.json"), `${JSON.stringify(catalog, null, 2)}\n`),
       writeFile(resolve(outputDirectory, "seed-report.json"), `${JSON.stringify(report, null, 2)}\n`),

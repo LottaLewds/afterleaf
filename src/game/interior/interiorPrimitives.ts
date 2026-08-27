@@ -5,13 +5,13 @@ import {
   MeshBasicMaterial,
   Path,
   PlaneGeometry,
-  Quaternion,
   Shape,
   ShapeGeometry,
-  Vector3,
+  type Group,
   type MeshStandardMaterial,
+  type Quaternion,
+  type Vector3,
 } from "three";
-import type {Group} from "three";
 import {createWallpaperBoxGeometry} from "~/game/wallpaperMaterials";
 import {createCeilingBoxGeometry} from "~/game/ceilingMaterials";
 import {createUpholsteryBoxGeometry} from "~/game/upholsteryMaterials";

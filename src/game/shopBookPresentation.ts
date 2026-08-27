@@ -1,4 +1,4 @@
-import {MathUtils, Quaternion, Vector3, type PerspectiveCamera, type Scene} from "three";
+import {MathUtils, Quaternion, Vector3, type Euler, type PerspectiveCamera, type Scene} from "three";
 
 import {
   INSPECTION_ACTION_CLOSE_SPEED,
@@ -15,15 +15,14 @@ import {
 import {BOOK_UNDER_SHELF_RECOVERY_Y, BOOK_VOID_RECOVERY_Y} from "~/game/bookTuning";
 import type {BookRecord} from "~/game/bookFactory";
 import type {BookCarryActions} from "~/game/bookCarryActions";
-import {hashString} from "~/game/mathHelpers";
-import {dotWithPhysicsQuaternion} from "~/game/mathHelpers";
+import {dotWithPhysicsQuaternion, hashString} from "~/game/mathHelpers";
 import type {InspectionController} from "~/game/inspection/InspectionController";
 import type {InputManager} from "~/game/input/inputManager";
 import type {ShopBookLifecycle} from "~/game/shopBookLifecycle";
 import type {SpineShelfDefinition} from "~/game/shopTypes";
 import {isPointInsideShopObstacle} from "~/game/shopGameplay";
 import {SHOP_INTERIOR_FOOTPRINTS} from "~/game/shopLayout";
-import {type BookPhysicsPose, type MutableBookPhysicsTransform, type ShopPhysicsWorld} from "~/game/ShopPhysicsWorld";
+import type {BookPhysicsPose, MutableBookPhysicsTransform, ShopPhysicsWorld} from "~/game/ShopPhysicsWorld";
 
 const HELD_BOOK_STACK_GAP = 0.012;
 const HELD_BOOK_FAN_X_SPACING = 0.105;
@@ -48,7 +47,7 @@ export type ShopBookPresentationHost = {
   lastSelectedPublicationId: () => string | null | undefined;
   markScannerDirty: () => void;
   markWorldStateDirty: () => void;
-  physicsPoseEuler: () => import("three").Euler;
+  physicsPoseEuler: () => Euler;
   physicsTransform: () => MutableBookPhysicsTransform;
   physicsWorld: () => ShopPhysicsWorld;
   scene: () => Scene;

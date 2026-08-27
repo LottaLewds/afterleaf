@@ -261,8 +261,8 @@ export const App = () => {
   };
   createEffect(
     () => [availableLibraryProviders(), selectedProviderId()] as const,
-    ([providers, selectedProviderId]) => {
-      if (providers.some((provider) => provider.id === selectedProviderId)) return;
+    ([providers, selectedProviderIdValue]) => {
+      if (providers.some((provider) => provider.id === selectedProviderIdValue)) return;
       const fallback = providers[0];
       if (!fallback) return;
       setSelectedProviderId(fallback.id);
@@ -297,7 +297,7 @@ export const App = () => {
     return publications.map((publication) => {
       const direction =
         respectMetadata && !publication.readingDirectionUnspecified ? publication.direction : defaultDirection;
-      return publication.direction === direction ? publication : {...publication, direction};
+      return publication.direction === direction ? publication : Object.assign({}, publication, {direction});
     });
   });
   const queryTokens = createMemo(() => query().trim().toLowerCase().split(/\s+/).filter(Boolean));
@@ -457,7 +457,7 @@ export const App = () => {
     );
   };
 
-  const beginLibraryUpdate = (operation: LibraryOperation, query?: string) => {
+  const beginLibraryUpdate = (operation: LibraryOperation, operationQuery?: string) => {
     libraryUpdateStartedAt = performance.now();
     activeLibraryJob = undefined;
     setLibraryUpdateElapsedSeconds(0);
@@ -468,7 +468,9 @@ export const App = () => {
     setLibraryUpdateTotalSteps(3);
     setLibraryUpdateSubProgress(undefined);
     setLibraryUpdateProgressMessage(
-      operation === "fetch-more" && query ? `Starting provider search for “${query}”` : "Starting library job",
+      operation === "fetch-more" && operationQuery
+        ? `Starting provider search for “${operationQuery}”`
+        : "Starting library job",
     );
     setLibraryUpdating(true);
     startLibraryStatusPolling();
@@ -517,8 +519,8 @@ export const App = () => {
     if (libraryUpdating()) return;
     const providerId = options.providerId ?? selectedProviderId();
     const provider = availableLibraryProviders().find((candidate) => candidate.id === providerId);
-    const query = options.query ?? provider?.defaultQuery ?? "";
-    beginLibraryUpdate("fetch-more", query);
+    const searchQuery = options.query ?? provider?.defaultQuery ?? "";
+    beginLibraryUpdate("fetch-more", searchQuery);
     setLibraryUpdateNotice(undefined);
     if (!options.transient) {
       setSelectedProviderId(providerId);
@@ -551,7 +553,7 @@ export const App = () => {
         limit: acquisitionLimit,
         maxSearchPages: searchPageLimit,
         providerId,
-        ...(query ? {query} : {}),
+        ...(searchQuery ? {query: searchQuery} : {}),
       });
       monitorLibraryJob(job, options.automatic === true);
     } catch (error) {
@@ -1371,13 +1373,13 @@ export const App = () => {
                 providers={availableLibraryProviders()}
                 providerError={libraryProviderError()}
                 onCancel={closeLibraryUpdate}
-                onConfirm={(rememberBootFetch, providerId, query, fetchLimit, maxSearchPages) =>
+                onConfirm={(rememberBootFetch, providerId, queryText, fetchLimit, maxSearchPages) =>
                   void fetchMoreLibrary({
                     limit: fetchLimit,
                     maxSearchPages,
                     rememberBootFetch,
                     providerId,
-                    query,
+                    query: queryText,
                   })
                 }
                 onFetchOnBootChange={setFetchOnBoot}

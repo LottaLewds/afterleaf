@@ -276,15 +276,14 @@ export class DigitalArtFrame {
       this.#transition = {elapsedSeconds: 0, image, texture: loadedTexture};
       this.#display.incomingMap.value = loadedTexture;
       this.#display.transitionProgress.value = 0;
-      this.#updateMappings();
     } else {
       this.#displayImage = image;
       this.#display.material.map = loadedTexture;
       this.#display.incomingMap.value = loadedTexture;
       this.#display.material.needsUpdate = true;
       this.#display.mesh.visible = true;
-      this.#updateMappings();
     }
+    this.#updateMappings();
     if (notify) this.#onImageChange?.();
     if (!this.#transition) this.#preloadNextImage();
   }

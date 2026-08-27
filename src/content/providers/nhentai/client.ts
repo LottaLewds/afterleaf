@@ -157,7 +157,9 @@ const decodeHtmlEntities = (value: string) =>
   value.replace(
     /&(?:#(\d+)|#x([\da-f]+)|(amp|apos|gt|lt|quot));/gi,
     (entity, decimal: string | undefined, hexadecimal: string | undefined, named: string | undefined) => {
-      const codePoint = decimal ? Number(decimal) : hexadecimal ? Number.parseInt(hexadecimal, 16) : undefined;
+      let codePoint: number | undefined;
+      if (decimal) codePoint = Number(decimal);
+      else if (hexadecimal) codePoint = Number.parseInt(hexadecimal, 16);
       if (codePoint !== undefined) return codePoint <= 0x10ffff ? String.fromCodePoint(codePoint) : entity;
       if (!named) return entity;
       return HTML_ENTITIES[named.toLowerCase()] ?? entity;
@@ -323,14 +325,15 @@ export class NhentaiClient {
       throw new Error("nHentai search response lacks a result array");
     const results = value.result.map((gallery, index) => parseNhentaiSearchResult(gallery, `result[${index}]`));
     await this.#loadTags(results.flatMap(({tagIds}) => tagIds));
-    return results.map(({tagIds, ...gallery}) => ({
-      ...gallery,
-      tags: tagIds.map((id) => {
-        const tag = this.#tagsById.get(id);
-        if (!tag) throw new Error(`nHentai tag lookup omitted tag ${id}`);
-        return tag;
+    return results.map(({tagIds, ...gallery}) =>
+      Object.assign(gallery, {
+        tags: tagIds.map((id) => {
+          const tag = this.#tagsById.get(id);
+          if (!tag) throw new Error(`nHentai tag lookup omitted tag ${id}`);
+          return tag;
+        }),
       }),
-    }));
+    );
   }
 
   async loadGallery(id: number) {

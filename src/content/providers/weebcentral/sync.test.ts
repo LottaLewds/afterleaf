@@ -288,8 +288,8 @@ test("WeebCentral sync removes interrupted staging directories", async () => {
 
 const deferred = () => {
   let resolvePromise = () => {};
-  const promise = new Promise<void>((resolve) => {
-    resolvePromise = resolve;
+  const promise = new Promise<void>((resolveDeferred) => {
+    resolvePromise = resolveDeferred;
   });
   return {promise, resolve: resolvePromise};
 };

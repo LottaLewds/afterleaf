@@ -197,12 +197,9 @@ const resolveAxisAgainstObstacle = (
   orthogonalMin: number,
   orthogonalMax: number,
 ) => {
-  const orthogonalDistance =
-    orthogonal < orthogonalMin
-      ? orthogonalMin - orthogonal
-      : orthogonal > orthogonalMax
-        ? orthogonal - orthogonalMax
-        : 0;
+  let orthogonalDistance = 0;
+  if (orthogonal < orthogonalMin) orthogonalDistance = orthogonalMin - orthogonal;
+  else if (orthogonal > orthogonalMax) orthogonalDistance = orthogonal - orthogonalMax;
   if (orthogonalDistance >= radius) return target;
 
   const clearance = Math.sqrt(radius * radius - orthogonalDistance * orthogonalDistance);
@@ -215,10 +212,11 @@ const resolveAxisAgainstObstacle = (
 
 const resolveX = (startX: number, targetX: number, z: number, radius: number, obstacles: readonly ShopObstacle[]) => {
   if (targetX === startX) return targetX;
+  let resolvedTargetX = targetX;
   for (const obstacle of obstacles)
-    targetX = resolveAxisAgainstObstacle(
+    resolvedTargetX = resolveAxisAgainstObstacle(
       startX,
-      targetX,
+      resolvedTargetX,
       z,
       radius,
       obstacle.minX,
@@ -226,15 +224,16 @@ const resolveX = (startX: number, targetX: number, z: number, radius: number, ob
       obstacle.minZ,
       obstacle.maxZ,
     );
-  return targetX;
+  return resolvedTargetX;
 };
 
 const resolveZ = (x: number, startZ: number, targetZ: number, radius: number, obstacles: readonly ShopObstacle[]) => {
   if (targetZ === startZ) return targetZ;
+  let resolvedTargetZ = targetZ;
   for (const obstacle of obstacles)
-    targetZ = resolveAxisAgainstObstacle(
+    resolvedTargetZ = resolveAxisAgainstObstacle(
       startZ,
-      targetZ,
+      resolvedTargetZ,
       x,
       radius,
       obstacle.minZ,
@@ -242,7 +241,7 @@ const resolveZ = (x: number, startZ: number, targetZ: number, radius: number, ob
       obstacle.minX,
       obstacle.maxX,
     );
-  return targetZ;
+  return resolvedTargetZ;
 };
 
 /**

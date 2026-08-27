@@ -320,13 +320,15 @@ export const parseWeebCentralChapterListHtml = async (
     const publishedAt = optionalString(dates[index]);
     if (publishedAt && Number.isNaN(Date.parse(publishedAt)))
       throw new Error(`WeebCentral chapter ${id} has an invalid date`);
-    return {
-      id,
-      label: `Chapter ${match[1]}`,
-      number,
-      path: `/chapters/${id}`,
-      ...(publishedAt ? {publishedAt} : {}),
-    };
+    return Object.assign(
+      {
+        id,
+        label: `Chapter ${match[1]}`,
+        number,
+        path: `/chapters/${id}`,
+      },
+      publishedAt === undefined ? {} : {publishedAt},
+    );
   });
 };
 

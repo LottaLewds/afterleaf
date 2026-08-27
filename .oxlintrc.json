@@ -10,6 +10,11 @@
   "ignorePatterns": ["dist/**", "node_modules/**", ".bun-cache/**"],
   "rules": {
     "import/no-cycle": "error",
+    "eslint/prefer-const": "error",
+    "eslint/no-duplicate-imports": "error",
+    "eslint/no-nested-ternary": "error",
+    "eslint/no-param-reassign": "error",
+    "eslint/no-shadow": "warn",
     "eslint/no-unassigned-vars": "off",
     "eslint/no-unused-vars": [
       "error",
@@ -22,6 +27,8 @@
       }
     ],
     "typescript/no-explicit-any": "error",
+    "typescript/consistent-type-imports": "warn",
+    "typescript/no-import-type-side-effects": "warn",
     "typescript/no-floating-promises": "error",
     "typescript/no-non-null-assertion": "warn",
     "typescript/no-redundant-type-constituents": "warn",
@@ -57,6 +64,8 @@
     "eslint/no-useless-return": "error",
     "eslint/no-var": "error",
     "eslint/preserve-caught-error": "error",
+    "oxc/no-map-spread": "warn",
+    "oxc/branches-sharing-code": "warn",
     "solid/event-handlers": "error",
     "solid/imports": "error",
     "solid/jsx-no-duplicate-props": "error",

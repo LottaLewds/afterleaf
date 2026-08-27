@@ -1,3 +1,4 @@
+import type {Dirent} from "node:fs";
 import {readdir} from "node:fs/promises";
 import {extname, relative, resolve, sep} from "node:path";
 import {isContentArchivePath} from "./archiveReader";
@@ -49,7 +50,7 @@ export const discoverLocalMedia = async (rootDirectory: string): Promise<LocalMe
     if (!current) break;
 
     if (!current.visited) {
-      let entries: import("node:fs").Dirent[];
+      let entries: Dirent[];
       try {
         entries = await readdir(current.directory, {withFileTypes: true});
       } catch (error) {

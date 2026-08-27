@@ -5,8 +5,7 @@ import type {LibraryUpdateState} from "~/content/libraryUpdate/protocol";
 import {PublicationBlacklistStore} from "~/content/libraryUpdate/publicationBlacklist";
 import {discardManagedPublicationSources} from "~/content/libraryUpdate/sourceDiscard";
 import {createLibraryUpdateService} from "~/content/libraryUpdate/service";
-import {DEFAULT_LIBRARY_PROVIDER_ID} from "~/content/providers/registry";
-import {createLibraryProviderRegistry} from "~/content/providers/registry";
+import {createLibraryProviderRegistry, DEFAULT_LIBRARY_PROVIDER_ID} from "~/content/providers/registry";
 import {normalizeTags, parseSupportedLanguage} from "~/content/normalize";
 import type {SupportedLanguage} from "~/content/schema";
 

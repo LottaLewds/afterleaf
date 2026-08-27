@@ -2,7 +2,7 @@ import {readFile, writeFile} from "node:fs/promises";
 import {resolve} from "node:path";
 
 import type {LibraryProviderSparsePageRequest} from "@afterleaf/provider-sdk";
-import {WeebCentralClient} from "./client";
+import type {WeebCentralClient} from "./client";
 import {
   WEEBCENTRAL_SPARSE_METADATA_FILE,
   createWeebCentralSparseMetadata,

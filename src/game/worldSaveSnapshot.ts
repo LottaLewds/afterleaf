@@ -1,4 +1,4 @@
-import {Euler, Quaternion, Vector3, type PerspectiveCamera} from "three";
+import {Euler, Quaternion, Vector3, type Object3D, type PerspectiveCamera} from "three";
 import type {CatalogIdentity} from "~/catalog";
 import type {BookRecord} from "~/game/bookFactory";
 import type {DiscardBin} from "~/game/discardBin";
@@ -23,7 +23,7 @@ export type SnapshotMovableProp = {
   locked?: boolean;
   modelAnimationIndex?: number;
   modelAnimations?: readonly {name: string}[];
-  object: import("three").Object3D;
+  object: Object3D;
   modelScale?: number;
   spawnAssetId?: string;
 };
@@ -148,25 +148,27 @@ export const createWorldSave = (ctx: WorldSaveSnapshotContext): WorldSaveV1 => {
       const position = record.frame.object.getWorldPosition(new Vector3());
       const quaternion = record.frame.object.getWorldQuaternion(new Quaternion());
       const currentImageId = record.frame.currentImageId();
-      return {
-        aspectRatio: record.frame.aspectRatio(),
-        channelId: record.frame.channelId(),
-        ...(currentImageId ? {currentImageId} : {}),
-        fit: record.frame.fit(),
-        height: record.height,
-        id: record.id,
-        intervalSeconds: record.frame.intervalSeconds(),
-        pose: {
-          position: {x: position.x, y: position.y, z: position.z},
-          quaternion: {
-            w: quaternion.w,
-            x: quaternion.x,
-            y: quaternion.y,
-            z: quaternion.z,
+      return Object.assign(
+        {
+          aspectRatio: record.frame.aspectRatio(),
+          channelId: record.frame.channelId(),
+          fit: record.frame.fit(),
+          height: record.height,
+          id: record.id,
+          intervalSeconds: record.frame.intervalSeconds(),
+          pose: {
+            position: {x: position.x, y: position.y, z: position.z},
+            quaternion: {
+              w: quaternion.w,
+              x: quaternion.x,
+              y: quaternion.y,
+              z: quaternion.z,
+            },
           },
+          rotation: record.rotation,
         },
-        rotation: record.rotation,
-      };
+        currentImageId ? {currentImageId} : {},
+      );
     }),
   ];
   const televisionChannels: Record<string, string> = {};

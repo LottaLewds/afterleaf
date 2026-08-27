@@ -1,9 +1,8 @@
 import {describe, expect, test} from "bun:test";
-import {Mesh, Object3D, PerspectiveCamera, Raycaster} from "three";
+import {Mesh, Object3D, PerspectiveCamera, type Raycaster} from "three";
 
 import type {ArtFrameSystem} from "~/game/artFrameSystem";
-import type {InteractionScannerHost} from "~/game/interactionScanner";
-import {InteractionScanner} from "~/game/interactionScanner";
+import {InteractionScanner, type InteractionScannerHost} from "~/game/interactionScanner";
 import type {PosterSystem} from "~/game/posters/PosterSystem";
 import type {ShopArcadeCabinet} from "~/game/ShopArcadeCabinet";
 import type {MovablePropRecord} from "~/game/shopTypes";

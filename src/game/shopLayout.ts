@@ -130,31 +130,31 @@ const createReadingFurnitureBoxes = () => {
           position: {x, y: 0.4, z: tableZ + zOffset},
         });
 
-    for (const x of [-1.72, 1.72])
+    for (const chairX of [-1.72, 1.72])
       for (const zOffset of [-0.34, 0.34]) {
         const chairZ = tableZ + zOffset;
-        const normal = x < 0 ? -1 : 1;
-        const movableId = `reading-chair-${(chairIndex += 1)}`;
+        const normal = chairX < 0 ? -1 : 1;
+        const chairMovableId = `reading-chair-${(chairIndex += 1)}`;
         boxes.push(
           {
             halfExtents: {x: 0.29, y: 0.06, z: 0.27},
             material: "upholstery",
-            movableId,
-            position: {x, y: 0.48, z: chairZ},
+            movableId: chairMovableId,
+            position: {x: chairX, y: 0.48, z: chairZ},
           },
           {
             halfExtents: {x: 0.06, y: 0.41, z: 0.29},
             material: "wood",
-            movableId,
-            position: {x: x + normal * 0.27, y: 0.76, z: chairZ},
+            movableId: chairMovableId,
+            position: {x: chairX + normal * 0.27, y: 0.76, z: chairZ},
           },
         );
         for (const legZOffset of [-0.2, 0.2])
           boxes.push({
             halfExtents: {x: 0.04, y: 0.225, z: 0.04},
             material: "leg",
-            movableId,
-            position: {x, y: 0.225, z: chairZ + legZOffset},
+            movableId: chairMovableId,
+            position: {x: chairX, y: 0.225, z: chairZ + legZOffset},
           });
       }
   }

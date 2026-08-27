@@ -1,8 +1,7 @@
 import {describe, expect, test} from "bun:test";
 
 import type {InspectionController} from "~/game/inspection/InspectionController";
-import type {ShopInputHost} from "~/game/shopInputController";
-import {ShopInputController} from "~/game/shopInputController";
+import {ShopInputController, type ShopInputHost} from "~/game/shopInputController";
 
 const createHost = (inspectionMode: "none" | "spread" = "none") => {
   const inspection = {inspectionMode} as unknown as InspectionController;

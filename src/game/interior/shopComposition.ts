@@ -12,23 +12,20 @@ import {
   type TextureLoader,
   type WebGLRenderer,
 } from "three";
+import {applyCeilingShapeUv, createCeilingMaterial} from "~/game/ceilingMaterials";
 import {createHorizontalShape, createTiledFloorSurface, type AddBox} from "~/game/interior/interiorPrimitives";
-import {applyCeilingShapeUv} from "~/game/ceilingMaterials";
 import {createWallpaperMaterial} from "~/game/wallpaperMaterials";
-import {createSignVisual} from "~/game/signs/ShopSignSystem";
+import {createSignVisual, SIGN_TEXTURE_MAX_ANISOTROPY, type ShopSignSystem} from "~/game/signs/ShopSignSystem";
 import {
   createAtriumRailings,
   createStackableStairwell,
   createUpperFloorStructures,
   createUpperWindowWall,
 } from "~/game/interior/upperFloor";
-import {createCeilingMaterial} from "~/game/ceilingMaterials";
 import {createWoodMaterial, loadWoodTextures} from "~/game/woodMaterials";
 import {ShopTelevision} from "~/game/ShopTelevision";
 import {batchStaticInteriorMeshes} from "~/game/staticModelBatching";
-import {SIGN_TEXTURE_MAX_ANISOTROPY} from "~/game/signs/ShopSignSystem";
-import type {MovablePropRegistration} from "~/game/propRegistration";
-import type {ShopSignSystem} from "~/game/signs/ShopSignSystem";
+import type {MovablePropRegistration, ReadingFurnitureMaterials} from "~/game/propRegistration";
 import type {DiscardBin} from "~/game/discardBin";
 import {createHallwayDoor, createRareRoom, type DoorSystem} from "~/game/interior/doors";
 import {
@@ -36,14 +33,19 @@ import {
   createSpineShelfFixture,
   createTelevisionTableShelf,
   createWallPosterSurfaces,
+  type FaceOutDisplayDeps,
 } from "~/game/interior/shelfFixtures";
 import {createReadingTables} from "~/game/interior/readingFurniture";
 import {createCeilingLightTemplate, createDeskLamps} from "~/game/interior/lightingProps";
 import {createNightWindows, createTheatreSeating} from "~/game/interior/seating";
-import {createTelevisionRooms, FIXED_TELEVISION_SAVE_ID} from "~/game/interior/televisionRooms";
+import {
+  createTelevisionRooms,
+  FIXED_TELEVISION_SAVE_ID,
+  type SharedTelevisionOptions,
+} from "~/game/interior/televisionRooms";
 import type {ArtFrameSystem} from "~/game/artFrameSystem";
-import type {ReadingFurnitureMaterials} from "~/game/propRegistration";
-import type {WorldSaveV1} from "~/game/worldSave";
+import type {WorldModelPropSave, WorldSaveV1} from "~/game/worldSave";
+import type {BuiltinSpawnablePropAsset} from "~/game/propTemplates";
 import type {SpineShelfDefinition} from "~/game/shopTypes";
 import {
   SHOP_ATRIUM,
@@ -91,10 +93,10 @@ export type ShopCompositionContext = {
     rotationY: number,
   ) => void;
   createSpawnedCrtTelevision: (
-    asset: import("~/game/propTemplates").BuiltinSpawnablePropAsset,
+    asset: BuiltinSpawnablePropAsset,
     id: string,
     scale: number,
-    pose?: import("~/game/worldSave").WorldModelPropSave["pose"],
+    pose?: WorldModelPropSave["pose"],
   ) => unknown;
   createUpperReadingFurniture: (
     parent: Group,
@@ -105,7 +107,7 @@ export type ShopCompositionContext = {
     parent: Group,
     woodMaterial: MeshStandardMaterial,
     backingMaterial: MeshStandardMaterial,
-    deps: import("~/game/interior/shelfFixtures").FaceOutDisplayDeps,
+    deps: FaceOutDisplayDeps,
   ) => void;
   discardBin: DiscardBin;
   disposed: boolean;
@@ -122,7 +124,7 @@ export type ShopCompositionContext = {
   sharedTelevisionOptions: (
     initialChannelId: string | undefined,
     initialVolume: number | undefined,
-  ) => import("~/game/interior/televisionRooms").SharedTelevisionOptions;
+  ) => SharedTelevisionOptions;
   shelfSnapMesh: Mesh;
   shelfTargetMeshes: Mesh[];
   signs: ShopSignSystem;

@@ -1,6 +1,5 @@
 import {createSignal, onSettled} from "solid-js";
-import {browseLibraryLocation} from "~/content/libraryUpdate/browserClient";
-import type {LibraryDirectoryListing} from "~/content/libraryUpdate/browserClient";
+import {browseLibraryLocation, type LibraryDirectoryListing} from "~/content/libraryUpdate/browserClient";
 
 /** Shared state machine for the server-backed directory browser dialog. */
 export const createFolderBrowser = () => {

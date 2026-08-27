@@ -1,9 +1,7 @@
 import {getAdjacentSpreadStart} from "~/reader/pagination";
 import type {CatalogItem} from "~/catalog";
-import {formatKeyboardCode} from "~/game/input/bindings";
-import {buildInteractionPrompts, formatInteractionRowKey} from "~/game/input/hints";
-import type {GamepadStyle, ShortcutsConfig} from "~/game/input/bindings";
-import type {InteractionPromptToken} from "~/game/input/hints";
+import {formatKeyboardCode, type GamepadStyle, type ShortcutsConfig} from "~/game/input/bindings";
+import {buildInteractionPrompts, formatInteractionRowKey, type InteractionPromptToken} from "~/game/input/hints";
 import {formatInteractionKey} from "~/game/keyboardLayout";
 import type {ArcadeSessionStatus, ShopArcadeCabinet} from "~/game/ShopArcadeCabinet";
 import type {InspectionMode, ShopGameSnapshot, ShopInteraction} from "~/game/shopTypes";
@@ -128,7 +126,7 @@ const arcadeSnapshot = (input: SnapshotInput): Partial<ShopGameSnapshot> => {
   const cabinet = input.activeArcadeCabinet;
   return {
     arcadeStatus: input.arcadeStatus,
-    ...whenDefined(cabinet, (cabinet) => ({arcadeCabinetId: cabinet.id})),
+    ...whenDefined(cabinet, (activeCabinet) => ({arcadeCabinetId: activeCabinet.id})),
     ...whenDefined(input.arcadeSystemId, (arcadeSystemId) => ({
       arcadeSystemId,
     })),

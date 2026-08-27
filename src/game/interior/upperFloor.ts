@@ -1,5 +1,4 @@
-import {Mesh, MeshBasicMaterial, MeshStandardMaterial, PlaneGeometry, type Object3D} from "three";
-import type {Group} from "three";
+import {Mesh, MeshBasicMaterial, PlaneGeometry, type Group, type MeshStandardMaterial, type Object3D} from "three";
 import {
   createStackableStairBoxes,
   SHOP_ATRIUM,

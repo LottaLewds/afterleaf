@@ -129,29 +129,29 @@ export class PageTextureCache<Resource extends DisposableResource> {
     const cached = this.#entries.get(url);
     if (cached) return cached;
 
-    let entry: CacheEntry<Resource>;
     this.#loadingCount += 1;
     this.#onLoadingChange?.(this.#loadingCount);
-    const promise = Promise.resolve()
-      .then(() => this.#load(url))
-      .then((resource) => {
-        entry.resource = resource;
-        if (!entry.active || this.#disposed) this.#disposeResource(resource);
-        return resource;
-      })
-      .catch((error: unknown) => {
-        if (entry.active) this.#evict(entry);
-        throw error;
-      })
-      .finally(() => {
-        this.#loadingCount -= 1;
-        this.#onLoadingChange?.(this.#loadingCount);
-      });
-
-    entry = {
+    const entry: CacheEntry<Resource> = {
       active: true,
       lastUsed: 0,
-      promise,
+      promise: new Promise<Resource>((resolvePromise, rejectPromise) => {
+        void Promise.resolve()
+          .then(() => this.#load(url))
+          .then((resource) => {
+            entry.resource = resource;
+            if (!entry.active || this.#disposed) this.#disposeResource(resource);
+            return resource;
+          })
+          .catch((error: unknown) => {
+            if (entry.active) this.#evict(entry);
+            throw error;
+          })
+          .finally(() => {
+            this.#loadingCount -= 1;
+            this.#onLoadingChange?.(this.#loadingCount);
+          })
+          .then(resolvePromise, rejectPromise);
+      }),
       refCount: 0,
       resource: undefined,
       url,

@@ -1,4 +1,5 @@
 import type {Collider, KinematicCharacterController, RigidBody, RigidBodyDesc, World} from "@dimforge/rapier3d-compat";
+import type * as Rapier from "@dimforge/rapier3d-compat";
 
 import {SHOP_COLLISION_BOXES} from "~/game/shopLayout";
 import {SHOP_EXPANSION_COLLISION_BOXES} from "~/game/shopExpansionLayout";
@@ -60,7 +61,12 @@ const PLAYER_CAPSULE_HALF_HEIGHT = (SHOP_PHYSICS_PLAYER_BODY_HEIGHT - SHOP_PHYSI
 const PLAYER_CONTROLLER_OFFSET = 0.01;
 const PLAYER_CHARACTER_MASS = 70;
 
-type RapierModule = typeof import("@dimforge/rapier3d-compat");
+const bookCollisionGroups = (held: boolean, collisionlessWhileHeld: boolean, releasedCollisionless: boolean) => {
+  if (held) return collisionlessWhileHeld ? GHOST_PROP_COLLISION_GROUPS : HELD_BOOK_COLLISION_GROUPS;
+  return releasedCollisionless ? RELEASED_BOOK_COLLISION_GROUPS : DYNAMIC_BOOK_COLLISION_GROUPS;
+};
+
+type RapierModule = typeof Rapier;
 
 let rapierImportPromise: Promise<RapierModule> | undefined;
 let initializedRapierPromise: Promise<RapierModule> | undefined;
@@ -590,28 +596,14 @@ export class ShopPhysicsWorld {
     releasedCollisionless = false,
   ) {
     return rapier.ColliderDesc.cuboid(width * 0.5, height * 0.5, thickness * 0.5)
-      .setCollisionGroups(
-        held
-          ? collisionlessWhileHeld
-            ? GHOST_PROP_COLLISION_GROUPS
-            : HELD_BOOK_COLLISION_GROUPS
-          : releasedCollisionless
-            ? RELEASED_BOOK_COLLISION_GROUPS
-            : DYNAMIC_BOOK_COLLISION_GROUPS,
-      )
+      .setCollisionGroups(bookCollisionGroups(held, collisionlessWhileHeld, releasedCollisionless))
       .setDensity(density)
       .setFriction(0.82)
       .setRestitution(0.08);
   }
 
   #setBookColliderHeld(record: BookPhysicsRecord, held: boolean) {
-    const collisionGroups = held
-      ? record.collisionlessWhileHeld
-        ? GHOST_PROP_COLLISION_GROUPS
-        : HELD_BOOK_COLLISION_GROUPS
-      : record.releasedCollisionless
-        ? RELEASED_BOOK_COLLISION_GROUPS
-        : DYNAMIC_BOOK_COLLISION_GROUPS;
+    const collisionGroups = bookCollisionGroups(held, record.collisionlessWhileHeld, record.releasedCollisionless);
     for (const collider of record.colliders) collider.setCollisionGroups(collisionGroups);
   }
 

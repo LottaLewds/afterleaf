@@ -12,7 +12,11 @@ const VIDEO_CONTENT_TYPES: Readonly<Record<string, string>> = {
   ".webm": "video/webm",
 };
 
-const compareNames = (left: string, right: string) => (left < right ? -1 : left > right ? 1 : 0);
+const compareNames = (left: string, right: string) => {
+  if (left < right) return -1;
+  if (left > right) return 1;
+  return 0;
+};
 
 const channelLabel = (channelId: string) =>
   channelId

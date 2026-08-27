@@ -37,9 +37,9 @@ const parseQueryGuide = (value: unknown, field: string): NonNullable<LibraryProv
   if (!Array.isArray(guide.examples) || guide.examples.length > 10)
     throw new Error(`${field}.examples must contain at most 10 examples`);
   return {
-    entries: guide.entries.map((value, index) => {
+    entries: guide.entries.map((entryValue, index) => {
       const entryField = `${field}.entries[${index}]`;
-      const entry = requireExactKeys(value, ["description", "exclusion", "expression"], [], entryField);
+      const entry = requireExactKeys(entryValue, ["description", "exclusion", "expression"], [], entryField);
       return {
         description: boundedString(entry.description, `${entryField}.description`),
         exclusion: boundedString(entry.exclusion, `${entryField}.exclusion`),

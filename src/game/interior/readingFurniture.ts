@@ -1,4 +1,4 @@
-import {Box3, Group, Mesh, MeshStandardMaterial, Vector3} from "three";
+import {Box3, Group, MeshStandardMaterial, Vector3, type Mesh} from "three";
 import {
   READING_FURNITURE_BOXES,
   READING_TABLE_SIZE,

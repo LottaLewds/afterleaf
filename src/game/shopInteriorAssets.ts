@@ -1,15 +1,15 @@
 import {
   EquirectangularReflectionMapping,
-  Group,
-  Mesh,
   MeshStandardMaterial,
   NoColorSpace,
   RepeatWrapping,
   SRGBColorSpace,
-  TextureLoader,
   Vector2,
-  WebGLRenderer,
   type ColorSpace,
+  type Group,
+  type Mesh,
+  type TextureLoader,
+  type WebGLRenderer,
 } from "three";
 
 import floorAlbedoUrl from "~/assets/materials/laminate-floor-albedo.webp";
@@ -17,12 +17,11 @@ import floorNormalUrl from "~/assets/materials/laminate-floor-normal.webp";
 import floorSurfaceUrl from "~/assets/materials/laminate-floor-surface.webp";
 import moonriseSkyUrl from "~/assets/materials/qwantani-moonrise-sky.webp";
 import type {MovablePropLifecycle} from "~/game/movablePropSystem";
-import {addInteriorBox, createPosterSurface} from "~/game/interior/interiorPrimitives";
+import {addInteriorBox, createPosterSurface, type PosterSurface} from "~/game/interior/interiorPrimitives";
 import {createDeskLamps} from "~/game/interior/lightingProps";
 import {createReadingChairInstance} from "~/game/interior/readingFurniture";
 import {READING_FURNITURE_BOXES} from "~/game/shopLayout";
 import {SHOP_UPPER_FLOOR_Y} from "~/game/shopExpansionLayout";
-import type {PosterSurface} from "~/game/interior/interiorPrimitives";
 import type {ReadingFurnitureMaterials} from "~/game/propRegistration";
 
 export type ShopInteriorAssetsHost = {

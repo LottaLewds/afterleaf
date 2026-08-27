@@ -113,12 +113,11 @@ export const resolveShopInteractionMode = (state: InteractionUiState): ShopInter
   resolveActiveInteractionMode(state) ?? resolveTargetedInteractionMode(state);
 
 const resolveInspectionPrompt = (state: InteractionUiState) => {
-  if (state.inspectionMode === "closing")
-    return state.inspectionCloseAction === "drop"
-      ? "Closing book before dropping…"
-      : state.inspectionCloseAction === "throw"
-        ? "Closing book before throwing…"
-        : "Closing book…";
+  if (state.inspectionMode === "closing") {
+    if (state.inspectionCloseAction === "drop") return "Closing book before dropping…";
+    if (state.inspectionCloseAction === "throw") return "Closing book before throwing…";
+    return "Closing book…";
+  }
   const shelfInspection = state.inspectionPublication?.id !== state.carriedPublicationId;
   const openInspectionKey = state.inspectionPublication?.direction === "RTL" ? "A" : "D";
   if (state.inspectionOpenAngleTarget > 0)
@@ -204,10 +203,12 @@ const resolveArcadeTargetPrompt = (state: InteractionUiState) => {
 const resolveTelevisionPrompt = (state: InteractionUiState) => {
   const television = state.targetedTelevision;
   const televisionProp = television ? state.televisionProps.get(television) : undefined;
+  let lockPrompt: string | undefined;
+  if (televisionProp) lockPrompt = televisionProp.locked ? "L unlock" : "L lock";
   const prompts = [
     television?.prompt,
     television ? "Paste video URL · N new channel" : undefined,
-    televisionProp ? (televisionProp.locked ? "L unlock" : "L lock") : undefined,
+    lockPrompt,
     televisionProp?.spawned ? "Del remove" : undefined,
   ];
   return prompts.filter((prompt): prompt is string => Boolean(prompt)).join(" · ");
@@ -508,12 +509,10 @@ const arcadeSessionInteractions = (state: InteractionUiState): InteractionResult
 
 const arcadeTargetInteractionsWithContext = (state: InteractionUiState): InteractionResult => {
   const cabinet = state.targetedArcadeCabinet;
+  let context: string | undefined;
+  if (cabinet) context = cabinet.sessionStatus ? `Arcade · ${cabinet.sessionRomName ?? "cabinet"}` : "Arcade cabinet";
   return {
-    context: cabinet
-      ? cabinet.sessionStatus
-        ? `Arcade · ${cabinet.sessionRomName ?? "cabinet"}`
-        : "Arcade cabinet"
-      : undefined,
+    context,
     interactions: arcadeTargetInteractions(state),
   };
 };
@@ -656,23 +655,26 @@ const signInteractions = (): InteractionResult => ({
   interactions: [{key: "E", label: "Customize sign", actions: ["interact"] as const}],
 });
 
-const bookInteractions = (state: InteractionUiState): InteractionResult => ({
-  context: undefined,
-  interactions:
-    state.hoveredRecord?.state.status === "shelved"
-      ? [
-          {key: "E", label: "Pick up book", actions: ["interact"] as const},
-          {
-            key: "R",
-            label: "Read book",
-            actions: ["inspectionReturn"] as const,
-          },
-          {key: "Hold F + Wheel", label: "Browse shelf"},
-        ]
-      : state.hoveredRecord
-        ? [{key: "E", label: "Pick up book", actions: ["interact"] as const}]
-        : [],
-});
+const bookInteractions = (state: InteractionUiState): InteractionResult => {
+  if (!state.hoveredRecord) return {context: undefined, interactions: []};
+  if (state.hoveredRecord.state.status === "shelved")
+    return {
+      context: undefined,
+      interactions: [
+        {key: "E", label: "Pick up book", actions: ["interact"] as const},
+        {
+          key: "R",
+          label: "Read book",
+          actions: ["inspectionReturn"] as const,
+        },
+        {key: "Hold F + Wheel", label: "Browse shelf"},
+      ],
+    };
+  return {
+    context: undefined,
+    interactions: [{key: "E", label: "Pick up book", actions: ["interact"] as const}],
+  };
+};
 
 const defaultInteractions = (state: InteractionUiState): InteractionResult => ({
   context: undefined,

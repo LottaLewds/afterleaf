@@ -1,5 +1,4 @@
-import {Euler, type Object3D, type PerspectiveCamera, Quaternion, type Scene, Vector3} from "three";
-import {MathUtils} from "three";
+import {Euler, MathUtils, Quaternion, Vector3, type Object3D, type PerspectiveCamera, type Scene} from "three";
 import type {BookRecord} from "~/game/bookFactory";
 import type {BookTextureRuntime} from "~/game/bookTextureRuntime";
 import {BOOK_HEIGHT} from "~/game/bookTuning";

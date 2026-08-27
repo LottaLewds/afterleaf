@@ -1,5 +1,4 @@
-import {MathUtils} from "three";
-import type {PerspectiveCamera} from "three";
+import {MathUtils, type PerspectiveCamera} from "three";
 import {DEV} from "solid-js";
 import type {ArtFrameSystem} from "~/game/artFrameSystem";
 import type {BookCarryActions} from "~/game/bookCarryActions";
@@ -26,14 +25,14 @@ import {
   DIGITAL_ART_FRAME_INTERVALS,
   MAX_POSTER_HEIGHT,
   MIN_POSTER_HEIGHT,
+  normalizePosterRotation,
   POSTER_WHEEL_ROTATION_STEP,
 } from "~/game/wallDecorTuning";
 import {SHELF_BROWSE_INTERVAL_MS} from "~/game/bookInspectionTuning";
 import {DEFAULT_MODEL_SCALE, PROP_MAX_PROJECTION_DISTANCE, PROP_MIN_PROJECTION_DISTANCE} from "~/game/propTuning";
 import {describeKeyboardEvent} from "~/arcade/emulatorHost";
-import {getArrowNavigation} from "~/reader/pagination";
+import {getArrowNavigation, type ReaderNavigation} from "~/reader/pagination";
 import {keyboardLayoutEntry, readKeyboardLayout} from "~/game/keyboardLayout";
-import {normalizePosterRotation} from "~/game/wallDecorTuning";
 
 const TV_WHEEL_SCRUB_RESET_MS = 900;
 const TV_WHEEL_SCRUB_STEPS_SECONDS = [3, 5, 10, 15, 30] as const;
@@ -113,7 +112,7 @@ export type ShopInputHost = {
   targetedTelevision: () => ShopTelevision | undefined;
   televisionTargeted: () => boolean;
   stepAwayFromArcade: () => void;
-  turnInspectionPage: (navigation: import("~/reader/pagination").ReaderNavigation) => void;
+  turnInspectionPage: (navigation: ReaderNavigation) => void;
   updateHeldPhysicsTarget: () => void;
 };
 
@@ -451,12 +450,11 @@ export class ShopInputController {
     // is not how an attached session is tracked, and pointer lock may be
     // released right after booting from the picker); otherwise a targeted,
     // still-running cabinet responds while the player is stepped away.
-    const arcadeVolumeCabinet =
-      this.#host.activeArcadeCabinet()?.sessionStatus === "playing"
-        ? this.#host.activeArcadeCabinet()
-        : this.#host.targetedArcadeCabinet()?.sessionStatus === "playing"
-          ? this.#host.targetedArcadeCabinet()
-          : undefined;
+    const activeArcadeCabinet = this.#host.activeArcadeCabinet();
+    const targetedArcadeCabinet = this.#host.targetedArcadeCabinet();
+    let arcadeVolumeCabinet: ShopArcadeCabinet | undefined;
+    if (activeArcadeCabinet?.sessionStatus === "playing") arcadeVolumeCabinet = activeArcadeCabinet;
+    else if (targetedArcadeCabinet?.sessionStatus === "playing") arcadeVolumeCabinet = targetedArcadeCabinet;
     if (!arcadeVolumeCabinet || !event.ctrlKey || event.deltaY === 0) return false;
     event.preventDefault();
     // Same convention as the TV: wheel up raises the cabinet's volume.

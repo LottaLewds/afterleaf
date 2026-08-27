@@ -1,14 +1,15 @@
 import {
+  MathUtils,
   Mesh,
+  MeshBasicMaterial,
+  type Raycaster,
   type Object3D,
   type PerspectiveCamera,
   PlaneGeometry,
   Quaternion,
-  Raycaster,
   Vector2,
   Vector3,
 } from "three";
-import {MathUtils, MeshBasicMaterial} from "three";
 import {BOOK_HEIGHT} from "~/game/bookTuning";
 import {FACE_DISPLAY_COLUMNS, FACE_DISPLAY_COLUMN_SPACING, FACE_SHELF_ID} from "~/game/shopLayout";
 import {
@@ -18,7 +19,7 @@ import {
   type ShelfPresentation,
 } from "~/game/shelfPlacement";
 import type {ShelveAnimation} from "~/game/bookCarryActions";
-import {shopSignKey} from "~/game/signs/ShopSignSystem";
+import {shopSignKey, type ShopSignSystem} from "~/game/signs/ShopSignSystem";
 import {POSTER_INTERACTION_DISTANCE} from "~/game/wallDecorTuning";
 import {MAX_CARRIED_BOOKS} from "~/game/worldSave";
 import type {BookRecord} from "~/game/bookFactory";
@@ -27,7 +28,6 @@ import type {ArcadeSessionStatus, ShopArcadeCabinet} from "~/game/ShopArcadeCabi
 import type {ShopTelevision, ShopTelevisionInteraction} from "~/game/ShopTelevision";
 import type {ArtFrameSystem} from "~/game/artFrameSystem";
 import type {PosterSystem} from "~/game/posters/PosterSystem";
-import type {ShopSignSystem} from "~/game/signs/ShopSignSystem";
 
 const SPINE_SHELF_GAP = 0.018;
 const SHELF_INTERACTION_DISTANCE = 2.75;

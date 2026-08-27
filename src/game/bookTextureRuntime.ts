@@ -5,14 +5,13 @@ import {
   Color,
   LinearFilter,
   SRGBColorSpace,
+  type WebGLRenderer,
   type Scene,
   type Texture,
 } from "three";
-import {type WebGLRenderer} from "three";
 import {KTX2Loader} from "three/examples/jsm/loaders/KTX2Loader.js";
 import {DEV} from "solid-js";
-import type {CatalogItem} from "~/catalog";
-import type {CatalogAtlases, CatalogShelfAtlas} from "~/catalog";
+import type {CatalogAtlases, CatalogItem, CatalogShelfAtlas} from "~/catalog";
 import {remapBookGeometryToAtlas} from "~/game/bookAtlasGeometry";
 import {createBookExteriorMaterial, type BookAtlasBatch, type BookAtlasTextures} from "~/game/bookExteriorMaterial";
 import type {BookRecord} from "~/game/bookFactory";
@@ -591,8 +590,7 @@ export class BookTextureRuntime {
     this.#standaloneIds.add(publicationId);
     const anisotropy = Math.min(4, this.#host.renderer.capabilities.getMaxAnisotropy());
     if (!record.texture) {
-      let requestedTexture: Texture | undefined;
-      requestedTexture = this.#host.textureLoader.load(
+      const requestedTexture = this.#host.textureLoader.load(
         record.coverTextureUrl,
         (loadedTexture) => {
           if (
@@ -625,8 +623,7 @@ export class BookTextureRuntime {
       if (!record.detailTextureReady) this.#setBookCoverTexture(record, requestedTexture);
     }
     if (record.backTextureUrl && !record.backTexture) {
-      let requestedTexture: Texture | undefined;
-      requestedTexture = this.#host.textureLoader.load(
+      const requestedTexture = this.#host.textureLoader.load(
         record.backTextureUrl,
         (loadedTexture) => {
           if (
@@ -666,8 +663,7 @@ export class BookTextureRuntime {
     if (!record.spineTexture) {
       const spineTextureUrl = record.spineTextureUrl;
       if (spineTextureUrl) {
-        let requestedTexture: Texture | undefined;
-        requestedTexture = this.#host.textureLoader.load(
+        const requestedTexture = this.#host.textureLoader.load(
           spineTextureUrl,
           (loadedTexture) => {
             if (

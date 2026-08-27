@@ -25,11 +25,7 @@ import {RoundedBoxGeometry} from "three/examples/jsm/geometries/RoundedBoxGeomet
 import {GLTFLoader} from "three/examples/jsm/loaders/GLTFLoader.js";
 
 import tvButtonClickUrl from "~/assets/audio/tv-button-click.mp3?url";
-import {
-  type PositionalMediaAudioHandle,
-  type PositionalSfxHandle,
-  type ShopAudioManager,
-} from "~/game/ShopAudioManager";
+import type {PositionalMediaAudioHandle, PositionalSfxHandle, ShopAudioManager} from "~/game/ShopAudioManager";
 import {findModelTelevisionScreen, getModelTelevisionScreenAspect} from "~/game/modelTelevision";
 import {buildMergedStaticParts, isSharedStaticGeometry, type MergedStaticParts} from "~/game/staticModelBatching";
 import {createWoodBoxGeometry} from "~/game/woodMaterials";
@@ -368,12 +364,11 @@ const normalizeVolume = (volume: number) => {
   return Math.min(TELEVISION_VOLUME_CEILING, Math.max(0, Math.round(volume * 100) / 100));
 };
 
-const getScreenAspect = (options: ShopTelevisionOptions) =>
-  options.flatScreen
-    ? options.flatScreen.width / options.flatScreen.height
-    : options.model
-      ? getModelScreenAspect(options.model)
-      : TV_SCREEN_ASPECT;
+const getScreenAspect = (options: ShopTelevisionOptions) => {
+  if (options.flatScreen) return options.flatScreen.width / options.flatScreen.height;
+  if (options.model) return getModelScreenAspect(options.model);
+  return TV_SCREEN_ASPECT;
+};
 
 const getScreenSafeArea = (options: ShopTelevisionOptions): TvScreenSafeArea =>
   options.flatScreen

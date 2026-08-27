@@ -542,7 +542,6 @@ export class PosterSystem {
       existing.mesh.userData.posterId = existing.id;
       if (targetIndex >= 0) this.#targetMeshes[targetIndex] = preview;
       else this.#targetMeshes.push(preview);
-      this.#preview = undefined;
     } else {
       const id = globalThis.crypto.randomUUID();
       preview.material.depthWrite = true;
@@ -558,8 +557,8 @@ export class PosterSystem {
         rotation: placement.rotation,
       });
       this.#targetMeshes.push(preview);
-      this.#preview = undefined;
     }
+    this.#preview = undefined;
     this.#compactPosterDepthLayers();
     this.#placement = undefined;
     this.#placementSelection = undefined;

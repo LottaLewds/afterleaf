@@ -22,7 +22,7 @@ const replaceSnapshotIndex = async (temporaryPath: string, indexPath: string) =>
       lastError = error;
       const code = (error as NodeJS.ErrnoException).code;
       if (code !== "EPERM" && code !== "EBUSY" && code !== "EACCES") throw error;
-      await new Promise((resolve) => setTimeout(resolve, 100 * (attempt + 1)));
+      await new Promise((resolvePromise) => setTimeout(resolvePromise, 100 * (attempt + 1)));
     }
   }
   try {

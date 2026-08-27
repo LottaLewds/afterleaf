@@ -1,6 +1,5 @@
 import {clone as cloneWithSkeleton} from "three/examples/jsm/utils/SkeletonUtils.js";
 import {
-  AnimationClip,
   AnimationMixer,
   Box3,
   BoxGeometry,
@@ -10,6 +9,7 @@ import {
   Object3D,
   SpotLight,
   Vector3,
+  type AnimationClip,
 } from "three";
 import {GLTFLoader} from "three/examples/jsm/loaders/GLTFLoader.js";
 import {DEV} from "solid-js";

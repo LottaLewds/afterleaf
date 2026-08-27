@@ -1,17 +1,18 @@
 import {type Group, MeshStandardMaterial, Quaternion, Vector3, type Object3D, type TextureLoader} from "three";
 import {ShopTelevision, type ShopTelevisionOptions} from "~/game/ShopTelevision";
 import {BUILTIN_CRT_TV_ASSET_ID} from "~/game/propAssetIds";
-import {BUILTIN_SPAWNABLE_PROP_ASSETS} from "~/game/propTemplates";
+import {BUILTIN_SPAWNABLE_PROP_ASSETS, type BuiltinSpawnablePropAsset} from "~/game/propTemplates";
 import {DEFAULT_MODEL_SCALE} from "~/game/propTuning";
-import {INITIAL_WORLD_SEEDING_VERSION} from "~/game/worldSave";
-import type {WorldModelPropSave} from "~/game/worldSave";
+import {INITIAL_WORLD_SEEDING_VERSION, type WorldModelPropSave} from "~/game/worldSave";
 import {SHOP_MODEL_TELEVISION_SIZE} from "~/game/shopLayout";
-import {SHOP_THEATRE, SHOP_TV_CAVE, SHOP_TV_CAVE_SHELF_BOARD_Y_CENTERS} from "~/game/shopExpansionLayout";
-import {SHOP_UPPER_FLOOR_Y} from "~/game/shopExpansionLayout";
-import {loadUpholsteryTextures} from "~/game/upholsteryMaterials";
-import {createUpholsteryMaterial} from "~/game/upholsteryMaterials";
+import {
+  SHOP_THEATRE,
+  SHOP_TV_CAVE,
+  SHOP_TV_CAVE_SHELF_BOARD_Y_CENTERS,
+  SHOP_UPPER_FLOOR_Y,
+} from "~/game/shopExpansionLayout";
+import {createUpholsteryMaterial, loadUpholsteryTextures} from "~/game/upholsteryMaterials";
 import type {AddBox} from "~/game/interior/interiorPrimitives";
-import type {BuiltinSpawnablePropAsset} from "~/game/propTemplates";
 
 const UP_AXIS = new Vector3(0, 1, 0);
 

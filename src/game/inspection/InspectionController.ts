@@ -1,5 +1,11 @@
-import {LinearFilter, MathUtils, SRGBColorSpace, Vector2, Vector3, Quaternion} from "three";
 import {
+  LinearFilter,
+  MathUtils,
+  Quaternion,
+  SRGBColorSpace,
+  Vector2,
+  Vector3,
+  type Euler,
   type PerspectiveCamera,
   type Raycaster,
   type Scene,
@@ -25,8 +31,14 @@ import {
 import {physicalBookWidth} from "~/game/bookDimensions";
 import type {CatalogItem} from "~/catalog";
 import type {BookRecord} from "~/game/bookFactory";
-import type {ActiveLeafDeformationTarget, ActiveLeafVertex} from "~/game/PageTurnGeometry";
-import {getPageBlockSplit, writeActiveLeafDeformation, writeActiveLeafPositions} from "~/game/PageTurnGeometry";
+import type {BookTextureRuntime} from "~/game/bookTextureRuntime";
+import {
+  getPageBlockSplit,
+  writeActiveLeafDeformation,
+  writeActiveLeafPositions,
+  type ActiveLeafDeformationTarget,
+  type ActiveLeafVertex,
+} from "~/game/PageTurnGeometry";
 import {PageTextureCache} from "~/game/PageTextureCache";
 import {ReaderPagePreloader} from "~/reader/ReaderPagePreloader";
 import {createReaderPagePreloadPlan} from "~/reader/pagePreloadPlan";
@@ -46,13 +58,12 @@ import {
   INSPECTION_READER_EMISSIVE_INTENSITY,
   INSPECTION_SURFACE_GAP,
   INSPECTION_TRANSITION_POSITION_EPSILON_SQ,
-} from "~/game/bookInspectionTuning";
-import {
   SHELF_PREVIEW_ROTATION_SPEED,
   SHELF_PREVIEW_TRANSLATION_SPEED,
   SHELF_RETURN_CLOSE_HANDOFF_ANGLE,
   SHELF_RETURN_ROTATION_HANDOFF_EPSILON,
 } from "~/game/bookInspectionTuning";
+import type {BookPhysicsPose, MutableBookPhysicsTransform, ShopPhysicsWorld} from "~/game/ShopPhysicsWorld";
 import type {InspectionCloseAction, InspectionMode} from "~/game/shopTypes";
 
 export type InspectionShelfReturnPhase = "close" | "rotate" | "translate";
@@ -68,19 +79,19 @@ export type InspectionHost = {
   emitGameState: () => void;
   scene: () => Scene;
   carriedPublicationId: () => string | undefined;
-  physicsWorld: () => import("~/game/ShopPhysicsWorld").ShopPhysicsWorld;
+  physicsWorld: () => ShopPhysicsWorld;
   camera: () => PerspectiveCamera;
   catalogItems: () => readonly CatalogItem[];
-  bookTextures: () => import("~/game/bookTextureRuntime").BookTextureRuntime;
+  bookTextures: () => BookTextureRuntime;
   onPageIndexChange: (publicationId: string, pageIndex: number) => void;
   physicsPosePosition: () => Vector3;
   physicsPoseRotation: () => Quaternion;
-  physicsPose: () => import("~/game/ShopPhysicsWorld").BookPhysicsPose;
-  physicsPoseEuler: () => import("three").Euler;
+  physicsPose: () => BookPhysicsPose;
+  physicsPoseEuler: () => Euler;
   canvas: () => HTMLCanvasElement;
   horizontalFieldOfView: () => number;
   disposed: () => boolean;
-  physicsTransform: () => import("~/game/ShopPhysicsWorld").MutableBookPhysicsTransform;
+  physicsTransform: () => MutableBookPhysicsTransform;
   setHoveredPublicationId: (publicationId: string | undefined) => void;
   onSelectPublication: ((publicationId: string) => void) | undefined;
   initialPageIndex: (publicationId: string) => number;
@@ -98,7 +109,7 @@ export type InspectionHost = {
   textureLoader: () => TextureLoader;
   renderer: () => WebGLRenderer;
   spreadDistance: () => number;
-  heldTargetPose: () => import("~/game/ShopPhysicsWorld").BookPhysicsPose;
+  heldTargetPose: () => BookPhysicsPose;
 };
 
 /**
@@ -485,14 +496,10 @@ export class InspectionController {
     const intersection = intersections[0];
     const page = intersection?.object;
     if (!page) return;
-    const clickedSide: "left" | "right" =
-      record.inspectionLeftPage.visible && record.inspectionRightPage.visible
-        ? page === record.inspectionLeftPage
-          ? "left"
-          : "right"
-        : pointerX < 0
-          ? "left"
-          : "right";
+    let clickedSide: "left" | "right";
+    if (record.inspectionLeftPage.visible && record.inspectionRightPage.visible)
+      clickedSide = page === record.inspectionLeftPage ? "left" : "right";
+    else clickedSide = pointerX < 0 ? "left" : "right";
     return {clickedSide, intersection};
   }
 
@@ -783,8 +790,7 @@ export class InspectionController {
 
   loadInspectionPageTexture(url: string) {
     return new Promise<Texture>((resolvePromise, rejectPromise) => {
-      let requestedTexture: Texture | undefined;
-      requestedTexture = this.#host.textureLoader().load(
+      const requestedTexture = this.#host.textureLoader().load(
         url,
         (texture) => {
           const image = texture.image;
@@ -1066,7 +1072,8 @@ export class InspectionController {
     this.inspectionDragReleaseDecision = undefined;
     this.inspectionTurnWillCommit = decision === "commit";
     const forward = this.inspectionTurnNavigation === "forward";
-    this.inspectionTurnProgressTarget = decision === "commit" ? (forward ? 1 : 0) : forward ? 0 : 1;
+    if (decision === "commit") this.inspectionTurnProgressTarget = forward ? 1 : 0;
+    else this.inspectionTurnProgressTarget = forward ? 0 : 1;
   }
 
   setInspectionPointer(clientX: number, clientY: number) {

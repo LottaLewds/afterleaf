@@ -1,6 +1,5 @@
 import {describe, expect, test} from "bun:test";
-import type {ReplaceDirectoryOperations} from "~/content/replaceDirectory";
-import {replaceDirectory} from "~/content/replaceDirectory";
+import {replaceDirectory, type ReplaceDirectoryOperations} from "~/content/replaceDirectory";
 
 const filesystemError = (code: string) => Object.assign(new Error(code), {code});
 

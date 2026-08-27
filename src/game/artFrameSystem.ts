@@ -1,9 +1,9 @@
 import {
-  Material,
   Mesh,
   Quaternion,
   Vector3,
   type Intersection,
+  type Material,
   type Object3D,
   type PerspectiveCamera,
   type Raycaster,
@@ -15,12 +15,12 @@ import {DigitalArtFrame} from "~/game/DigitalArtFrame";
 import type {WorldDigitalArtFrameSave} from "~/game/worldSave";
 import type {ArtFrameTextureCache} from "~/game/artFrameTextureCache";
 import {resolveWallPlacement, type PosterSurface} from "~/game/interior/interiorPrimitives";
-import {POSTER_PLACEMENT_DISTANCE} from "~/game/wallDecorTuning";
 import {
   DEFAULT_POSTER_HEIGHT,
   DIGITAL_ART_FRAME_BORDER,
   DIGITAL_ART_FRAME_DEFAULT_INTERVAL_SECONDS,
   DIGITAL_ART_FRAME_INTERVALS,
+  POSTER_PLACEMENT_DISTANCE,
 } from "~/game/wallDecorTuning";
 
 export type DigitalArtFrameRecord = {

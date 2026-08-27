@@ -562,16 +562,16 @@ const createNormalizedWorldSave = (
 ): WorldSaveV1 => ({
   ...optionalObjectField(fields.aisleSigns, (aisleSigns) => ({aisleSigns})),
   books,
-  ...optionalObjectField(catalog, (catalog) => ({catalog})),
-  ...optionalObjectField(seedingVersion, (seedingVersion) => ({
-    seedingVersion,
+  ...optionalObjectField(catalog, (catalogValue) => ({catalog: catalogValue})),
+  ...optionalObjectField(seedingVersion, (seedingVersionValue) => ({
+    seedingVersion: seedingVersionValue,
   })),
   ...optionalObjectField(fields.digitalArtFrames, (digitalArtFrames) => ({
     digitalArtFrames,
   })),
   ...optionalObjectField(fields.modelProps, (modelProps) => ({modelProps})),
-  ...optionalObjectField(pendingArrivalIds.length > 0 ? pendingArrivalIds : undefined, (pendingArrivalIds) => ({
-    pendingArrivalIds,
+  ...optionalObjectField(pendingArrivalIds.length > 0 ? pendingArrivalIds : undefined, (pendingArrivalIdsValue) => ({
+    pendingArrivalIds: pendingArrivalIdsValue,
   })),
   player: parsePose(value.player, "player"),
   ...optionalObjectField(fields.posters, (posters) => ({posters})),

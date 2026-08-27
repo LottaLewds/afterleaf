@@ -1,4 +1,4 @@
-import {BatchedMesh, Color, type Matrix4, MeshStandardMaterial, Texture} from "three";
+import {Color, MeshStandardMaterial, type BatchedMesh, type Matrix4, type Texture} from "three";
 
 export type BookExteriorUniforms = {
   backMap: {value: Texture | null};
@@ -82,8 +82,10 @@ export const createBookExteriorMaterial = (
     emissive: "#000000",
     roughness: 0.68,
   });
-  material.customProgramCacheKey = () =>
-    `afterleaf-book-exterior-${vertexDriven ? "v5-merged" : atlasUvs ? "v4-atlas" : "v4-standalone"}`;
+  let programVariant = "v4-standalone";
+  if (atlasUvs) programVariant = "v4-atlas";
+  if (vertexDriven) programVariant = "v5-merged";
+  material.customProgramCacheKey = () => `afterleaf-book-exterior-${programVariant}`;
   material.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, uniforms);
     shader.vertexShader = shader.vertexShader

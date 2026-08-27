@@ -1,4 +1,4 @@
-import {BufferGeometry, Mesh, Vector3, type Object3D} from "three";
+import {Mesh, Vector3, type BufferGeometry, type Object3D} from "three";
 
 export const getInitialModelAnimationIndex = (animations: readonly {name: string}[], animationClip?: string | null) => {
   if (animationClip === null) return -1;

@@ -179,12 +179,16 @@ export const importLocalMedia = async (
       path,
       protectsExistingLibrary: false,
     })),
-    ...configMediaPaths.map((entry) => ({
-      optional: true,
-      path: entry.path,
-      protectsExistingLibrary: !defaultMediaPathSet.has(entry.path),
-      ...(entry.readingDirection === undefined ? {} : {readingDirection: entry.readingDirection}),
-    })),
+    ...configMediaPaths.map((entry) =>
+      Object.assign(
+        {
+          optional: true,
+          path: entry.path,
+          protectsExistingLibrary: !defaultMediaPathSet.has(entry.path),
+        },
+        entry.readingDirection === undefined ? {} : {readingDirection: entry.readingDirection},
+      ),
+    ),
     ...cliMediaPaths.map((path) => ({
       optional: false,
       path: resolve(path),

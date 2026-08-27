@@ -1,5 +1,12 @@
-import {Mesh, MeshBasicMaterial, PlaneGeometry, Vector3, type MeshStandardMaterial, type Object3D} from "three";
-import type {Group} from "three";
+import {
+  Mesh,
+  MeshBasicMaterial,
+  PlaneGeometry,
+  Vector3,
+  type Group,
+  type MeshStandardMaterial,
+  type Object3D,
+} from "three";
 import {BOOK_HEIGHT} from "~/game/bookTuning";
 import {
   SPINE_SHELF_BACKING_THICKNESS,

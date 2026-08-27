@@ -2,8 +2,6 @@ import {DEV} from "solid-js";
 import {
   BatchedMesh,
   BufferAttribute,
-  BufferGeometry,
-  Group,
   Matrix4,
   Mesh,
   MeshBasicMaterial,
@@ -12,6 +10,8 @@ import {
   type Object3D,
   SkinnedMesh,
   Texture,
+  type BufferGeometry,
+  type Group,
 } from "three";
 import {mergeGeometries} from "three/examples/jsm/utils/BufferGeometryUtils.js";
 
@@ -284,7 +284,7 @@ export const batchStaticInteriorMeshes = (parent: Group) => {
     // movable as a unit.
     const scope = scopeContainer ?? (INTERIOR_BATCH_SOFT.test(object.name) ? object : null);
     const container = scope === null ? parent : (scope.parent ?? parent);
-    const effectiveContainer = scope === null ? parent : container === parent ? parent : container;
+    const effectiveContainer = scope === null ? parent : container;
     const childScope = scope ?? (effectiveContainer === parent ? null : scope);
     return {childScope, effectiveContainer, nextExcludedFromBatch};
   };

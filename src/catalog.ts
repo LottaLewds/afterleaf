@@ -319,18 +319,22 @@ export const loadRuntimeLibraryWithFetcher = async (fetcher: CatalogFetcher): Pr
     };
     const mapAtlases = (atlases: unknown): CatalogShelfAtlas[] =>
       Array.isArray(atlases)
-        ? atlases.filter(isRuntimeShelfAtlas).map((atlas) => ({
-            cellHeight: atlas.cellHeight,
-            cellWidth: atlas.cellWidth,
-            columns: atlas.columns,
-            firstPublicationIndex: atlas.firstPublicationIndex,
-            height: atlas.height,
-            publicationCount: atlas.publicationCount,
-            ...(atlas.regions === undefined ? {} : {regions: atlas.regions}),
-            rows: atlas.rows,
-            url: packAssetUrl(atlas.path, identity),
-            width: atlas.width,
-          }))
+        ? atlases.filter(isRuntimeShelfAtlas).map((atlas) =>
+            Object.assign(
+              {
+                cellHeight: atlas.cellHeight,
+                cellWidth: atlas.cellWidth,
+                columns: atlas.columns,
+                firstPublicationIndex: atlas.firstPublicationIndex,
+                height: atlas.height,
+                publicationCount: atlas.publicationCount,
+                rows: atlas.rows,
+                url: packAssetUrl(atlas.path, identity),
+                width: atlas.width,
+              },
+              atlas.regions === undefined ? {} : {regions: atlas.regions},
+            ),
+          )
         : [];
     const atlases: CatalogAtlases = {
       back: mapAtlases(value.atlases?.back),
@@ -342,39 +346,41 @@ export const loadRuntimeLibraryWithFetcher = async (fetcher: CatalogFetcher): Pr
       identity,
       publications: publications.map((publication) => {
         const backAsset = publication.assets.backDetail ?? publication.assets.back;
-        return {
-          id: publication.id,
-          title: publication.title,
-          titleJp: publication.title,
-          collection: publication.groupId ?? publication.kind ?? "Unsorted",
-          issue: issueNumber(publication),
-          language: publication.language,
-          tags: publication.tags,
-          originalTags: publication.originalTags ?? publication.tags,
-          alternates: (publication.alternates ?? []).map((alternate) => ({
-            id: alternate.id,
-            originalTags: alternate.originalTags,
-            page0: packAssetUrl(alternate.page0, identity),
-            title: alternate.title,
-          })),
-          cover: packAssetUrl(publication.assets.front, identity),
-          ...(publication.assets.frontDetail === undefined
+        return Object.assign(
+          {
+            id: publication.id,
+            title: publication.title,
+            titleJp: publication.title,
+            collection: publication.groupId ?? publication.kind ?? "Unsorted",
+            issue: issueNumber(publication),
+            language: publication.language,
+            tags: publication.tags,
+            originalTags: publication.originalTags ?? publication.tags,
+            alternates: (publication.alternates ?? []).map((alternate) => ({
+              id: alternate.id,
+              originalTags: alternate.originalTags,
+              page0: packAssetUrl(alternate.page0, identity),
+              title: alternate.title,
+            })),
+            cover: packAssetUrl(publication.assets.front, identity),
+          },
+          publication.assets.frontDetail === undefined
             ? {}
-            : {
-                detailCover: packAssetUrl(publication.assets.frontDetail, identity),
-              }),
-          ...(backAsset === undefined ? {} : {back: packAssetUrl(backAsset, identity)}),
-          ...(publication.assets.spine === undefined ? {} : {spine: packAssetUrl(publication.assets.spine, identity)}),
-          pages: Array.from({length: publication.pageCount ?? publication.assets.pages.length}, (_, pageIndex) => {
-            const page = publication.assets.pages[pageIndex];
-            return page ? packAssetUrl(page, identity) : sparsePageUrl(publication.id, pageIndex, identity);
-          }),
-          added: addedLabel(publication),
-          trim: publication.physical.trim ?? "B5",
-          thicknessMm: publication.physical.thicknessMm ?? 10,
-          ...(publication.physical.aspectRatio === undefined ? {} : {aspectRatio: publication.physical.aspectRatio}),
-          ...runtimeReadingDirection(publication),
-          ...(publication.shelfAtlasIndex === undefined
+            : {detailCover: packAssetUrl(publication.assets.frontDetail, identity)},
+          backAsset === undefined ? {} : {back: packAssetUrl(backAsset, identity)},
+          publication.assets.spine === undefined ? {} : {spine: packAssetUrl(publication.assets.spine, identity)},
+          {
+            pages: Array.from({length: publication.pageCount ?? publication.assets.pages.length}, (_, pageIndex) => {
+              const page = publication.assets.pages[pageIndex];
+              return page ? packAssetUrl(page, identity) : sparsePageUrl(publication.id, pageIndex, identity);
+            }),
+            added: addedLabel(publication),
+            trim: publication.physical.trim ?? "B5",
+            thicknessMm: publication.physical.thicknessMm ?? 10,
+          },
+          publication.physical.aspectRatio === undefined ? {} : {aspectRatio: publication.physical.aspectRatio},
+          runtimeReadingDirection(publication),
+          publication.shelfAtlasIndex === undefined
             ? {}
             : {
                 shelfAtlas: (() => {
@@ -390,9 +396,9 @@ export const loadRuntimeLibraryWithFetcher = async (fetcher: CatalogFetcher): Pr
                     index: atlasIndex,
                   };
                 })(),
-              }),
-          accent: accentForId(publication.id),
-        };
+              },
+          {accent: accentForId(publication.id)},
+        );
       }),
     };
   } catch {

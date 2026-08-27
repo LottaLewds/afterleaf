@@ -1,6 +1,5 @@
 import type {ForwardedKeyEvent} from "~/arcade/emulatorHost";
-import type {ArcadeSystemId, ArcadeSystem} from "~/arcade/systems";
-import {ARCADE_SYSTEMS} from "~/arcade/systems";
+import {ARCADE_SYSTEMS, type ArcadeSystemId, type ArcadeSystem} from "~/arcade/systems";
 import type {GamepadButtonName} from "~/game/input/bindings";
 
 /**
@@ -104,21 +103,21 @@ type DirectionSpec = {
 const directionsAt = (
   specs: readonly DirectionSpec[],
   shape: "dpad" | "stick",
-  x: number,
+  anchorX: number,
   y: number,
 ): DirectionalControls => {
   const [up, down, left, right] = specs;
   if (!up || !down || !left || !right) throw new Error("Direction controls need exactly four entries.");
   return [
-    {...up, diagram: {shape, x, y}},
-    {...down, diagram: {shape, x, y}},
-    {...left, diagram: {shape, x, y}},
-    {...right, diagram: {shape, x, y}},
+    {...up, diagram: {shape, x: anchorX, y}},
+    {...down, diagram: {shape, x: anchorX, y}},
+    {...left, diagram: {shape, x: anchorX, y}},
+    {...right, diagram: {shape, x: anchorX, y}},
   ];
 };
 
 /** Four d-pad controls sharing one diagram anchor (up, down, left, right). */
-const dpadAt = (x: number, y: number): DirectionalControls =>
+const dpadAt = (anchorX: number, y: number): DirectionalControls =>
   directionsAt(
     [
       {id: 4, label: "D-pad Up", keyboard: dpadUp()},
@@ -127,12 +126,12 @@ const dpadAt = (x: number, y: number): DirectionalControls =>
       {id: 7, label: "D-pad Right", keyboard: dpadRight()},
     ],
     "dpad",
-    x,
+    anchorX,
     y,
   );
 
 /** Analog-stick controls sharing one diagram anchor (up, down, left, right). */
-const stickAt = (x: number, y: number): DirectionalControls =>
+const stickAt = (anchorX: number, y: number): DirectionalControls =>
   directionsAt(
     [
       {id: 19, label: "Stick Up", keyboard: dpadUp()},
@@ -141,7 +140,7 @@ const stickAt = (x: number, y: number): DirectionalControls =>
       {id: 16, label: "Stick Right", keyboard: dpadRight()},
     ],
     "stick",
-    x,
+    anchorX,
     y,
   );
 

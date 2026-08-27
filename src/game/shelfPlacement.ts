@@ -81,7 +81,7 @@ export const insertSpineShelfBook = (
 
   const orderedBooks = books
     .filter((book) => book.id !== insertion.id && safeWidth(book.width) > 0)
-    .map((book) => ({...book, width: safeWidth(book.width)}))
+    .map((book) => Object.assign({}, book, {width: safeWidth(book.width)}))
     .sort((first, second) =>
       first.center === second.center ? first.id.localeCompare(second.id) : first.center - second.center,
     );
@@ -117,9 +117,10 @@ export const insertSpineShelfBook = (
     cursor = center + book.width / 2 + safeGap;
   }
 
-  return [...leftBooks, {...insertion, center: insertionCenter}, ...rightBooks].map((book, slotIndex) => ({
-    ...book,
-    center: centers.get(book.id) ?? book.center,
-    slotIndex,
-  }));
+  return [...leftBooks, {...insertion, center: insertionCenter}, ...rightBooks].map((book, slotIndex) =>
+    Object.assign({}, book, {
+      center: centers.get(book.id) ?? book.center,
+      slotIndex,
+    }),
+  );
 };

@@ -3,47 +3,41 @@ import {
   AmbientLight,
   Euler,
   MathUtils,
-  Mesh,
-  MeshStandardMaterial,
   PCFSoftShadowMap,
   PerspectiveCamera,
   Quaternion,
   Raycaster,
   Scene,
   SRGBColorSpace,
-  Texture,
   TextureLoader,
   Vector3,
   WebGLRenderer,
+  type Mesh,
+  type MeshStandardMaterial,
+  type Texture,
 } from "three";
-import {TRASH_CAN_PROP_ID} from "~/game/discardBin";
+import {DiscardBin, TRASH_CAN_PROP_ID} from "~/game/discardBin";
 import {physicalBookWidth} from "~/game/bookDimensions";
-import {INSPECTION_FRAME_FILL, INSPECTION_PAGE_GUTTER} from "~/game/bookInspectionTuning";
+import {INSPECTION_FRAME_FILL, INSPECTION_PAGE_GUTTER, INSPECTION_TRANSITION_SPEED} from "~/game/bookInspectionTuning";
 import {dotWithPhysicsQuaternion} from "~/game/mathHelpers";
 import {BOOK_HEIGHT} from "~/game/bookTuning";
-import {type ShopArcadeCabinet} from "~/game/ShopArcadeCabinet";
-import {KTX2Loader} from "three/examples/jsm/loaders/KTX2Loader.js";
+import type {ShopArcadeCabinet, ShopArcadePlayRequest} from "~/game/ShopArcadeCabinet";
+import type {KTX2Loader} from "three/examples/jsm/loaders/KTX2Loader.js";
 import {RectAreaLightUniformsLib} from "three/examples/jsm/lights/RectAreaLightUniformsLib.js";
 import {DEV, untrack} from "solid-js";
 import {ShopAudioManager} from "~/game/ShopAudioManager";
 import {FpsHud} from "~/game/FpsHud";
 import type {BookRecord} from "~/game/bookFactory";
-import {INSPECTION_TRANSITION_SPEED} from "~/game/bookInspectionTuning";
-import type {ShopArcadePlayRequest} from "~/game/ShopArcadeCabinet";
 import {disposeObject} from "~/game/threeDisposal";
 import type {MovablePropRegistration} from "~/game/propRegistration";
 import {GameStateEmitter, type GameSnapshotInput} from "~/game/gameStateEmitter";
-import type {ShopSignKind} from "~/game/signs/ShopSignSystem";
-import {shopSignKey} from "~/game/signs/ShopSignSystem";
-import type {DigitalArtFramePasteTarget} from "~/game/artFrameSystem";
+import {shopSignKey, ShopSignSystem, type ShopSignEditRequest, type ShopSignKind} from "~/game/signs/ShopSignSystem";
+import {ArtFrameSystem, type DigitalArtFramePasteTarget} from "~/game/artFrameSystem";
 import {createFaceOutDisplay} from "~/game/interior/shelfFixtures";
 import {buildShopInterior} from "~/game/interior/shopComposition";
 import {InspectionController} from "~/game/inspection/InspectionController";
-import {ShopSignSystem} from "~/game/signs/ShopSignSystem";
-import {DiscardBin} from "~/game/discardBin";
 import {DoorSystem} from "~/game/interior/doors";
 import {PosterSystem} from "~/game/posters/PosterSystem";
-import {ArtFrameSystem} from "~/game/artFrameSystem";
 import {TvVideoImporter} from "~/game/tvVideoImporter";
 import {ArtFrameTextureCache} from "~/game/artFrameTextureCache";
 import {BookTextureRuntime} from "~/game/bookTextureRuntime";
@@ -65,18 +59,16 @@ import {createShopTargetState, type ShopTargetState} from "~/game/shopTargetStat
 import {ShopArcadeSessionController} from "~/game/shopArcadeSessionController";
 
 import type {CatalogAtlases, CatalogIdentity, CatalogItem} from "~/catalog";
-import type {ArtFrameImage} from "~/artFrames/protocol";
-import {artFrameChannelId} from "~/artFrames/protocol";
-import type {ShopSignEditRequest} from "~/game/signs/ShopSignSystem";
-import {type UiMode} from "~/game/uiMode";
+import {artFrameChannelId, type ArtFrameImage} from "~/artFrames/protocol";
+import type {UiMode} from "~/game/uiMode";
 
-import {type ShopCollisionWorld} from "~/game/shopGameplay";
+import type {ShopCollisionWorld} from "~/game/shopGameplay";
 import {loadShortcuts, type ShortcutsConfig} from "~/game/input/bindings";
 import {InputManager, type InputMode} from "~/game/input/inputManager";
 import {loadPadMappingOverrides, padForwardEvent, type ArcadePadMappingOverrides} from "~/arcade/controllerMappings";
 import {findArcadeSystem} from "~/arcade/systems";
 
-import {ShelfPresentation} from "~/game/shelfPlacement";
+import type {ShelfPresentation} from "~/game/shelfPlacement";
 import {SHOP_BOUNDS, SHOP_INTERIOR_FOOTPRINTS} from "~/game/shopLayout";
 import {
   ShopPhysicsWorld,
@@ -84,7 +76,7 @@ import {
   type BookPhysicsPose,
   type MutableBookPhysicsTransform,
 } from "~/game/ShopPhysicsWorld";
-import {ShopTelevision, type ShopTelevisionInteraction} from "~/game/ShopTelevision";
+import type {ShopTelevision, ShopTelevisionInteraction} from "~/game/ShopTelevision";
 import type {ShopMediaCatalog} from "~/game/shopMediaCatalog";
 import type {WorldSaveV1} from "~/game/worldSave";
 import {getWideReaderPageIndices, readerPageSourceUrl, subscribeToWideReaderPages} from "~/reader/pageSpreadDetection";

@@ -8,17 +8,17 @@ import type {DiscardBin} from "~/game/discardBin";
 import type {MovablePropLifecycle} from "~/game/movablePropSystem";
 import type {PosterSystem} from "~/game/posters/PosterSystem";
 import type {ShopPhysicsWorld} from "~/game/ShopPhysicsWorld";
-import type {ShopSignSystem} from "~/game/signs/ShopSignSystem";
-import {shopSignKey} from "~/game/signs/ShopSignSystem";
-import type {
-  WorldBookSave,
-  WorldModelPropSave,
-  WorldPropSave,
-  WorldSaveV1,
-  WorldTelevisionChannels,
-  WorldTelevisionVolumes,
+import {shopSignKey, type ShopSignSystem} from "~/game/signs/ShopSignSystem";
+import {
+  worldSaveCanReconcileCatalog,
+  worldSaveMatchesCatalog,
+  type WorldBookSave,
+  type WorldModelPropSave,
+  type WorldPropSave,
+  type WorldSaveV1,
+  type WorldTelevisionChannels,
+  type WorldTelevisionVolumes,
 } from "~/game/worldSave";
-import {worldSaveCanReconcileCatalog, worldSaveMatchesCatalog} from "~/game/worldSave";
 import {createWorldSave} from "~/game/worldSaveSnapshot";
 import {
   adoptLegacyModelPropSaves,
