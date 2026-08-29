@@ -48,9 +48,25 @@ export const isEditableTarget = (target: EventTarget | null): boolean => {
 /**
  * True while a clipboard/browser modifier is held. Bindings match bare
  * physical codes only, so these combos stay reserved for native
- * shortcuts (e.g. Ctrl/Cmd+V paste) and are never consumed.
+ * shortcuts (e.g. Ctrl/Cmd+V paste) and are never consumed. A modifier key
+ * that is itself explicitly bound is the one exception for held actions.
  */
 const hasReservedModifier = (event: KeyboardEvent): boolean => event.ctrlKey || event.metaKey || event.altKey;
+
+/** A modifier can be a deliberate held action when explicitly bound. */
+const isModifierKeyCode = (code: string): boolean =>
+  code === "AltLeft" ||
+  code === "AltRight" ||
+  code === "ControlLeft" ||
+  code === "ControlRight" ||
+  code === "MetaLeft" ||
+  code === "MetaRight";
+
+const shouldTrackKeyDown = (event: KeyboardEvent, boundCodes: ReadonlySet<string>): boolean => {
+  if (event.repeat) return false;
+  if (!hasReservedModifier(event)) return true;
+  return isModifierKeyCode(event.code) && boundCodes.has(event.code);
+};
 
 /** Bit slots for synthesized stick arrows: up, down, left, right. */
 const STICK_ARROW_SLOTS: readonly (readonly [number, GamepadButtonName])[] = [
@@ -185,7 +201,7 @@ export class InputManager {
     this.#syncShortcuts();
     // Typing into inputs must never be hijacked by bindings.
     if (isEditableTarget(event.target)) return;
-    if (!event.repeat && !hasReservedModifier(event)) this.#keysDown.add(event.code);
+    if (shouldTrackKeyDown(event, this.#boundCodes)) this.#keysDown.add(event.code);
     this.#onKeyEvent?.(event);
     // The interceptor owns modal raw-key routing (arcade emulation).
     if (this.#keyboardInterceptor?.(event)) return;
@@ -198,7 +214,7 @@ export class InputManager {
   };
 
   #canDispatchKeyDown(event: KeyboardEvent) {
-    return !event.repeat && this.#inputActive() && !hasReservedModifier(event);
+    return shouldTrackKeyDown(event, this.#boundCodes) && this.#inputActive();
   }
 
   #handleKeyUp = (event: KeyboardEvent) => {

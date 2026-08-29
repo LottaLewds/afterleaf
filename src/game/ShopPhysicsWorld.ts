@@ -11,6 +11,10 @@ export const SHOP_PHYSICS_PLAYER_BODY_HEIGHT = 1.64;
 export const SHOP_PHYSICS_PLAYER_RADIUS = 0.3;
 /** Camera/eye height above the feet at the default grounded pose. */
 export const SHOP_PHYSICS_PLAYER_EYE_HEIGHT = 1.66;
+/** Collision-capsule height while the player is crouched. */
+export const SHOP_PHYSICS_PLAYER_CROUCHED_BODY_HEIGHT = 0.9;
+/** Camera/eye height above the feet while the player is crouched. */
+export const SHOP_PHYSICS_PLAYER_CROUCHED_EYE_HEIGHT = 0.95;
 /** Subtract this from public eye Y to obtain Rapier's capsule-center Y. */
 export const SHOP_PHYSICS_PLAYER_EYE_TO_CENTER = SHOP_PHYSICS_PLAYER_EYE_HEIGHT - SHOP_PHYSICS_PLAYER_BODY_HEIGHT * 0.5;
 export const SHOP_PHYSICS_TRASH_POSITION_X = -4.25;
@@ -57,9 +61,15 @@ const PLAYER_COLLISION_GROUPS = interactionGroups(
   PLAYER_COLLISION_GROUP,
   WORLD_COLLISION_GROUP | BOOK_COLLISION_GROUP | HELD_BOOK_COLLISION_GROUP | RELEASED_BOOK_COLLISION_GROUP,
 );
-const PLAYER_CAPSULE_HALF_HEIGHT = (SHOP_PHYSICS_PLAYER_BODY_HEIGHT - SHOP_PHYSICS_PLAYER_RADIUS * 2) * 0.5;
+const playerCapsuleHalfHeight = (bodyHeight: number) => (bodyHeight - SHOP_PHYSICS_PLAYER_RADIUS * 2) * 0.5;
+const PLAYER_CAPSULE_HALF_HEIGHT = playerCapsuleHalfHeight(SHOP_PHYSICS_PLAYER_BODY_HEIGHT);
+const CROUCHED_PLAYER_CAPSULE_HALF_HEIGHT = playerCapsuleHalfHeight(SHOP_PHYSICS_PLAYER_CROUCHED_BODY_HEIGHT);
+const PLAYER_STAND_CLEARANCE_PROBE = 0.02;
 const PLAYER_CONTROLLER_OFFSET = 0.01;
 const PLAYER_CHARACTER_MASS = 70;
+
+const interpolatePosture = (standing: number, crouched: number, crouchAmount: number) =>
+  standing + (crouched - standing) * crouchAmount;
 
 const bookCollisionGroups = (held: boolean, collisionlessWhileHeld: boolean, releasedCollisionless: boolean) => {
   if (held) return collisionlessWhileHeld ? GHOST_PROP_COLLISION_GROUPS : HELD_BOOK_COLLISION_GROUPS;
@@ -108,7 +118,7 @@ export type MutablePhysicsVector3 = {x: number; y: number; z: number};
 
 /**
  * `eyePosition` is ready to copy into a Three camera. Rapier owns a capsule
- * centered `SHOP_PHYSICS_PLAYER_EYE_TO_CENTER` below that point.
+ * centered below that point; the center offset changes with the crouched pose.
  */
 export type MutablePlayerMovement = {
   ceilingHit: boolean;
@@ -365,6 +375,7 @@ export class ShopPhysicsWorld {
   #playerBody: RigidBody | undefined;
   #playerCollider: Collider | undefined;
   #playerController: KinematicCharacterController | undefined;
+  #playerCrouchAmount = 0;
   #rapier: RapierModule | undefined;
   #world: World | undefined;
 
@@ -464,7 +475,7 @@ export class ShopPhysicsWorld {
         .lockRotations(),
     );
     const collider = world.createCollider(
-      rapier.ColliderDesc.capsule(PLAYER_CAPSULE_HALF_HEIGHT, SHOP_PHYSICS_PLAYER_RADIUS)
+      rapier.ColliderDesc.capsule(this.#playerCapsuleHalfHeight(), SHOP_PHYSICS_PLAYER_RADIUS)
         .setCollisionGroups(PLAYER_COLLISION_GROUPS)
         .setFriction(0)
         .setRestitution(0),
@@ -481,9 +492,34 @@ export class ShopPhysicsWorld {
     this.#playerController = controller;
   }
 
+  #playerBodyHeight() {
+    return interpolatePosture(
+      SHOP_PHYSICS_PLAYER_BODY_HEIGHT,
+      SHOP_PHYSICS_PLAYER_CROUCHED_BODY_HEIGHT,
+      this.#playerCrouchAmount,
+    );
+  }
+
+  #playerEyeHeight() {
+    return interpolatePosture(
+      SHOP_PHYSICS_PLAYER_EYE_HEIGHT,
+      SHOP_PHYSICS_PLAYER_CROUCHED_EYE_HEIGHT,
+      this.#playerCrouchAmount,
+    );
+  }
+
+  #playerCapsuleHalfHeight() {
+    return interpolatePosture(
+      PLAYER_CAPSULE_HALF_HEIGHT,
+      CROUCHED_PLAYER_CAPSULE_HALF_HEIGHT,
+      this.#playerCrouchAmount,
+    );
+  }
+
   #writePlayerCenter(output: MutableVector3) {
     output.x = this.#playerEyePosition.x;
-    output.y = this.#playerEyePosition.y - SHOP_PHYSICS_PLAYER_EYE_TO_CENTER;
+    const feetY = this.#playerEyePosition.y - this.#playerEyeHeight();
+    output.y = feetY + this.#playerBodyHeight() * 0.5;
     output.z = this.#playerEyePosition.z;
   }
 
@@ -625,6 +661,7 @@ export class ShopPhysicsWorld {
   }
 
   resetPlayer(eyePosition: PhysicsVector3 = DEFAULT_PLAYER_EYE_POSITION) {
+    if (!this.#disposed) this.#applyPlayerCrouch(false);
     return this.setPlayerPosition(eyePosition);
   }
 
@@ -633,6 +670,69 @@ export class ShopPhysicsWorld {
     if (this.#disposed) return false;
     copyVector(output, this.#playerEyePosition);
     return true;
+  }
+
+  playerCrouched() {
+    return this.#playerCrouchAmount > 0;
+  }
+
+  playerCrouchAmount() {
+    return this.#playerCrouchAmount;
+  }
+
+  #applyPlayerCrouch(crouched: boolean) {
+    this.#applyPlayerCrouchAmount(crouched ? 1 : 0);
+  }
+
+  #applyPlayerCrouchAmount(crouchAmount: number) {
+    const feetY = this.#playerEyePosition.y - this.#playerEyeHeight();
+    this.#playerCrouchAmount = Math.min(1, Math.max(0, crouchAmount));
+    this.#playerEyePosition.y = feetY + this.#playerEyeHeight();
+
+    const body = this.#playerBody;
+    const collider = this.#playerCollider;
+    const world = this.#world;
+    if (!body || !collider || !world) return;
+
+    collider.setHalfHeight(this.#playerCapsuleHalfHeight());
+    this.#writePlayerCenter(this.#playerCenterScratch);
+    body.setTranslation(this.#playerCenterScratch, true);
+    body.setNextKinematicTranslation(this.#playerCenterScratch);
+    world.propagateModifiedBodyPositionsToColliders();
+  }
+
+  #canPlayerStand() {
+    const body = this.#playerBody;
+    const collider = this.#playerCollider;
+    const controller = this.#playerController;
+    const world = this.#world;
+    if (!body || !collider || !controller || !world) return true;
+
+    const previousCrouchAmount = this.#playerCrouchAmount;
+    this.#applyPlayerCrouchAmount(0);
+    controller.computeColliderMovement(collider, {x: 0, y: PLAYER_STAND_CLEARANCE_PROBE, z: 0});
+    const canStand = !this.#detectPlayerCeilingHit(
+      controller,
+      PLAYER_STAND_CLEARANCE_PROBE,
+      controller.numComputedCollisions(),
+    );
+    this.#applyPlayerCrouchAmount(previousCrouchAmount);
+    return canStand;
+  }
+
+  /** Changes the player capsule while keeping its feet planted on the floor. */
+  setPlayerCrouchAmount(crouchAmount: number) {
+    if (this.#disposed || !Number.isFinite(crouchAmount)) return this.#playerCrouchAmount;
+    const nextCrouchAmount = Math.min(1, Math.max(0, crouchAmount));
+    if (nextCrouchAmount === this.#playerCrouchAmount) return this.#playerCrouchAmount;
+    if (nextCrouchAmount < this.#playerCrouchAmount && !this.#canPlayerStand()) return this.#playerCrouchAmount;
+    this.#applyPlayerCrouchAmount(nextCrouchAmount);
+    return this.#playerCrouchAmount;
+  }
+
+  setPlayerCrouching(crouched: boolean) {
+    this.setPlayerCrouchAmount(crouched ? 1 : 0);
+    return this.playerCrouched();
   }
 
   /**

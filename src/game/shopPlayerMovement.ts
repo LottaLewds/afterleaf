@@ -1,4 +1,4 @@
-import {Vector3, type PerspectiveCamera} from "three";
+import {MathUtils, Vector3, type PerspectiveCamera} from "three";
 
 import type {InputManager} from "~/game/input/inputManager";
 import type {ShopInputState} from "~/game/shopInputController";
@@ -13,12 +13,15 @@ import {
 import {clampUnit} from "~/game/mathHelpers";
 import {
   SHOP_PHYSICS_PLAYER_EYE_HEIGHT,
+  SHOP_PHYSICS_PLAYER_CROUCHED_EYE_HEIGHT,
   type MutablePlayerMovement,
   type ShopPhysicsWorld,
 } from "~/game/ShopPhysicsWorld";
 
 const PLAYER_RADIUS = 0.3;
 const WALK_SPEED = 2.65;
+const CROUCH_SPEED = 1.6;
+const CROUCH_TRANSITION_SPEED = 12;
 const SPRINT_SPEED = 4.35;
 const PLAYER_GRAVITY = -18;
 const PLAYER_JUMP_SPEED = 6.2;
@@ -54,6 +57,7 @@ export class ShopPlayerMovement {
   #lastPlayerGroundedAt = Number.NEGATIVE_INFINITY;
   #playerGrounded = false;
   #playerVerticalVelocity = 0;
+  #postureEyeDelta = 0;
 
   constructor(host: ShopPlayerMovementHost) {
     this.#host = host;
@@ -64,6 +68,8 @@ export class ShopPlayerMovement {
     this.#playerGrounded = false;
     this.#lastPlayerGroundedAt = Number.NEGATIVE_INFINITY;
     this.#playerVerticalVelocity = 0;
+    this.#postureEyeDelta = 0;
+    this.#host.inputState().crouchToggled = false;
     this.#host.inputState().jumpQueued = false;
   }
 
@@ -81,13 +87,23 @@ export class ShopPlayerMovement {
         Number(host.input().isActionDown("moveLeft")) +
         padMovement.right,
     );
-    const sprinting = host.input().isActionDown("sprint");
-    getPlanarMovement(
-      this.#movementInput,
-      state.lookAngles.yaw,
-      (sprinting ? SPRINT_SPEED : WALK_SPEED) * deltaSeconds,
-      this.#movementDelta,
-    );
+    const physics = host.physicsWorld();
+    const previousCrouchAmount = physics.playerCrouchAmount();
+    const targetCrouchAmount = state.crouchToggled ? 1 : 0;
+    const nextCrouchAmount =
+      Math.abs(targetCrouchAmount - previousCrouchAmount) < 0.001
+        ? targetCrouchAmount
+        : MathUtils.damp(previousCrouchAmount, targetCrouchAmount, CROUCH_TRANSITION_SPEED, deltaSeconds);
+    const crouchAmount = physics.setPlayerCrouchAmount(nextCrouchAmount);
+    this.#postureEyeDelta =
+      (SHOP_PHYSICS_PLAYER_CROUCHED_EYE_HEIGHT - SHOP_PHYSICS_PLAYER_EYE_HEIGHT) *
+      (crouchAmount - previousCrouchAmount);
+    const crouching = state.crouchToggled || crouchAmount > 0.001;
+    const sprinting = !crouching && host.input().isActionDown("sprint");
+    let movementSpeed = WALK_SPEED;
+    if (crouching) movementSpeed = CROUCH_SPEED;
+    else if (sprinting) movementSpeed = SPRINT_SPEED;
+    getPlanarMovement(this.#movementInput, state.lookAngles.yaw, movementSpeed * deltaSeconds, this.#movementDelta);
   }
 
   #updatePhysics(deltaSeconds: number, state: ShopInputState, camera: PerspectiveCamera) {
@@ -153,7 +169,13 @@ export class ShopPlayerMovement {
       host.collisionWorld,
       this.#movementPosition,
     );
-    camera.position.set(this.#movementPosition.x, SHOP_PHYSICS_PLAYER_EYE_HEIGHT, this.#movementPosition.z);
+    const crouchAmount = host.physicsWorld().playerCrouchAmount();
+    camera.position.set(
+      this.#movementPosition.x,
+      SHOP_PHYSICS_PLAYER_EYE_HEIGHT +
+        (SHOP_PHYSICS_PLAYER_CROUCHED_EYE_HEIGHT - SHOP_PHYSICS_PLAYER_EYE_HEIGHT) * crouchAmount,
+      this.#movementPosition.z,
+    );
     this.#playerGrounded = true;
     this.#lastPlayerGroundedAt = performance.now();
     this.#playerVerticalVelocity = 0;
@@ -164,6 +186,14 @@ export class ShopPlayerMovement {
     const state = host.inputState();
     const camera = host.camera();
     if (!state.pointerLocked || host.inspectionSpread()) {
+      state.crouchToggled = false;
+      const physics = host.physicsWorld();
+      const previousCrouchAmount = physics.playerCrouchAmount();
+      const crouchAmount = physics.setPlayerCrouchAmount(0);
+      camera.position.y +=
+        (SHOP_PHYSICS_PLAYER_CROUCHED_EYE_HEIGHT - SHOP_PHYSICS_PLAYER_EYE_HEIGHT) *
+        (crouchAmount - previousCrouchAmount);
+      this.#postureEyeDelta = 0;
       host.playerVelocity().set(0, 0, 0);
       this.#playerVerticalVelocity = 0;
       state.jumpQueued = false;
@@ -179,9 +209,10 @@ export class ShopPlayerMovement {
       .playerVelocity()
       .set(
         (camera.position.x - previousX) / deltaSeconds,
-        (camera.position.y - previousY) / deltaSeconds,
+        (camera.position.y - previousY - this.#postureEyeDelta) / deltaSeconds,
         (camera.position.z - previousZ) / deltaSeconds,
       );
+    this.#postureEyeDelta = 0;
     if (camera.position.x !== previousX || camera.position.y !== previousY || camera.position.z !== previousZ)
       host.markWorldStateDirty();
   }

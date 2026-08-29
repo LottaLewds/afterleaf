@@ -696,6 +696,7 @@ const defaultInteractions = (state: InteractionUiState): InteractionResult => ({
           actions: ["toggleArtFramePlacement"] as const,
         },
         {key: "Space", label: "Jump", actions: ["jump"] as const},
+        {key: "C", label: "Crouch", actions: ["crouch"] as const},
       ]
     : [],
 });

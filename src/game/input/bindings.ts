@@ -17,6 +17,8 @@ export type ShortcutAction =
   | "moveRight"
   | "jump"
   | "sprint"
+  // Movement toggles
+  | "crouch"
   // Core interactions
   | "interact"
   | "throw"
@@ -200,6 +202,7 @@ export const ACTION_DISPATCH_ORDER: readonly ShortcutAction[] = [
   "inspectionDrop",
   "inspectionReturn",
   "jump",
+  "crouch",
   // Placement-mode actions must beat core carry actions sharing a button.
   "toggleModelPlacement",
   "toggleArtFramePlacement",
@@ -246,6 +249,7 @@ export const SHORTCUT_LABELS: Record<ShortcutAction, string> = {
   moveLeft: "Move left",
   moveRight: "Move right",
   jump: "Jump",
+  crouch: "Crouch",
   sprint: "Sprint",
   interact: "Interact / use",
   throw: "Throw / charge / skip",
@@ -287,7 +291,7 @@ export const SHORTCUT_LABELS: Record<ShortcutAction, string> = {
 export const SHORTCUT_CATEGORIES: Record<string, {label: string; actions: ShortcutAction[]}> = {
   movement: {
     label: "Movement",
-    actions: ["moveForward", "moveBackward", "moveLeft", "moveRight", "jump", "sprint"],
+    actions: ["moveForward", "moveBackward", "moveLeft", "moveRight", "jump", "crouch", "sprint"],
   },
   core: {
     label: "Core",
@@ -348,6 +352,7 @@ export const DEFAULT_SHORTCUTS: ShortcutsConfig = {
   moveLeft: [keyboard("KeyA")],
   moveRight: [keyboard("KeyD")],
   jump: [keyboard("Space"), gamepad("L2")],
+  crouch: [keyboard("KeyC")],
   sprint: [keyboard("ShiftLeft"), keyboard("ShiftRight"), gamepad("L3")],
   interact: [keyboard("KeyE"), gamepad("A")],
   throw: [keyboard("KeyF"), gamepad("X")],

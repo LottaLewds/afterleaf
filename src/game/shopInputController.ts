@@ -47,6 +47,7 @@ const dominantWheelDelta = (event: WheelEvent) =>
 
 export type ShopInputState = {
   anomalousPointerMovementCount: number;
+  crouchToggled: boolean;
   didWarnPointerMovement: boolean;
   ignoreNextLockedPointerMove: boolean;
   jumpQueued: boolean;
@@ -118,6 +119,7 @@ export type ShopInputHost = {
 
 const createShopInputState = (): ShopInputState => ({
   anomalousPointerMovementCount: 0,
+  crouchToggled: false,
   didWarnPointerMovement: false,
   ignoreNextLockedPointerMove: false,
   jumpQueued: false,
@@ -591,6 +593,10 @@ export class ShopInputController {
     if (action === "jump") {
       this.state.jumpQueued = true;
       this.state.jumpQueuedAt = performance.now();
+      return true;
+    }
+    if (action === "crouch") {
+      this.state.crouchToggled = !this.state.crouchToggled;
       return true;
     }
     if (
@@ -1120,6 +1126,7 @@ export class ShopInputController {
     this.#host.input().suspend();
     this.#host.inspection().inspectionHeldNavigation = undefined;
     this.#host.bookActions().cancelThrowCharge();
+    this.state.crouchToggled = false;
     this.state.jumpQueued = false;
     this.#host.scanner().shelfBrowsePublicationId = undefined;
     this.#resetPointerMovement();
@@ -1158,6 +1165,7 @@ export class ShopInputController {
   suspendInput() {
     this.#host.input().suspend();
     this.#host.bookActions().cancelThrowCharge();
+    this.state.crouchToggled = false;
     this.state.jumpQueued = false;
     this.#resetPointerMovement();
     this.releasePointerLock();

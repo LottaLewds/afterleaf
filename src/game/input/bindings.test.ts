@@ -45,14 +45,8 @@ describe("bindings", () => {
     for (const [index, name] of GAMEPAD_BUTTON_NAMES.entries()) expect(gamepadButtonIndex(name)).toBe(index);
   });
 
-  test("keyboard bindings never bind bare modifier keys", () => {
-    // InputManager reserves Ctrl/Meta/Alt combos for browser shortcuts
-    // (e.g. Ctrl+V paste), so a binding on a modifier key itself would
-    // silently never dispatch.
-    const modifierCodes = new Set(["ControlLeft", "ControlRight", "MetaLeft", "MetaRight", "AltLeft", "AltRight"]);
-    for (const bindings of Object.values(DEFAULT_SHORTCUTS))
-      for (const binding of bindings)
-        if (binding.device === "keyboard") expect(modifierCodes.has(binding.code)).toBe(false);
+  test("defaults bind crouch to C", () => {
+    expect(DEFAULT_SHORTCUTS.crouch).toEqual([{device: "keyboard", code: "KeyC"}]);
   });
 
   test("loads default shortcuts when storage is empty", () => {

@@ -908,6 +908,30 @@ describe("ShopPhysicsWorld", () => {
     }
   }, 10_000);
 
+  test("changes the player capsule height while keeping the feet planted", async () => {
+    const physics = new ShopPhysicsWorld({playerEyePosition: {x: 0, y: 1.66, z: 0}});
+    const position = {x: 0, y: 0, z: 0};
+    try {
+      expect(await physics.initialize()).toBe(true);
+      expect(physics.playerCrouched()).toBe(false);
+      expect(physics.playerCrouchAmount()).toBe(0);
+      expect(physics.setPlayerCrouchAmount(0.5)).toBe(0.5);
+      expect(physics.getPlayerPosition(position)).toBe(true);
+      expect(position.y).toBeCloseTo(1.305);
+      expect(physics.setPlayerCrouching(true)).toBe(true);
+      expect(physics.playerCrouched()).toBe(true);
+      expect(physics.getPlayerPosition(position)).toBe(true);
+      expect(position.y).toBeCloseTo(0.95);
+
+      expect(physics.setPlayerCrouching(false)).toBe(false);
+      expect(physics.playerCrouched()).toBe(false);
+      expect(physics.getPlayerPosition(position)).toBe(true);
+      expect(position.y).toBeCloseTo(1.66);
+    } finally {
+      physics.dispose();
+    }
+  }, 10_000);
+
   test("distinguishes ceilings from walls during upward movement", async () => {
     const physics = new ShopPhysicsWorld();
     const movement = createPlayerMovement();

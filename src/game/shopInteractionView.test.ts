@@ -112,7 +112,7 @@ describe("shop interaction view", () => {
     const view = resolveShopInteractionView(state);
 
     expect(view.mode).toBe("none");
-    expect(view.interactions.map(({key}) => key)).toEqual(["M", "P", "V", "Space"]);
+    expect(view.interactions.map(({key}) => key)).toEqual(["M", "P", "V", "Space", "C"]);
   });
 
   test("keeps carried-book prompt and rows aligned with shelf targeting", () => {

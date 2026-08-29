@@ -359,6 +359,30 @@ describe("InputManager edge dispatch", () => {
 });
 
 describe("InputManager browser-modifier pass-through", () => {
+  test("allows an explicitly bound Ctrl key while preserving Ctrl+V paste", () => {
+    const config: ShortcutsConfig = {
+      ...DEFAULT_SHORTCUTS,
+      crouch: [{device: "keyboard", code: "ControlLeft"}],
+    };
+    const {manager, events} = createManager(config);
+    manager.update("shop");
+
+    const controlDown = fakeKeyEvent("ControlLeft", "keydown", false, {ctrl: true});
+    dispatchKey(controlDown);
+    expect(controlDown.defaultPrevented).toBe(true);
+    expect(events).toEqual([{action: "crouch", phase: "down", source: "keyboard"}]);
+    expect(manager.isActionDown("crouch")).toBe(true);
+
+    const paste = fakeKeyEvent("KeyV", "keydown", false, {ctrl: true});
+    dispatchKey(paste);
+    expect(paste.defaultPrevented).toBe(false);
+    expect(events).toHaveLength(1);
+
+    const controlUp = fakeKeyEvent("ControlLeft", "keyup");
+    dispatchKey(controlUp);
+    expect(manager.isActionDown("crouch")).toBe(false);
+  });
+
   test("Ctrl/Cmd/Alt combos never dispatch or consume bound keys", () => {
     // Regression guard: Ctrl/Cmd+V must reach the native paste event instead
     // of toggling art-frame placement; preventDefault would suppress paste.
