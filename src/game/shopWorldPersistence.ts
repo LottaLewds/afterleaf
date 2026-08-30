@@ -14,7 +14,6 @@ import {
   worldSaveMatchesCatalog,
   type WorldBookSave,
   type WorldModelPropSave,
-  type WorldPropSave,
   type WorldSaveV1,
   type WorldTelevisionChannels,
   type WorldTelevisionVolumes,
@@ -23,7 +22,6 @@ import {createWorldSave} from "~/game/worldSaveSnapshot";
 import {
   adoptLegacyModelPropSaves,
   migrateLegacyPlayerPosition,
-  migrateLegacyPropSaves,
   migrateLegacyTrashcanPosition,
 } from "~/game/worldSaveMigration";
 
@@ -120,7 +118,6 @@ export class ShopWorldPersistence {
           discardBin: this.#host.discardBin(),
           movableProps: this.#host.movableProps().records,
           pendingModelPropSaves: this.#host.movableProps().pendingModelPropSaves,
-          pendingPropSaves: this.#host.movableProps().pendingPropSaves,
           posters: this.#host.posters(),
           signs: this.#host.signs(),
           televisionsBySaveId: this.#host.movableProps().televisionsBySaveId,
@@ -169,9 +166,7 @@ export class ShopWorldPersistence {
     if (legacyTrashcanPosition)
       this.#host.discardBin().setPosition(legacyTrashcanPosition.x, legacyTrashcanPosition.z, false);
 
-    const propMigration = migrateLegacyPropSaves(save.props ?? []);
-    if (propMigration.migrated) this.markDirty();
-    this.#restoreProps(propMigration.savedProps, save.modelProps ?? []);
+    this.#restoreProps(save.modelProps ?? []);
     this.#host.posters().pendingSaves = save.posters ?? [];
     this.#host.artFrames().pendingSaves = save.digitalArtFrames ?? [];
     const playerMigration = migrateLegacyPlayerPosition(save.player.position);
@@ -227,28 +222,16 @@ export class ShopWorldPersistence {
     for (const sign of aisleSigns) signs.setSign(shopSignKey("aisle", sign.id), sign.title, sign.subtitle ?? "");
   }
 
-  #restoreProps(savedProps: readonly WorldPropSave[], savedModelProps: readonly WorldModelPropSave[]) {
+  #restoreProps(savedModelProps: readonly WorldModelPropSave[]) {
     const props = this.#host.movableProps();
-    props.pendingPropSaves = new Map(savedProps.map((savedProp) => [savedProp.id, savedProp]));
-    for (const [id, record] of props.records) {
-      const savedProp = props.pendingPropSaves.get(id);
-      if (!savedProp) continue;
-      props.applySavedPropPose(record, savedProp);
-      props.pendingPropSaves.delete(id);
-    }
     const existingModelPropIds = new Set(props.records.keys());
     for (const savedProp of savedModelProps) {
       const record = props.records.get(savedProp.id);
       if (!record) continue;
-      props.applySavedPropPose(record, savedProp);
       // Boot-registered defaults spawn at seed scale; without this, a
       // player-scaled default would silently revert and the next save would
       // overwrite the stored scale with the reverted value.
-      if (savedProp.scale !== record.modelScale) props.setModelPropScale(record, savedProp.scale);
-      if (savedProp.locked && !record.locked) {
-        record.locked = true;
-        this.#host.physicsWorld().setPropLocked(record.id, true);
-      }
+      props.applySavedModelProp(record, savedProp);
     }
     props.pendingModelPropSaves = adoptLegacyModelPropSaves(savedModelProps, existingModelPropIds);
     void props.restoreSavedModelProps();

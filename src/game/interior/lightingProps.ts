@@ -27,6 +27,12 @@ const CRT_TABLE_DESK_LAMP_SPAWN_CLEARANCE = 0.08;
 const READING_TABLE_SURFACE_Y = 0.91;
 const CEILING_LIGHT_BULB_DROP = 0.22;
 
+/** Existing fixture power expressed using SpotLight's lumen-based API. */
+export const CEILING_LIGHT_DEFAULT_POWER = 5.6 * Math.PI;
+export const CEILING_LIGHT_MIN_POWER = 0;
+export const CEILING_LIGHT_MAX_POWER = 10_000;
+export const CEILING_LIGHT_POWER_STEP = 10;
+
 /** Tuning for the ceiling-light fixture geometry. */
 const CEILING_LIGHT_ORIGIN_Y = 4.47;
 
@@ -56,8 +62,19 @@ export const playModelAnimations = (
   return mixer;
 };
 
-export const createCeilingLightRig = () => {
-  const light = new SpotLight("#f3e3cb", 5.6, 9, Math.PI / 2, 0.75, 1.75);
+export const clampCeilingLightPower = (power: number) => {
+  if (!Number.isFinite(power)) return CEILING_LIGHT_DEFAULT_POWER;
+  return Math.min(CEILING_LIGHT_MAX_POWER, Math.max(CEILING_LIGHT_MIN_POWER, power));
+};
+
+export const ceilingLightPowerLumens = ({light}: {light: SpotLight}) => Math.round(light.power);
+
+export const createCeilingLightRig = (initialPower = CEILING_LIGHT_DEFAULT_POWER) => {
+  // Keep the player-facing control to lumen output; the fixed inverse-square
+  // curve provides intuitive physical falloff while the fixed range keeps
+  // each fixture's coverage local.
+  const light = new SpotLight("#f3e3cb", 1, 9, Math.PI / 2, 0.75, 2);
+  light.power = clampCeilingLightPower(initialPower);
   light.position.set(0, -CEILING_LIGHT_BULB_DROP, 0);
   const target = new Object3D();
   target.position.set(0, -CEILING_LIGHT_ORIGIN_Y, 0);

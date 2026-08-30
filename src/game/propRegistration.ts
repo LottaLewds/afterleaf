@@ -1,7 +1,20 @@
-import type {AnimationClip, AnimationMixer, Material, Mesh, MeshStandardMaterial, Object3D, Vector3} from "three";
+import type {
+  AnimationClip,
+  AnimationMixer,
+  Material,
+  Mesh,
+  MeshStandardMaterial,
+  Object3D,
+  SpotLight,
+  Vector3,
+} from "three";
 import type {ModelAsset} from "~/models/protocol";
 import type {PhysicsPropColliderDefinition} from "~/game/ShopPhysicsWorld";
 import type {ReadingFurnitureMaterial} from "~/game/shopLayout";
+
+export type AdjustablePropLight = {
+  light: SpotLight;
+};
 
 /**
  * A prop offered to the scene's movable-prop registry. Registrations back
@@ -9,6 +22,7 @@ import type {ReadingFurnitureMaterial} from "~/game/shopLayout";
  * player spawning.
  */
 export type MovablePropRegistration = {
+  adjustableLight?: AdjustablePropLight;
   colliderParts?: readonly PhysicsPropColliderDefinition[];
   density?: number;
   depth: number;

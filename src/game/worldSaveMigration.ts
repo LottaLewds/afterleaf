@@ -4,7 +4,6 @@ import {
   INITIAL_WORLD_SEEDING_VERSION,
   worldSaveSeedingVersion,
   type WorldModelPropSave,
-  type WorldPropSave,
   type WorldSaveV1,
   type WorldVector3,
 } from "~/game/worldSave";
@@ -15,22 +14,6 @@ const LEGACY_TV_CAVE_BOUNDS = Object.freeze({
   minX: 16.5,
   minZ: 2.5,
 });
-
-export const migrateLegacyPropSaves = (savedProps: readonly WorldPropSave[]) => {
-  const currentProps: WorldPropSave[] = [];
-  let migrated = false;
-  for (const savedProp of savedProps) {
-    if (savedProp.id.startsWith("tv-cave-")) {
-      migrated = true;
-      continue;
-    }
-    currentProps.push(savedProp);
-  }
-  return {
-    migrated,
-    savedProps: currentProps,
-  };
-};
 
 export const migrateLegacyTrashcanPosition = (save: WorldSaveV1): WorldVector3 | undefined => {
   // Legacy trashcan positions apply only while migrating worlds that never

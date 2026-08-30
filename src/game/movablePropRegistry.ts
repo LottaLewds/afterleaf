@@ -5,6 +5,7 @@ import type {MovablePropRecord} from "~/game/shopTypes";
 const PROP_ROTATION_SNAP_STEP = MathUtils.degToRad(15);
 
 const optionalMovablePropFields = (registration: MovablePropRegistration) => ({
+  ...(registration.adjustableLight ? {adjustableLight: registration.adjustableLight} : {}),
   ...(registration.modelAnimationIndex === undefined ? {} : {modelAnimationIndex: registration.modelAnimationIndex}),
   ...(registration.modelAnimations ? {modelAnimations: registration.modelAnimations} : {}),
   ...(registration.modelAsset ? {modelAsset: registration.modelAsset} : {}),

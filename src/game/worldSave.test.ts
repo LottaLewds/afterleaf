@@ -91,10 +91,6 @@ const saveFixture = (): WorldSaveV1 => ({
       rotation: 0.18,
     },
   ],
-  props: [
-    {id: "reading-table-1", pose: pose(6)},
-    {id: "desk-lamp-1", locked: true, pose: pose(7)},
-  ],
   savedAt: "2026-07-29T12:34:56.000Z",
   schemaVersion: WORLD_SAVE_SCHEMA_VERSION,
   shelfSigns: [
@@ -170,6 +166,18 @@ describe("world save validation", () => {
         televisionVolumes: {fixed: 1.01},
       }),
     ).toThrow("televisionVolumes.fixed must be between 0 and 1");
+    expect(() =>
+      parseWorldSave({
+        ...saveFixture(),
+        modelProps: [{...saveFixture().modelProps?.[0], lightPower: -1}],
+      }),
+    ).toThrow("modelProps[0].lightPower must be between 0 and 10000");
+    expect(
+      parseWorldSave({
+        ...saveFixture(),
+        modelProps: [{...saveFixture().modelProps?.[0], lightPower: 850}],
+      }).modelProps?.[0]?.lightPower,
+    ).toBe(850);
   });
 
   test("rejects invalid placement discriminants and shelf metadata", () => {
@@ -319,16 +327,6 @@ describe("world save validation", () => {
     );
   });
 
-  test("rejects malformed or duplicate movable props", () => {
-    const prop = saveFixture().props?.[0];
-    if (!prop) throw new Error("Expected movable prop fixture");
-    expect(() => parseWorldSave({...saveFixture(), props: [{...prop, id: ""}]})).toThrow("non-empty bounded string");
-    expect(() => parseWorldSave({...saveFixture(), props: [prop, prop]})).toThrow("duplicate prop IDs");
-    expect(() => parseWorldSave({...saveFixture(), props: [{...prop, locked: "yes"}]})).toThrow(
-      "locked must be a boolean when present",
-    );
-  });
-
   test("rejects malformed or duplicate model props", () => {
     const prop = saveFixture().modelProps?.[0];
     if (!prop) throw new Error("Expected model prop fixture");
@@ -353,10 +351,6 @@ describe("world save validation", () => {
   test("preserves prop lock flags through a validation round trip", () => {
     const save = saveFixture();
     const parsed = parseWorldSave(save);
-    expect(parsed.props?.find((entry) => entry.id === "desk-lamp-1")?.locked).toBe(true);
-    expect(parsed.props?.find((entry) => entry.id === "reading-table-1")).toEqual(
-      expect.not.objectContaining({locked: expect.anything()}),
-    );
     const parsedModelProp = parsed.modelProps?.[0];
     if (!parsedModelProp) throw new Error("Expected model prop fixture");
     expect(parsedModelProp.locked).toBeUndefined();

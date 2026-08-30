@@ -13,12 +13,12 @@ import {
   type WorldDigitalArtFrameSave,
   type WorldModelPropSave,
   type WorldPosterSave,
-  type WorldPropSave,
   type WorldSaveV1,
 } from "~/game/worldSave";
 
 /** Minimal movable-prop surface the snapshot builder needs. */
 export type SnapshotMovableProp = {
+  adjustableLight?: {light: {power: number}};
   id: string;
   locked?: boolean;
   modelAnimationIndex?: number;
@@ -41,7 +41,6 @@ export type WorldSaveSnapshotContext = {
   discardBin: DiscardBin;
   movableProps: ReadonlyMap<string, SnapshotMovableProp>;
   pendingModelPropSaves: readonly WorldModelPropSave[];
-  pendingPropSaves: ReadonlyMap<string, WorldPropSave>;
   posters: PosterSystem;
   signs: ShopSignSystem;
   televisionsBySaveId: ReadonlyMap<string, ShopTelevision>;
@@ -178,12 +177,6 @@ export const createWorldSave = (ctx: WorldSaveSnapshotContext): WorldSaveV1 => {
     if (channelId) televisionChannels[saveId] = channelId;
     televisionVolumes[saveId] = savedTelevision.volumeLevel();
   }
-  // Every movable prop persists. Asset-backed props live in modelProps;
-  // the plain props list only carries legacy pose-only leftovers from
-  // pre-seeding saves that no registration has claimed yet.
-  const props: WorldPropSave[] = [
-    ...[...ctx.pendingPropSaves.values()].filter((savedProp) => !ctx.movableProps.has(savedProp.id)),
-  ];
   const modelProps: WorldModelPropSave[] = [
     ...ctx.pendingModelPropSaves.filter((savedProp) => !ctx.movableProps.has(savedProp.id)),
     ...[...ctx.movableProps.values()].flatMap((record) => {
@@ -200,6 +193,7 @@ export const createWorldSave = (ctx: WorldSaveSnapshotContext): WorldSaveV1 => {
           ...(animationClip === undefined ? {} : {animationClip}),
           assetId,
           id: record.id,
+          ...(record.adjustableLight ? {lightPower: record.adjustableLight.light.power} : {}),
           ...(record.locked ? {locked: true} : {}),
           pose: {
             position: {x: position.x, y: position.y, z: position.z},
@@ -243,7 +237,6 @@ export const createWorldSave = (ctx: WorldSaveSnapshotContext): WorldSaveV1 => {
       },
     },
     posters,
-    props,
     savedAt: new Date().toISOString(),
     schemaVersion: WORLD_SAVE_SCHEMA_VERSION,
     shelfSigns,

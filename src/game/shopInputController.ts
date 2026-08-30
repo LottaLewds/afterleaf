@@ -421,6 +421,15 @@ export class ShopInputController {
     return this.#scrubTelevision(direction, event);
   }
 
+  #handleCeilingLightWheel(event: WheelEvent): boolean {
+    if (!this.state.pointerLocked || !event.ctrlKey || event.deltaY === 0) return false;
+    const targetedProp = this.#host.targetedProp();
+    if (!targetedProp?.adjustableLight) return false;
+    event.preventDefault();
+    this.#host.props().adjustCeilingLightPower(targetedProp, Math.sign(event.deltaY) === 1 ? -1 : 1);
+    return true;
+  }
+
   #adjustTelevisionVolume(direction: -1 | 1, event: WheelEvent): boolean {
     event.preventDefault();
     this.#host.targetedTelevision()?.adjustVolume(direction === 1 ? -1 : 1);
@@ -484,6 +493,7 @@ export class ShopInputController {
     if (this.#handleCarriedPropWheel(event)) return;
     if (this.#handleCarriedBookWheel(event)) return;
     if (this.#handleTelevisionWheel(event)) return;
+    if (this.#handleCeilingLightWheel(event)) return;
     if (this.#handleArcadeVolumeWheel(event)) return;
     this.#handleShelfBrowseWheel(event);
   };

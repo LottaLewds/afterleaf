@@ -18,7 +18,6 @@ const MAX_SHELF_SIGN_COUNT = 128;
 const MAX_AISLE_SIGN_COUNT = 32;
 const MAX_POSTER_COUNT = 512;
 const MAX_DIGITAL_ART_FRAME_COUNT = 128;
-const MAX_PROP_COUNT = 64;
 const MAX_MODEL_PROP_COUNT = 512;
 const MAX_TELEVISION_COUNT = 128;
 const MAX_WORLD_COORDINATE = 100_000;
@@ -28,6 +27,7 @@ const MAX_POSTER_HEIGHT = 10;
 const MAX_POSTER_ROTATION = Math.PI;
 const MIN_ART_FRAME_INTERVAL_SECONDS = 5;
 const MAX_ART_FRAME_INTERVAL_SECONDS = 3_600;
+const MAX_LIGHT_POWER = 10_000;
 
 export type WorldVector3 = {
   x: number;
@@ -91,16 +91,14 @@ export type WorldDigitalArtFrameSave = {
   rotation?: number;
 };
 
-export type WorldPropSave = {
+export type WorldModelPropSave = {
+  animationClip?: string | null;
+  assetId: string;
   id: string;
   /** Pinned prop: fixed body immune to bumps but still colliding. */
   locked?: boolean;
   pose: WorldPose;
-};
-
-export type WorldModelPropSave = WorldPropSave & {
-  animationClip?: string | null;
-  assetId: string;
+  lightPower?: number;
   scale: number;
 };
 
@@ -129,7 +127,6 @@ export type WorldSaveV1 = {
   pendingArrivalIds?: readonly string[];
   player: WorldPose;
   posters?: readonly WorldPosterSave[];
-  props?: readonly WorldPropSave[];
   savedAt: string;
   schemaVersion: typeof WORLD_SAVE_SCHEMA_VERSION;
   /**
@@ -396,21 +393,11 @@ const parseLockedFlag = (value: unknown, field: string) => {
   return value;
 };
 
-const parseProps = (value: unknown): readonly WorldPropSave[] => {
-  if (!Array.isArray(value) || value.length > MAX_PROP_COUNT) throw new Error("props must be a bounded array");
-  const ids = new Set<string>();
-  return value.map((prop, index) => {
-    if (!isRecord(prop)) throw new Error(`props[${index}] must be an object`);
-    const id = requiredString(prop.id, `props[${index}].id`);
-    if (ids.has(id)) throw new Error("World save contains duplicate prop IDs");
-    ids.add(id);
-    const locked = parseLockedFlag(prop.locked, `props[${index}].locked`);
-    return {
-      id,
-      ...(locked === undefined ? {} : {locked}),
-      pose: parsePose(prop.pose, `props[${index}].pose`),
-    };
-  });
+const parseOptionalLightPower = (value: unknown, field: string) => {
+  if (value === undefined) return undefined;
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > MAX_LIGHT_POWER)
+    throw new Error(`${field} must be between 0 and ${MAX_LIGHT_POWER}`);
+  return value;
 };
 
 const parseModelProps = (value: unknown): readonly WorldModelPropSave[] => {
@@ -427,10 +414,12 @@ const parseModelProps = (value: unknown): readonly WorldModelPropSave[] => {
     const animationClip =
       prop.animationClip === null ? null : optionalString(prop.animationClip, `modelProps[${index}].animationClip`);
     const locked = parseLockedFlag(prop.locked, `modelProps[${index}].locked`);
+    const lightPower = parseOptionalLightPower(prop.lightPower, `modelProps[${index}].lightPower`);
     return {
       ...(animationClip === undefined ? {} : {animationClip}),
       assetId: requiredString(prop.assetId, `modelProps[${index}].assetId`),
       id,
+      ...(lightPower === undefined ? {} : {lightPower}),
       ...(locked === undefined ? {} : {locked}),
       pose: parsePose(prop.pose, `modelProps[${index}].pose`),
       scale,
@@ -481,7 +470,6 @@ type ParsedWorldOptionalFields = {
   digitalArtFrames: readonly WorldDigitalArtFrameSave[] | undefined;
   modelProps: readonly WorldModelPropSave[] | undefined;
   posters: readonly WorldPosterSave[] | undefined;
-  props: readonly WorldPropSave[] | undefined;
   shelfSigns: readonly WorldShelfSign[] | undefined;
   television: WorldPose | undefined;
   televisionChannels: WorldTelevisionChannels | undefined;
@@ -498,7 +486,6 @@ const parseOptionalWorldFields = (value: Record<string, unknown>): ParsedWorldOp
     digitalArtFrames: parseOptionalValue(value.digitalArtFrames, parseDigitalArtFrames),
     modelProps: parseOptionalValue(value.modelProps, parseModelProps),
     posters: parseOptionalValue(value.posters, parsePosters),
-    props: parseOptionalValue(value.props, parseProps),
     shelfSigns: parseOptionalValue(value.shelfSigns, parseShelfSigns),
     television: parseOptionalValue(value.television, (raw) => parsePose(raw, "television")),
     televisionChannels: parseOptionalValue(value.televisionChannels, parseTelevisionChannels),
@@ -575,7 +562,6 @@ const createNormalizedWorldSave = (
   })),
   player: parsePose(value.player, "player"),
   ...optionalObjectField(fields.posters, (posters) => ({posters})),
-  ...optionalObjectField(fields.props, (props) => ({props})),
   savedAt: value.savedAt as string,
   schemaVersion: WORLD_SAVE_SCHEMA_VERSION,
   ...optionalObjectField(fields.shelfSigns, (shelfSigns) => ({shelfSigns})),
@@ -605,7 +591,6 @@ const KNOWN_WORLD_SAVE_FIELDS: ReadonlySet<string> = new Set([
   "pendingArrivalIds",
   "player",
   "posters",
-  "props",
   "savedAt",
   "schemaVersion",
   "seedingVersion",

@@ -4,7 +4,7 @@ import type {InteractionPromptToken} from "~/game/input/hints";
 import type {ShortcutAction} from "~/game/input/bindings";
 import type {ShelfPresentation, SpineShelfPlacement} from "~/game/shelfPlacement";
 import type {ArcadeSessionStatus} from "~/game/ShopArcadeCabinet";
-import type {PropMaterialSwap} from "~/game/propRegistration";
+import type {AdjustablePropLight, PropMaterialSwap} from "~/game/propRegistration";
 import type {ModelAsset} from "~/models/protocol";
 
 export type SpineShelfDefinition = {
@@ -28,6 +28,7 @@ export type ShelfTargetSelection = {
 };
 
 export type MovablePropRecord = {
+  adjustableLight?: AdjustablePropLight;
   currentPosition: Vector3;
   currentRotation: Quaternion;
   /** Pinned in place: fixed body, immune to bumps, still collides. */

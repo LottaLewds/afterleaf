@@ -3,7 +3,6 @@ import {describe, expect, test} from "bun:test";
 import {
   adoptLegacyModelPropSaves,
   migrateLegacyPlayerPosition,
-  migrateLegacyPropSaves,
   migrateLegacyTrashcanPosition,
 } from "~/game/worldSaveMigration";
 import type {WorldModelPropSave, WorldSaveV1} from "~/game/worldSave";
@@ -14,16 +13,6 @@ const pose = (position: {x: number; y: number; z: number}) => ({
 });
 
 describe("world save migrations", () => {
-  test("removes only legacy TV-cave prop saves", () => {
-    const result = migrateLegacyPropSaves([
-      {id: "tv-cave-old", pose: pose({x: 1, y: 1, z: 1})},
-      {id: "reading-table", pose: pose({x: 2, y: 1, z: 2})},
-    ]);
-
-    expect(result.migrated).toBe(true);
-    expect(result.savedProps.map(({id}) => id)).toEqual(["reading-table"]);
-  });
-
   test("applies legacy trash and player migrations only to pre-seeded saves", () => {
     const save = {
       player: pose({x: 20, y: 6, z: 6}),

@@ -6,6 +6,7 @@ import type {ArcadeSessionStatus, ShopArcadeCabinet} from "~/game/ShopArcadeCabi
 import type {ArtFrameSystem} from "~/game/artFrameSystem";
 import type {BookRecord} from "~/game/bookFactory";
 import type {DigitalArtFrame} from "~/game/DigitalArtFrame";
+import {ceilingLightPowerLumens} from "~/game/interior/lightingProps";
 import {MAX_CARRIED_BOOKS} from "~/game/worldSave";
 import type {
   InspectionCloseAction,
@@ -218,7 +219,10 @@ const resolvePropPrompt = (state: InteractionUiState) => {
   const prop = state.targetedProp;
   if (!prop) return undefined;
   const animationLabel = state.modelAnimationLabel(prop);
-  return `T project ${prop.label} for placement${animationLabel ? ` · Q/E animation (${animationLabel})` : ""}${prop.locked ? " · L unlock" : " · L lock"}${prop.spawned ? " · Del remove" : ""}`;
+  const lightPrompt = prop.adjustableLight
+    ? ` · Ctrl+wheel intensity (${ceilingLightPowerLumens(prop.adjustableLight)} lm)`
+    : "";
+  return `T project ${prop.label} for placement${lightPrompt}${animationLabel ? ` · Q/E animation (${animationLabel})` : ""}${prop.locked ? " · L unlock" : " · L lock"}${prop.spawned ? " · Del remove" : ""}`;
 };
 
 const resolveArtFramePrompt = (state: InteractionUiState) => {
@@ -582,9 +586,18 @@ const propInteractions = (state: InteractionUiState): InteractionResult => {
   const prop = state.targetedProp;
   if (!prop) return noInteractions();
   const animationLabel = state.modelAnimationLabel(prop);
+  const lightInteraction = prop.adjustableLight
+    ? [
+        {
+          key: "Ctrl+wheel",
+          label: `Light intensity (${ceilingLightPowerLumens(prop.adjustableLight)} lm)`,
+        },
+      ]
+    : [];
   return {
     context: animationLabel ? `${prop.label} · ${animationLabel}` : prop.label,
     interactions: [
+      ...lightInteraction,
       {key: "T", label: "Move prop", actions: ["pickUpCancel"] as const},
       {
         key: "L",

@@ -1,6 +1,7 @@
 import {describe, expect, test} from "bun:test";
 
 import type {CatalogItem} from "~/catalog";
+import {SpotLight} from "three";
 import type {ArtFrameSystem} from "~/game/artFrameSystem";
 import type {BookRecord} from "~/game/bookFactory";
 import type {PosterSystem} from "~/game/posters/PosterSystem";
@@ -127,5 +128,22 @@ describe("shop interaction view", () => {
     expect(view.mode satisfies ShopInteractionMode).toBe("carried-book");
     expect(view.prompt).toContain("E shelve");
     expect(view.interactions[0]?.label).toBe("Shelve book");
+  });
+
+  test("shows the current ceiling-light lumen value in the interaction menu", () => {
+    const light = new SpotLight();
+    light.power = 840;
+    const prop = {
+      adjustableLight: {light},
+      label: "ceiling light",
+      spawned: true,
+    } as unknown as MovablePropRecord;
+
+    const view = resolveShopInteractionView(createState({targetedProp: prop}));
+
+    expect(view.interactions[0]).toEqual({
+      key: "Ctrl+wheel",
+      label: "Light intensity (840 lm)",
+    });
   });
 });

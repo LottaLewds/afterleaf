@@ -21,7 +21,13 @@ import {clone as cloneWithSkeleton} from "three/examples/jsm/utils/SkeletonUtils
 import {DEV} from "solid-js";
 import crtTvModelUrl from "~/assets/models/crt-tv.glb?url";
 import trashCanModelUrl from "~/assets/models/trash_can.glb?url";
-import {createCeilingLightRig, playModelAnimations} from "~/game/interior/lightingProps";
+import {
+  CEILING_LIGHT_DEFAULT_POWER,
+  CEILING_LIGHT_POWER_STEP,
+  clampCeilingLightPower,
+  createCeilingLightRig,
+  playModelAnimations,
+} from "~/game/interior/lightingProps";
 import {findModelTelevisionScreen, getInitialModelAnimationIndex} from "~/game/modelTelevision";
 import {normalizePosterRotation} from "~/game/wallDecorTuning";
 import {ARCADE_CABINET_HEIGHT, ShopArcadeCabinet} from "~/game/ShopArcadeCabinet";
@@ -66,7 +72,6 @@ import {
   WORLD_SEEDING_VERSION,
   worldSaveSeedingVersion,
   type WorldModelPropSave,
-  type WorldPropSave,
   type WorldQuaternion,
   type WorldSaveV1,
   type WorldTelevisionChannels,
@@ -192,7 +197,6 @@ export class MovablePropLifecycle {
   modelImportError: string | undefined;
   spawnablePropAssets: readonly SpawnablePropAsset[] = BUILTIN_SPAWNABLE_PROP_ASSETS;
   spawnablePropAssetIndex = 0;
-  pendingPropSaves = new Map<string, WorldPropSave>();
   pendingModelPropSaves: readonly WorldModelPropSave[] = [];
   propPlacementDistance = 2;
   propPlacementRotationSnapOrigin = 0;
@@ -200,6 +204,7 @@ export class MovablePropLifecycle {
   propPlacementYaw = 0;
 
   readonly #host: MovablePropLifecycleHost;
+  #worldSeedingVersion: number | undefined;
   #restoreActive = false;
   /** A builtin template landed while a restore pass was running. */
   #restoreRetry = false;
@@ -244,11 +249,7 @@ export class MovablePropLifecycle {
       pose: {position: currentPosition, rotation: currentRotation},
       width: registration.width,
     });
-    const savedProp = this.pendingPropSaves.get(record.id);
-    if (savedProp) {
-      this.applySavedPropPose(record, savedProp);
-      this.pendingPropSaves.delete(record.id);
-    }
+    this.#applyPendingModelPropSave(record);
     if (record.locked) host.physicsWorld().setPropLocked(record.id, true);
     // Cache the spawn template before the discard volume joins the object
     // so cloned trash can templates stay volume-free.
@@ -280,7 +281,7 @@ export class MovablePropLifecycle {
     });
   }
 
-  applySavedPropPose(record: MovablePropRecord, savedProp: WorldPropSave) {
+  applySavedModelPropPose(record: MovablePropRecord, savedProp: WorldModelPropSave) {
     const host = this.#host;
     host.scene().attach(record.object);
     record.object.position.copy(savedProp.pose.position);
@@ -292,6 +293,43 @@ export class MovablePropLifecycle {
       rotation: savedProp.pose.quaternion,
     });
     if (savedProp.locked !== undefined) record.locked = savedProp.locked;
+  }
+
+  applySavedModelProp(record: MovablePropRecord, savedProp: WorldModelPropSave) {
+    this.applySavedModelPropPose(record, savedProp);
+    if (savedProp.scale !== record.modelScale) this.setModelPropScale(record, savedProp.scale);
+    if (savedProp.lightPower !== undefined) this.setCeilingLightPower(record, savedProp.lightPower);
+    if (savedProp.locked !== undefined) this.#host.physicsWorld().setPropLocked(record.id, record.locked);
+  }
+
+  #applyPendingModelPropSave(record: MovablePropRecord) {
+    const savedModelPropIndex = this.pendingModelPropSaves.findIndex(
+      (savedModelProp) => savedModelProp.id === record.id,
+    );
+    const savedModelProp = this.pendingModelPropSaves[savedModelPropIndex];
+    if (!savedModelProp) return;
+    this.applySavedModelProp(record, savedModelProp);
+    this.pendingModelPropSaves = this.pendingModelPropSaves.filter(
+      (_pendingModelProp, index) => index !== savedModelPropIndex,
+    );
+  }
+
+  setCeilingLightPower(record: MovablePropRecord, power: number) {
+    const adjustableLight = record.adjustableLight;
+    if (!adjustableLight) return false;
+    adjustableLight.light.power = clampCeilingLightPower(power);
+    return true;
+  }
+
+  adjustCeilingLightPower(record: MovablePropRecord, direction: -1 | 1) {
+    const adjustableLight = record.adjustableLight;
+    if (!adjustableLight) return false;
+    const nextPower = clampCeilingLightPower(adjustableLight.light.power + direction * CEILING_LIGHT_POWER_STEP);
+    if (nextPower === adjustableLight.light.power) return true;
+    adjustableLight.light.power = nextPower;
+    this.#host.markWorldStateDirty();
+    this.#host.emitGameState();
+    return true;
   }
 
   ghostObject(object: Object3D) {
@@ -491,6 +529,7 @@ export class MovablePropLifecycle {
     scale: number,
     pose?: WorldModelPropSave["pose"],
     locked = true,
+    lightPower = CEILING_LIGHT_DEFAULT_POWER,
   ) {
     const host = this.#host;
     const template = this.#builtinPropTemplates.get(asset.id);
@@ -504,9 +543,13 @@ export class MovablePropLifecycle {
       template,
       viewDirection: host.viewDirection(),
     });
-    object.add(...createCeilingLightRig());
+    const [light, target] = createCeilingLightRig(lightPower);
+    object.add(light, target);
     host.scene().add(object);
     return this.registerMovableProp({
+      adjustableLight: {
+        light,
+      },
       depth: template.depth * scale,
       height: template.height * scale,
       heldLocalPosition: template.heldLocalPosition.clone(),
@@ -772,8 +815,8 @@ export class MovablePropLifecycle {
    * while saves only run passes introduced after their recorded version.
    */
   needsSeedPass(version: number) {
-    const host = this.#host;
-    return worldSaveSeedingVersion(host.pendingWorldSave()) < version;
+    this.#worldSeedingVersion ??= worldSaveSeedingVersion(this.#host.pendingWorldSave());
+    return this.#worldSeedingVersion < version;
   }
 
   /**
@@ -784,9 +827,14 @@ export class MovablePropLifecycle {
    * as-is.
    */
   seedDefaultProps() {
-    if (this.needsSeedPass(INITIAL_WORLD_SEEDING_VERSION)) this.seedInitialDefaults();
-    if (this.needsSeedPass(WORLD_SEEDING_VERSION)) this.seedCeilingLights();
-    else this.restoreSavedCeilingLights();
+    if (this.needsSeedPass(INITIAL_WORLD_SEEDING_VERSION)) {
+      this.seedInitialDefaults();
+      this.#worldSeedingVersion = INITIAL_WORLD_SEEDING_VERSION;
+    }
+    if (this.needsSeedPass(WORLD_SEEDING_VERSION)) {
+      this.seedCeilingLights();
+      this.#worldSeedingVersion = WORLD_SEEDING_VERSION;
+    } else this.restoreSavedCeilingLights();
   }
 
   /**
@@ -886,7 +934,14 @@ export class MovablePropLifecycle {
     for (const savedProp of save.modelProps ?? []) {
       if (savedProp.assetId !== BUILTIN_CEILING_LIGHT_ASSET_ID || this.records.has(savedProp.id)) continue;
       try {
-        this.createSpawnedCeilingLight(asset, savedProp.id, savedProp.scale, savedProp.pose, savedProp.locked === true);
+        this.createSpawnedCeilingLight(
+          asset,
+          savedProp.id,
+          savedProp.scale,
+          savedProp.pose,
+          savedProp.locked === true,
+          savedProp.lightPower,
+        );
       } catch (error) {
         if (DEV && !host.disposed()) console.warn(`Afterleaf could not restore ceiling light ${savedProp.id}.`, error);
       }
@@ -1104,6 +1159,7 @@ export class MovablePropLifecycle {
     scale: number,
     pose?: WorldModelPropSave["pose"],
     animationClip?: string | null,
+    lightPower?: number,
   ) {
     if (asset.kind === "model") {
       const template = await this.loadModelTemplate(asset.model);
@@ -1113,7 +1169,8 @@ export class MovablePropLifecycle {
     }
     if (asset.id === BUILTIN_CRT_TV_ASSET_ID) return this.createSpawnedCrtTelevision(asset, id, scale, pose);
     if (asset.id === BUILTIN_ARCADE_CABINET_ASSET_ID) return this.createSpawnedArcadeCabinet(asset, id, scale, pose);
-    if (asset.id === BUILTIN_CEILING_LIGHT_ASSET_ID) return this.createSpawnedCeilingLight(asset, id, scale, pose);
+    if (asset.id === BUILTIN_CEILING_LIGHT_ASSET_ID)
+      return this.createSpawnedCeilingLight(asset, id, scale, pose, true, lightPower);
     if (asset.id === BUILTIN_TRASH_CAN_ASSET_ID) {
       const modelAsset: ModelAsset = {
         id: asset.id,
@@ -1151,6 +1208,7 @@ export class MovablePropLifecycle {
         savedProp.scale,
         savedProp.pose,
         savedProp.animationClip,
+        savedProp.lightPower,
       );
       return this.#finalizeRestoredSavedProp(savedProp, record);
     } catch (error) {
@@ -1186,10 +1244,7 @@ export class MovablePropLifecycle {
       this.removeSpawnedProp(record);
       return true;
     }
-    if (savedProp.locked && !record.locked) {
-      record.locked = true;
-      host.physicsWorld().setPropLocked(record.id, true);
-    }
+    this.applySavedModelProp(record, savedProp);
     return true;
   }
 
