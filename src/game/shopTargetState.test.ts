@@ -86,3 +86,35 @@ test("clearing the hovered publication also clears shelf browsing", () => {
 
   expect(scanner.shelfBrowsePublicationId).toBeUndefined();
 });
+
+test("restores the previous hovered book to atlas rendering", () => {
+  const calls: string[] = [];
+  let hoveredPublicationId: string | undefined = "book-1";
+  const bookTextures = {
+    ensureStandaloneBookTextures: (publicationId: string) => calls.push(`ensure:${publicationId}`),
+    syncBookAtlasBatch: (publicationId: string) => calls.push(`sync:${publicationId}`),
+  } as unknown as BookTextureRuntime;
+  const host = {
+    bookLifecycle: () => ({applyBookStates: () => calls.push("apply-books")}) as unknown as ShopBookLifecycle,
+    bookTextures: () => bookTextures,
+    booksById: () => new Map([["book-2", {}]]) as unknown as ReadonlyMap<string, never>,
+    currentArcadeCabinet: () => undefined,
+    currentProp: () => undefined,
+    currentTelevision: () => undefined,
+    currentTelevisionInteraction: () => undefined,
+    emitGameState: () => calls.push("emit"),
+    hoveredPublicationId: () => hoveredPublicationId,
+    resetTelevisionWheel: () => {},
+    scanner: () => ({shelfBrowsePublicationId: undefined, trashTargeted: false}) as unknown as InteractionScanner,
+    setArcadeCabinet: () => {},
+    setHoveredPublicationId: (publicationId: string | undefined) => {
+      hoveredPublicationId = publicationId;
+    },
+    setProp: () => {},
+    setTelevisionState: () => {},
+  } as ShopTargetStateHost;
+
+  createShopTargetState(host).setHoveredPublicationId("book-2");
+
+  expect(calls).toEqual(["sync:book-1", "ensure:book-2", "apply-books", "emit"]);
+});

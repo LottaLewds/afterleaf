@@ -71,7 +71,7 @@ export type ShopViewportProps = {
  * Owns one ShopScene for this component's lifetime. Catalog and selection stay
  * in Solid; the Three runtime samples only the two narrow accessors it needs.
  */
-export const ShopViewport = (props: ShopViewportProps) => {
+const ShopViewportRuntime = (props: ShopViewportProps) => {
   const [mediaChannelEditor, setMediaChannelEditor] = createSignal<MediaChannelKind>();
   const [mediaChannelError, setMediaChannelError] = createSignal<string>();
   const [mediaChannelName, setMediaChannelName] = createSignal("");
@@ -816,3 +816,8 @@ export const ShopViewport = (props: ShopViewportProps) => {
     </section>
   );
 };
+
+// Solid's lazy loader invokes its resolved component from a memo. Keep the
+// lifecycle-owning runtime as a concrete child so onSettled receives the
+// component owner that will dispose the Three scene.
+export const ShopViewport = (props: ShopViewportProps) => <ShopViewportRuntime {...props} />;

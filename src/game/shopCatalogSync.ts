@@ -60,7 +60,9 @@ export class ShopCatalogSync {
     const host = this.#host;
     const selectedPublicationId = host.selectedPublicationId();
     if (selectedPublicationId === host.lastSelectedPublicationId()) return;
+    const previousSelectedPublicationId = host.lastSelectedPublicationId();
     host.setLastSelectedPublicationId(selectedPublicationId);
+    if (previousSelectedPublicationId) host.bookTextures().syncBookAtlasBatch(previousSelectedPublicationId);
     const record = selectedPublicationId ? host.booksById().get(selectedPublicationId) : undefined;
     if (record && selectedPublicationId)
       host.bookTextures().ensureStandaloneBookTextures(selectedPublicationId, record);

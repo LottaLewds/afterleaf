@@ -86,7 +86,9 @@ export const createShopTargetState = (targetHost: ShopTargetStateHost): ShopTarg
     const host = targetHost;
     if (publicationId === undefined) host.scanner().shelfBrowsePublicationId = undefined;
     if (publicationId === host.hoveredPublicationId()) return;
+    const previousPublicationId = host.hoveredPublicationId();
     host.setHoveredPublicationId(publicationId);
+    if (previousPublicationId) host.bookTextures().syncBookAtlasBatch(previousPublicationId);
     const record = publicationId ? host.booksById().get(publicationId) : undefined;
     if (record && publicationId !== undefined) host.bookTextures().ensureStandaloneBookTextures(publicationId, record);
     host.bookLifecycle().applyBookStates();

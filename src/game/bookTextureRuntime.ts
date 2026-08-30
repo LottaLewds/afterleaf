@@ -166,41 +166,51 @@ export class BookTextureRuntime {
   async #loadBookAtlasResources(
     atlases: CatalogAtlases,
     atlasIndexes: readonly number[],
-  ): Promise<Map<number, BookAtlasResource> | undefined> {
+  ): Promise<Map<number, BookAtlasResource>> {
     const atlasResources = new Map<number, BookAtlasResource>();
-    try {
-      const loadedResources = await Promise.all(
-        atlasIndexes.map(async (atlasIndex) => {
-          const atlasSet = getCompatibleAtlasSet(atlases, atlasIndex);
-          if (!atlasSet) return;
-          const {back, front, spine} = atlasSet;
-          const [frontTexture, backTexture, spineTexture] = await Promise.all([
-            this.#loadShelfAtlasTexture(front.url),
-            this.#loadShelfAtlasTexture(back.url),
-            this.#loadShelfAtlasTexture(spine.url),
-          ]);
-          const textures = {
-            back: backTexture,
-            front: frontTexture,
-            spine: spineTexture,
-          };
-          for (const texture of Object.values(textures)) {
-            texture.colorSpace = SRGBColorSpace;
-            texture.generateMipmaps = false;
-            texture.minFilter = LinearFilter;
-          }
-          return [atlasIndex, {backAtlas: back, coverAtlas: front, spineAtlas: spine, textures}] as const;
-        }),
-      );
-      for (const resource of loadedResources) {
-        if (!resource) continue;
-        atlasResources.set(...resource);
+    const loadedResources = await Promise.allSettled(
+      atlasIndexes.map(async (atlasIndex) => {
+        const atlasSet = getCompatibleAtlasSet(atlases, atlasIndex);
+        if (!atlasSet) return [atlasIndex, undefined] as const;
+        const {back, front, spine} = atlasSet;
+        const textureResults = await Promise.allSettled([
+          this.#loadShelfAtlasTexture(front.url),
+          this.#loadShelfAtlasTexture(back.url),
+          this.#loadShelfAtlasTexture(spine.url),
+        ]);
+        const failedTexture = textureResults.find((result) => result.status === "rejected");
+        if (failedTexture) {
+          for (const result of textureResults) if (result.status === "fulfilled") result.value.dispose();
+          throw new Error(`Could not load book texture atlas ${atlasIndex}.`, {cause: failedTexture.reason});
+        }
+        const [frontResult, backResult, spineResult] = textureResults;
+        if (
+          frontResult.status !== "fulfilled" ||
+          backResult.status !== "fulfilled" ||
+          spineResult.status !== "fulfilled"
+        )
+          throw new Error(`Could not load book texture atlas ${atlasIndex}.`);
+        const textures = {
+          back: backResult.value,
+          front: frontResult.value,
+          spine: spineResult.value,
+        };
+        for (const texture of Object.values(textures)) {
+          texture.colorSpace = SRGBColorSpace;
+          texture.generateMipmaps = false;
+          texture.minFilter = LinearFilter;
+        }
+        return [atlasIndex, {backAtlas: back, coverAtlas: front, spineAtlas: spine, textures}] as const;
+      }),
+    );
+    for (const result of loadedResources) {
+      if (result.status === "fulfilled") {
+        const [atlasIndex, resource] = result.value;
+        if (resource) atlasResources.set(atlasIndex, resource);
+        continue;
       }
-    } catch (error) {
-      for (const resource of atlasResources.values())
-        for (const texture of Object.values(resource.textures)) texture.dispose();
-      if (DEV && !this.#host.isDisposed()) console.warn("Afterleaf could not load the book texture atlases.", error);
-      return;
+      if (DEV && !this.#host.isDisposed())
+        console.warn("Afterleaf could not load a book texture atlas.", result.reason);
     }
     return atlasResources;
   }
@@ -430,7 +440,6 @@ export class BookTextureRuntime {
     this.#removeInactiveBatchStates(atlasIndexes);
     const indexesToLoad = this.#atlasIndexesToLoad(atlasIndexes, atlases);
     const loadedResources = await this.#loadBookAtlasResources(atlases, indexesToLoad);
-    if (!loadedResources) return;
     if (!this.#isCurrentRevision(revision)) {
       for (const resource of loadedResources.values()) this.#disposeBookAtlasResource(resource);
       return;
@@ -714,6 +723,7 @@ export class BookTextureRuntime {
       }
     }
     this.#trimStandaloneBookTextures();
+    this.#syncBookAtlasBatch(publicationId, record);
   }
 
   #trimStandaloneBookTextures() {
@@ -751,6 +761,7 @@ export class BookTextureRuntime {
     record.inspectionBackCoverMaterial.emissiveMap = null;
     record.inspectionBackCoverMaterial.color.set(record.publicationAccent).multiplyScalar(0.76);
     record.inspectionBackCoverMaterial.needsUpdate = true;
+    this.#syncBookAtlasBatch(publicationId, record);
   }
 
   promoteBookCoverTexture(publicationId: string, record: BookRecord) {

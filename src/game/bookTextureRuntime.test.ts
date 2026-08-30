@@ -11,6 +11,7 @@ const createRuntime = (
   scene: Scene,
   loadedUrls: string[] = [],
   catalogAtlases: () => CatalogAtlases = () => ({back: [], front: [], spine: []}),
+  rejectedUrls: ReadonlySet<string> = new Set(),
 ) => {
   const host = {
     catalogAtlases,
@@ -29,6 +30,7 @@ const createRuntime = (
       },
       loadAsync: async (url: string) => {
         loadedUrls.push(url);
+        if (rejectedUrls.has(url)) throw new Error(`Failed to load ${url}`);
         return new Texture();
       },
     },
@@ -36,14 +38,14 @@ const createRuntime = (
   return new BookTextureRuntime(host);
 };
 
-const createBookRecord = (scene: Scene, matrixCalls: Matrix4[]): BookRecord => {
+const createBookRecord = (scene: Scene, matrixCalls: Matrix4[], visibilityCalls: boolean[] = []): BookRecord => {
   const mesh = new Mesh(new BoxGeometry(), new MeshStandardMaterial());
   scene.add(mesh);
   const batch = {
     material: new MeshStandardMaterial(),
     mesh: {
       setMatrixAt: (_instanceId: number, matrix: Matrix4) => matrixCalls.push(matrix.clone()),
-      setVisibleAt: () => {},
+      setVisibleAt: (_instanceId: number, visible: boolean) => visibilityCalls.push(visible),
     },
   } as unknown as BookAtlasBatch;
   return {
@@ -55,7 +57,17 @@ const createBookRecord = (scene: Scene, matrixCalls: Matrix4[]): BookRecord => {
       visible: true,
     },
     exteriorMaterial: new MeshStandardMaterial(),
+    exteriorUniforms: {
+      backMap: {value: null},
+      backMapEnabled: {value: false},
+      coverMap: {value: null},
+      spineMap: {value: null},
+      spineMapEnabled: {value: false},
+    },
+    inspectionBackCoverMaterial: new MeshStandardMaterial(),
+    inspectionFrontCoverMaterial: new MeshStandardMaterial(),
     mesh,
+    publicationAccent: "#ffffff",
     standaloneTexturesReady: false,
     state: {status: "shelved"},
   } as unknown as BookRecord;
@@ -158,5 +170,46 @@ test("retains unchanged atlas resources when a catalog update changes one atlas"
   expect(loadedUrls.filter((url) => url.includes("-1-new")).length).toBe(3);
   expect(first.atlasPlacement?.batch).toBe(stableBatch);
   expect(second.atlasPlacement?.batch).not.toBe(changedBatch);
+  runtime.disposeBookAtlasBatches();
+});
+
+test("keeps healthy atlas batches when another atlas fails", async () => {
+  const scene = new Scene();
+  const loadedUrls: string[] = [];
+  const atlases = createCatalogAtlases("stable", "catalog");
+  const failedAtlasUrl = atlases.front[1]?.url;
+  if (!failedAtlasUrl) throw new Error("Expected a second cover atlas in the test catalog.");
+  const first = createUnplacedBookRecord(scene);
+  const second = createUnplacedBookRecord(scene);
+  const books = new Map([
+    ["first", first],
+    ["second", second],
+  ]);
+  const runtime = createRuntime(books, scene, loadedUrls, () => atlases, new Set([failedAtlasUrl]));
+
+  await runtime.initializeBookAtlasBatches(
+    [createCatalogItem("first", 0), createCatalogItem("second", 1)],
+    runtime.bumpRevision(),
+  );
+
+  expect(first.atlasPlacement).toBeDefined();
+  expect(second.atlasPlacement).toBeUndefined();
+  runtime.disposeBookAtlasBatches();
+});
+
+test("restores atlas visibility when standalone textures are released", () => {
+  const scene = new Scene();
+  const visibilityCalls: boolean[] = [];
+  const record = createBookRecord(scene, [], visibilityCalls);
+  if (!record.atlasPlacement) throw new Error("Expected an atlas placement in the test book.");
+  record.atlasPlacement.visible = false;
+  record.standaloneTexturesReady = true;
+  const books = new Map([["book", record]]);
+  const runtime = createRuntime(books, scene);
+
+  runtime.releaseStandaloneBookTextures("book", record);
+
+  expect(visibilityCalls).toEqual([true]);
+  expect(record.mesh.visible).toBe(false);
   runtime.disposeBookAtlasBatches();
 });

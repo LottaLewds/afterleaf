@@ -404,7 +404,8 @@ export class ShopScene {
         publicationId === this.#lastSelectedPublicationId ||
         this.#carriedPublicationIds.includes(publicationId) ||
         publicationId === this.#inspection.inspectionPublicationId ||
-        publicationId === this.#bookActions.discardAnimation?.publicationId,
+        publicationId === this.#bookActions.discardAnimation?.publicationId ||
+        publicationId === this.#bookActions.shelveAnimation?.publicationId,
       maxAnisotropy: () => this.#renderer.capabilities.getMaxAnisotropy(),
       nextFrame: () => ShopScene.nextFrame(),
       renderer: this.#renderer,
