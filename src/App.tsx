@@ -210,6 +210,8 @@ export const App = () => {
   const [blacklistedTags, setBlacklistedTags] = createSignal(loadTagBlacklist());
   const [collections, setCollections] = createSignal<readonly LibraryCollection[]>([]);
   const [selectedCollectionId, setSelectedCollectionId] = createSignal<string | null>(null);
+  const [editingCollectionId, setEditingCollectionId] = createSignal<string | null>(null);
+  const [editingCollectionName, setEditingCollectionName] = createSignal("");
   const [highlightedPublicationIds, setHighlightedPublicationIds] = createSignal<readonly string[]>([]);
   const [highlightedCollectionId, setHighlightedCollectionId] = createSignal<string | null>(null);
   const [contextMenu, setContextMenu] = createSignal<{item: CatalogItem; x: number; y: number} | null>(null);
@@ -790,6 +792,15 @@ export const App = () => {
     await refreshCollections();
   };
 
+  const handleRenameCollection = async (collectionId: string, name: string) => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    const collection = collections().find((candidate) => candidate.id === collectionId);
+    if (!collection || collection.name === trimmed) return;
+    await updateCollection(collectionId, {name: trimmed});
+    await refreshCollections();
+  };
+
   const handleHighlightPublications = (publicationIds: readonly string[], collectionId?: string | null) => {
     setHighlightedPublicationIds([...new Set(publicationIds)]);
     setHighlightedCollectionId(collectionId ?? null);
@@ -1280,7 +1291,50 @@ export const App = () => {
                                 class="size-2 rounded-full"
                                 style={{"background-color": collection.color ?? "#d94c3f"}}
                               />
-                              <span class="truncate">{collection.name}</span>
+                              <Show
+                                when={editingCollectionId() === collection.id}
+                                fallback={
+                                  <span
+                                    class="truncate"
+                                    onDblClick={(event) => {
+                                      event.stopPropagation();
+                                      setEditingCollectionId(collection.id);
+                                      setEditingCollectionName(collection.name);
+                                    }}
+                                  >
+                                    {collection.name}
+                                  </span>
+                                }
+                              >
+                                <input
+                                  ref={(element) => {
+                                    element?.focus();
+                                    element?.select();
+                                  }}
+                                  class="min-w-0 flex-1 bg-transparent text-xs text-[#ece8dd] outline-none"
+                                  value={editingCollectionName()}
+                                  onInput={(event) => setEditingCollectionName(event.currentTarget.value)}
+                                  onKeyDown={(event) => {
+                                    if (event.key === "Enter") {
+                                      event.preventDefault();
+                                      void handleRenameCollection(collection.id, editingCollectionName());
+                                      setEditingCollectionId(null);
+                                    } else if (event.key === "Escape") {
+                                      event.preventDefault();
+                                      setEditingCollectionId(null);
+                                    }
+                                  }}
+                                  onBlur={() => {
+                                    if (editingCollectionId() === collection.id) {
+                                      void handleRenameCollection(collection.id, editingCollectionName());
+                                    }
+                                    setEditingCollectionId(null);
+                                  }}
+                                  onClick={(event) => event.stopPropagation()}
+                                  onDblClick={(event) => event.stopPropagation()}
+                                  type="text"
+                                />
+                              </Show>
                               <span class="ml-auto text-[10px] text-[#7c8681]">
                                 {String(collection.publicationIds.length).padStart(2, "0")}
                               </span>

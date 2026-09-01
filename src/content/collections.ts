@@ -1,6 +1,6 @@
 import {randomUUID} from "node:crypto";
-import {mkdir, readFile, writeFile} from "node:fs/promises";
-import {dirname} from "node:path";
+import {mkdir, readdir, readFile, stat, unlink, writeFile} from "node:fs/promises";
+import {dirname, join} from "node:path";
 
 import {collectionsPath} from "./dataRoot";
 
@@ -136,6 +136,21 @@ export const loadCollections = async (workingDirectory: string): Promise<readonl
   }
 };
 
+const trimCollectionBackups = async (backupDirectory: string, maxBackups: number) => {
+  const entries = await readdir(backupDirectory);
+  const backupFiles = entries
+    .filter((name) => name.startsWith("collections.staging-") && name.endsWith(".json"))
+    .map((name) => join(backupDirectory, name));
+  if (backupFiles.length <= maxBackups) return;
+  const filesWithMtime = await Promise.all(
+    backupFiles.map(async (path) => ({path, mtime: (await stat(path)).mtimeMs})),
+  );
+  filesWithMtime.sort((a, b) => a.mtime - b.mtime);
+  for (const file of filesWithMtime.slice(0, filesWithMtime.length - maxBackups)) {
+    await unlink(file.path);
+  }
+};
+
 export const saveCollections = async (
   workingDirectory: string,
   collections: readonly UserCollection[],
@@ -145,14 +160,16 @@ export const saveCollections = async (
     schemaVersion: COLLECTIONS_SCHEMA_VERSION,
   };
   const targetPath = collectionsPath(workingDirectory);
-  await mkdir(dirname(targetPath), {recursive: true});
-  const temporaryPath = `${targetPath}.staging-${process.pid}-${Date.now()}`;
+  const backupDirectory = join(dirname(targetPath), "collections-backup");
+  await mkdir(backupDirectory, {recursive: true});
+  const temporaryPath = join(backupDirectory, `collections.staging-${process.pid}-${Date.now()}.json`);
   await writeFile(temporaryPath, `${JSON.stringify(store, null, 2)}\n`, "utf8");
   try {
     await writeFile(targetPath, `${JSON.stringify(store, null, 2)}\n`, "utf8");
   } catch {
     // Best-effort atomic write fallback on Windows is a direct overwrite.
   }
+  await trimCollectionBackups(backupDirectory, 15);
   return store.collections;
 };
 
