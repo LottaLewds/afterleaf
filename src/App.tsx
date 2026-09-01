@@ -6,11 +6,13 @@ import {
   FiDownload,
   FiGrid,
   FiMenu,
+  FiPlus,
   FiRefreshCw,
   FiSearch,
   FiSettings,
   FiShield,
   FiSliders,
+  FiStar,
   FiTool,
   FiX,
 } from "solid-icons/fi";
@@ -29,13 +31,16 @@ import {
 } from "solid-js";
 import {loadShortcuts, saveShortcuts, type ShortcutsConfig} from "~/game/input/bindings";
 
-import {emptyLibrary, isRuntimeLibraryAvailable, loadRuntimeLibrary} from "~/catalog";
+import {emptyLibrary, isRuntimeLibraryAvailable, loadRuntimeLibrary, type CatalogItem} from "~/catalog";
 import {
   BrowserLibraryOperationError,
   blacklistPublication,
+  createCollection,
+  deleteCollection,
   fetchMorePublications,
   loadActiveLibraryJob,
   loadBlacklistedPublications,
+  loadCollections,
   loadLibraryOperationStatus,
   loadLibraryProviders,
   loadLibrarySourceStatus,
@@ -44,9 +49,11 @@ import {
   loadLibraryConfig,
   reenrollLibraryRoot,
   saveLibraryConfig,
+  updateCollection,
   type LocalLibraryJob,
   type LocalLibrarySnapshotResult,
 } from "~/content/libraryUpdate/browserClient";
+import type {LibraryCollection} from "~/content/libraryUpdate/httpProtocol";
 import type {LibraryProviderDescriptor} from "~/content/providers/types";
 import {
   loadPadMappingOverrides,
@@ -63,6 +70,7 @@ import {LibraryUpdateDialog} from "~/components/library/LibraryUpdateDialog";
 import {LibraryActivityToast} from "~/components/library/LibraryActivityToast";
 import {LibraryCard} from "~/components/library/LibraryCard";
 import {DetailPanel} from "~/components/library/DetailPanel";
+import {CoverContextMenu} from "~/components/library/CoverContextMenu";
 import {languageLabels, type LanguageFilter} from "~/components/library/languageLabels";
 import {GlobalEscapeShortcuts} from "~/components/GlobalEscapeShortcuts";
 import {bookLocationKeys, configLocationsChanged, visualMediaLocationKeys} from "~/components/locations/locationKinds";
@@ -104,6 +112,9 @@ export const App = () => {
     void loadLibraryConfig()
       .then(setLibraryConfig)
       .catch(() => {});
+    void loadCollections()
+      .then(setCollections)
+      .catch((error) => console.error("Could not load collections", error));
   });
   const updateLibraryConfig = async (config: AfterleafLibraryConfig) => {
     const previousConfig = libraryConfig();
@@ -156,6 +167,8 @@ export const App = () => {
   const [libraryRepairOpen, setLibraryRepairOpen] = createSignal(false);
   const [unstuckRequest, setUnstuckRequest] = createSignal(0);
   const [selectedId, setSelectedId] = createSignal("");
+  const [selectedPublicationIds, setSelectedPublicationIds] = createSignal<ReadonlySet<string>>(new Set());
+  const [lastSelectedId, setLastSelectedId] = createSignal<string | null>(null);
   const [mobileDetailOpen, setMobileDetailOpen] = createSignal(false);
   const [bookmarks, setBookmarks] = createSignal(loadReaderBookmarks());
   const [libraryUpdateNotice, setLibraryUpdateNotice] = createSignal<string>();
@@ -195,6 +208,16 @@ export const App = () => {
     initialControlPreferences.respectBookReadingDirection,
   );
   const [blacklistedTags, setBlacklistedTags] = createSignal(loadTagBlacklist());
+  const [collections, setCollections] = createSignal<readonly LibraryCollection[]>([]);
+  const [selectedCollectionId, setSelectedCollectionId] = createSignal<string | null>(null);
+  const [highlightedPublicationIds, setHighlightedPublicationIds] = createSignal<readonly string[]>([]);
+  const [highlightedCollectionId, setHighlightedCollectionId] = createSignal<string | null>(null);
+  const [contextMenu, setContextMenu] = createSignal<{item: CatalogItem; x: number; y: number} | null>(null);
+  const [collectionDialogOpen, setCollectionDialogOpen] = createSignal(false);
+  const [collectionDialogInitialPublicationIds, setCollectionDialogInitialPublicationIds] = createSignal<
+    readonly string[] | undefined
+  >(undefined);
+  const [newCollectionName, setNewCollectionName] = createSignal("");
   const [runtimeLibraryRefresh, setRuntimeLibraryRefresh] = createSignal(0, {equals: false});
   const runtimeLibrary = createMemo(
     () => {
@@ -338,19 +361,75 @@ export const App = () => {
     return libraryUpdateProgressMessage();
   };
 
+  const selectedCollection = createMemo(() =>
+    collections().find((collection) => collection.id === selectedCollectionId()),
+  );
+
   const filteredCatalog = createMemo(() => {
     const tokens = queryTokens();
+    const collection = selectedCollection();
+    const collectionPublicationIds = collection ? new Set(collection.publicationIds) : undefined;
+    const collectionsByPublicationId = new Map<string, string[]>();
+    for (const userCollection of collections()) {
+      for (const publicationId of userCollection.publicationIds) {
+        const names = collectionsByPublicationId.get(publicationId);
+        if (names) names.push(userCollection.name);
+        else collectionsByPublicationId.set(publicationId, [userCollection.name]);
+      }
+    }
     return library().filter((item) => {
       if (language() !== "all" && item.language !== language()) return false;
       const selectedTag = tag();
       if (selectedTag && !item.tags.includes(selectedTag)) return false;
+      if (collectionPublicationIds && !collectionPublicationIds.has(item.id)) return false;
+      const userCollectionNames = collectionsByPublicationId.get(item.id) ?? [];
       return tokens.every((token) =>
-        [item.title, item.titleJp, item.collection, ...item.tags].some((value) => value.toLowerCase().includes(token)),
+        [item.title, item.titleJp, item.collection, ...item.tags, ...userCollectionNames].some((value) =>
+          value.toLowerCase().includes(token),
+        ),
       );
     });
   });
 
   const selectedItem = createMemo(() => library().find((item) => item.id === selectedId()) ?? library()[0]);
+
+  const handleSelectCard = (item: CatalogItem, event: MouseEvent) => {
+    const items = filteredCatalog();
+    const index = items.findIndex((candidate) => candidate.id === item.id);
+    if (index < 0) return;
+
+    if (event.ctrlKey || event.metaKey) {
+      setSelectedPublicationIds((current) => {
+        const next = new Set(current);
+        if (next.has(item.id)) next.delete(item.id);
+        else next.add(item.id);
+        return next;
+      });
+      setSelectedId(item.id);
+      setLastSelectedId(item.id);
+      return;
+    }
+
+    if (event.shiftKey && lastSelectedId()) {
+      const anchorIndex = items.findIndex((candidate) => candidate.id === lastSelectedId());
+      const start = Math.min(anchorIndex < 0 ? index : anchorIndex, index);
+      const end = Math.max(anchorIndex < 0 ? index : anchorIndex, index);
+      setSelectedPublicationIds((current) => {
+        const next = new Set(current);
+        for (let i = start; i <= end; i++) {
+          const selectedItem = items[i];
+          if (selectedItem) next.add(selectedItem.id);
+        }
+        return next;
+      });
+      setSelectedId(item.id);
+      return;
+    }
+
+    setSelectedPublicationIds(new Set([item.id]));
+    setSelectedId(item.id);
+    setLastSelectedId(item.id);
+  };
 
   const recordLibraryResult = async (
     result: LocalLibrarySnapshotResult,
@@ -656,6 +735,71 @@ export const App = () => {
     return true;
   };
 
+  const refreshCollections = async () => {
+    const nextCollections = await loadCollections();
+    setCollections(nextCollections);
+  };
+
+  const openCollectionDialog = (publicationIds?: readonly string[]) => {
+    setCollectionDialogInitialPublicationIds(publicationIds);
+    setNewCollectionName("");
+    setCollectionDialogOpen(true);
+  };
+
+  const closeCollectionDialog = () => {
+    setCollectionDialogOpen(false);
+    setCollectionDialogInitialPublicationIds(undefined);
+    setNewCollectionName("");
+  };
+
+  const confirmCreateCollection = async () => {
+    const name = newCollectionName().trim();
+    if (!name) return;
+    const publicationIds = collectionDialogInitialPublicationIds();
+    await createCollection(name, publicationIds ? [...new Set(publicationIds)] : []);
+    closeCollectionDialog();
+    await refreshCollections();
+  };
+
+  const handleAddToCollection = async (publicationIds: readonly string[], collectionId: string) => {
+    const collection = collections().find((candidate) => candidate.id === collectionId);
+    if (!collection) return;
+    await updateCollection(collectionId, {
+      publicationIds: [...new Set([...collection.publicationIds, ...publicationIds])],
+    });
+    await refreshCollections();
+  };
+
+  const handleRemoveFromCollection = async (publicationIds: readonly string[], collectionId: string) => {
+    const collection = collections().find((candidate) => candidate.id === collectionId);
+    if (!collection) return;
+    const idsToRemove = new Set(publicationIds);
+    await updateCollection(collectionId, {
+      publicationIds: collection.publicationIds.filter((id) => !idsToRemove.has(id)),
+    });
+    await refreshCollections();
+  };
+
+  const handleDeleteCollection = async (collectionId: string) => {
+    await deleteCollection(collectionId);
+    if (selectedCollectionId() === collectionId) setSelectedCollectionId(null);
+    if (highlightedCollectionId() === collectionId) {
+      setHighlightedCollectionId(null);
+      setHighlightedPublicationIds([]);
+    }
+    await refreshCollections();
+  };
+
+  const handleHighlightPublications = (publicationIds: readonly string[], collectionId?: string | null) => {
+    setHighlightedPublicationIds([...new Set(publicationIds)]);
+    setHighlightedCollectionId(collectionId ?? null);
+  };
+
+  const handleClearHighlight = () => {
+    setHighlightedPublicationIds([]);
+    setHighlightedCollectionId(null);
+  };
+
   const purgeBlacklistedWorks = async () => {
     const candidates = blacklistedTagWorkCandidates();
     if (candidates.length === 0 || libraryUpdating() || unavailableBookPathCount() > 0) return;
@@ -826,6 +970,7 @@ export const App = () => {
                     catalogAvailable={() => isRuntimeLibraryAvailable(runtime())}
                     catalogIdentity={() => runtime().identity}
                     gamepadLookSensitivity={gamepadLookSensitivity}
+                    highlightedPublicationIds={highlightedPublicationIds}
                     mouseSensitivity={mouseSensitivity}
                     newPublicationIds={newPublicationIds}
                     onControlsChange={(controls) => {
@@ -868,6 +1013,32 @@ export const App = () => {
                 setLibraryUpdateNotice(undefined);
               }}
             />
+
+            <Show when={highlightedPublicationIds().length > 0}>
+              <aside
+                class="fixed top-4 right-4 z-40 flex items-center gap-3 border border-[#f5c542]/60 bg-[#2a2310]/95 px-4 py-2.5 text-[#f5c542] shadow-[0_16px_50px_#000b] backdrop-blur-md"
+                aria-live="polite"
+              >
+                <FiStar size={14} style={{"flex-shrink": "0"}} />
+                <p class="text-[11px] leading-4">
+                  {highlightedCollectionId() ? (
+                    <>
+                      Highlighting collection &quot;
+                      {collections().find((collection) => collection.id === highlightedCollectionId())?.name ?? ""}
+                      &quot;
+                    </>
+                  ) : (
+                    <>Highlighting {highlightedPublicationIds().length} book(s)</>
+                  )}
+                </p>
+                <button
+                  class="ml-2 text-[10px] font-semibold tracking-wide uppercase hover:text-white"
+                  onClick={handleClearHighlight}
+                >
+                  Clear
+                </button>
+              </aside>
+            </Show>
 
             <Show when={unavailableBookPathCount()}>
               {(count) => (
@@ -1079,6 +1250,63 @@ export const App = () => {
                         </button>
                       </div>
 
+                      <p class="mt-9 px-2 text-[9px] font-bold tracking-[0.2em] text-[#59645f] uppercase">
+                        Collections
+                      </p>
+                      <div class="mt-4 space-y-1">
+                        <For each={collections()}>
+                          {(collection) => (
+                            <button
+                              class={[
+                                "group flex w-full items-center gap-2 px-3 py-2.5 text-xs transition",
+                                {
+                                  "bg-[#1c2523] font-semibold text-[#ece8dd]": selectedCollectionId() === collection.id,
+                                  "text-[#7d8883] hover:bg-white/[0.025] hover:text-[#cbd0cc]":
+                                    selectedCollectionId() !== collection.id,
+                                },
+                              ]}
+                              aria-pressed={selectedCollectionId() === collection.id ? "true" : "false"}
+                              onClick={() =>
+                                setSelectedCollectionId((current) => (current === collection.id ? null : collection.id))
+                              }
+                              onContextMenu={(event) => {
+                                event.preventDefault();
+                                handleHighlightPublications(collection.publicationIds, collection.id);
+                              }}
+                              title="Right-click to highlight in shop"
+                              type="button"
+                            >
+                              <span
+                                class="size-2 rounded-full"
+                                style={{"background-color": collection.color ?? "#d94c3f"}}
+                              />
+                              <span class="truncate">{collection.name}</span>
+                              <span class="ml-auto text-[10px] text-[#7c8681]">
+                                {String(collection.publicationIds.length).padStart(2, "0")}
+                              </span>
+                              <span
+                                class="ml-1 opacity-0 transition group-hover:opacity-100"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  void handleDeleteCollection(collection.id);
+                                }}
+                                title="Delete collection"
+                                role="button"
+                              >
+                                <FiX size={12} />
+                              </span>
+                            </button>
+                          )}
+                        </For>
+                        <button
+                          class="flex w-full items-center gap-3 px-3 py-2.5 text-xs text-[#7d8883] transition hover:bg-white/[0.025] hover:text-[#cbd0cc]"
+                          onClick={() => openCollectionDialog()}
+                          type="button"
+                        >
+                          <FiPlus size={14} /> New collection
+                        </button>
+                      </div>
+
                       <div class="mt-auto border-t border-white/8 pt-5">
                         <div class="flex items-center gap-3 px-2">
                           <span class="grid size-8 place-items-center rounded-full bg-[#24312e] text-[#789488]">
@@ -1203,6 +1431,23 @@ export const App = () => {
                         </For>
                       </div>
 
+                      <Show when={selectedCollection()}>
+                        {(collection) => (
+                          <div class="mt-4 flex items-center gap-2">
+                            <span class="flex items-center gap-2 border border-[#d64e42] bg-[#d64e42]/10 px-3 py-1.5 text-[9px] font-semibold tracking-wide text-[#e46a60] uppercase">
+                              Collection · {collection().name}
+                              <button
+                                class="hover:text-white"
+                                aria-label="Clear collection filter"
+                                onClick={() => setSelectedCollectionId(null)}
+                              >
+                                <FiX size={11} />
+                              </button>
+                            </span>
+                          </div>
+                        )}
+                      </Show>
+
                       <div class="mt-5 flex items-center justify-between border-b border-white/8 pb-4">
                         <p class="text-[9px] leading-4 text-[#5f6a66]">
                           Inspect the catalog here, then press Tab to return to the shop floor.
@@ -1245,16 +1490,24 @@ export const App = () => {
                         >
                           <div class="shelf-grid grid grid-cols-2 gap-x-4 gap-y-12 sm:grid-cols-3 md:grid-cols-4 2xl:grid-cols-5">
                             <For each={filteredCatalog()}>
-                              {(item) => (
-                                <LibraryCard
-                                  item={item}
-                                  active={selectedItem()?.id === item.id}
-                                  onSelect={() => {
-                                    setSelectedId(item.id);
-                                    setMobileDetailOpen(true);
-                                  }}
-                                />
-                              )}
+                              {(item) => {
+                                const selected = () => selectedPublicationIds().has(item.id);
+                                return (
+                                  <LibraryCard
+                                    item={item}
+                                    active={selected()}
+                                    multiSelected={selected() && selectedPublicationIds().size > 1}
+                                    onSelect={(event) => {
+                                      handleSelectCard(item, event);
+                                      if (!event.ctrlKey && !event.metaKey && !event.shiftKey)
+                                        setMobileDetailOpen(true);
+                                    }}
+                                    onContextMenu={(event) =>
+                                      setContextMenu({item, x: event.clientX, y: event.clientY})
+                                    }
+                                  />
+                                );
+                              }}
                             </For>
                           </div>
                         </Show>
@@ -1319,6 +1572,27 @@ export const App = () => {
                   </div>
                 </div>
               </div>
+            </Show>
+
+            <Show when={contextMenu()}>
+              {(menu) => (
+                <CoverContextMenu
+                  anchor={{x: menu().x, y: menu().y}}
+                  collections={collections}
+                  item={menu().item}
+                  selectedCollectionId={selectedCollectionId}
+                  selectedIds={selectedPublicationIds}
+                  onClose={() => setContextMenu(null)}
+                  onNewCollection={(_item, publicationIds) => openCollectionDialog(publicationIds)}
+                  onAddToCollection={(publicationIds, collectionId) =>
+                    void handleAddToCollection(publicationIds, collectionId)
+                  }
+                  onRemoveFromCollection={(publicationIds, collectionId) =>
+                    void handleRemoveFromCollection(publicationIds, collectionId)
+                  }
+                  onHighlight={(publicationIds) => handleHighlightPublications(publicationIds)}
+                />
+              )}
             </Show>
 
             <Show when={mobileDetailOpen()}>
@@ -1388,6 +1662,69 @@ export const App = () => {
                   saveLibraryProviderPreference(providerId);
                 }}
               />
+            </Show>
+
+            <Show when={collectionDialogOpen()}>
+              <div
+                class="fixed inset-0 z-50 grid place-items-center bg-[#07100f]/78 p-4 backdrop-blur-sm"
+                role="dialog"
+                aria-modal="true"
+                aria-label="Create collection"
+                onClick={closeCollectionDialog}
+              >
+                <form
+                  class="w-full max-w-md border border-white/12 bg-[#101716] shadow-[0_30px_100px_#000]"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    void confirmCreateCollection();
+                  }}
+                  onClick={(event) => event.stopPropagation()}
+                >
+                  <header class="flex items-start gap-4 border-b border-white/8 px-5 py-4">
+                    <div class="min-w-0">
+                      <p class="text-[9px] font-bold tracking-[0.2em] text-[#d05b50] uppercase">Collection</p>
+                      <h2 class="mt-1 font-serif text-xl text-[#eee8dc]">Create new collection</h2>
+                    </div>
+                    <button
+                      class="ml-auto grid size-9 shrink-0 place-items-center text-[#87938e] transition hover:bg-white/5 hover:text-white"
+                      aria-label="Close collection dialog"
+                      type="button"
+                      onClick={closeCollectionDialog}
+                    >
+                      <FiX size={17} />
+                    </button>
+                  </header>
+                  <div class="space-y-4 px-5 py-5">
+                    <label class="block">
+                      <span class="text-[9px] font-bold tracking-[0.14em] text-[#8f9b96] uppercase">Name</span>
+                      <input
+                        class="mt-2 h-11 w-full border border-white/12 bg-[#0a1110] px-3 text-sm text-[#f0ebdf] transition outline-none placeholder:text-[#4f5b57] focus:border-[#c7554b]"
+                        value={newCollectionName()}
+                        onInput={(event) => setNewCollectionName(event.currentTarget.value)}
+                        placeholder="Late night reads"
+                        maxlength={100}
+                        autofocus
+                      />
+                    </label>
+                  </div>
+                  <footer class="flex items-center justify-end gap-2 border-t border-white/8 px-5 py-4">
+                    <button
+                      class="h-10 px-4 text-[10px] font-bold tracking-[0.08em] text-[#98a39e] uppercase transition hover:bg-white/5 hover:text-white"
+                      type="button"
+                      onClick={closeCollectionDialog}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      class="flex h-10 items-center gap-2 bg-[#ece6d8] px-4 text-[10px] font-bold tracking-[0.08em] text-[#17201e] uppercase transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-40"
+                      disabled={newCollectionName().trim().length === 0}
+                      type="submit"
+                    >
+                      Create
+                    </button>
+                  </footer>
+                </form>
+              </div>
             </Show>
           </div>
         </Show>

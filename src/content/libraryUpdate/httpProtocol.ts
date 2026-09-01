@@ -13,6 +13,7 @@ export const LIBRARY_ROOT_ENROLL_ENDPOINT = "/api/library/root-enroll";
 export const LIBRARY_BROWSE_ENDPOINT = "/api/library/browse";
 export const LIBRARY_ROMS_ENDPOINT = "/api/library/roms";
 export const LIBRARY_ROM_FILE_ENDPOINT = "/api/library/roms/file";
+export const LIBRARY_COLLECTIONS_ENDPOINT = "/api/library/collections";
 export const MAX_LIBRARY_OPERATION_BODY_BYTES = 64 * 1_024;
 export const MAX_LIBRARY_OPERATION_RESPONSE_BYTES = 1024 * 1_024;
 export const DEFAULT_LIBRARY_FETCH_LIMIT = 20;
@@ -27,7 +28,9 @@ const MAX_PASTED_TEXT_LENGTH = 16_384;
 const MAX_BLOCKED_TAG_COUNT = 100;
 const MAX_BLOCKED_TAG_LENGTH = 100;
 const MAX_RESPONSE_STRING_LENGTH = 2_048;
+const MAX_COLLECTION_NAME_LENGTH = 100;
 const JOB_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
+const COLLECTION_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 const PUBLICATION_ID_PATTERN = /^[a-z0-9][a-z0-9._-]{0,199}$/u;
 const PROVIDER_ID_PATTERN = /^[a-z][a-z0-9-]{0,63}$/u;
 
@@ -94,6 +97,40 @@ export type LibraryBlacklistListHttpSuccess = {
   ok: true;
   publicationIds: readonly string[];
 };
+
+export type LibraryCollection = {
+  id: string;
+  name: string;
+  createdAt: string;
+  publicationIds: readonly string[];
+  color?: string;
+};
+
+export type LibraryCollectionsListHttpSuccess = {
+  collections: readonly LibraryCollection[];
+  ok: true;
+};
+
+export type LibraryCollectionCreateHttpSuccess = {
+  collection: LibraryCollection;
+  ok: true;
+};
+
+export type LibraryCollectionUpdateHttpSuccess = {
+  collection: LibraryCollection;
+  ok: true;
+};
+
+export type LibraryCollectionDeleteHttpSuccess = {
+  ok: true;
+};
+
+export type LibraryCollectionsHttpResponse =
+  | LibraryCollectionsListHttpSuccess
+  | LibraryCollectionCreateHttpSuccess
+  | LibraryCollectionUpdateHttpSuccess
+  | LibraryCollectionDeleteHttpSuccess
+  | LibraryOperationHttpFailure;
 
 export type LibraryOperationHttpFailure = {
   error: {
@@ -492,6 +529,107 @@ export const parseLibraryBlacklistListHttpResponse = (
   if (new Set(publicationIds).size !== publicationIds.length)
     throw new Error("Library blacklist-list response contains duplicate IDs");
   return {ok: true, publicationIds};
+};
+
+const collectionId = (value: unknown, field = "id") => {
+  if (typeof value !== "string" || !COLLECTION_ID_PATTERN.test(value))
+    throw new Error(`${field} must be a collection UUID`);
+  return value.toLowerCase();
+};
+
+const collectionName = (value: unknown, field = "name") => {
+  if (typeof value !== "string" || value.trim().length === 0 || value.length > MAX_COLLECTION_NAME_LENGTH)
+    throw new Error(`${field} must be a non-empty string of at most ${MAX_COLLECTION_NAME_LENGTH} characters`);
+  return value.trim();
+};
+
+const collectionColor = (value: unknown, field = "color") => {
+  if (value === undefined) return undefined;
+  if (typeof value !== "string" || !/^#[0-9a-fA-F]{6}$/u.test(value))
+    throw new Error(`${field} must be a 6-digit hex color`);
+  return value.toLowerCase();
+};
+
+const parseCollection = (value: unknown, index: number): LibraryCollection => {
+  if (!isRecord(value)) throw new Error(`collections[${index}] must be an object`);
+  const field = (name: string) => `collections[${index}].${name}`;
+  const id = collectionId(value.id, field("id"));
+  const name = collectionName(value.name, field("name"));
+  const createdAt =
+    typeof value.createdAt === "string" && Number.isFinite(Date.parse(value.createdAt))
+      ? value.createdAt
+      : new Date().toISOString();
+  const color = collectionColor(value.color, field("color"));
+  if (!Array.isArray(value.publicationIds)) throw new Error(`${field("publicationIds")} must be an array`);
+  const publicationIds = value.publicationIds.map((pid, pidIndex) =>
+    publicationId(pid, `${field("publicationIds")}[${pidIndex}]`),
+  );
+  if (new Set(publicationIds).size !== publicationIds.length)
+    throw new Error(`${field("publicationIds")} contains duplicates`);
+  return {id, name, createdAt, publicationIds, ...(color === undefined ? {} : {color})};
+};
+
+export const parseLibraryCollectionsListHttpResponse = (
+  value: unknown,
+): LibraryCollectionsListHttpSuccess | LibraryOperationHttpFailure => {
+  if (!isRecord(value)) throw new Error("Library collections response must be an object");
+  const failure = parseFailure(value);
+  if (failure) return failure;
+  if (value.ok !== true || !Array.isArray(value.collections))
+    throw new Error("Library collections list response is malformed");
+  const collections = value.collections.map(parseCollection);
+  return {collections, ok: true};
+};
+
+export const parseLibraryCollectionCreateHttpResponse = (
+  value: unknown,
+): LibraryCollectionCreateHttpSuccess | LibraryOperationHttpFailure => {
+  if (!isRecord(value)) throw new Error("Library collection create response must be an object");
+  const failure = parseFailure(value);
+  if (failure) return failure;
+  if (value.ok !== true || !isRecord(value.collection))
+    throw new Error("Library collection create response is malformed");
+  return {collection: parseCollection(value.collection, 0), ok: true};
+};
+
+export const parseLibraryCollectionUpdateHttpResponse = (
+  value: unknown,
+): LibraryCollectionUpdateHttpSuccess | LibraryOperationHttpFailure => {
+  if (!isRecord(value)) throw new Error("Library collection update response must be an object");
+  const failure = parseFailure(value);
+  if (failure) return failure;
+  if (value.ok !== true || !isRecord(value.collection))
+    throw new Error("Library collection update response is malformed");
+  return {collection: parseCollection(value.collection, 0), ok: true};
+};
+
+export const parseLibraryCollectionRequest = (value: unknown): {name: string; publicationIds?: readonly string[]} => {
+  if (!isRecord(value)) throw new Error("Library collection request must be an object");
+  const name = collectionName(value.name, "name");
+  if (value.publicationIds === undefined) return {name};
+  if (!Array.isArray(value.publicationIds)) throw new Error("publicationIds must be an array");
+  const publicationIds = value.publicationIds.map((pid, index) => publicationId(pid, `publicationIds[${index}]`));
+  if (new Set(publicationIds).size !== publicationIds.length) throw new Error("publicationIds contains duplicates");
+  return {name, publicationIds};
+};
+
+export const parseLibraryCollectionUpdateRequest = (
+  value: unknown,
+): {name?: string; publicationIds?: readonly string[]; color?: string} => {
+  if (!isRecord(value)) throw new Error("Library collection update request must be an object");
+  const result: {name?: string; publicationIds?: readonly string[]; color?: string} = {};
+  if (value.name !== undefined) result.name = collectionName(value.name, "name");
+  if (value.color !== undefined) {
+    const color = collectionColor(value.color, "color");
+    if (color !== undefined) result.color = color;
+  }
+  if (value.publicationIds !== undefined) {
+    if (!Array.isArray(value.publicationIds)) throw new Error("publicationIds must be an array");
+    result.publicationIds = value.publicationIds.map((pid, index) => publicationId(pid, `publicationIds[${index}]`));
+    if (new Set(result.publicationIds).size !== result.publicationIds.length)
+      throw new Error("publicationIds contains duplicates");
+  }
+  return result;
 };
 
 /** Reduces a snapshot CLI's detailed result to the browser-visible contract. */

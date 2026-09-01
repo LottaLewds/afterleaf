@@ -47,6 +47,7 @@ export type ShopViewportProps = {
   catalogAvailable: Accessor<boolean>;
   catalogIdentity: Accessor<CatalogIdentity>;
   gamepadLookSensitivity?: Accessor<number>;
+  highlightedPublicationIds?: Accessor<readonly string[]>;
   mouseSensitivity?: Accessor<number>;
   newPublicationIds?: Accessor<readonly string[]>;
   onControlsChange?: (controls: ShopViewportControls | undefined) => void;
@@ -245,6 +246,9 @@ const ShopViewportRuntime = (props: ShopViewportProps) => {
             ...(props.gamepadLookSensitivity === undefined
               ? {}
               : {gamepadLookSensitivity: props.gamepadLookSensitivity}),
+            ...(props.highlightedPublicationIds === undefined
+              ? {}
+              : {highlightedPublicationIds: props.highlightedPublicationIds}),
             ...(props.mouseSensitivity === undefined ? {} : {mouseSensitivity: props.mouseSensitivity}),
             ...(props.newPublicationIds === undefined ? {} : {newPublicationIds: props.newPublicationIds}),
             ...(props.tvScreenLighting === undefined ? {} : {tvScreenLighting: props.tvScreenLighting}),

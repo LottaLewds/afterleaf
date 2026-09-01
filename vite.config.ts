@@ -10,6 +10,7 @@ import path from "node:path";
 
 import {
   LIBRARY_BLACKLIST_ENDPOINT,
+  LIBRARY_COLLECTIONS_ENDPOINT,
   LIBRARY_CONFIG_ENDPOINT,
   LIBRARY_BROWSE_ENDPOINT,
   LIBRARY_FETCH_MORE_ENDPOINT,
@@ -24,6 +25,8 @@ import {
   MAX_LIBRARY_OPERATION_BODY_BYTES,
   libraryOperationFailure,
   parseLibraryBlacklistRequest,
+  parseLibraryCollectionRequest,
+  parseLibraryCollectionUpdateRequest,
   parseLibraryFetchMoreRequest,
   parseLibraryJobId,
   parseLibraryPasteResolveHttpResponse,
@@ -73,6 +76,7 @@ import {
   worldSaveBackupsDirectory as worldSaveBackupsDirectoryFor,
   worldSavePath as worldSavePathFor,
 } from "./src/content/dataRoot";
+import {createCollection, deleteCollection, loadCollections, updateCollection} from "./src/content/collections.js";
 import {detectUnmigratedLegacyLayout} from "./src/content/migrateLibraryLayout";
 import type {PackedPublication} from "./src/content/schema";
 import {createCachedTvVideoAnalyzer} from "./src/tv/channelAnalysis";
@@ -833,7 +837,8 @@ const localLibraryOperationsPlugin = (): Plugin => {
         pathname !== LIBRARY_BROWSE_ENDPOINT &&
         pathname !== LIBRARY_ROMS_ENDPOINT &&
         pathname !== LIBRARY_ROM_FILE_ENDPOINT &&
-        pathname !== LIBRARY_STATUS_ENDPOINT
+        pathname !== LIBRARY_STATUS_ENDPOINT &&
+        pathname !== LIBRARY_COLLECTIONS_ENDPOINT
       )
         return next();
       if (pathname === LIBRARY_ROOT_ENROLL_ENDPOINT) {
@@ -923,6 +928,58 @@ const localLibraryOperationsPlugin = (): Plugin => {
               error instanceof Error ? error.message : "Invalid library configuration",
             ),
           );
+        }
+        return;
+      }
+      if (pathname === LIBRARY_COLLECTIONS_ENDPOINT) {
+        if (!hasSameOrigin(request)) {
+          sendJson(
+            response,
+            403,
+            libraryOperationFailure("forbidden_origin", "Library collections require a same-origin loopback request"),
+          );
+          return;
+        }
+        try {
+          if (request.method === "GET") {
+            const collections = await loadCollections(import.meta.dirname);
+            sendJson(response, 200, {collections, ok: true});
+            return;
+          }
+          if (request.method === "POST") {
+            const body = await readBoundedJsonBody(request);
+            const {name, publicationIds} = parseLibraryCollectionRequest(body);
+            const collection = await createCollection(import.meta.dirname, name, publicationIds);
+            sendJson(response, 201, {collection, ok: true});
+            return;
+          }
+          if (request.method === "PUT") {
+            const id = requestUrl.searchParams.get("id");
+            if (!id) throw new Error("Collection id is required");
+            const body = await readBoundedJsonBody(request);
+            const changes = parseLibraryCollectionUpdateRequest(body);
+            const collection = await updateCollection(import.meta.dirname, id, changes);
+            sendJson(response, 200, {collection, ok: true});
+            return;
+          }
+          if (request.method === "DELETE") {
+            const id = requestUrl.searchParams.get("id");
+            if (!id) throw new Error("Collection id is required");
+            await deleteCollection(import.meta.dirname, id);
+            sendJson(response, 200, {ok: true});
+            return;
+          }
+          response.setHeader("Allow", "GET, POST, PUT, DELETE");
+          sendJson(
+            response,
+            405,
+            libraryOperationFailure("method_not_allowed", "Use GET, POST, PUT or DELETE for collections"),
+          );
+          return;
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "Collections operation failed";
+          const statusCode = error instanceof LibraryUpdateBridgeError ? error.status : 422;
+          sendJson(response, statusCode, libraryOperationFailure("collections_failed", message));
         }
         return;
       }

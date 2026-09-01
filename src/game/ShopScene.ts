@@ -1,8 +1,11 @@
 import {
   ACESFilmicToneMapping,
   AmbientLight,
+  BoxGeometry,
+  DoubleSide,
   Euler,
   MathUtils,
+  MeshBasicMaterial,
   PCFSoftShadowMap,
   PerspectiveCamera,
   Quaternion,
@@ -12,7 +15,7 @@ import {
   TextureLoader,
   Vector3,
   WebGLRenderer,
-  type Mesh,
+  Mesh,
   type MeshStandardMaterial,
   type Texture,
 } from "three";
@@ -119,6 +122,7 @@ export type ShopSceneOptions = {
   mouseSensitivity?: () => number;
   /** Multiplier on the base right-stick look speed. */
   gamepadLookSensitivity?: () => number;
+  highlightedPublicationIds?: () => readonly string[];
   newPublicationIds?: () => readonly string[];
   tvScreenLighting?: () => boolean;
   onDiscardPublication?: (publicationId: string) => Promise<boolean>;
@@ -208,6 +212,7 @@ export class ShopScene {
   readonly #mouseSensitivity: () => number;
   readonly #gamepadLookSensitivity: () => number;
   readonly #newPublicationIds: () => readonly string[];
+  readonly #highlightedPublicationIds: () => readonly string[];
   readonly #tvScreenLighting: () => boolean;
   readonly #onDiscardPublication: ((publicationId: string) => Promise<boolean>) | undefined;
   readonly #onMediaChannelCreateRequest: ((kind: "art-frame" | "tv") => void) | undefined;
@@ -284,6 +289,8 @@ export class ShopScene {
   #televisionTargeted = false;
   #targetedTelevision: ShopTelevision | undefined;
   #televisionTableMaterial: MeshStandardMaterial | undefined;
+  #highlightedIds = new Set<string>();
+  #highlightOverlays = new Map<string, Mesh<BoxGeometry, MeshBasicMaterial>>();
 
   #createInputManager() {
     const input = new InputManager({
@@ -328,6 +335,7 @@ export class ShopScene {
     this.#catalogIdentity = options.catalogIdentity;
     this.#catalogItems = options.catalogItems;
     this.#newPublicationIds = valueOrDefault(options.newPublicationIds, () => []);
+    this.#highlightedPublicationIds = valueOrDefault(options.highlightedPublicationIds, () => []);
     this.#initialPageIndex = valueOrDefault(options.initialPageIndex, () => 0);
     this.#mouseSensitivity = valueOrDefault(options.mouseSensitivity, () => 1);
     this.#gamepadLookSensitivity = valueOrDefault(options.gamepadLookSensitivity, () => 1);
@@ -1074,6 +1082,7 @@ export class ShopScene {
     this.#syncMovablePropPhysics();
     for (const record of this.#artFrames.records.values()) record.frame.update(deltaSeconds);
     this.#bookPresentation.animate(deltaSeconds);
+    this.#syncHighlights();
     this.#bookActions.animateShelve(deltaSeconds);
     this.#bookTextures.syncActiveBookAtlasBatches(this.#bookPresentation.updatedPublicationIds);
     this.#bookActions.animateDiscard(deltaSeconds);
@@ -1081,6 +1090,58 @@ export class ShopScene {
     this.#renderer.render(this.#scene, this.#camera);
     this.#frameHandle = requestAnimationFrame(this.#animate);
   };
+
+  #syncHighlights() {
+    const highlightedIds = new Set(this.#highlightedPublicationIds());
+
+    for (const publicationId of this.#highlightedIds) {
+      if (highlightedIds.has(publicationId) && this.#booksById.has(publicationId)) continue;
+      const overlay = this.#highlightOverlays.get(publicationId);
+      if (overlay) {
+        overlay.removeFromParent();
+        overlay.geometry.dispose();
+        overlay.material.dispose();
+        this.#highlightOverlays.delete(publicationId);
+      }
+    }
+
+    // Highlights are distracting while reading a book; hide them during
+    // inspection and restore them once the reader closes.
+    const inspecting = this.#inspection.inspectionMode !== "none";
+
+    for (const publicationId of highlightedIds) {
+      const record = this.#booksById.get(publicationId);
+      if (!record) continue;
+      let overlay = this.#highlightOverlays.get(publicationId);
+      if (!overlay) {
+        if (inspecting) continue;
+        const mesh = record.mesh;
+        const geometry = new BoxGeometry(
+          mesh.geometry.parameters.width * 1.15,
+          mesh.geometry.parameters.height * 1.12,
+          mesh.geometry.parameters.depth * 1.15,
+        );
+        const material = new MeshBasicMaterial({
+          color: 0xf5c542,
+          depthTest: false,
+          opacity: 0.45,
+          side: DoubleSide,
+          transparent: true,
+        });
+        overlay = new Mesh(geometry, material);
+        overlay.name = "highlight-overlay";
+        overlay.renderOrder = 10;
+        this.#scene.add(overlay);
+        this.#highlightOverlays.set(publicationId, overlay);
+      }
+      record.mesh.updateMatrixWorld();
+      overlay.matrix.copy(record.mesh.matrixWorld);
+      overlay.matrixAutoUpdate = false;
+      overlay.visible = !inspecting;
+    }
+
+    this.#highlightedIds = highlightedIds;
+  }
 
   #configureScene() {
     RectAreaLightUniformsLib.init();
