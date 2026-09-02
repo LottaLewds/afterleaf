@@ -1284,7 +1284,7 @@ export const App = () => {
                                 event.preventDefault();
                                 handleHighlightPublications(collection.publicationIds, collection.id);
                               }}
-                              title="Right-click to highlight in shop"
+                              title="Right-click to highlight in shop&#10;Double-click to rename"
                               type="button"
                             >
                               <span
@@ -1311,7 +1311,7 @@ export const App = () => {
                                     element?.focus();
                                     element?.select();
                                   }}
-                                  class="min-w-0 flex-1 bg-transparent text-xs text-[#ece8dd] outline-none"
+                                  class="min-w-0 flex-1 border border-[#70a28b]/60 bg-[#0f1615] px-1.5 py-0.5 text-xs text-[#ece8dd] outline-none ring-1 ring-[#70a28b]/30"
                                   value={editingCollectionName()}
                                   onInput={(event) => setEditingCollectionName(event.currentTarget.value)}
                                   onKeyDown={(event) => {
