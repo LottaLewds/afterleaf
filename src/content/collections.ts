@@ -1,6 +1,6 @@
 import {randomUUID} from "node:crypto";
-import {mkdir, readdir, readFile, stat, unlink, writeFile} from "node:fs/promises";
-import {dirname, join} from "node:path";
+import {mkdir, readdir, readFile, rename, rm, stat, unlink, writeFile} from "node:fs/promises";
+import {basename, dirname, join} from "node:path";
 
 import {collectionsPath} from "./dataRoot";
 
@@ -10,6 +10,7 @@ const MAX_COLLECTION_COUNT = 200;
 const MAX_COLLECTION_NAME_LENGTH = 100;
 const MAX_PUBLICATION_IDS_PER_COLLECTION = 10_000;
 const MAX_TOTAL_PUBLICATION_IDS = 100_000;
+const COLLECTION_BACKUP_FILE_PATTERN = /^collections\.(?:backup-.+|staging-.+)\.json$/u;
 
 // Mirrors the publication ID pattern used in httpProtocol.ts.
 const PUBLICATION_ID_PATTERN = /^[a-z0-9][a-z0-9._-]{0,199}$/u;
@@ -27,11 +28,34 @@ export type CollectionsStore = {
   schemaVersion: typeof COLLECTIONS_SCHEMA_VERSION;
 };
 
+export type UserCollectionChanges = {
+  addPublicationIds?: readonly string[];
+  color?: string;
+  name?: string;
+  publicationIds?: readonly string[];
+  removePublicationIds?: readonly string[];
+};
+
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
 const isMissing = (error: unknown): boolean =>
   error instanceof Error && "code" in error && (error as NodeJS.ErrnoException).code === "ENOENT";
+
+const errorCode = (error: unknown) =>
+  error instanceof Error && "code" in error ? (error as NodeJS.ErrnoException).code : undefined;
+
+const collectionMutationQueues = new Map<string, Promise<unknown>>();
+
+const enqueueCollectionMutation = <T>(workingDirectory: string, mutation: () => Promise<T>): Promise<T> => {
+  const key = collectionsPath(workingDirectory);
+  const previous = collectionMutationQueues.get(key) ?? Promise.resolve();
+  const next = previous.catch(() => undefined).then(mutation);
+  collectionMutationQueues.set(key, next);
+  return next.finally(() => {
+    if (collectionMutationQueues.get(key) === next) collectionMutationQueues.delete(key);
+  });
+};
 
 const validCollectionId = (value: unknown): string => {
   if (
@@ -39,13 +63,19 @@ const validCollectionId = (value: unknown): string => {
     !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(value)
   )
     throw new Error("Collection id must be a UUID");
-  return value;
+  return value.toLowerCase();
 };
 
 const validCollectionName = (value: unknown): string => {
   if (typeof value !== "string" || value.trim().length === 0 || value.length > MAX_COLLECTION_NAME_LENGTH)
     throw new Error(`Collection name must be a non-empty string of at most ${MAX_COLLECTION_NAME_LENGTH} characters`);
   return value.trim();
+};
+
+const validCreatedAt = (value: unknown, field: string): string => {
+  if (typeof value !== "string" || !Number.isFinite(Date.parse(value)))
+    throw new Error(`${field} must be a valid date`);
+  return value;
 };
 
 const validPublicationId = (value: unknown, field: string): string => {
@@ -66,10 +96,7 @@ const validCollection = (value: unknown, index: number): UserCollection => {
   const field = (name: string) => `collections[${index}].${name}`;
   const id = validCollectionId(value.id);
   const name = validCollectionName(value.name);
-  const createdAt =
-    typeof value.createdAt === "string" && Number.isFinite(Date.parse(value.createdAt))
-      ? value.createdAt
-      : new Date().toISOString();
+  const createdAt = validCreatedAt(value.createdAt, field("createdAt"));
   const color = validColor(value.color);
   const rawPublicationIds = value.publicationIds;
   if (!Array.isArray(rawPublicationIds)) throw new Error(`${field("publicationIds")} must be an array`);
@@ -97,11 +124,15 @@ export const parseCollectionsStore = (value: unknown): CollectionsStore => {
   if (value.collections.length > MAX_COLLECTION_COUNT)
     throw new Error(`At most ${MAX_COLLECTION_COUNT} collections are supported`);
   const ids = new Set<string>();
+  const names = new Set<string>();
   let totalPublicationIds = 0;
   const collections = value.collections.map((collection, index) => {
     const parsed = validCollection(collection, index);
     if (ids.has(parsed.id)) throw new Error("Collections store contains duplicate collection ids");
+    const nameKey = parsed.name.toLowerCase();
+    if (names.has(nameKey)) throw new Error("Collections store contains duplicate collection names");
     ids.add(parsed.id);
+    names.add(nameKey);
     totalPublicationIds += parsed.publicationIds.length;
     return parsed;
   });
@@ -139,7 +170,7 @@ export const loadCollections = async (workingDirectory: string): Promise<readonl
 const trimCollectionBackups = async (backupDirectory: string, maxBackups: number) => {
   const entries = await readdir(backupDirectory);
   const backupFiles = entries
-    .filter((name) => name.startsWith("collections.staging-") && name.endsWith(".json"))
+    .filter((name) => COLLECTION_BACKUP_FILE_PATTERN.test(name))
     .map((name) => join(backupDirectory, name));
   if (backupFiles.length <= maxBackups) return;
   const filesWithMtime = await Promise.all(
@@ -151,7 +182,22 @@ const trimCollectionBackups = async (backupDirectory: string, maxBackups: number
   }
 };
 
-export const saveCollections = async (
+const replaceCollectionsFile = async (temporaryPath: string, targetPath: string) => {
+  try {
+    await rename(temporaryPath, targetPath);
+    return;
+  } catch (error) {
+    const code = errorCode(error);
+    if (code !== "EEXIST" && code !== "EPERM" && code !== "ENOTEMPTY") throw error;
+  }
+
+  // Best-effort atomic write fallback on Windows uses remove-and-rename because
+  // Windows does not replace an existing directory entry with rename().
+  await rm(targetPath, {force: true});
+  await rename(temporaryPath, targetPath);
+};
+
+const writeCollections = async (
   workingDirectory: string,
   collections: readonly UserCollection[],
 ): Promise<readonly UserCollection[]> => {
@@ -162,70 +208,105 @@ export const saveCollections = async (
   const targetPath = collectionsPath(workingDirectory);
   const backupDirectory = join(dirname(targetPath), "collections-backup");
   await mkdir(backupDirectory, {recursive: true});
-  const temporaryPath = join(backupDirectory, `collections.staging-${process.pid}-${Date.now()}.json`);
-  await writeFile(temporaryPath, `${JSON.stringify(store, null, 2)}\n`, "utf8");
+  const serialized = `${JSON.stringify(store, null, 2)}\n`;
+  const temporaryPath = join(dirname(targetPath), `.${basename(targetPath)}.staging-${process.pid}-${randomUUID()}`);
   try {
-    await writeFile(targetPath, `${JSON.stringify(store, null, 2)}\n`, "utf8");
-  } catch {
-    // Best-effort atomic write fallback on Windows is a direct overwrite.
+    await writeFile(temporaryPath, serialized, {flag: "wx"});
+    await replaceCollectionsFile(temporaryPath, targetPath);
+  } catch (error) {
+    await rm(temporaryPath, {force: true}).catch(() => {});
+    throw error;
   }
-  await trimCollectionBackups(backupDirectory, 15);
+
+  const backupPath = join(backupDirectory, `collections.backup-${Date.now()}-${randomUUID()}.json`);
+  try {
+    await writeFile(backupPath, serialized, {flag: "wx"});
+    await trimCollectionBackups(backupDirectory, 15);
+  } catch (error) {
+    // The committed collection remains valid even if historical snapshot cleanup
+    // is unavailable, so do not report a successful save as failed.
+    console.warn("Could not maintain collection backups", error);
+  }
   return store.collections;
 };
+
+export const saveCollections = async (
+  workingDirectory: string,
+  collections: readonly UserCollection[],
+): Promise<readonly UserCollection[]> =>
+  enqueueCollectionMutation(workingDirectory, () => writeCollections(workingDirectory, collections));
 
 export const createCollection = async (
   workingDirectory: string,
   name: string,
   publicationIds: readonly string[] = [],
 ): Promise<UserCollection> => {
-  const existing = await loadCollections(workingDirectory);
-  const trimmedName = name.trim();
-  if (existing.some((collection) => collection.name.toLowerCase() === trimmedName.toLowerCase()))
-    throw new Error(`A collection named "${trimmedName}" already exists`);
-  const collection: UserCollection = {
-    id: randomUUID(),
-    name: trimmedName,
-    createdAt: new Date().toISOString(),
-    publicationIds: [...new Set(publicationIds)],
-  };
-  await saveCollections(workingDirectory, [...existing, collection]);
-  return collection;
+  return enqueueCollectionMutation(workingDirectory, async () => {
+    const existing = await loadCollections(workingDirectory);
+    const trimmedName = name.trim();
+    if (existing.some((collection) => collection.name.toLowerCase() === trimmedName.toLowerCase()))
+      throw new Error(`A collection named "${trimmedName}" already exists`);
+    const collection: UserCollection = {
+      id: randomUUID(),
+      name: trimmedName,
+      createdAt: new Date().toISOString(),
+      publicationIds: [...new Set(publicationIds)],
+    };
+    await writeCollections(workingDirectory, [...existing, collection]);
+    return collection;
+  });
 };
 
 export const updateCollection = async (
   workingDirectory: string,
   id: string,
-  changes: {name?: string; publicationIds?: readonly string[]; color?: string},
+  changes: UserCollectionChanges,
 ): Promise<UserCollection> => {
-  const existing = await loadCollections(workingDirectory);
-  const current = existing.find((collection) => collection.id === id);
-  if (!current) throw new Error("Collection not found");
-  const nextName = changes.name?.trim() ?? current.name;
-  if (
-    nextName.toLowerCase() !== current.name.toLowerCase() &&
-    existing.some(
-      (collection) => collection.id !== current.id && collection.name.toLowerCase() === nextName.toLowerCase(),
+  return enqueueCollectionMutation(workingDirectory, async () => {
+    const normalizedId = validCollectionId(id);
+    const existing = await loadCollections(workingDirectory);
+    const current = existing.find((collection) => collection.id === normalizedId);
+    if (!current) throw new Error("Collection not found");
+    const nextName = changes.name?.trim() ?? current.name;
+    if (
+      nextName.toLowerCase() !== current.name.toLowerCase() &&
+      existing.some(
+        (collection) => collection.id !== current.id && collection.name.toLowerCase() === nextName.toLowerCase(),
+      )
     )
-  )
-    throw new Error(`A collection named "${nextName}" already exists`);
-  const nextPublicationIds =
-    changes.publicationIds !== undefined ? [...new Set(changes.publicationIds)] : current.publicationIds;
-  const updated: UserCollection = {
-    ...current,
-    name: nextName,
-    publicationIds: nextPublicationIds,
-    ...(changes.color ? {color: changes.color} : {}),
-  };
-  const nextCollections = existing.map((collection) => (collection.id === id ? updated : collection));
-  await saveCollections(workingDirectory, nextCollections);
-  return updated;
+      throw new Error(`A collection named "${nextName}" already exists`);
+    if (
+      changes.publicationIds !== undefined &&
+      (changes.addPublicationIds !== undefined || changes.removePublicationIds !== undefined)
+    )
+      throw new Error("Collection publication replacement cannot be combined with add or remove operations");
+    const removedPublicationIds = new Set(changes.removePublicationIds ?? []);
+    const nextPublicationIds =
+      changes.publicationIds !== undefined
+        ? [...new Set(changes.publicationIds)]
+        : [...new Set([...current.publicationIds, ...(changes.addPublicationIds ?? [])])].filter(
+            (publicationId) => !removedPublicationIds.has(publicationId),
+          );
+    const updated: UserCollection = {
+      ...current,
+      name: nextName,
+      publicationIds: nextPublicationIds,
+      ...(changes.color === undefined ? {} : {color: changes.color}),
+    };
+    const nextCollections = existing.map((collection) => (collection.id === normalizedId ? updated : collection));
+    await writeCollections(workingDirectory, nextCollections);
+    return updated;
+  });
 };
 
 export const deleteCollection = async (workingDirectory: string, id: string): Promise<void> => {
-  const existing = await loadCollections(workingDirectory);
-  const nextCollections = existing.filter((collection) => collection.id !== id);
-  if (nextCollections.length === existing.length) throw new Error("Collection not found");
-  await saveCollections(workingDirectory, nextCollections);
+  return enqueueCollectionMutation(workingDirectory, async () => {
+    const normalizedId = validCollectionId(id);
+    const existing = await loadCollections(workingDirectory);
+    const nextCollections = existing.filter((collection) => collection.id !== normalizedId);
+    if (nextCollections.length === existing.length) throw new Error("Collection not found");
+    await writeCollections(workingDirectory, nextCollections);
+  });
 };
 
 export const addPublicationToCollection = async (
@@ -233,11 +314,20 @@ export const addPublicationToCollection = async (
   collectionId: string,
   publicationId: string,
 ): Promise<UserCollection> => {
-  const existing = await loadCollections(workingDirectory);
-  const collection = existing.find((candidate) => candidate.id === collectionId);
-  if (!collection) throw new Error("Collection not found");
-  if (collection.publicationIds.includes(publicationId)) return collection;
-  return updateCollection(workingDirectory, collectionId, {
-    publicationIds: [...collection.publicationIds, publicationId],
+  return enqueueCollectionMutation(workingDirectory, async () => {
+    const normalizedCollectionId = validCollectionId(collectionId);
+    const existing = await loadCollections(workingDirectory);
+    const collection = existing.find((candidate) => candidate.id === normalizedCollectionId);
+    if (!collection) throw new Error("Collection not found");
+    if (collection.publicationIds.includes(publicationId)) return collection;
+    const updated = {
+      ...collection,
+      publicationIds: [...collection.publicationIds, publicationId],
+    };
+    await writeCollections(
+      workingDirectory,
+      existing.map((candidate) => (candidate.id === normalizedCollectionId ? updated : candidate)),
+    );
+    return updated;
   });
 };

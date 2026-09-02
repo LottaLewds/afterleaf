@@ -114,7 +114,11 @@ export const App = () => {
       .catch(() => {});
     void loadCollections()
       .then(setCollections)
-      .catch((error) => console.error("Could not load collections", error));
+      .catch((error) => {
+        const message = error instanceof Error ? error.message : "The collection data could not be loaded.";
+        setCollectionError(`Could not load collections: ${message}`);
+        console.error("Could not load collections", error);
+      });
   });
   const updateLibraryConfig = async (config: AfterleafLibraryConfig) => {
     const previousConfig = libraryConfig();
@@ -220,6 +224,8 @@ export const App = () => {
     readonly string[] | undefined
   >(undefined);
   const [newCollectionName, setNewCollectionName] = createSignal("");
+  const [collectionMutationBusy, setCollectionMutationBusy] = createSignal(false);
+  const [collectionError, setCollectionError] = createSignal<string>();
   const [runtimeLibraryRefresh, setRuntimeLibraryRefresh] = createSignal(0, {equals: false});
   const runtimeLibrary = createMemo(
     () => {
@@ -419,8 +425,8 @@ export const App = () => {
       setSelectedPublicationIds((current) => {
         const next = new Set(current);
         for (let i = start; i <= end; i++) {
-          const selectedItem = items[i];
-          if (selectedItem) next.add(selectedItem.id);
+          const rangeItem = items[i];
+          if (rangeItem) next.add(rangeItem.id);
         }
         return next;
       });
@@ -742,13 +748,30 @@ export const App = () => {
     setCollections(nextCollections);
   };
 
+  const runCollectionMutation = async <T,>(label: string, mutation: () => Promise<T>): Promise<T | undefined> => {
+    if (collectionMutationBusy()) return;
+    setCollectionMutationBusy(true);
+    try {
+      const result = await mutation();
+      setCollectionError(undefined);
+      return result;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "The collection operation failed.";
+      setCollectionError(`${label}: ${message}`);
+    } finally {
+      setCollectionMutationBusy(false);
+    }
+  };
+
   const openCollectionDialog = (publicationIds?: readonly string[]) => {
+    setCollectionError(undefined);
     setCollectionDialogInitialPublicationIds(publicationIds);
     setNewCollectionName("");
     setCollectionDialogOpen(true);
   };
 
   const closeCollectionDialog = () => {
+    if (collectionMutationBusy()) return;
     setCollectionDialogOpen(false);
     setCollectionDialogInitialPublicationIds(undefined);
     setNewCollectionName("");
@@ -758,38 +781,46 @@ export const App = () => {
     const name = newCollectionName().trim();
     if (!name) return;
     const publicationIds = collectionDialogInitialPublicationIds();
-    await createCollection(name, publicationIds ? [...new Set(publicationIds)] : []);
+    const created = await runCollectionMutation("Could not create collection", async () => {
+      const collection = await createCollection(name, publicationIds ? [...new Set(publicationIds)] : []);
+      await refreshCollections();
+      return collection;
+    });
+    if (!created) return;
     closeCollectionDialog();
-    await refreshCollections();
   };
 
   const handleAddToCollection = async (publicationIds: readonly string[], collectionId: string) => {
     const collection = collections().find((candidate) => candidate.id === collectionId);
     if (!collection) return;
-    await updateCollection(collectionId, {
-      publicationIds: [...new Set([...collection.publicationIds, ...publicationIds])],
+    await runCollectionMutation("Could not update collection", async () => {
+      await updateCollection(collectionId, {addPublicationIds: [...new Set(publicationIds)]});
+      await refreshCollections();
     });
-    await refreshCollections();
   };
 
   const handleRemoveFromCollection = async (publicationIds: readonly string[], collectionId: string) => {
     const collection = collections().find((candidate) => candidate.id === collectionId);
     if (!collection) return;
     const idsToRemove = new Set(publicationIds);
-    await updateCollection(collectionId, {
-      publicationIds: collection.publicationIds.filter((id) => !idsToRemove.has(id)),
+    await runCollectionMutation("Could not update collection", async () => {
+      await updateCollection(collectionId, {removePublicationIds: [...idsToRemove]});
+      await refreshCollections();
     });
-    await refreshCollections();
   };
 
   const handleDeleteCollection = async (collectionId: string) => {
-    await deleteCollection(collectionId);
-    if (selectedCollectionId() === collectionId) setSelectedCollectionId(null);
-    if (highlightedCollectionId() === collectionId) {
-      setHighlightedCollectionId(null);
-      setHighlightedPublicationIds([]);
-    }
-    await refreshCollections();
+    const selected = selectedCollectionId() === collectionId;
+    const highlighted = highlightedCollectionId() === collectionId;
+    await runCollectionMutation("Could not delete collection", async () => {
+      await deleteCollection(collectionId);
+      if (selected) setSelectedCollectionId(null);
+      if (highlighted) {
+        setHighlightedCollectionId(null);
+        setHighlightedPublicationIds([]);
+      }
+      await refreshCollections();
+    });
   };
 
   const handleRenameCollection = async (collectionId: string, name: string) => {
@@ -797,8 +828,10 @@ export const App = () => {
     if (!trimmed) return;
     const collection = collections().find((candidate) => candidate.id === collectionId);
     if (!collection || collection.name === trimmed) return;
-    await updateCollection(collectionId, {name: trimmed});
-    await refreshCollections();
+    await runCollectionMutation("Could not rename collection", async () => {
+      await updateCollection(collectionId, {name: trimmed});
+      await refreshCollections();
+    });
   };
 
   const handleHighlightPublications = (publicationIds: readonly string[], collectionId?: string | null) => {
@@ -1004,6 +1037,8 @@ export const App = () => {
                     }
                     onSelectPublication={(publicationId) => {
                       setSelectedId(publicationId);
+                      setSelectedPublicationIds(new Set([publicationId]));
+                      setLastSelectedId(publicationId);
                     }}
                   />
                 )}
@@ -1024,6 +1059,25 @@ export const App = () => {
                 setLibraryUpdateNotice(undefined);
               }}
             />
+
+            <Show when={collectionError()}>
+              {(error) => (
+                <aside
+                  class="fixed right-4 bottom-4 z-[60] flex max-w-[min(32rem,calc(100vw-2rem))] items-start gap-3 border border-[#d94c3f]/60 bg-[#250d0b]/95 px-4 py-3 text-[#ff796c] shadow-[0_16px_50px_#000b] backdrop-blur-md"
+                  role="alert"
+                >
+                  <FiAlertTriangle size={16} style={{"margin-top": "0.125rem", "flex-shrink": "0"}} />
+                  <p class="text-[11px] leading-5">{error()}</p>
+                  <button
+                    class="ml-1 shrink-0 text-[10px] font-semibold tracking-wide uppercase hover:text-white"
+                    onClick={() => setCollectionError(undefined)}
+                    type="button"
+                  >
+                    Dismiss
+                  </button>
+                </aside>
+              )}
+            </Show>
 
             <Show when={highlightedPublicationIds().length > 0}>
               <aside
@@ -1267,7 +1321,7 @@ export const App = () => {
                       <div class="mt-4 space-y-1">
                         <For each={collections()}>
                           {(collection) => (
-                            <button
+                            <div
                               class={[
                                 "group flex w-full items-center gap-2 px-3 py-2.5 text-xs transition",
                                 {
@@ -1276,42 +1330,53 @@ export const App = () => {
                                     selectedCollectionId() !== collection.id,
                                 },
                               ]}
-                              aria-pressed={selectedCollectionId() === collection.id ? "true" : "false"}
-                              onClick={() =>
-                                setSelectedCollectionId((current) => (current === collection.id ? null : collection.id))
-                              }
-                              onContextMenu={(event) => {
-                                event.preventDefault();
-                                handleHighlightPublications(collection.publicationIds, collection.id);
-                              }}
-                              title="Right-click to highlight in shop&#10;Double-click to rename"
-                              type="button"
                             >
-                              <span
-                                class="size-2 rounded-full"
-                                style={{"background-color": collection.color ?? "#d94c3f"}}
-                              />
                               <Show
                                 when={editingCollectionId() === collection.id}
                                 fallback={
-                                  <span
-                                    class="truncate"
-                                    onDblClick={(event) => {
-                                      event.stopPropagation();
-                                      setEditingCollectionId(collection.id);
-                                      setEditingCollectionName(collection.name);
+                                  <button
+                                    class="flex min-w-0 flex-1 items-center gap-2 text-left"
+                                    aria-pressed={selectedCollectionId() === collection.id ? "true" : "false"}
+                                    disabled={collectionMutationBusy()}
+                                    onClick={() =>
+                                      setSelectedCollectionId((current) =>
+                                        current === collection.id ? null : collection.id,
+                                      )
+                                    }
+                                    onContextMenu={(event) => {
+                                      event.preventDefault();
+                                      handleHighlightPublications(collection.publicationIds, collection.id);
                                     }}
+                                    title="Right-click to highlight in shop&#10;Double-click to rename"
+                                    type="button"
                                   >
-                                    {collection.name}
-                                  </span>
+                                    <span
+                                      class="size-2 shrink-0 rounded-full"
+                                      style={{"background-color": collection.color ?? "#d94c3f"}}
+                                    />
+                                    <span
+                                      class="truncate"
+                                      onDblClick={(event) => {
+                                        event.stopPropagation();
+                                        setEditingCollectionId(collection.id);
+                                        setEditingCollectionName(collection.name);
+                                      }}
+                                    >
+                                      {collection.name}
+                                    </span>
+                                  </button>
                                 }
                               >
+                                <span
+                                  class="size-2 shrink-0 rounded-full"
+                                  style={{"background-color": collection.color ?? "#d94c3f"}}
+                                />
                                 <input
                                   ref={(element) => {
                                     element?.focus();
                                     element?.select();
                                   }}
-                                  class="min-w-0 flex-1 border border-[#70a28b]/60 bg-[#0f1615] px-1.5 py-0.5 text-xs text-[#ece8dd] outline-none ring-1 ring-[#70a28b]/30"
+                                  class="min-w-0 flex-1 border border-[#70a28b]/60 bg-[#0f1615] px-1.5 py-0.5 text-xs text-[#ece8dd] ring-1 ring-[#70a28b]/30 outline-none"
                                   value={editingCollectionName()}
                                   onInput={(event) => setEditingCollectionName(event.currentTarget.value)}
                                   onKeyDown={(event) => {
@@ -1338,22 +1403,25 @@ export const App = () => {
                               <span class="ml-auto text-[10px] text-[#7c8681]">
                                 {String(collection.publicationIds.length).padStart(2, "0")}
                               </span>
-                              <span
+                              <button
                                 class="ml-1 opacity-0 transition group-hover:opacity-100"
+                                aria-label={`Delete collection ${collection.name}`}
+                                disabled={collectionMutationBusy()}
                                 onClick={(event) => {
                                   event.stopPropagation();
                                   void handleDeleteCollection(collection.id);
                                 }}
                                 title="Delete collection"
-                                role="button"
+                                type="button"
                               >
                                 <FiX size={12} />
-                              </span>
-                            </button>
+                              </button>
+                            </div>
                           )}
                         </For>
                         <button
                           class="flex w-full items-center gap-3 px-3 py-2.5 text-xs text-[#7d8883] transition hover:bg-white/[0.025] hover:text-[#cbd0cc]"
+                          disabled={collectionMutationBusy()}
                           onClick={() => openCollectionDialog()}
                           type="button"
                         >
@@ -1742,6 +1810,7 @@ export const App = () => {
                     <button
                       class="ml-auto grid size-9 shrink-0 place-items-center text-[#87938e] transition hover:bg-white/5 hover:text-white"
                       aria-label="Close collection dialog"
+                      disabled={collectionMutationBusy()}
                       type="button"
                       onClick={closeCollectionDialog}
                     >
@@ -1764,6 +1833,7 @@ export const App = () => {
                   <footer class="flex items-center justify-end gap-2 border-t border-white/8 px-5 py-4">
                     <button
                       class="h-10 px-4 text-[10px] font-bold tracking-[0.08em] text-[#98a39e] uppercase transition hover:bg-white/5 hover:text-white"
+                      disabled={collectionMutationBusy()}
                       type="button"
                       onClick={closeCollectionDialog}
                     >
@@ -1771,10 +1841,10 @@ export const App = () => {
                     </button>
                     <button
                       class="flex h-10 items-center gap-2 bg-[#ece6d8] px-4 text-[10px] font-bold tracking-[0.08em] text-[#17201e] uppercase transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-40"
-                      disabled={newCollectionName().trim().length === 0}
+                      disabled={collectionMutationBusy() || newCollectionName().trim().length === 0}
                       type="submit"
                     >
-                      Create
+                      {collectionMutationBusy() ? "Saving…" : "Create"}
                     </button>
                   </footer>
                 </form>

@@ -128,6 +128,8 @@ game/           App state. Normally you never need to open this folder.
   world-save.json         Your world and shelf layout. Back this up!
   world-save-backups/     Automatic periodic backups of the world save.
   publication-blacklist.json  Books you told Afterleaf to discard.
+  collections.json        Your named book collections.
+  collections-backup/     Automatic snapshots of your collection file.
   .cache/                 Fully regenerable optimized files. Safe to delete
                           to reclaim disk space (a rescan rebuilds it):
     prepared/   Import manifests and cover thumbnails for your books.

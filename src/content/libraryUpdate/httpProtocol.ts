@@ -28,7 +28,10 @@ const MAX_PASTED_TEXT_LENGTH = 16_384;
 const MAX_BLOCKED_TAG_COUNT = 100;
 const MAX_BLOCKED_TAG_LENGTH = 100;
 const MAX_RESPONSE_STRING_LENGTH = 2_048;
+const MAX_COLLECTION_COUNT = 200;
 const MAX_COLLECTION_NAME_LENGTH = 100;
+const MAX_PUBLICATION_IDS_PER_COLLECTION = 10_000;
+const MAX_TOTAL_COLLECTION_PUBLICATION_IDS = 100_000;
 const JOB_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
 const COLLECTION_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 const PUBLICATION_ID_PATTERN = /^[a-z0-9][a-z0-9._-]{0,199}$/u;
@@ -543,6 +546,12 @@ const collectionName = (value: unknown, field = "name") => {
   return value.trim();
 };
 
+const collectionCreatedAt = (value: unknown, field = "createdAt") => {
+  if (typeof value !== "string" || !Number.isFinite(Date.parse(value)))
+    throw new Error(`${field} must be a valid date`);
+  return value;
+};
+
 const collectionColor = (value: unknown, field = "color") => {
   if (value === undefined) return undefined;
   if (typeof value !== "string" || !/^#[0-9a-fA-F]{6}$/u.test(value))
@@ -555,12 +564,11 @@ const parseCollection = (value: unknown, index: number): LibraryCollection => {
   const field = (name: string) => `collections[${index}].${name}`;
   const id = collectionId(value.id, field("id"));
   const name = collectionName(value.name, field("name"));
-  const createdAt =
-    typeof value.createdAt === "string" && Number.isFinite(Date.parse(value.createdAt))
-      ? value.createdAt
-      : new Date().toISOString();
+  const createdAt = collectionCreatedAt(value.createdAt, field("createdAt"));
   const color = collectionColor(value.color, field("color"));
   if (!Array.isArray(value.publicationIds)) throw new Error(`${field("publicationIds")} must be an array`);
+  if (value.publicationIds.length > MAX_PUBLICATION_IDS_PER_COLLECTION)
+    throw new Error(`${field("publicationIds")} must contain at most ${MAX_PUBLICATION_IDS_PER_COLLECTION} IDs`);
   const publicationIds = value.publicationIds.map((pid, pidIndex) =>
     publicationId(pid, `${field("publicationIds")}[${pidIndex}]`),
   );
@@ -577,7 +585,22 @@ export const parseLibraryCollectionsListHttpResponse = (
   if (failure) return failure;
   if (value.ok !== true || !Array.isArray(value.collections))
     throw new Error("Library collections list response is malformed");
+  if (value.collections.length > MAX_COLLECTION_COUNT)
+    throw new Error(`Library collections list response supports at most ${MAX_COLLECTION_COUNT} collections`);
+  const ids = new Set<string>();
+  const names = new Set<string>();
+  let totalPublicationIds = 0;
   const collections = value.collections.map(parseCollection);
+  for (const collection of collections) {
+    if (ids.has(collection.id)) throw new Error("Library collections list response contains duplicate IDs");
+    if (names.has(collection.name.toLowerCase()))
+      throw new Error("Library collections list response contains duplicate names");
+    ids.add(collection.id);
+    names.add(collection.name.toLowerCase());
+    totalPublicationIds += collection.publicationIds.length;
+  }
+  if (totalPublicationIds > MAX_TOTAL_COLLECTION_PUBLICATION_IDS)
+    throw new Error("Library collections list response contains too many publication IDs");
   return {collections, ok: true};
 };
 
@@ -615,9 +638,21 @@ export const parseLibraryCollectionRequest = (value: unknown): {name: string; pu
 
 export const parseLibraryCollectionUpdateRequest = (
   value: unknown,
-): {name?: string; publicationIds?: readonly string[]; color?: string} => {
+): {
+  addPublicationIds?: readonly string[];
+  color?: string;
+  name?: string;
+  publicationIds?: readonly string[];
+  removePublicationIds?: readonly string[];
+} => {
   if (!isRecord(value)) throw new Error("Library collection update request must be an object");
-  const result: {name?: string; publicationIds?: readonly string[]; color?: string} = {};
+  const result: {
+    addPublicationIds?: readonly string[];
+    color?: string;
+    name?: string;
+    publicationIds?: readonly string[];
+    removePublicationIds?: readonly string[];
+  } = {};
   if (value.name !== undefined) result.name = collectionName(value.name, "name");
   if (value.color !== undefined) {
     const color = collectionColor(value.color, "color");
@@ -629,6 +664,19 @@ export const parseLibraryCollectionUpdateRequest = (
     if (new Set(result.publicationIds).size !== result.publicationIds.length)
       throw new Error("publicationIds contains duplicates");
   }
+  for (const field of ["addPublicationIds", "removePublicationIds"] as const) {
+    const valueForField = value[field];
+    if (valueForField === undefined) continue;
+    if (!Array.isArray(valueForField)) throw new Error(`${field} must be an array`);
+    const ids = valueForField.map((pid, index) => publicationId(pid, `${field}[${index}]`));
+    if (new Set(ids).size !== ids.length) throw new Error(`${field} contains duplicates`);
+    result[field] = ids;
+  }
+  if (
+    result.publicationIds !== undefined &&
+    (result.addPublicationIds !== undefined || result.removePublicationIds !== undefined)
+  )
+    throw new Error("publicationIds cannot be combined with add or remove operations");
   return result;
 };
 

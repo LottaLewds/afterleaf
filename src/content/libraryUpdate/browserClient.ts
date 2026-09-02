@@ -506,7 +506,13 @@ export const createCollection = async (
 
 export const updateCollection = async (
   id: string,
-  changes: {name?: string; publicationIds?: readonly string[]; color?: string},
+  changes: {
+    addPublicationIds?: readonly string[];
+    color?: string;
+    name?: string;
+    publicationIds?: readonly string[];
+    removePublicationIds?: readonly string[];
+  },
   fetcher: LibraryOperationFetch = fetch,
 ): Promise<LibraryCollection> => {
   const {response, value} = await requestJson(

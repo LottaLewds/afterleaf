@@ -12,9 +12,11 @@ import {
   resolvePastedLibraryImport,
   scanLocalLibrary,
   type LibraryOperationFetch,
+  updateCollection,
 } from "~/content/libraryUpdate/browserClient";
 import {
   LIBRARY_BLACKLIST_ENDPOINT,
+  LIBRARY_COLLECTIONS_ENDPOINT,
   LIBRARY_FETCH_MORE_ENDPOINT,
   LIBRARY_PASTE_RESOLVE_ENDPOINT,
   LIBRARY_SCAN_ENDPOINT,
@@ -23,7 +25,9 @@ import {
   LIBRARY_STATUS_ENDPOINT,
   libraryOperationFailure,
   parseLibraryBlacklistRequest,
+  parseLibraryCollectionsListHttpResponse,
   parseLibraryFetchMoreRequest,
+  parseLibraryCollectionUpdateRequest,
   parseLibraryOperationStartHttpResponse,
   parseLibraryPasteResolveHttpResponse,
   parseLibraryPasteResolveRequest,
@@ -514,6 +518,58 @@ describe("library operation HTTP protocol", () => {
         ok: true,
       }),
     ).toThrow("query is invalid");
+  });
+
+  test("sends membership deltas for collection updates", async () => {
+    let requestInput: string | undefined;
+    let requestInit: RequestInit | undefined;
+    const fetcher: LibraryOperationFetch = async (input, init) => {
+      requestInput = input;
+      requestInit = init;
+      return response({
+        collection: {
+          createdAt: "2026-01-01T00:00:00.000Z",
+          id: jobId,
+          name: "Favorites",
+          publicationIds: ["abc123", "def456"],
+        },
+        ok: true,
+      });
+    };
+
+    await expect(
+      updateCollection(jobId, {addPublicationIds: ["def456"], removePublicationIds: ["old-id"]}, fetcher),
+    ).resolves.toMatchObject({publicationIds: ["abc123", "def456"]});
+    expect(requestInput).toBe(`${LIBRARY_COLLECTIONS_ENDPOINT}?id=${jobId}`);
+    expect(JSON.parse(String(requestInit?.body))).toEqual({
+      addPublicationIds: ["def456"],
+      removePublicationIds: ["old-id"],
+    });
+  });
+
+  test("rejects ambiguous collection membership updates", () => {
+    expect(() =>
+      parseLibraryCollectionUpdateRequest({
+        addPublicationIds: ["abc123"],
+        publicationIds: ["def456"],
+      }),
+    ).toThrow("cannot be combined");
+  });
+
+  test("rejects malformed collection response dates", () => {
+    expect(() =>
+      parseLibraryCollectionsListHttpResponse({
+        collections: [
+          {
+            createdAt: "not-a-date",
+            id: jobId,
+            name: "Favorites",
+            publicationIds: [],
+          },
+        ],
+        ok: true,
+      }),
+    ).toThrow("valid date");
   });
 
   test("validates bounded operation progress", () => {

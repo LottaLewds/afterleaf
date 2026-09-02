@@ -2,10 +2,13 @@ import {
   ACESFilmicToneMapping,
   AmbientLight,
   BoxGeometry,
+  DynamicDrawUsage,
   DoubleSide,
   Euler,
+  InstancedMesh,
   MathUtils,
   MeshBasicMaterial,
+  Matrix4,
   PCFSoftShadowMap,
   PerspectiveCamera,
   Quaternion,
@@ -15,7 +18,7 @@ import {
   TextureLoader,
   Vector3,
   WebGLRenderer,
-  Mesh,
+  type Mesh,
   type MeshStandardMaterial,
   type Texture,
 } from "three";
@@ -73,6 +76,7 @@ import {findArcadeSystem} from "~/arcade/systems";
 
 import type {ShelfPresentation} from "~/game/shelfPlacement";
 import {SHOP_BOUNDS, SHOP_INTERIOR_FOOTPRINTS} from "~/game/shopLayout";
+import {SHOP_ROSTER_LIMIT} from "~/game/shopRoster";
 import {
   ShopPhysicsWorld,
   SHOP_PHYSICS_PLAYER_EYE_HEIGHT,
@@ -103,6 +107,8 @@ const SHOP_COLLISION_WORLD: ShopCollisionWorld = {
   bounds: SHOP_BOUNDS,
   obstacles: SHOP_INTERIOR_FOOTPRINTS,
 };
+
+const EMPTY_HIGHLIGHTED_PUBLICATION_IDS: readonly string[] = [];
 
 const valueOrDefault = <T>(value: T | null | undefined, fallback: T) => value ?? fallback;
 
@@ -290,7 +296,12 @@ export class ShopScene {
   #targetedTelevision: ShopTelevision | undefined;
   #televisionTableMaterial: MeshStandardMaterial | undefined;
   #highlightedIds = new Set<string>();
-  #highlightOverlays = new Map<string, Mesh<BoxGeometry, MeshBasicMaterial>>();
+  #highlightedBooks = new Map<string, BookRecord>();
+  #highlightOverlay: InstancedMesh<BoxGeometry, MeshBasicMaterial> | undefined;
+  readonly #highlightMatrix = new Matrix4();
+  readonly #highlightScale = new Vector3();
+  #lastHighlightedPublicationIds: readonly string[] | undefined;
+  #lastHighlightInspectionState: boolean | undefined;
 
   #createInputManager() {
     const input = new InputManager({
@@ -335,7 +346,10 @@ export class ShopScene {
     this.#catalogIdentity = options.catalogIdentity;
     this.#catalogItems = options.catalogItems;
     this.#newPublicationIds = valueOrDefault(options.newPublicationIds, () => []);
-    this.#highlightedPublicationIds = valueOrDefault(options.highlightedPublicationIds, () => []);
+    this.#highlightedPublicationIds = valueOrDefault(
+      options.highlightedPublicationIds,
+      () => EMPTY_HIGHLIGHTED_PUBLICATION_IDS,
+    );
     this.#initialPageIndex = valueOrDefault(options.initialPageIndex, () => 0);
     this.#mouseSensitivity = valueOrDefault(options.mouseSensitivity, () => 1);
     this.#gamepadLookSensitivity = valueOrDefault(options.gamepadLookSensitivity, () => 1);
@@ -954,6 +968,11 @@ export class ShopScene {
     this.#bookTextures.disposeBookAtlasBatches();
     for (const record of this.#booksById.values()) this.#bookLifecycle.disposeBookRecord(record);
     this.#booksById.clear();
+    this.#highlightedBooks.clear();
+    this.#highlightedIds.clear();
+    this.#highlightOverlay = undefined;
+    this.#lastHighlightedPublicationIds = undefined;
+    this.#lastHighlightInspectionState = undefined;
     this.#bookTextures.clearStandaloneIds();
     this.#interactiveMeshes = [];
   }
@@ -1009,6 +1028,7 @@ export class ShopScene {
 
   #animatePausedOrArcade(deltaSeconds: number, paused: boolean) {
     if (paused) {
+      this.#syncHighlights();
       if (!this.#inputSuspended) {
         this.#inputSuspended = true;
         this.#inputController.suspendInput();
@@ -1025,6 +1045,7 @@ export class ShopScene {
     // player (no movement, targeting, or physics) but keeps rendering so
     // every cabinet's attract mode and live screens stay animated.
     this.#inputController.updateCameraLook(deltaSeconds);
+    this.#syncHighlights();
     this.#renderer.render(this.#scene, this.#camera);
     this.#frameHandle = requestAnimationFrame(this.#animate);
     return true;
@@ -1091,56 +1112,79 @@ export class ShopScene {
     this.#frameHandle = requestAnimationFrame(this.#animate);
   };
 
-  #syncHighlights() {
-    const highlightedIds = new Set(this.#highlightedPublicationIds());
-
-    for (const publicationId of this.#highlightedIds) {
-      if (highlightedIds.has(publicationId) && this.#booksById.has(publicationId)) continue;
-      const overlay = this.#highlightOverlays.get(publicationId);
-      if (overlay) {
-        overlay.removeFromParent();
-        overlay.geometry.dispose();
-        overlay.material.dispose();
-        this.#highlightOverlays.delete(publicationId);
-      }
+  #highlightNeedsReconcile() {
+    for (const [publicationId, record] of this.#highlightedBooks) {
+      if (!this.#highlightedIds.has(publicationId) || this.#booksById.get(publicationId) !== record) return true;
     }
+    for (const [publicationId, record] of this.#booksById) {
+      if (this.#highlightedIds.has(publicationId) && this.#highlightedBooks.get(publicationId) !== record) return true;
+    }
+    return false;
+  }
 
+  #reconcileHighlights() {
+    for (const publicationId of this.#highlightedBooks.keys()) {
+      if (!this.#highlightedIds.has(publicationId) || !this.#booksById.has(publicationId))
+        this.#highlightedBooks.delete(publicationId);
+    }
+    for (const [publicationId, record] of this.#booksById) {
+      if (!this.#highlightedIds.has(publicationId)) continue;
+      if (this.#highlightedBooks.size >= SHOP_ROSTER_LIMIT && !this.#highlightedBooks.has(publicationId)) break;
+      this.#highlightedBooks.set(publicationId, record);
+    }
+  }
+
+  #updateHighlightTransforms(inspecting: boolean) {
+    const overlay = this.#highlightOverlay;
+    if (!overlay) return;
+    let instanceIndex = 0;
+    for (const record of this.#highlightedBooks.values()) {
+      record.mesh.updateMatrixWorld();
+      this.#highlightScale.set(record.width * 1.15, BOOK_HEIGHT * 1.12, record.thickness * 1.15);
+      this.#highlightMatrix.copy(record.mesh.matrixWorld).scale(this.#highlightScale);
+      overlay.setMatrixAt(instanceIndex, this.#highlightMatrix);
+      instanceIndex += 1;
+    }
+    overlay.count = instanceIndex;
+    overlay.visible = !inspecting && instanceIndex > 0;
+    if (instanceIndex > 0) overlay.instanceMatrix.needsUpdate = true;
+  }
+
+  #syncHighlights() {
+    const highlightedPublicationIds = this.#highlightedPublicationIds();
     // Highlights are distracting while reading a book; hide them during
     // inspection and restore them once the reader closes.
     const inspecting = this.#inspection.inspectionMode !== "none";
-
-    for (const publicationId of highlightedIds) {
-      const record = this.#booksById.get(publicationId);
-      if (!record) continue;
-      let overlay = this.#highlightOverlays.get(publicationId);
-      if (!overlay) {
-        if (inspecting) continue;
-        const mesh = record.mesh;
-        const geometry = new BoxGeometry(
-          mesh.geometry.parameters.width * 1.15,
-          mesh.geometry.parameters.height * 1.12,
-          mesh.geometry.parameters.depth * 1.15,
-        );
-        const material = new MeshBasicMaterial({
-          color: 0xf5c542,
-          depthTest: false,
-          opacity: 0.45,
-          side: DoubleSide,
-          transparent: true,
-        });
-        overlay = new Mesh(geometry, material);
-        overlay.name = "highlight-overlay";
-        overlay.renderOrder = 10;
-        this.#scene.add(overlay);
-        this.#highlightOverlays.set(publicationId, overlay);
-      }
-      record.mesh.updateMatrixWorld();
-      overlay.matrix.copy(record.mesh.matrixWorld);
-      overlay.matrixAutoUpdate = false;
-      overlay.visible = !inspecting;
+    const idsChanged = highlightedPublicationIds !== this.#lastHighlightedPublicationIds;
+    if (idsChanged) {
+      this.#highlightedIds = new Set(highlightedPublicationIds);
+      this.#lastHighlightedPublicationIds = highlightedPublicationIds;
     }
-
-    this.#highlightedIds = highlightedIds;
+    if (idsChanged || inspecting !== this.#lastHighlightInspectionState || this.#highlightNeedsReconcile()) {
+      this.#reconcileHighlights();
+      this.#lastHighlightInspectionState = inspecting;
+    }
+    if (this.#highlightedBooks.size > 0 && !inspecting) {
+      if (!this.#highlightOverlay) {
+        this.#highlightOverlay = new InstancedMesh(
+          new BoxGeometry(1, 1, 1),
+          new MeshBasicMaterial({
+            color: 0xf5c542,
+            depthTest: false,
+            opacity: 0.45,
+            side: DoubleSide,
+            transparent: true,
+          }),
+          SHOP_ROSTER_LIMIT,
+        );
+        this.#highlightOverlay.name = "highlight-overlay";
+        this.#highlightOverlay.frustumCulled = false;
+        this.#highlightOverlay.instanceMatrix.setUsage(DynamicDrawUsage);
+        this.#highlightOverlay.renderOrder = 10;
+        this.#scene.add(this.#highlightOverlay);
+      }
+    }
+    this.#updateHighlightTransforms(inspecting);
   }
 
   #configureScene() {

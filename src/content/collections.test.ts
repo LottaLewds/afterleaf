@@ -1,4 +1,4 @@
-import {mkdtempSync, readFileSync} from "node:fs";
+import {mkdirSync, mkdtempSync, readFileSync} from "node:fs";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
 import {describe, expect, test} from "bun:test";
@@ -70,6 +70,31 @@ describe("collections", () => {
     expect(() => parseCollectionsStore(store)).toThrow("duplicates");
   });
 
+  test("parseCollectionsStore rejects duplicate names and invalid dates", () => {
+    const store = {
+      collections: [
+        {
+          id: "550e8400-e29b-41d4-a716-446655440000",
+          name: "Favorites",
+          createdAt: "not-a-date",
+          publicationIds: [],
+        },
+      ],
+      schemaVersion: COLLECTIONS_SCHEMA_VERSION,
+    };
+    expect(() => parseCollectionsStore(store)).toThrow("valid date");
+    const firstCollection = store.collections[0];
+    if (!firstCollection) throw new Error("Expected a collection fixture");
+    firstCollection.createdAt = "2024-01-01T00:00:00.000Z";
+    store.collections.push({
+      id: "550e8400-e29b-41d4-a716-446655440001",
+      name: " favorites ",
+      createdAt: "2024-01-01T00:00:00.000Z",
+      publicationIds: [],
+    });
+    expect(() => parseCollectionsStore(store)).toThrow("duplicate collection names");
+  });
+
   test("saveCollections writes a valid store", async () => {
     const workingDirectory = tempWorkingDirectory();
     const collections = [
@@ -84,6 +109,12 @@ describe("collections", () => {
     const saved = JSON.parse(readFileSync(collectionsPath(workingDirectory), "utf8"));
     expect(saved.schemaVersion).toBe(COLLECTIONS_SCHEMA_VERSION);
     expect(saved.collections).toHaveLength(1);
+  });
+
+  test("saveCollections propagates target write failures", async () => {
+    const workingDirectory = tempWorkingDirectory();
+    mkdirSync(collectionsPath(workingDirectory), {recursive: true});
+    await expect(saveCollections(workingDirectory, [])).rejects.toThrow();
   });
 
   test("loadCollections returns an empty array when the file is missing", async () => {
@@ -107,6 +138,12 @@ describe("collections", () => {
     expect(createCollection(workingDirectory, "favorites")).rejects.toThrow("already exists");
   });
 
+  test("concurrent collection creation preserves both changes", async () => {
+    const workingDirectory = tempWorkingDirectory();
+    await Promise.all([createCollection(workingDirectory, "A"), createCollection(workingDirectory, "B")]);
+    expect((await loadCollections(workingDirectory)).map((collection) => collection.name).sort()).toEqual(["A", "B"]);
+  });
+
   test("updateCollection renames and updates ids", async () => {
     const workingDirectory = tempWorkingDirectory();
     const created = await createCollection(workingDirectory, "Favorites", ["abc123"]);
@@ -116,6 +153,26 @@ describe("collections", () => {
     });
     expect(updated.name).toBe("Renamed");
     expect(updated.publicationIds).toEqual(["abc123", "def456"]);
+  });
+
+  test("updateCollection applies membership deltas to the current state", async () => {
+    const workingDirectory = tempWorkingDirectory();
+    const created = await createCollection(workingDirectory, "Favorites", ["abc123"]);
+    const updated = await updateCollection(workingDirectory, created.id, {
+      addPublicationIds: ["def456"],
+      removePublicationIds: ["abc123"],
+    });
+    expect(updated.publicationIds).toEqual(["def456"]);
+  });
+
+  test("concurrent membership deltas preserve both additions", async () => {
+    const workingDirectory = tempWorkingDirectory();
+    const created = await createCollection(workingDirectory, "Favorites");
+    await Promise.all([
+      updateCollection(workingDirectory, created.id, {addPublicationIds: ["abc123"]}),
+      updateCollection(workingDirectory, created.id, {addPublicationIds: ["def456"]}),
+    ]);
+    expect((await loadCollections(workingDirectory))[0]?.publicationIds).toEqual(["abc123", "def456"]);
   });
 
   test("deleteCollection removes a collection", async () => {
