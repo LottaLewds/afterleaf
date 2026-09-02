@@ -4,6 +4,7 @@ import {
   BrowserLibraryOperationError,
   blacklistPublication,
   browseLibraryLocation,
+  deleteCollection,
   fetchMorePublications,
   loadBlacklistedPublications,
   loadLibraryOperationStatus,
@@ -25,6 +26,8 @@ import {
   LIBRARY_STATUS_ENDPOINT,
   libraryOperationFailure,
   parseLibraryBlacklistRequest,
+  parseLibraryCollectionDeleteHttpResponse,
+  parseLibraryCollectionRequest,
   parseLibraryCollectionsListHttpResponse,
   parseLibraryFetchMoreRequest,
   parseLibraryCollectionUpdateRequest,
@@ -545,6 +548,30 @@ describe("library operation HTTP protocol", () => {
       addPublicationIds: ["def456"],
       removePublicationIds: ["old-id"],
     });
+  });
+
+  test("rejects unsupported collection request fields", () => {
+    expect(() => parseLibraryCollectionRequest({name: "Favorites", unexpected: true})).toThrow("unsupported fields");
+    expect(() => parseLibraryCollectionUpdateRequest({name: "Favorites", unexpected: true})).toThrow(
+      "unsupported fields",
+    );
+    expect(() => parseLibraryCollectionUpdateRequest({})).toThrow("must contain a change");
+  });
+
+  test("propagates collection delete errors from the protocol response", async () => {
+    const fetcher: LibraryOperationFetch = async () =>
+      response(
+        {
+          error: {code: "collections_failed", message: "The collection was not found."},
+          ok: false,
+        },
+        404,
+      );
+    await expect(deleteCollection(jobId, fetcher)).rejects.toMatchObject({
+      code: "collections_failed",
+      status: 404,
+    });
+    expect(parseLibraryCollectionDeleteHttpResponse({ok: true})).toEqual({ok: true});
   });
 
   test("rejects ambiguous collection membership updates", () => {

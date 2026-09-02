@@ -302,6 +302,7 @@ export class ShopScene {
   readonly #highlightScale = new Vector3();
   #lastHighlightedPublicationIds: readonly string[] | undefined;
   #lastHighlightInspectionState: boolean | undefined;
+  #lastBookRecordCount: number | undefined;
 
   #createInputManager() {
     const input = new InputManager({
@@ -973,6 +974,7 @@ export class ShopScene {
     this.#highlightOverlay = undefined;
     this.#lastHighlightedPublicationIds = undefined;
     this.#lastHighlightInspectionState = undefined;
+    this.#lastBookRecordCount = undefined;
     this.#bookTextures.clearStandaloneIds();
     this.#interactiveMeshes = [];
   }
@@ -1026,9 +1028,9 @@ export class ShopScene {
     return "shop";
   }
 
-  #animatePausedOrArcade(deltaSeconds: number, paused: boolean) {
+  #animatePausedOrArcade(deltaSeconds: number, paused: boolean, catalogChanged: boolean) {
     if (paused) {
-      this.#syncHighlights();
+      this.#syncHighlights(catalogChanged);
       if (!this.#inputSuspended) {
         this.#inputSuspended = true;
         this.#inputController.suspendInput();
@@ -1045,7 +1047,7 @@ export class ShopScene {
     // player (no movement, targeting, or physics) but keeps rendering so
     // every cabinet's attract mode and live screens stay animated.
     this.#inputController.updateCameraLook(deltaSeconds);
-    this.#syncHighlights();
+    this.#syncHighlights(catalogChanged);
     this.#renderer.render(this.#scene, this.#camera);
     this.#frameHandle = requestAnimationFrame(this.#animate);
     return true;
@@ -1057,7 +1059,7 @@ export class ShopScene {
     this.#lastFrameTime = time;
     this.#frameNowMs = time;
 
-    this.#catalogSync.sync();
+    const catalogChanged = this.#catalogSync.sync();
     this.#viewportController.syncPixelRatio();
     if (this.#viewportController.resizeDirty()) this.#viewportController.applyResize();
 
@@ -1071,7 +1073,7 @@ export class ShopScene {
     }
     this.#arcadeSessionController.update(deltaSeconds);
     this.#fpsHud.update(deltaSeconds, this.#arcadeSessionController.activeArcadeCabinet?.perfSample);
-    if (this.#animatePausedOrArcade(deltaSeconds, paused)) return;
+    if (this.#animatePausedOrArcade(deltaSeconds, paused, catalogChanged)) return;
 
     this.#inputController.consumePointerMovement(deltaSeconds);
     this.#inputController.updateCameraLook(deltaSeconds);
@@ -1103,10 +1105,10 @@ export class ShopScene {
     this.#syncMovablePropPhysics();
     for (const record of this.#artFrames.records.values()) record.frame.update(deltaSeconds);
     this.#bookPresentation.animate(deltaSeconds);
-    this.#syncHighlights();
     this.#bookActions.animateShelve(deltaSeconds);
     this.#bookTextures.syncActiveBookAtlasBatches(this.#bookPresentation.updatedPublicationIds);
     this.#bookActions.animateDiscard(deltaSeconds);
+    this.#syncHighlights(catalogChanged);
     for (const mixer of this.#props.modelMixers) mixer.update(deltaSeconds);
     this.#renderer.render(this.#scene, this.#camera);
     this.#frameHandle = requestAnimationFrame(this.#animate);
@@ -1115,9 +1117,6 @@ export class ShopScene {
   #highlightNeedsReconcile() {
     for (const [publicationId, record] of this.#highlightedBooks) {
       if (!this.#highlightedIds.has(publicationId) || this.#booksById.get(publicationId) !== record) return true;
-    }
-    for (const [publicationId, record] of this.#booksById) {
-      if (this.#highlightedIds.has(publicationId) && this.#highlightedBooks.get(publicationId) !== record) return true;
     }
     return false;
   }
@@ -1150,17 +1149,22 @@ export class ShopScene {
     if (instanceIndex > 0) overlay.instanceMatrix.needsUpdate = true;
   }
 
-  #syncHighlights() {
+  #syncHighlights(catalogChanged = false) {
     const highlightedPublicationIds = this.#highlightedPublicationIds();
     // Highlights are distracting while reading a book; hide them during
     // inspection and restore them once the reader closes.
     const inspecting = this.#inspection.inspectionMode !== "none";
     const idsChanged = highlightedPublicationIds !== this.#lastHighlightedPublicationIds;
+    const booksChanged = catalogChanged || this.#booksById.size !== this.#lastBookRecordCount;
+    this.#lastBookRecordCount = this.#booksById.size;
     if (idsChanged) {
       this.#highlightedIds = new Set(highlightedPublicationIds);
       this.#lastHighlightedPublicationIds = highlightedPublicationIds;
     }
-    if (idsChanged || inspecting !== this.#lastHighlightInspectionState || this.#highlightNeedsReconcile()) {
+    const highlightStateChanged = [idsChanged, booksChanged, inspecting !== this.#lastHighlightInspectionState].some(
+      Boolean,
+    );
+    if (highlightStateChanged || this.#highlightNeedsReconcile()) {
       this.#reconcileHighlights();
       this.#lastHighlightInspectionState = inspecting;
     }

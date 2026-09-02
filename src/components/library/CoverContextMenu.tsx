@@ -11,7 +11,6 @@ export type CoverContextMenuProps = {
   selectedIds: Accessor<ReadonlySet<string>>;
   onAddToCollection: (publicationIds: readonly string[], collectionId: string) => void;
   onClose: () => void;
-  onDeleteCollection?: (collectionId: string) => void;
   onHighlight: (publicationIds: readonly string[]) => void;
   onNewCollection: (item: CatalogItem, publicationIds: readonly string[]) => void;
   onRemoveFromCollection?: (publicationIds: readonly string[], collectionId: string) => void;
@@ -34,12 +33,10 @@ export const CoverContextMenu = (props: CoverContextMenuProps) => {
     props.onClose();
   };
 
-  document.addEventListener("keydown", handleKeyDown, {capture: true});
-  document.addEventListener("contextmenu", handleContextMenu, {capture: true});
-  onCleanup(() => {
-    document.removeEventListener("keydown", handleKeyDown, {capture: true});
-    document.removeEventListener("contextmenu", handleContextMenu, {capture: true});
-  });
+  const abortController = new AbortController();
+  document.addEventListener("keydown", handleKeyDown, {capture: true, signal: abortController.signal});
+  document.addEventListener("contextmenu", handleContextMenu, {capture: true, signal: abortController.signal});
+  onCleanup(() => abortController.abort());
 
   const targetIds = () => (props.selectedIds().has(props.item.id) ? [...props.selectedIds()] : [props.item.id]);
 

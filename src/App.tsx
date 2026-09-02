@@ -373,33 +373,54 @@ export const App = () => {
     collections().find((collection) => collection.id === selectedCollectionId()),
   );
 
-  const filteredCatalog = createMemo(() => {
-    const tokens = queryTokens();
-    const collection = selectedCollection();
-    const collectionPublicationIds = collection ? new Set(collection.publicationIds) : undefined;
-    const collectionsByPublicationId = new Map<string, string[]>();
-    for (const userCollection of collections()) {
-      for (const publicationId of userCollection.publicationIds) {
-        const names = collectionsByPublicationId.get(publicationId);
-        if (names) names.push(userCollection.name);
-        else collectionsByPublicationId.set(publicationId, [userCollection.name]);
+  const collectionNamesByPublicationId = createMemo(() => {
+    const namesByPublicationId = new Map<string, string[]>();
+    for (const collection of collections()) {
+      for (const publicationId of collection.publicationIds) {
+        const names = namesByPublicationId.get(publicationId);
+        if (names) names.push(collection.name);
+        else namesByPublicationId.set(publicationId, [collection.name]);
       }
     }
+    return namesByPublicationId;
+  });
+
+  const filteredCatalog = createMemo(() => {
+    const tokens = queryTokens();
+    const selectedLanguage = language();
+    const selectedTag = tag();
+    const collection = selectedCollection();
+    const collectionPublicationIds = collection ? new Set(collection.publicationIds) : undefined;
+    const namesByPublicationId = collectionNamesByPublicationId();
     return library().filter((item) => {
-      if (language() !== "all" && item.language !== language()) return false;
-      const selectedTag = tag();
+      if (selectedLanguage !== "all" && item.language !== selectedLanguage) return false;
       if (selectedTag && !item.tags.includes(selectedTag)) return false;
       if (collectionPublicationIds && !collectionPublicationIds.has(item.id)) return false;
-      const userCollectionNames = collectionsByPublicationId.get(item.id) ?? [];
-      return tokens.every((token) =>
-        [item.title, item.titleJp, item.collection, ...item.tags, ...userCollectionNames].some((value) =>
-          value.toLowerCase().includes(token),
-        ),
-      );
+      const userCollectionNames = namesByPublicationId.get(item.id) ?? [];
+      return tokens.every((token) => {
+        if (item.title.toLowerCase().includes(token)) return true;
+        if (item.titleJp.toLowerCase().includes(token)) return true;
+        if (item.collection.toLowerCase().includes(token)) return true;
+        if (item.tags.some((itemTag) => itemTag.toLowerCase().includes(token))) return true;
+        return userCollectionNames.some((name) => name.toLowerCase().includes(token));
+      });
     });
   });
 
   const selectedItem = createMemo(() => library().find((item) => item.id === selectedId()) ?? library()[0]);
+
+  createEffect(
+    () => [library(), selectedId()] as const,
+    ([items, selectedPublicationId]) => {
+      if (items.length === 0 || (selectedPublicationId && items.some((item) => item.id === selectedPublicationId)))
+        return;
+      const firstItem = items[0];
+      if (!firstItem) return;
+      setSelectedId(firstItem.id);
+      setSelectedPublicationIds(new Set([firstItem.id]));
+      setLastSelectedId(firstItem.id);
+    },
+  );
 
   const handleSelectCard = (item: CatalogItem, event: MouseEvent) => {
     const items = filteredCatalog();

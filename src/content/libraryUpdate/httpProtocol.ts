@@ -174,6 +174,7 @@ export type LibraryOperationStatusHttpSuccess =
 export type LibraryOperationHttpResponse =
   | LibraryBlacklistHttpSuccess
   | LibraryBlacklistListHttpSuccess
+  | LibraryCollectionsHttpResponse
   | LibraryOperationHttpFailure
   | LibraryOperationStartHttpSuccess
   | LibraryOperationStatusHttpSuccess
@@ -626,12 +627,28 @@ export const parseLibraryCollectionUpdateHttpResponse = (
   return {collection: parseCollection(value.collection, 0), ok: true};
 };
 
+export const parseLibraryCollectionDeleteHttpResponse = (
+  value: unknown,
+): LibraryCollectionDeleteHttpSuccess | LibraryOperationHttpFailure => {
+  if (!isRecord(value)) throw new Error("Library collection delete response must be an object");
+  const failure = parseFailure(value);
+  if (failure) return failure;
+  if (value.ok !== true) throw new Error("Library collection delete response is malformed");
+  return {ok: true};
+};
+
 export const parseLibraryCollectionRequest = (value: unknown): {name: string; publicationIds?: readonly string[]} => {
-  if (!isRecord(value)) throw new Error("Library collection request must be an object");
-  const name = collectionName(value.name, "name");
-  if (value.publicationIds === undefined) return {name};
-  if (!Array.isArray(value.publicationIds)) throw new Error("publicationIds must be an array");
-  const publicationIds = value.publicationIds.map((pid, index) => publicationId(pid, `publicationIds[${index}]`));
+  const request = requireExactKeys(
+    value,
+    ["name", ...(isRecord(value) && value.publicationIds !== undefined ? ["publicationIds"] : [])],
+    "collection",
+  );
+  const name = collectionName(request.name, "name");
+  if (request.publicationIds === undefined) return {name};
+  if (!Array.isArray(request.publicationIds)) throw new Error("publicationIds must be an array");
+  if (request.publicationIds.length > MAX_PUBLICATION_IDS_PER_COLLECTION)
+    throw new Error(`publicationIds must contain at most ${MAX_PUBLICATION_IDS_PER_COLLECTION} IDs`);
+  const publicationIds = request.publicationIds.map((pid, index) => publicationId(pid, `publicationIds[${index}]`));
   if (new Set(publicationIds).size !== publicationIds.length) throw new Error("publicationIds contains duplicates");
   return {name, publicationIds};
 };
@@ -645,7 +662,13 @@ export const parseLibraryCollectionUpdateRequest = (
   publicationIds?: readonly string[];
   removePublicationIds?: readonly string[];
 } => {
-  if (!isRecord(value)) throw new Error("Library collection update request must be an object");
+  const fields = ["addPublicationIds", "color", "name", "publicationIds", "removePublicationIds"] as const;
+  const request = requireExactKeys(
+    value,
+    fields.filter((field) => isRecord(value) && value[field] !== undefined),
+    "collection update",
+  );
+  if (Object.keys(request).length === 0) throw new Error("Library collection update request must contain a change");
   const result: {
     addPublicationIds?: readonly string[];
     color?: string;
@@ -653,21 +676,25 @@ export const parseLibraryCollectionUpdateRequest = (
     publicationIds?: readonly string[];
     removePublicationIds?: readonly string[];
   } = {};
-  if (value.name !== undefined) result.name = collectionName(value.name, "name");
-  if (value.color !== undefined) {
-    const color = collectionColor(value.color, "color");
+  if (request.name !== undefined) result.name = collectionName(request.name, "name");
+  if (request.color !== undefined) {
+    const color = collectionColor(request.color, "color");
     if (color !== undefined) result.color = color;
   }
-  if (value.publicationIds !== undefined) {
-    if (!Array.isArray(value.publicationIds)) throw new Error("publicationIds must be an array");
-    result.publicationIds = value.publicationIds.map((pid, index) => publicationId(pid, `publicationIds[${index}]`));
+  if (request.publicationIds !== undefined) {
+    if (!Array.isArray(request.publicationIds)) throw new Error("publicationIds must be an array");
+    if (request.publicationIds.length > MAX_PUBLICATION_IDS_PER_COLLECTION)
+      throw new Error(`publicationIds must contain at most ${MAX_PUBLICATION_IDS_PER_COLLECTION} IDs`);
+    result.publicationIds = request.publicationIds.map((pid, index) => publicationId(pid, `publicationIds[${index}]`));
     if (new Set(result.publicationIds).size !== result.publicationIds.length)
       throw new Error("publicationIds contains duplicates");
   }
   for (const field of ["addPublicationIds", "removePublicationIds"] as const) {
-    const valueForField = value[field];
+    const valueForField = request[field];
     if (valueForField === undefined) continue;
     if (!Array.isArray(valueForField)) throw new Error(`${field} must be an array`);
+    if (valueForField.length > MAX_PUBLICATION_IDS_PER_COLLECTION)
+      throw new Error(`${field} must contain at most ${MAX_PUBLICATION_IDS_PER_COLLECTION} IDs`);
     const ids = valueForField.map((pid, index) => publicationId(pid, `${field}[${index}]`));
     if (new Set(ids).size !== ids.length) throw new Error(`${field} contains duplicates`);
     result[field] = ids;

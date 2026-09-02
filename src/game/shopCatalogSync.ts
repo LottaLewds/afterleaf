@@ -33,20 +33,21 @@ export class ShopCatalogSync {
     this.#host = host;
   }
 
-  sync() {
+  sync(): boolean {
     const host = this.#host;
-    if (!host.catalogAvailable()) return;
+    if (!host.catalogAvailable()) return false;
     const items = host.catalogItems();
     const newPublicationIds = host.newPublicationIds();
-    this.#syncCatalogChanges(items, newPublicationIds);
+    const catalogChanged = this.#syncCatalogChanges(items, newPublicationIds);
     this.#syncSelectedPublication();
+    return catalogChanged;
   }
 
-  #syncCatalogChanges(items: readonly CatalogItem[], newPublicationIds: readonly string[]) {
+  #syncCatalogChanges(items: readonly CatalogItem[], newPublicationIds: readonly string[]): boolean {
     const host = this.#host;
     const itemsChanged = items !== this.#lastItems;
     const arrivalsChanged = newPublicationIds !== this.#lastNewPublicationIds;
-    if (!itemsChanged && !arrivalsChanged) return;
+    if (!itemsChanged && !arrivalsChanged) return false;
     const hasUnobservedArrivals =
       arrivalsChanged && newPublicationIds.some((publicationId) => !host.observedArrivalIds.has(publicationId));
     const discardOnlyUpdate = itemsChanged && !hasUnobservedArrivals && this.#isDiscardOnlyCatalogUpdate(items);
@@ -54,6 +55,7 @@ export class ShopCatalogSync {
     this.#lastNewPublicationIds = newPublicationIds;
     if ((itemsChanged || hasUnobservedArrivals) && !discardOnlyUpdate)
       host.bookLifecycle().syncBooks(items, newPublicationIds);
+    return itemsChanged || hasUnobservedArrivals;
   }
 
   #syncSelectedPublication() {

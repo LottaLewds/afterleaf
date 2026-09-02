@@ -14,6 +14,7 @@ import {
   parseLibraryBlacklistHttpResponse,
   parseLibraryBlacklistListHttpResponse,
   parseLibraryCollectionCreateHttpResponse,
+  parseLibraryCollectionDeleteHttpResponse,
   parseLibraryCollectionUpdateHttpResponse,
   parseLibraryCollectionsListHttpResponse,
   parseLibraryOperationStartHttpResponse,
@@ -546,6 +547,17 @@ export const deleteCollection = async (id: string, fetcher: LibraryOperationFetc
     {method: "DELETE"},
     fetcher,
   );
-  if (!response.ok || !value || typeof value !== "object" || (value as {ok?: unknown}).ok !== true)
+  let result;
+  try {
+    result = parseLibraryCollectionDeleteHttpResponse(value);
+  } catch {
+    throw new BrowserLibraryOperationError(
+      "The collections server returned an invalid response",
+      "invalid_response",
+      response.status,
+    );
+  }
+  throwResponseError(response, result);
+  if (!result.ok)
     throw new BrowserLibraryOperationError("Could not delete collection", "operation_failed", response.status);
 };

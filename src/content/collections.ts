@@ -1,5 +1,5 @@
 import {randomUUID} from "node:crypto";
-import {mkdir, readdir, readFile, rename, rm, stat, unlink, writeFile} from "node:fs/promises";
+import {copyFile, mkdir, readdir, readFile, rename, rm, stat, unlink, writeFile} from "node:fs/promises";
 import {basename, dirname, join} from "node:path";
 
 import {collectionsPath} from "./dataRoot";
@@ -10,7 +10,9 @@ const MAX_COLLECTION_COUNT = 200;
 const MAX_COLLECTION_NAME_LENGTH = 100;
 const MAX_PUBLICATION_IDS_PER_COLLECTION = 10_000;
 const MAX_TOTAL_PUBLICATION_IDS = 100_000;
-const COLLECTION_BACKUP_FILE_PATTERN = /^collections\.(?:backup-.+|staging-.+)\.json$/u;
+const COLLECTION_BACKUP_FILE_PATTERN = /^collections\.backup-.+\.json$/u;
+const COLLECTION_STAGING_FILE_PATTERN = /^\.collections\.json\.staging-.+$/u;
+const COLLECTION_STAGING_RETENTION_MS = 24 * 60 * 60 * 1_000;
 
 // Mirrors the publication ID pattern used in httpProtocol.ts.
 const PUBLICATION_ID_PATTERN = /^[a-z0-9][a-z0-9._-]{0,199}$/u;
@@ -141,20 +143,27 @@ export const parseCollectionsStore = (value: unknown): CollectionsStore => {
   return {collections, schemaVersion: COLLECTIONS_SCHEMA_VERSION};
 };
 
-export const normalizeCollections = (collections: readonly UserCollection[]): readonly UserCollection[] => {
-  const seenIds = new Set<string>();
-  const result: UserCollection[] = [];
-  for (const collection of collections) {
-    if (seenIds.has(collection.id)) continue;
-    seenIds.add(collection.id);
-    const uniquePublicationIds = [...new Set(collection.publicationIds)].slice(0, MAX_PUBLICATION_IDS_PER_COLLECTION);
-    result.push({
-      ...collection,
-      name: collection.name.trim(),
-      publicationIds: uniquePublicationIds,
-    });
+const collectionStagingFiles = async (directory: string) => {
+  let entries: string[];
+  try {
+    entries = await readdir(directory);
+  } catch (error) {
+    if (isMissing(error)) return [];
+    throw error;
   }
-  return result;
+  const files: {mtime: number; path: string}[] = [];
+  for (const name of entries) {
+    if (!COLLECTION_STAGING_FILE_PATTERN.test(name)) continue;
+    const path = join(directory, name);
+    try {
+      const fileStats = await stat(path);
+      if (fileStats.isFile()) files.push({mtime: fileStats.mtimeMs, path});
+    } catch {
+      // A concurrent writer may have completed or removed the staging file.
+    }
+  }
+  files.sort((left, right) => right.mtime - left.mtime);
+  return files;
 };
 
 export const loadCollections = async (workingDirectory: string): Promise<readonly UserCollection[]> => {
@@ -162,8 +171,28 @@ export const loadCollections = async (workingDirectory: string): Promise<readonl
     const text = await readFile(collectionsPath(workingDirectory), "utf8");
     return parseCollectionsStore(JSON.parse(text) as unknown).collections;
   } catch (error) {
-    if (isMissing(error)) return [];
+    if (isMissing(error)) {
+      const directory = dirname(collectionsPath(workingDirectory));
+      const stagingPath = (await collectionStagingFiles(directory))[0]?.path;
+      if (stagingPath !== undefined) {
+        try {
+          const stagedText = await readFile(stagingPath, "utf8");
+          return parseCollectionsStore(JSON.parse(stagedText) as unknown).collections;
+        } catch {
+          // An incomplete staging file is not a recoverable collection state.
+        }
+      }
+      return [];
+    }
     throw error;
+  }
+};
+
+const trimStaleCollectionStaging = async (directory: string) => {
+  const cutoff = Date.now() - COLLECTION_STAGING_RETENTION_MS;
+  for (const file of await collectionStagingFiles(directory)) {
+    if (file.mtime >= cutoff) continue;
+    await unlink(file.path).catch(() => {});
   }
 };
 
@@ -193,6 +222,8 @@ const replaceCollectionsFile = async (temporaryPath: string, targetPath: string)
 
   // Best-effort atomic write fallback on Windows uses remove-and-rename because
   // Windows does not replace an existing directory entry with rename().
+  // The previous file is snapshotted before this fallback, and the staging file
+  // remains recoverable if the process stops between these two operations.
   await rm(targetPath, {force: true});
   await rename(temporaryPath, targetPath);
 };
@@ -210,23 +241,30 @@ const writeCollections = async (
   await mkdir(backupDirectory, {recursive: true});
   const serialized = `${JSON.stringify(store, null, 2)}\n`;
   const temporaryPath = join(dirname(targetPath), `.${basename(targetPath)}.staging-${process.pid}-${randomUUID()}`);
+  await trimStaleCollectionStaging(dirname(targetPath));
   try {
     await writeFile(temporaryPath, serialized, {flag: "wx"});
+
+    // Keep the previous committed state before the Windows replacement path
+    // removes the live file. This makes an interrupted replacement recoverable.
+    const backupPath = join(backupDirectory, `collections.backup-${Date.now()}-${randomUUID()}.json`);
+    try {
+      const targetStats = await stat(targetPath);
+      if (targetStats.isFile()) {
+        await copyFile(targetPath, backupPath);
+        await trimCollectionBackups(backupDirectory, 15);
+      }
+    } catch (error) {
+      if (!isMissing(error)) console.warn("Could not snapshot the previous collections file", error);
+    }
     await replaceCollectionsFile(temporaryPath, targetPath);
   } catch (error) {
     await rm(temporaryPath, {force: true}).catch(() => {});
     throw error;
   }
 
-  const backupPath = join(backupDirectory, `collections.backup-${Date.now()}-${randomUUID()}.json`);
-  try {
-    await writeFile(backupPath, serialized, {flag: "wx"});
-    await trimCollectionBackups(backupDirectory, 15);
-  } catch (error) {
-    // The committed collection remains valid even if historical snapshot cleanup
-    // is unavailable, so do not report a successful save as failed.
-    console.warn("Could not maintain collection backups", error);
-  }
+  // A successful replacement makes any old staging files safe to remove later;
+  // leave them alone here because another process may still be writing one.
   return store.collections;
 };
 

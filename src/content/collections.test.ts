@@ -1,6 +1,6 @@
-import {mkdirSync, mkdtempSync, readFileSync} from "node:fs";
+import {mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync} from "node:fs";
 import {tmpdir} from "node:os";
-import {join} from "node:path";
+import {basename, dirname, join} from "node:path";
 import {describe, expect, test} from "bun:test";
 import {
   COLLECTIONS_SCHEMA_VERSION,
@@ -111,6 +111,25 @@ describe("collections", () => {
     expect(saved.collections).toHaveLength(1);
   });
 
+  test("saveCollections snapshots the previous committed store", async () => {
+    const workingDirectory = tempWorkingDirectory();
+    const collection = {
+      id: "550e8400-e29b-41d4-a716-446655440000",
+      name: "Favorites",
+      createdAt: "2024-01-01T00:00:00.000Z",
+      publicationIds: ["abc123"] as const,
+    };
+    await saveCollections(workingDirectory, [collection]);
+    await saveCollections(workingDirectory, []);
+
+    const backupDirectory = join(dirname(collectionsPath(workingDirectory)), "collections-backup");
+    const backupNames = readdirSync(backupDirectory).filter((name) => name.startsWith("collections.backup-"));
+    expect(backupNames).toHaveLength(1);
+    const backup = JSON.parse(readFileSync(join(backupDirectory, backupNames[0] ?? ""), "utf8"));
+    expect(backup.collections).toHaveLength(1);
+    expect(backup.collections[0].name).toBe("Favorites");
+  });
+
   test("saveCollections propagates target write failures", async () => {
     const workingDirectory = tempWorkingDirectory();
     mkdirSync(collectionsPath(workingDirectory), {recursive: true});
@@ -121,6 +140,28 @@ describe("collections", () => {
     const workingDirectory = tempWorkingDirectory();
     const collections = await loadCollections(workingDirectory);
     expect(collections).toEqual([]);
+  });
+
+  test("loadCollections recovers a valid interrupted staging file", async () => {
+    const workingDirectory = tempWorkingDirectory();
+    const targetPath = collectionsPath(workingDirectory);
+    mkdirSync(dirname(targetPath), {recursive: true});
+    writeFileSync(
+      join(dirname(targetPath), `.${basename(targetPath)}.staging-recovery`),
+      JSON.stringify({
+        collections: [
+          {
+            id: "550e8400-e29b-41d4-a716-446655440000",
+            name: "Recovered",
+            createdAt: "2024-01-01T00:00:00.000Z",
+            publicationIds: [],
+          },
+        ],
+        schemaVersion: COLLECTIONS_SCHEMA_VERSION,
+      }),
+    );
+
+    await expect(loadCollections(workingDirectory)).resolves.toMatchObject([{name: "Recovered"}]);
   });
 
   test("createCollection adds a new collection", async () => {
