@@ -72,6 +72,7 @@ import {LibraryActivityToast} from "~/components/library/LibraryActivityToast";
 import {LibraryCard} from "~/components/library/LibraryCard";
 import {DetailPanel} from "~/components/library/DetailPanel";
 import {CoverContextMenu} from "~/components/library/CoverContextMenu";
+import {CollectionContextMenu} from "~/components/library/CollectionContextMenu";
 import {DeleteCollectionDialog} from "~/components/library/DeleteCollectionDialog";
 import {languageLabels, type LanguageFilter} from "~/components/library/languageLabels";
 import {GlobalEscapeShortcuts} from "~/components/GlobalEscapeShortcuts";
@@ -221,6 +222,11 @@ export const App = () => {
   const [highlightedPublicationIds, setHighlightedPublicationIds] = createSignal<readonly string[]>([]);
   const [highlightedCollectionId, setHighlightedCollectionId] = createSignal<string | null>(null);
   const [contextMenu, setContextMenu] = createSignal<{item: CatalogItem; x: number; y: number} | null>(null);
+  const [collectionContextMenu, setCollectionContextMenu] = createSignal<{
+    collectionId: string;
+    x: number;
+    y: number;
+  } | null>(null);
   const [collectionDialogOpen, setCollectionDialogOpen] = createSignal(false);
   const [collectionDeleteId, setCollectionDeleteId] = createSignal<string | null>(null);
   const [collectionDialogInitialPublicationIds, setCollectionDialogInitialPublicationIds] = createSignal<
@@ -378,6 +384,10 @@ export const App = () => {
   const collectionPendingDelete = createMemo(() => {
     const collectionId = collectionDeleteId();
     return collectionId ? collections().find((collection) => collection.id === collectionId) : undefined;
+  });
+  const collectionContextMenuTarget = createMemo(() => {
+    const context = collectionContextMenu();
+    return context ? collections().find((collection) => collection.id === context.collectionId) : undefined;
   });
 
   const collectionNamesByPublicationId = createMemo(() => {
@@ -815,6 +825,15 @@ export const App = () => {
     if (collectionMutationBusy()) return;
     setCollectionDeleteId(null);
   };
+
+  const openCollectionContextMenu = (event: MouseEvent, collectionId: string) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setContextMenu(null);
+    setCollectionContextMenu({collectionId, x: event.clientX, y: event.clientY});
+  };
+
+  const closeCollectionContextMenu = () => setCollectionContextMenu(null);
 
   const confirmCreateCollection = async () => {
     const name = newCollectionName().trim();
@@ -1390,10 +1409,9 @@ export const App = () => {
                                       )
                                     }
                                     onContextMenu={(event) => {
-                                      event.preventDefault();
-                                      handleHighlightPublications(collection.publicationIds, collection.id);
+                                      openCollectionContextMenu(event, collection.id);
                                     }}
-                                    title="Right-click to highlight in shop&#10;Double-click to rename"
+                                    title="Right-click for collection actions&#10;Double-click to rename"
                                     type="button"
                                   >
                                     <span
@@ -1651,6 +1669,7 @@ export const App = () => {
                                     setQuery("");
                                     setTag(null);
                                     setLanguage("all");
+                                    setSelectedCollectionId(null);
                                   }}
                                 >
                                   Clear filters
@@ -1763,6 +1782,26 @@ export const App = () => {
                   }
                   onHighlight={(publicationIds) => handleHighlightPublications(publicationIds)}
                 />
+              )}
+            </Show>
+
+            <Show when={collectionContextMenu()}>
+              {(menu) => (
+                <Show when={collectionContextMenuTarget()}>
+                  {(collection) => (
+                    <CollectionContextMenu
+                      anchor={{x: menu().x, y: menu().y}}
+                      collection={collection()}
+                      onClose={closeCollectionContextMenu}
+                      onDelete={() => openCollectionDeleteDialog(collection().id)}
+                      onHighlight={() => handleHighlightPublications(collection().publicationIds, collection().id)}
+                      onRename={() => {
+                        setEditingCollectionId(collection().id);
+                        setEditingCollectionName(collection().name);
+                      }}
+                    />
+                  )}
+                </Show>
               )}
             </Show>
 
