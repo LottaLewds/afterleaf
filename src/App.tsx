@@ -14,6 +14,7 @@ import {
   FiSliders,
   FiStar,
   FiTool,
+  FiTrash2,
   FiX,
 } from "solid-icons/fi";
 import {
@@ -71,6 +72,7 @@ import {LibraryActivityToast} from "~/components/library/LibraryActivityToast";
 import {LibraryCard} from "~/components/library/LibraryCard";
 import {DetailPanel} from "~/components/library/DetailPanel";
 import {CoverContextMenu} from "~/components/library/CoverContextMenu";
+import {DeleteCollectionDialog} from "~/components/library/DeleteCollectionDialog";
 import {languageLabels, type LanguageFilter} from "~/components/library/languageLabels";
 import {GlobalEscapeShortcuts} from "~/components/GlobalEscapeShortcuts";
 import {bookLocationKeys, configLocationsChanged, visualMediaLocationKeys} from "~/components/locations/locationKinds";
@@ -220,6 +222,7 @@ export const App = () => {
   const [highlightedCollectionId, setHighlightedCollectionId] = createSignal<string | null>(null);
   const [contextMenu, setContextMenu] = createSignal<{item: CatalogItem; x: number; y: number} | null>(null);
   const [collectionDialogOpen, setCollectionDialogOpen] = createSignal(false);
+  const [collectionDeleteId, setCollectionDeleteId] = createSignal<string | null>(null);
   const [collectionDialogInitialPublicationIds, setCollectionDialogInitialPublicationIds] = createSignal<
     readonly string[] | undefined
   >(undefined);
@@ -372,6 +375,10 @@ export const App = () => {
   const selectedCollection = createMemo(() =>
     collections().find((collection) => collection.id === selectedCollectionId()),
   );
+  const collectionPendingDelete = createMemo(() => {
+    const collectionId = collectionDeleteId();
+    return collectionId ? collections().find((collection) => collection.id === collectionId) : undefined;
+  });
 
   const collectionNamesByPublicationId = createMemo(() => {
     const namesByPublicationId = new Map<string, string[]>();
@@ -798,6 +805,17 @@ export const App = () => {
     setNewCollectionName("");
   };
 
+  const openCollectionDeleteDialog = (collectionId: string) => {
+    if (collectionMutationBusy()) return;
+    setCollectionError(undefined);
+    setCollectionDeleteId(collectionId);
+  };
+
+  const closeCollectionDeleteDialog = () => {
+    if (collectionMutationBusy()) return;
+    setCollectionDeleteId(null);
+  };
+
   const confirmCreateCollection = async () => {
     const name = newCollectionName().trim();
     if (!name) return;
@@ -833,7 +851,7 @@ export const App = () => {
   const handleDeleteCollection = async (collectionId: string) => {
     const selected = selectedCollectionId() === collectionId;
     const highlighted = highlightedCollectionId() === collectionId;
-    await runCollectionMutation("Could not delete collection", async () => {
+    return runCollectionMutation("Could not delete collection", async () => {
       await deleteCollection(collectionId);
       if (selected) setSelectedCollectionId(null);
       if (highlighted) {
@@ -841,7 +859,14 @@ export const App = () => {
         setHighlightedPublicationIds([]);
       }
       await refreshCollections();
+      return true;
     });
+  };
+
+  const confirmDeleteCollection = async () => {
+    const collectionId = collectionDeleteId();
+    if (!collectionId) return;
+    if (await handleDeleteCollection(collectionId)) setCollectionDeleteId(null);
   };
 
   const handleRenameCollection = async (collectionId: string, name: string) => {
@@ -1394,8 +1419,11 @@ export const App = () => {
                                 />
                                 <input
                                   ref={(element) => {
-                                    element?.focus();
-                                    element?.select();
+                                    queueMicrotask(() => {
+                                      if (editingCollectionId() !== collection.id || !element.isConnected) return;
+                                      element.focus();
+                                      element.select();
+                                    });
                                   }}
                                   class="min-w-0 flex-1 border border-[#70a28b]/60 bg-[#0f1615] px-1.5 py-0.5 text-xs text-[#ece8dd] ring-1 ring-[#70a28b]/30 outline-none"
                                   value={editingCollectionName()}
@@ -1430,12 +1458,12 @@ export const App = () => {
                                 disabled={collectionMutationBusy()}
                                 onClick={(event) => {
                                   event.stopPropagation();
-                                  void handleDeleteCollection(collection.id);
+                                  openCollectionDeleteDialog(collection.id);
                                 }}
                                 title="Delete collection"
                                 type="button"
                               >
-                                <FiX size={12} />
+                                <FiTrash2 size={12} />
                               </button>
                             </div>
                           )}
@@ -1870,6 +1898,17 @@ export const App = () => {
                   </footer>
                 </form>
               </div>
+            </Show>
+
+            <Show when={collectionPendingDelete()}>
+              {(collection) => (
+                <DeleteCollectionDialog
+                  busy={collectionMutationBusy()}
+                  collectionName={collection().name}
+                  onCancel={closeCollectionDeleteDialog}
+                  onConfirm={() => void confirmDeleteCollection()}
+                />
+              )}
             </Show>
           </div>
         </Show>
