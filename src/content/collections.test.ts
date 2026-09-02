@@ -176,7 +176,7 @@ describe("collections", () => {
   test("createCollection rejects duplicate names", async () => {
     const workingDirectory = tempWorkingDirectory();
     await createCollection(workingDirectory, "Favorites");
-    expect(createCollection(workingDirectory, "favorites")).rejects.toThrow("already exists");
+    await expect(createCollection(workingDirectory, "favorites")).rejects.toThrow("already exists");
   });
 
   test("concurrent collection creation preserves both changes", async () => {
