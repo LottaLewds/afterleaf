@@ -1,4 +1,4 @@
-import {FiEdit3, FiStar, FiTrash2} from "solid-icons/fi";
+import {FiCrosshair, FiEdit3, FiTrash2} from "solid-icons/fi";
 import {onCleanup} from "solid-js";
 import type {LibraryCollection} from "~/content/libraryUpdate/httpProtocol";
 
@@ -74,7 +74,7 @@ export const CollectionContextMenu = (props: {
           role="menuitem"
           type="button"
         >
-          <FiStar size={13} /> Highlight in shop
+          <FiCrosshair size={13} /> Highlight in shop
         </button>
         <button
           class="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-[#d9d6cc] transition hover:bg-white/5"

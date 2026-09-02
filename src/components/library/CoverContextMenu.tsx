@@ -1,4 +1,4 @@
-import {FiPlus, FiStar, FiTrash2} from "solid-icons/fi";
+import {FiCrosshair, FiPlus, FiTrash2} from "solid-icons/fi";
 import {For, Show, createSignal, onCleanup, type Accessor} from "solid-js";
 import type {CatalogItem} from "~/catalog";
 import type {LibraryCollection} from "~/content/libraryUpdate/httpProtocol";
@@ -174,7 +174,7 @@ export const CoverContextMenu = (props: CoverContextMenuProps) => {
           role="menuitem"
           type="button"
         >
-          <FiStar size={13} /> Highlight {targetCount()} book{targetCount() === 1 ? "" : "s"} in shop
+          <FiCrosshair size={13} /> Highlight {targetCount()} book{targetCount() === 1 ? "" : "s"} in shop
         </button>
       </div>
     </>

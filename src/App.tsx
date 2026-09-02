@@ -3,6 +3,7 @@ import {
   FiBookOpen,
   FiClock,
   FiCommand,
+  FiCrosshair,
   FiDownload,
   FiGrid,
   FiMenu,
@@ -12,7 +13,6 @@ import {
   FiSettings,
   FiShield,
   FiSliders,
-  FiStar,
   FiTool,
   FiTrash2,
   FiX,
@@ -92,6 +92,8 @@ type LibraryOperation = "fetch-more" | "scan";
 type LibraryScanMode = "quick" | "repair";
 type LibraryUpdateStage = "loading-library" | "working";
 type MenuTab = "library" | "options" | "shortcuts";
+
+const EMPTY_HIGHLIGHTED_PUBLICATION_IDS: readonly string[] = [];
 
 const ShopViewport = lazy(async () => {
   const module = await import("~/components/ShopViewport");
@@ -221,6 +223,7 @@ export const App = () => {
   const [editingCollectionName, setEditingCollectionName] = createSignal("");
   const [highlightedPublicationIds, setHighlightedPublicationIds] = createSignal<readonly string[]>([]);
   const [highlightedCollectionId, setHighlightedCollectionId] = createSignal<string | null>(null);
+  const [searchHighlightEnabled, setSearchHighlightEnabled] = createSignal(false);
   const [contextMenu, setContextMenu] = createSignal<{item: CatalogItem; x: number; y: number} | null>(null);
   const [collectionContextMenu, setCollectionContextMenu] = createSignal<{
     collectionId: string;
@@ -422,6 +425,23 @@ export const App = () => {
         return userCollectionNames.some((name) => name.toLowerCase().includes(token));
       });
     });
+  });
+
+  const activeHighlightedPublicationIds = createMemo(() => {
+    if (!searchHighlightEnabled()) return highlightedPublicationIds();
+    if (queryTokens().length === 0) return EMPTY_HIGHLIGHTED_PUBLICATION_IDS;
+    return filteredCatalog().map((item) => item.id);
+  });
+  const highlightMessage = createMemo(() => {
+    const highlightedCount = activeHighlightedPublicationIds().length;
+    if (searchHighlightEnabled())
+      return `Highlighting ${highlightedCount} search match${highlightedCount === 1 ? "" : "es"}`;
+    const collectionId = highlightedCollectionId();
+    if (collectionId) {
+      const collection = collections().find((candidate) => candidate.id === collectionId);
+      return `Highlighting collection "${collection?.name ?? ""}"`;
+    }
+    return `Highlighting ${highlightedCount} book${highlightedCount === 1 ? "" : "s"}`;
   });
 
   const selectedItem = createMemo(() => library().find((item) => item.id === selectedId()) ?? library()[0]);
@@ -900,13 +920,24 @@ export const App = () => {
   };
 
   const handleHighlightPublications = (publicationIds: readonly string[], collectionId?: string | null) => {
+    setSearchHighlightEnabled(false);
     setHighlightedPublicationIds([...new Set(publicationIds)]);
     setHighlightedCollectionId(collectionId ?? null);
   };
 
   const handleClearHighlight = () => {
+    setSearchHighlightEnabled(false);
     setHighlightedPublicationIds([]);
     setHighlightedCollectionId(null);
+  };
+
+  const toggleSearchHighlight = () => {
+    const enabled = !searchHighlightEnabled();
+    setSearchHighlightEnabled(enabled);
+    if (enabled) {
+      setHighlightedPublicationIds([]);
+      setHighlightedCollectionId(null);
+    }
   };
 
   const purgeBlacklistedWorks = async () => {
@@ -1079,7 +1110,7 @@ export const App = () => {
                     catalogAvailable={() => isRuntimeLibraryAvailable(runtime())}
                     catalogIdentity={() => runtime().identity}
                     gamepadLookSensitivity={gamepadLookSensitivity}
-                    highlightedPublicationIds={highlightedPublicationIds}
+                    highlightedPublicationIds={activeHighlightedPublicationIds}
                     mouseSensitivity={mouseSensitivity}
                     newPublicationIds={newPublicationIds}
                     onControlsChange={(controls) => {
@@ -1144,23 +1175,13 @@ export const App = () => {
               )}
             </Show>
 
-            <Show when={highlightedPublicationIds().length > 0}>
+            <Show when={activeHighlightedPublicationIds().length > 0}>
               <aside
                 class="fixed top-4 right-4 z-40 flex items-center gap-3 border border-[#f5c542]/60 bg-[#2a2310]/95 px-4 py-2.5 text-[#f5c542] shadow-[0_16px_50px_#000b] backdrop-blur-md"
                 aria-live="polite"
               >
-                <FiStar size={14} style={{"flex-shrink": "0"}} />
-                <p class="text-[11px] leading-4">
-                  {highlightedCollectionId() ? (
-                    <>
-                      Highlighting collection &quot;
-                      {collections().find((collection) => collection.id === highlightedCollectionId())?.name ?? ""}
-                      &quot;
-                    </>
-                  ) : (
-                    <>Highlighting {highlightedPublicationIds().length} book(s)</>
-                  )}
-                </p>
+                <FiCrosshair size={14} style={{"flex-shrink": "0"}} />
+                <p class="text-[11px] leading-4">{highlightMessage()}</p>
                 <button
                   class="ml-2 text-[10px] font-semibold tracking-wide uppercase hover:text-white"
                   onClick={handleClearHighlight}
@@ -1558,10 +1579,44 @@ export const App = () => {
                             placeholder="Search title, collection, or tag…"
                           />
                           <Show when={query()}>
-                            <button class="hover:text-white" aria-label="Clear search" onClick={() => setQuery("")}>
+                            <button
+                              class="hover:text-white"
+                              aria-label="Clear search"
+                              onClick={() => setQuery("")}
+                              type="button"
+                            >
                               <FiX size={13} />
                             </button>
                           </Show>
+                          <button
+                            class={[
+                              "shrink-0 transition disabled:cursor-not-allowed disabled:opacity-30",
+                              {
+                                "text-[#f5c542]": searchHighlightEnabled(),
+                                "text-[#65706c] hover:text-[#f5c542]": !searchHighlightEnabled(),
+                              },
+                            ]}
+                            aria-label={
+                              searchHighlightEnabled()
+                                ? "Stop highlighting search matches"
+                                : "Highlight search matches in shop"
+                            }
+                            aria-pressed={searchHighlightEnabled() ? "true" : "false"}
+                            disabled={!searchHighlightEnabled() && queryTokens().length === 0}
+                            onClick={(event) => {
+                              event.preventDefault();
+                              event.stopPropagation();
+                              toggleSearchHighlight();
+                            }}
+                            title={
+                              queryTokens().length === 0
+                                ? "Enter a search to highlight matches"
+                                : "Highlight search matches in shop"
+                            }
+                            type="button"
+                          >
+                            <FiCrosshair size={13} />
+                          </button>
                         </label>
                         <div class="flex h-10 items-center gap-1 overflow-x-auto bg-[#19211f] p-1">
                           <FiSliders

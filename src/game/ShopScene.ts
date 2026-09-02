@@ -76,7 +76,6 @@ import {findArcadeSystem} from "~/arcade/systems";
 
 import type {ShelfPresentation} from "~/game/shelfPlacement";
 import {SHOP_BOUNDS, SHOP_INTERIOR_FOOTPRINTS} from "~/game/shopLayout";
-import {SHOP_ROSTER_LIMIT} from "~/game/shopRoster";
 import {
   ShopPhysicsWorld,
   SHOP_PHYSICS_PLAYER_EYE_HEIGHT,
@@ -297,7 +296,10 @@ export class ShopScene {
   #televisionTableMaterial: MeshStandardMaterial | undefined;
   #highlightedIds = new Set<string>();
   #highlightedBooks = new Map<string, BookRecord>();
+  #highlightedBookIndices = new Map<string, number>();
+  #highlightMatrices = new Map<string, Matrix4>();
   #highlightOverlay: InstancedMesh<BoxGeometry, MeshBasicMaterial> | undefined;
+  #highlightOverlayCapacity = 0;
   readonly #highlightMatrix = new Matrix4();
   readonly #highlightScale = new Vector3();
   #lastHighlightedPublicationIds: readonly string[] | undefined;
@@ -500,6 +502,7 @@ export class ShopScene {
       ...this.#createBookCapabilities(),
       bookActions: () => this.#bookActions,
       bookSignature: catalogBookSignature,
+      highlightedPublicationIds: () => this.#highlightedIds,
       hoveredPublicationId: () => this.#hoveredPublicationId,
       inspection: () => this.#inspection,
       lastSelectedPublicationId: () => this.#lastSelectedPublicationId,
@@ -964,14 +967,26 @@ export class ShopScene {
     this.#mediaCatalogRefreshHandle = undefined;
   }
 
+  #disposeHighlightOverlay() {
+    const overlay = this.#highlightOverlay;
+    if (!overlay) return;
+    overlay.removeFromParent();
+    overlay.geometry.dispose();
+    overlay.material.dispose();
+    this.#highlightOverlay = undefined;
+    this.#highlightOverlayCapacity = 0;
+  }
+
   #disposeBookResources() {
     this.#bookTextures.bumpRevision();
     this.#bookTextures.disposeBookAtlasBatches();
     for (const record of this.#booksById.values()) this.#bookLifecycle.disposeBookRecord(record);
     this.#booksById.clear();
-    this.#highlightedBooks.clear();
     this.#highlightedIds.clear();
-    this.#highlightOverlay = undefined;
+    this.#highlightedBooks.clear();
+    this.#highlightedBookIndices.clear();
+    this.#highlightMatrices.clear();
+    this.#disposeHighlightOverlay();
     this.#lastHighlightedPublicationIds = undefined;
     this.#lastHighlightInspectionState = undefined;
     this.#lastBookRecordCount = undefined;
@@ -1028,9 +1043,9 @@ export class ShopScene {
     return "shop";
   }
 
-  #animatePausedOrArcade(deltaSeconds: number, paused: boolean, catalogChanged: boolean) {
+  #animatePausedOrArcade(deltaSeconds: number, paused: boolean) {
     if (paused) {
-      this.#syncHighlights(catalogChanged);
+      this.#syncHighlights();
       if (!this.#inputSuspended) {
         this.#inputSuspended = true;
         this.#inputController.suspendInput();
@@ -1047,7 +1062,7 @@ export class ShopScene {
     // player (no movement, targeting, or physics) but keeps rendering so
     // every cabinet's attract mode and live screens stay animated.
     this.#inputController.updateCameraLook(deltaSeconds);
-    this.#syncHighlights(catalogChanged);
+    this.#syncHighlights();
     this.#renderer.render(this.#scene, this.#camera);
     this.#frameHandle = requestAnimationFrame(this.#animate);
     return true;
@@ -1073,7 +1088,7 @@ export class ShopScene {
     }
     this.#arcadeSessionController.update(deltaSeconds);
     this.#fpsHud.update(deltaSeconds, this.#arcadeSessionController.activeArcadeCabinet?.perfSample);
-    if (this.#animatePausedOrArcade(deltaSeconds, paused, catalogChanged)) return;
+    if (this.#animatePausedOrArcade(deltaSeconds, paused)) return;
 
     this.#inputController.consumePointerMovement(deltaSeconds);
     this.#inputController.updateCameraLook(deltaSeconds);
@@ -1108,7 +1123,7 @@ export class ShopScene {
     this.#bookActions.animateShelve(deltaSeconds);
     this.#bookTextures.syncActiveBookAtlasBatches(this.#bookPresentation.updatedPublicationIds);
     this.#bookActions.animateDiscard(deltaSeconds);
-    this.#syncHighlights(catalogChanged);
+    this.#syncHighlights(catalogChanged, this.#bookPresentation.updatedPublicationIds);
     for (const mixer of this.#props.modelMixers) mixer.update(deltaSeconds);
     this.#renderer.render(this.#scene, this.#camera);
     this.#frameHandle = requestAnimationFrame(this.#animate);
@@ -1121,39 +1136,77 @@ export class ShopScene {
     return false;
   }
 
+  #ensureHighlightOverlayCapacity(requiredCount: number) {
+    if (requiredCount <= this.#highlightOverlayCapacity) return;
+    const capacity = Math.max(requiredCount, Math.ceil(this.#highlightOverlayCapacity * 1.5), 1);
+    const overlay = new InstancedMesh(
+      new BoxGeometry(1, 1, 1),
+      new MeshBasicMaterial({
+        color: 0xf5c542,
+        depthTest: false,
+        depthWrite: false,
+        opacity: 0.22,
+        side: DoubleSide,
+        transparent: true,
+      }),
+      capacity,
+    );
+    overlay.name = "highlight-overlay";
+    overlay.frustumCulled = false;
+    overlay.instanceMatrix.setUsage(DynamicDrawUsage);
+    overlay.renderOrder = 10;
+    this.#scene.add(overlay);
+    this.#disposeHighlightOverlay();
+    this.#highlightOverlay = overlay;
+    this.#highlightOverlayCapacity = capacity;
+  }
+
   #reconcileHighlights() {
+    this.#highlightMatrices.clear();
     for (const publicationId of this.#highlightedBooks.keys()) {
-      if (!this.#highlightedIds.has(publicationId) || !this.#booksById.has(publicationId))
+      if (!this.#highlightedIds.has(publicationId) || !this.#booksById.has(publicationId)) {
         this.#highlightedBooks.delete(publicationId);
+      }
     }
     for (const [publicationId, record] of this.#booksById) {
-      if (!this.#highlightedIds.has(publicationId)) continue;
-      if (this.#highlightedBooks.size >= SHOP_ROSTER_LIMIT && !this.#highlightedBooks.has(publicationId)) break;
-      this.#highlightedBooks.set(publicationId, record);
+      if (this.#highlightedIds.has(publicationId)) this.#highlightedBooks.set(publicationId, record);
     }
+    this.#highlightedBookIndices.clear();
+    let index = 0;
+    for (const publicationId of this.#highlightedBooks.keys()) {
+      this.#highlightedBookIndices.set(publicationId, index);
+      index += 1;
+    }
+    this.#ensureHighlightOverlayCapacity(index);
   }
 
-  #updateHighlightTransforms(inspecting: boolean) {
+  #updateHighlightTransform(publicationId: string, overlay: InstancedMesh<BoxGeometry, MeshBasicMaterial>) {
+    const record = this.#highlightedBooks.get(publicationId);
+    const instanceIndex = this.#highlightedBookIndices.get(publicationId);
+    if (!record || instanceIndex === undefined) return false;
+    record.mesh.updateWorldMatrix(true, false);
+    const previousMatrix = this.#highlightMatrices.get(publicationId);
+    if (previousMatrix?.equals(record.mesh.matrixWorld)) return false;
+    if (previousMatrix) previousMatrix.copy(record.mesh.matrixWorld);
+    else this.#highlightMatrices.set(publicationId, record.mesh.matrixWorld.clone());
+    this.#highlightScale.set(record.width, BOOK_HEIGHT, record.thickness);
+    this.#highlightMatrix.copy(record.mesh.matrixWorld).scale(this.#highlightScale);
+    overlay.setMatrixAt(instanceIndex, this.#highlightMatrix);
+    return true;
+  }
+
+  #updateHighlightTransforms(inspecting: boolean, publicationIds?: Iterable<string>) {
     const overlay = this.#highlightOverlay;
     if (!overlay) return;
-    let instanceIndex = 0;
-    for (const record of this.#highlightedBooks.values()) {
-      record.mesh.updateMatrixWorld();
-      this.#highlightScale.set(record.width * 1.15, BOOK_HEIGHT * 1.12, record.thickness * 1.15);
-      this.#highlightMatrix.copy(record.mesh.matrixWorld).scale(this.#highlightScale);
-      overlay.setMatrixAt(instanceIndex, this.#highlightMatrix);
-      instanceIndex += 1;
-    }
-    overlay.count = instanceIndex;
-    overlay.visible = !inspecting && instanceIndex > 0;
-    if (instanceIndex > 0) overlay.instanceMatrix.needsUpdate = true;
+    let matrixChanged = false;
+    for (const publicationId of publicationIds ?? this.#highlightedBooks.keys())
+      if (this.#updateHighlightTransform(publicationId, overlay)) matrixChanged = true;
+    overlay.count = this.#highlightedBooks.size;
+    overlay.visible = !inspecting && overlay.count > 0;
+    if (matrixChanged) overlay.instanceMatrix.needsUpdate = true;
   }
 
-  #syncHighlights(catalogChanged = false) {
-    const highlightedPublicationIds = this.#highlightedPublicationIds();
-    // Highlights are distracting while reading a book; hide them during
-    // inspection and restore them once the reader closes.
-    const inspecting = this.#inspection.inspectionMode !== "none";
+  #syncHighlightState(highlightedPublicationIds: readonly string[], catalogChanged: boolean, inspecting: boolean) {
     const idsChanged = highlightedPublicationIds !== this.#lastHighlightedPublicationIds;
     const booksChanged = catalogChanged || this.#booksById.size !== this.#lastBookRecordCount;
     this.#lastBookRecordCount = this.#booksById.size;
@@ -1161,34 +1214,24 @@ export class ShopScene {
       this.#highlightedIds = new Set(highlightedPublicationIds);
       this.#lastHighlightedPublicationIds = highlightedPublicationIds;
     }
-    const highlightStateChanged = [idsChanged, booksChanged, inspecting !== this.#lastHighlightInspectionState].some(
-      Boolean,
-    );
-    if (highlightStateChanged || this.#highlightNeedsReconcile()) {
-      this.#reconcileHighlights();
-      this.#lastHighlightInspectionState = inspecting;
+    const highlightStateChanged = idsChanged || booksChanged || inspecting !== this.#lastHighlightInspectionState;
+    if (!highlightStateChanged && !this.#highlightNeedsReconcile()) return false;
+    this.#reconcileHighlights();
+    this.#lastHighlightInspectionState = inspecting;
+    return true;
+  }
+
+  #syncHighlights(catalogChanged = false, updatedPublicationIds?: Iterable<string>) {
+    const highlightedPublicationIds = this.#highlightedPublicationIds();
+    // Highlights are distracting while reading a book; hide them during
+    // inspection and restore them once the reader closes.
+    const inspecting = this.#inspection.inspectionMode !== "none";
+    const highlightStateChanged = this.#syncHighlightState(highlightedPublicationIds, catalogChanged, inspecting);
+    if (this.#highlightedBooks.size === 0) {
+      if (this.#highlightOverlay) this.#highlightOverlay.visible = false;
+      return;
     }
-    if (this.#highlightedBooks.size > 0 && !inspecting) {
-      if (!this.#highlightOverlay) {
-        this.#highlightOverlay = new InstancedMesh(
-          new BoxGeometry(1, 1, 1),
-          new MeshBasicMaterial({
-            color: 0xf5c542,
-            depthTest: false,
-            opacity: 0.45,
-            side: DoubleSide,
-            transparent: true,
-          }),
-          SHOP_ROSTER_LIMIT,
-        );
-        this.#highlightOverlay.name = "highlight-overlay";
-        this.#highlightOverlay.frustumCulled = false;
-        this.#highlightOverlay.instanceMatrix.setUsage(DynamicDrawUsage);
-        this.#highlightOverlay.renderOrder = 10;
-        this.#scene.add(this.#highlightOverlay);
-      }
-    }
-    this.#updateHighlightTransforms(inspecting);
+    this.#updateHighlightTransforms(inspecting, highlightStateChanged ? undefined : updatedPublicationIds);
   }
 
   #configureScene() {

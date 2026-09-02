@@ -42,6 +42,7 @@ export type ShopBookLifecycleHost = {
   carriedPublicationId: () => string | undefined;
   carriedPublicationIds: () => string[];
   emitGameState: () => void;
+  highlightedPublicationIds: () => ReadonlySet<string>;
   heldLocalPosition: () => Vector3;
   heldLocalRotation: () => Quaternion;
   hoveredPublicationId: () => string | undefined;
@@ -434,12 +435,13 @@ export class ShopBookLifecycle {
   #applyBookState(publicationId: string, record: BookRecord) {
     const selected = this.#isBookSelected(publicationId);
     const hovered = publicationId === this.#host.hoveredPublicationId();
+    const highlighted = this.#host.highlightedPublicationIds().has(publicationId);
     const shelfHovered = hovered && record.state.status === "shelved";
     if (hovered && !shelfHovered) record.targetScale = 1.08;
     else if (selected) record.targetScale = 1.025;
     else record.targetScale = 1;
     record.targetLift = hovered && !shelfHovered ? 0.08 : 0;
-    this.#applyBookEmissive(publicationId, record, selected, hovered);
+    this.#applyBookEmissive(publicationId, record, selected, hovered, highlighted);
     this.#host.inspection().applyInspectionLighting(record);
   }
 
@@ -450,12 +452,18 @@ export class ShopBookLifecycle {
     );
   }
 
-  #applyBookEmissive(publicationId: string, record: BookRecord, selected: boolean, hovered: boolean) {
+  #applyBookEmissive(
+    publicationId: string,
+    record: BookRecord,
+    selected: boolean,
+    hovered: boolean,
+    highlighted: boolean,
+  ) {
     const discardTargeted = publicationId === this.#host.carriedPublicationId() && this.#host.scanner().trashTargeted;
     let emissive: string | Color = "#000000";
     let emissiveIntensity = 0.2;
     if (selected) emissive = "#49231f";
-    if (hovered) {
+    if (hovered || highlighted) {
       emissive = "#a34437";
       emissiveIntensity = 0.55;
     }
