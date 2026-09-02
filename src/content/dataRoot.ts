@@ -34,6 +34,7 @@ const WORLD_SAVE_BACKUPS_DIRECTORY_NAME = "world-save-backups";
 
 export const WORLD_SAVE_FILE_NAME = "world-save.json";
 export const PUBLICATION_BLACKLIST_FILE_NAME = "publication-blacklist.json";
+export const COLLECTIONS_FILE_NAME = "collections.json";
 
 /** Optional override for the location of the unified data root. */
 export const DATA_ROOT_ENVIRONMENT_VARIABLE = "AFTERLEAF_DATA_ROOT";
@@ -86,6 +87,7 @@ export const libraryPackDirectory = dataRootChild(
 export const worldSavePath = dataRootChild(GAME_DIRECTORY_NAME, WORLD_SAVE_FILE_NAME);
 export const worldSaveBackupsDirectory = dataRootChild(GAME_DIRECTORY_NAME, WORLD_SAVE_BACKUPS_DIRECTORY_NAME);
 export const publicationBlacklistPath = dataRootChild(GAME_DIRECTORY_NAME, PUBLICATION_BLACKLIST_FILE_NAME);
+export const collectionsPath = dataRootChild(GAME_DIRECTORY_NAME, COLLECTIONS_FILE_NAME);
 
 /** Internal registries and diagnostics. */
 export const libraryRootRegistryPath = dataRootChild(
@@ -126,6 +128,8 @@ game/           App state. Normally you never need to open this folder.
   world-save.json         Your world and shelf layout. Back this up!
   world-save-backups/     Automatic periodic backups of the world save.
   publication-blacklist.json  Books you told Afterleaf to discard.
+  collections.json        Your named book collections.
+  collections-backup/     Automatic snapshots of your collection file.
   .cache/                 Fully regenerable optimized files. Safe to delete
                           to reclaim disk space (a rescan rebuilds it):
     prepared/   Import manifests and cover thumbnails for your books.

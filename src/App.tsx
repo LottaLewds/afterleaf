@@ -3,15 +3,18 @@ import {
   FiBookOpen,
   FiClock,
   FiCommand,
+  FiCrosshair,
   FiDownload,
   FiGrid,
   FiMenu,
+  FiPlus,
   FiRefreshCw,
   FiSearch,
   FiSettings,
   FiShield,
   FiSliders,
   FiTool,
+  FiTrash2,
   FiX,
 } from "solid-icons/fi";
 import {
@@ -29,13 +32,16 @@ import {
 } from "solid-js";
 import {loadShortcuts, saveShortcuts, type ShortcutsConfig} from "~/game/input/bindings";
 
-import {emptyLibrary, isRuntimeLibraryAvailable, loadRuntimeLibrary} from "~/catalog";
+import {emptyLibrary, isRuntimeLibraryAvailable, loadRuntimeLibrary, type CatalogItem} from "~/catalog";
 import {
   BrowserLibraryOperationError,
   blacklistPublication,
+  createCollection,
+  deleteCollection,
   fetchMorePublications,
   loadActiveLibraryJob,
   loadBlacklistedPublications,
+  loadCollections,
   loadLibraryOperationStatus,
   loadLibraryProviders,
   loadLibrarySourceStatus,
@@ -44,9 +50,11 @@ import {
   loadLibraryConfig,
   reenrollLibraryRoot,
   saveLibraryConfig,
+  updateCollection,
   type LocalLibraryJob,
   type LocalLibrarySnapshotResult,
 } from "~/content/libraryUpdate/browserClient";
+import type {LibraryCollection} from "~/content/libraryUpdate/httpProtocol";
 import type {LibraryProviderDescriptor} from "~/content/providers/types";
 import {
   loadPadMappingOverrides,
@@ -63,6 +71,9 @@ import {LibraryUpdateDialog} from "~/components/library/LibraryUpdateDialog";
 import {LibraryActivityToast} from "~/components/library/LibraryActivityToast";
 import {LibraryCard} from "~/components/library/LibraryCard";
 import {DetailPanel} from "~/components/library/DetailPanel";
+import {CoverContextMenu} from "~/components/library/CoverContextMenu";
+import {CollectionContextMenu} from "~/components/library/CollectionContextMenu";
+import {DeleteCollectionDialog} from "~/components/library/DeleteCollectionDialog";
 import {languageLabels, type LanguageFilter} from "~/components/library/languageLabels";
 import {GlobalEscapeShortcuts} from "~/components/GlobalEscapeShortcuts";
 import {bookLocationKeys, configLocationsChanged, visualMediaLocationKeys} from "~/components/locations/locationKinds";
@@ -81,6 +92,8 @@ type LibraryOperation = "fetch-more" | "scan";
 type LibraryScanMode = "quick" | "repair";
 type LibraryUpdateStage = "loading-library" | "working";
 type MenuTab = "library" | "options" | "shortcuts";
+
+const EMPTY_HIGHLIGHTED_PUBLICATION_IDS: readonly string[] = [];
 
 const ShopViewport = lazy(async () => {
   const module = await import("~/components/ShopViewport");
@@ -104,6 +117,13 @@ export const App = () => {
     void loadLibraryConfig()
       .then(setLibraryConfig)
       .catch(() => {});
+    void loadCollections()
+      .then(setCollections)
+      .catch((error) => {
+        const message = error instanceof Error ? error.message : "The collection data could not be loaded.";
+        setCollectionError(`Could not load collections: ${message}`);
+        console.error("Could not load collections", error);
+      });
   });
   const updateLibraryConfig = async (config: AfterleafLibraryConfig) => {
     const previousConfig = libraryConfig();
@@ -156,6 +176,8 @@ export const App = () => {
   const [libraryRepairOpen, setLibraryRepairOpen] = createSignal(false);
   const [unstuckRequest, setUnstuckRequest] = createSignal(0);
   const [selectedId, setSelectedId] = createSignal("");
+  const [selectedPublicationIds, setSelectedPublicationIds] = createSignal<ReadonlySet<string>>(new Set());
+  const [lastSelectedId, setLastSelectedId] = createSignal<string | null>(null);
   const [mobileDetailOpen, setMobileDetailOpen] = createSignal(false);
   const [bookmarks, setBookmarks] = createSignal(loadReaderBookmarks());
   const [libraryUpdateNotice, setLibraryUpdateNotice] = createSignal<string>();
@@ -195,6 +217,27 @@ export const App = () => {
     initialControlPreferences.respectBookReadingDirection,
   );
   const [blacklistedTags, setBlacklistedTags] = createSignal(loadTagBlacklist());
+  const [collections, setCollections] = createSignal<readonly LibraryCollection[]>([]);
+  const [selectedCollectionId, setSelectedCollectionId] = createSignal<string | null>(null);
+  const [editingCollectionId, setEditingCollectionId] = createSignal<string | null>(null);
+  const [editingCollectionName, setEditingCollectionName] = createSignal("");
+  const [highlightedPublicationIds, setHighlightedPublicationIds] = createSignal<readonly string[]>([]);
+  const [highlightedCollectionId, setHighlightedCollectionId] = createSignal<string | null>(null);
+  const [searchHighlightEnabled, setSearchHighlightEnabled] = createSignal(false);
+  const [contextMenu, setContextMenu] = createSignal<{item: CatalogItem; x: number; y: number} | null>(null);
+  const [collectionContextMenu, setCollectionContextMenu] = createSignal<{
+    collectionId: string;
+    x: number;
+    y: number;
+  } | null>(null);
+  const [collectionDialogOpen, setCollectionDialogOpen] = createSignal(false);
+  const [collectionDeleteId, setCollectionDeleteId] = createSignal<string | null>(null);
+  const [collectionDialogInitialPublicationIds, setCollectionDialogInitialPublicationIds] = createSignal<
+    readonly string[] | undefined
+  >(undefined);
+  const [newCollectionName, setNewCollectionName] = createSignal("");
+  const [collectionMutationBusy, setCollectionMutationBusy] = createSignal(false);
+  const [collectionError, setCollectionError] = createSignal<string>();
   const [runtimeLibraryRefresh, setRuntimeLibraryRefresh] = createSignal(0, {equals: false});
   const runtimeLibrary = createMemo(
     () => {
@@ -338,19 +381,121 @@ export const App = () => {
     return libraryUpdateProgressMessage();
   };
 
+  const selectedCollection = createMemo(() =>
+    collections().find((collection) => collection.id === selectedCollectionId()),
+  );
+  const collectionPendingDelete = createMemo(() => {
+    const collectionId = collectionDeleteId();
+    return collectionId ? collections().find((collection) => collection.id === collectionId) : undefined;
+  });
+  const collectionContextMenuTarget = createMemo(() => {
+    const context = collectionContextMenu();
+    return context ? collections().find((collection) => collection.id === context.collectionId) : undefined;
+  });
+
+  const collectionNamesByPublicationId = createMemo(() => {
+    const namesByPublicationId = new Map<string, string[]>();
+    for (const collection of collections()) {
+      for (const publicationId of collection.publicationIds) {
+        const names = namesByPublicationId.get(publicationId);
+        if (names) names.push(collection.name);
+        else namesByPublicationId.set(publicationId, [collection.name]);
+      }
+    }
+    return namesByPublicationId;
+  });
+
   const filteredCatalog = createMemo(() => {
     const tokens = queryTokens();
+    const selectedLanguage = language();
+    const selectedTag = tag();
+    const collection = selectedCollection();
+    const collectionPublicationIds = collection ? new Set(collection.publicationIds) : undefined;
+    const namesByPublicationId = collectionNamesByPublicationId();
     return library().filter((item) => {
-      if (language() !== "all" && item.language !== language()) return false;
-      const selectedTag = tag();
+      if (selectedLanguage !== "all" && item.language !== selectedLanguage) return false;
       if (selectedTag && !item.tags.includes(selectedTag)) return false;
-      return tokens.every((token) =>
-        [item.title, item.titleJp, item.collection, ...item.tags].some((value) => value.toLowerCase().includes(token)),
-      );
+      if (collectionPublicationIds && !collectionPublicationIds.has(item.id)) return false;
+      const userCollectionNames = namesByPublicationId.get(item.id) ?? [];
+      return tokens.every((token) => {
+        if (item.title.toLowerCase().includes(token)) return true;
+        if (item.titleJp.toLowerCase().includes(token)) return true;
+        if (item.collection.toLowerCase().includes(token)) return true;
+        if (item.tags.some((itemTag) => itemTag.toLowerCase().includes(token))) return true;
+        return userCollectionNames.some((name) => name.toLowerCase().includes(token));
+      });
     });
   });
 
+  const activeHighlightedPublicationIds = createMemo(() => {
+    if (!searchHighlightEnabled()) return highlightedPublicationIds();
+    if (queryTokens().length === 0) return EMPTY_HIGHLIGHTED_PUBLICATION_IDS;
+    return filteredCatalog().map((item) => item.id);
+  });
+  const highlightMessage = createMemo(() => {
+    const highlightedCount = activeHighlightedPublicationIds().length;
+    if (searchHighlightEnabled())
+      return `Highlighting ${highlightedCount} search match${highlightedCount === 1 ? "" : "es"}`;
+    const collectionId = highlightedCollectionId();
+    if (collectionId) {
+      const collection = collections().find((candidate) => candidate.id === collectionId);
+      return `Highlighting collection "${collection?.name ?? ""}"`;
+    }
+    return `Highlighting ${highlightedCount} book${highlightedCount === 1 ? "" : "s"}`;
+  });
+
   const selectedItem = createMemo(() => library().find((item) => item.id === selectedId()) ?? library()[0]);
+
+  createEffect(
+    () => [library(), selectedId()] as const,
+    ([items, selectedPublicationId]) => {
+      if (items.length === 0 || (selectedPublicationId && items.some((item) => item.id === selectedPublicationId)))
+        return;
+      const firstItem = items[0];
+      if (!firstItem) return;
+      setSelectedId(firstItem.id);
+      setSelectedPublicationIds(new Set([firstItem.id]));
+      setLastSelectedId(firstItem.id);
+    },
+  );
+
+  const handleSelectCard = (item: CatalogItem, event: MouseEvent) => {
+    const items = filteredCatalog();
+    const index = items.findIndex((candidate) => candidate.id === item.id);
+    if (index < 0) return;
+
+    if (event.ctrlKey || event.metaKey) {
+      setSelectedPublicationIds((current) => {
+        const next = new Set(current);
+        if (next.has(item.id)) next.delete(item.id);
+        else next.add(item.id);
+        return next;
+      });
+      setSelectedId(item.id);
+      setLastSelectedId(item.id);
+      return;
+    }
+
+    if (event.shiftKey && lastSelectedId()) {
+      const anchorIndex = items.findIndex((candidate) => candidate.id === lastSelectedId());
+      const start = Math.min(anchorIndex < 0 ? index : anchorIndex, index);
+      const end = Math.max(anchorIndex < 0 ? index : anchorIndex, index);
+      setSelectedPublicationIds((current) => {
+        const next = new Set(current);
+        for (let i = start; i <= end; i++) {
+          const rangeItem = items[i];
+          if (rangeItem) next.add(rangeItem.id);
+        }
+        return next;
+      });
+      setSelectedId(item.id);
+      return;
+    }
+
+    setSelectedPublicationIds(new Set([item.id]));
+    setSelectedId(item.id);
+    setLastSelectedId(item.id);
+  };
 
   const recordLibraryResult = async (
     result: LocalLibrarySnapshotResult,
@@ -656,6 +801,145 @@ export const App = () => {
     return true;
   };
 
+  const refreshCollections = async () => {
+    const nextCollections = await loadCollections();
+    setCollections(nextCollections);
+  };
+
+  const runCollectionMutation = async <T,>(label: string, mutation: () => Promise<T>): Promise<T | undefined> => {
+    if (collectionMutationBusy()) return;
+    setCollectionMutationBusy(true);
+    try {
+      const result = await mutation();
+      setCollectionError(undefined);
+      return result;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "The collection operation failed.";
+      setCollectionError(`${label}: ${message}`);
+    } finally {
+      setCollectionMutationBusy(false);
+    }
+  };
+
+  const openCollectionDialog = (publicationIds?: readonly string[]) => {
+    setCollectionError(undefined);
+    setCollectionDialogInitialPublicationIds(publicationIds);
+    setNewCollectionName("");
+    setCollectionDialogOpen(true);
+  };
+
+  const closeCollectionDialog = () => {
+    if (collectionMutationBusy()) return;
+    setCollectionDialogOpen(false);
+    setCollectionDialogInitialPublicationIds(undefined);
+    setNewCollectionName("");
+  };
+
+  const openCollectionDeleteDialog = (collectionId: string) => {
+    if (collectionMutationBusy()) return;
+    setCollectionError(undefined);
+    setCollectionDeleteId(collectionId);
+  };
+
+  const closeCollectionDeleteDialog = () => {
+    if (collectionMutationBusy()) return;
+    setCollectionDeleteId(null);
+  };
+
+  const openCollectionContextMenu = (event: MouseEvent, collectionId: string) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setContextMenu(null);
+    setCollectionContextMenu({collectionId, x: event.clientX, y: event.clientY});
+  };
+
+  const closeCollectionContextMenu = () => setCollectionContextMenu(null);
+
+  const confirmCreateCollection = async () => {
+    const name = newCollectionName().trim();
+    if (!name) return;
+    const publicationIds = collectionDialogInitialPublicationIds();
+    const created = await runCollectionMutation("Could not create collection", async () => {
+      const collection = await createCollection(name, publicationIds ? [...new Set(publicationIds)] : []);
+      await refreshCollections();
+      return collection;
+    });
+    if (!created) return;
+    closeCollectionDialog();
+  };
+
+  const handleAddToCollection = async (publicationIds: readonly string[], collectionId: string) => {
+    const collection = collections().find((candidate) => candidate.id === collectionId);
+    if (!collection) return;
+    await runCollectionMutation("Could not update collection", async () => {
+      await updateCollection(collectionId, {addPublicationIds: [...new Set(publicationIds)]});
+      await refreshCollections();
+    });
+  };
+
+  const handleRemoveFromCollection = async (publicationIds: readonly string[], collectionId: string) => {
+    const collection = collections().find((candidate) => candidate.id === collectionId);
+    if (!collection) return;
+    const idsToRemove = new Set(publicationIds);
+    await runCollectionMutation("Could not update collection", async () => {
+      await updateCollection(collectionId, {removePublicationIds: [...idsToRemove]});
+      await refreshCollections();
+    });
+  };
+
+  const handleDeleteCollection = async (collectionId: string) => {
+    const selected = selectedCollectionId() === collectionId;
+    const highlighted = highlightedCollectionId() === collectionId;
+    return runCollectionMutation("Could not delete collection", async () => {
+      await deleteCollection(collectionId);
+      if (selected) setSelectedCollectionId(null);
+      if (highlighted) {
+        setHighlightedCollectionId(null);
+        setHighlightedPublicationIds([]);
+      }
+      await refreshCollections();
+      return true;
+    });
+  };
+
+  const confirmDeleteCollection = async () => {
+    const collectionId = collectionDeleteId();
+    if (!collectionId) return;
+    if (await handleDeleteCollection(collectionId)) setCollectionDeleteId(null);
+  };
+
+  const handleRenameCollection = async (collectionId: string, name: string) => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    const collection = collections().find((candidate) => candidate.id === collectionId);
+    if (!collection || collection.name === trimmed) return;
+    await runCollectionMutation("Could not rename collection", async () => {
+      await updateCollection(collectionId, {name: trimmed});
+      await refreshCollections();
+    });
+  };
+
+  const handleHighlightPublications = (publicationIds: readonly string[], collectionId?: string | null) => {
+    setSearchHighlightEnabled(false);
+    setHighlightedPublicationIds([...new Set(publicationIds)]);
+    setHighlightedCollectionId(collectionId ?? null);
+  };
+
+  const handleClearHighlight = () => {
+    setSearchHighlightEnabled(false);
+    setHighlightedPublicationIds([]);
+    setHighlightedCollectionId(null);
+  };
+
+  const toggleSearchHighlight = () => {
+    const enabled = !searchHighlightEnabled();
+    setSearchHighlightEnabled(enabled);
+    if (enabled) {
+      setHighlightedPublicationIds([]);
+      setHighlightedCollectionId(null);
+    }
+  };
+
   const purgeBlacklistedWorks = async () => {
     const candidates = blacklistedTagWorkCandidates();
     if (candidates.length === 0 || libraryUpdating() || unavailableBookPathCount() > 0) return;
@@ -826,6 +1110,7 @@ export const App = () => {
                     catalogAvailable={() => isRuntimeLibraryAvailable(runtime())}
                     catalogIdentity={() => runtime().identity}
                     gamepadLookSensitivity={gamepadLookSensitivity}
+                    highlightedPublicationIds={activeHighlightedPublicationIds}
                     mouseSensitivity={mouseSensitivity}
                     newPublicationIds={newPublicationIds}
                     onControlsChange={(controls) => {
@@ -848,6 +1133,8 @@ export const App = () => {
                     }
                     onSelectPublication={(publicationId) => {
                       setSelectedId(publicationId);
+                      setSelectedPublicationIds(new Set([publicationId]));
+                      setLastSelectedId(publicationId);
                     }}
                   />
                 )}
@@ -868,6 +1155,41 @@ export const App = () => {
                 setLibraryUpdateNotice(undefined);
               }}
             />
+
+            <Show when={collectionError()}>
+              {(error) => (
+                <aside
+                  class="fixed right-4 bottom-4 z-[60] flex max-w-[min(32rem,calc(100vw-2rem))] items-start gap-3 border border-[#d94c3f]/60 bg-[#250d0b]/95 px-4 py-3 text-[#ff796c] shadow-[0_16px_50px_#000b] backdrop-blur-md"
+                  role="alert"
+                >
+                  <FiAlertTriangle size={16} style={{"margin-top": "0.125rem", "flex-shrink": "0"}} />
+                  <p class="text-[11px] leading-5">{error()}</p>
+                  <button
+                    class="ml-1 shrink-0 text-[10px] font-semibold tracking-wide uppercase hover:text-white"
+                    onClick={() => setCollectionError(undefined)}
+                    type="button"
+                  >
+                    Dismiss
+                  </button>
+                </aside>
+              )}
+            </Show>
+
+            <Show when={activeHighlightedPublicationIds().length > 0}>
+              <aside
+                class="fixed top-4 right-4 z-40 flex items-center gap-3 border border-[#f5c542]/60 bg-[#2a2310]/95 px-4 py-2.5 text-[#f5c542] shadow-[0_16px_50px_#000b] backdrop-blur-md"
+                aria-live="polite"
+              >
+                <FiCrosshair size={14} style={{"flex-shrink": "0"}} />
+                <p class="text-[11px] leading-4">{highlightMessage()}</p>
+                <button
+                  class="ml-2 text-[10px] font-semibold tracking-wide uppercase hover:text-white"
+                  onClick={handleClearHighlight}
+                >
+                  Clear
+                </button>
+              </aside>
+            </Show>
 
             <Show when={unavailableBookPathCount()}>
               {(count) => (
@@ -1079,6 +1401,122 @@ export const App = () => {
                         </button>
                       </div>
 
+                      <p class="mt-9 px-2 text-[9px] font-bold tracking-[0.2em] text-[#59645f] uppercase">
+                        Collections
+                      </p>
+                      <div class="mt-4 space-y-1">
+                        <For each={collections()}>
+                          {(collection) => (
+                            <div
+                              class={[
+                                "group flex w-full items-center gap-2 px-3 py-2.5 text-xs transition",
+                                {
+                                  "bg-[#1c2523] font-semibold text-[#ece8dd]": selectedCollectionId() === collection.id,
+                                  "text-[#7d8883] hover:bg-white/[0.025] hover:text-[#cbd0cc]":
+                                    selectedCollectionId() !== collection.id,
+                                },
+                              ]}
+                            >
+                              <Show
+                                when={editingCollectionId() === collection.id}
+                                fallback={
+                                  <button
+                                    class="flex min-w-0 flex-1 items-center gap-2 text-left"
+                                    aria-pressed={selectedCollectionId() === collection.id ? "true" : "false"}
+                                    disabled={collectionMutationBusy()}
+                                    onClick={() =>
+                                      setSelectedCollectionId((current) =>
+                                        current === collection.id ? null : collection.id,
+                                      )
+                                    }
+                                    onContextMenu={(event) => {
+                                      openCollectionContextMenu(event, collection.id);
+                                    }}
+                                    title="Right-click for collection actions&#10;Double-click to rename"
+                                    type="button"
+                                  >
+                                    <span
+                                      class="size-2 shrink-0 rounded-full"
+                                      style={{"background-color": collection.color ?? "#d94c3f"}}
+                                    />
+                                    <span
+                                      class="truncate"
+                                      onDblClick={(event) => {
+                                        event.stopPropagation();
+                                        setEditingCollectionId(collection.id);
+                                        setEditingCollectionName(collection.name);
+                                      }}
+                                    >
+                                      {collection.name}
+                                    </span>
+                                  </button>
+                                }
+                              >
+                                <span
+                                  class="size-2 shrink-0 rounded-full"
+                                  style={{"background-color": collection.color ?? "#d94c3f"}}
+                                />
+                                <input
+                                  ref={(element) => {
+                                    queueMicrotask(() => {
+                                      if (editingCollectionId() !== collection.id || !element.isConnected) return;
+                                      element.focus();
+                                      element.select();
+                                    });
+                                  }}
+                                  class="min-w-0 flex-1 border border-[#70a28b]/60 bg-[#0f1615] px-1.5 py-0.5 text-xs text-[#ece8dd] ring-1 ring-[#70a28b]/30 outline-none"
+                                  value={editingCollectionName()}
+                                  onInput={(event) => setEditingCollectionName(event.currentTarget.value)}
+                                  onKeyDown={(event) => {
+                                    if (event.key === "Enter") {
+                                      event.preventDefault();
+                                      void handleRenameCollection(collection.id, editingCollectionName());
+                                      setEditingCollectionId(null);
+                                    } else if (event.key === "Escape") {
+                                      event.preventDefault();
+                                      setEditingCollectionId(null);
+                                    }
+                                  }}
+                                  onBlur={() => {
+                                    if (editingCollectionId() === collection.id) {
+                                      void handleRenameCollection(collection.id, editingCollectionName());
+                                    }
+                                    setEditingCollectionId(null);
+                                  }}
+                                  onClick={(event) => event.stopPropagation()}
+                                  onDblClick={(event) => event.stopPropagation()}
+                                  type="text"
+                                />
+                              </Show>
+                              <span class="ml-auto text-[10px] text-[#7c8681]">
+                                {String(collection.publicationIds.length).padStart(2, "0")}
+                              </span>
+                              <button
+                                class="ml-1 opacity-0 transition group-hover:opacity-100"
+                                aria-label={`Delete collection ${collection.name}`}
+                                disabled={collectionMutationBusy()}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  openCollectionDeleteDialog(collection.id);
+                                }}
+                                title="Delete collection"
+                                type="button"
+                              >
+                                <FiTrash2 size={12} />
+                              </button>
+                            </div>
+                          )}
+                        </For>
+                        <button
+                          class="flex w-full items-center gap-3 px-3 py-2.5 text-xs text-[#7d8883] transition hover:bg-white/[0.025] hover:text-[#cbd0cc]"
+                          disabled={collectionMutationBusy()}
+                          onClick={() => openCollectionDialog()}
+                          type="button"
+                        >
+                          <FiPlus size={14} /> New collection
+                        </button>
+                      </div>
+
                       <div class="mt-auto border-t border-white/8 pt-5">
                         <div class="flex items-center gap-3 px-2">
                           <span class="grid size-8 place-items-center rounded-full bg-[#24312e] text-[#789488]">
@@ -1141,10 +1579,44 @@ export const App = () => {
                             placeholder="Search title, collection, or tag…"
                           />
                           <Show when={query()}>
-                            <button class="hover:text-white" aria-label="Clear search" onClick={() => setQuery("")}>
+                            <button
+                              class="hover:text-white"
+                              aria-label="Clear search"
+                              onClick={() => setQuery("")}
+                              type="button"
+                            >
                               <FiX size={13} />
                             </button>
                           </Show>
+                          <button
+                            class={[
+                              "shrink-0 transition disabled:cursor-not-allowed disabled:opacity-30",
+                              {
+                                "text-[#f5c542]": searchHighlightEnabled(),
+                                "text-[#65706c] hover:text-[#f5c542]": !searchHighlightEnabled(),
+                              },
+                            ]}
+                            aria-label={
+                              searchHighlightEnabled()
+                                ? "Stop highlighting search matches"
+                                : "Highlight search matches in shop"
+                            }
+                            aria-pressed={searchHighlightEnabled() ? "true" : "false"}
+                            disabled={!searchHighlightEnabled() && queryTokens().length === 0}
+                            onClick={(event) => {
+                              event.preventDefault();
+                              event.stopPropagation();
+                              toggleSearchHighlight();
+                            }}
+                            title={
+                              queryTokens().length === 0
+                                ? "Enter a search to highlight matches"
+                                : "Highlight search matches in shop"
+                            }
+                            type="button"
+                          >
+                            <FiCrosshair size={13} />
+                          </button>
                         </label>
                         <div class="flex h-10 items-center gap-1 overflow-x-auto bg-[#19211f] p-1">
                           <FiSliders
@@ -1203,6 +1675,23 @@ export const App = () => {
                         </For>
                       </div>
 
+                      <Show when={selectedCollection()}>
+                        {(collection) => (
+                          <div class="mt-4 flex items-center gap-2">
+                            <span class="flex items-center gap-2 border border-[#d64e42] bg-[#d64e42]/10 px-3 py-1.5 text-[9px] font-semibold tracking-wide text-[#e46a60] uppercase">
+                              Collection · {collection().name}
+                              <button
+                                class="hover:text-white"
+                                aria-label="Clear collection filter"
+                                onClick={() => setSelectedCollectionId(null)}
+                              >
+                                <FiX size={11} />
+                              </button>
+                            </span>
+                          </div>
+                        )}
+                      </Show>
+
                       <div class="mt-5 flex items-center justify-between border-b border-white/8 pb-4">
                         <p class="text-[9px] leading-4 text-[#5f6a66]">
                           Inspect the catalog here, then press Tab to return to the shop floor.
@@ -1235,6 +1724,7 @@ export const App = () => {
                                     setQuery("");
                                     setTag(null);
                                     setLanguage("all");
+                                    setSelectedCollectionId(null);
                                   }}
                                 >
                                   Clear filters
@@ -1245,16 +1735,24 @@ export const App = () => {
                         >
                           <div class="shelf-grid grid grid-cols-2 gap-x-4 gap-y-12 sm:grid-cols-3 md:grid-cols-4 2xl:grid-cols-5">
                             <For each={filteredCatalog()}>
-                              {(item) => (
-                                <LibraryCard
-                                  item={item}
-                                  active={selectedItem()?.id === item.id}
-                                  onSelect={() => {
-                                    setSelectedId(item.id);
-                                    setMobileDetailOpen(true);
-                                  }}
-                                />
-                              )}
+                              {(item) => {
+                                const selected = () => selectedPublicationIds().has(item.id);
+                                return (
+                                  <LibraryCard
+                                    item={item}
+                                    active={selected()}
+                                    multiSelected={selected() && selectedPublicationIds().size > 1}
+                                    onSelect={(event) => {
+                                      handleSelectCard(item, event);
+                                      if (!event.ctrlKey && !event.metaKey && !event.shiftKey)
+                                        setMobileDetailOpen(true);
+                                    }}
+                                    onContextMenu={(event) =>
+                                      setContextMenu({item, x: event.clientX, y: event.clientY})
+                                    }
+                                  />
+                                );
+                              }}
                             </For>
                           </div>
                         </Show>
@@ -1319,6 +1817,47 @@ export const App = () => {
                   </div>
                 </div>
               </div>
+            </Show>
+
+            <Show when={contextMenu()}>
+              {(menu) => (
+                <CoverContextMenu
+                  anchor={{x: menu().x, y: menu().y}}
+                  collections={collections}
+                  item={menu().item}
+                  selectedCollectionId={selectedCollectionId}
+                  selectedIds={selectedPublicationIds}
+                  onClose={() => setContextMenu(null)}
+                  onNewCollection={(_item, publicationIds) => openCollectionDialog(publicationIds)}
+                  onAddToCollection={(publicationIds, collectionId) =>
+                    void handleAddToCollection(publicationIds, collectionId)
+                  }
+                  onRemoveFromCollection={(publicationIds, collectionId) =>
+                    void handleRemoveFromCollection(publicationIds, collectionId)
+                  }
+                  onHighlight={(publicationIds) => handleHighlightPublications(publicationIds)}
+                />
+              )}
+            </Show>
+
+            <Show when={collectionContextMenu()}>
+              {(menu) => (
+                <Show when={collectionContextMenuTarget()}>
+                  {(collection) => (
+                    <CollectionContextMenu
+                      anchor={{x: menu().x, y: menu().y}}
+                      collection={collection()}
+                      onClose={closeCollectionContextMenu}
+                      onDelete={() => openCollectionDeleteDialog(collection().id)}
+                      onHighlight={() => handleHighlightPublications(collection().publicationIds, collection().id)}
+                      onRename={() => {
+                        setEditingCollectionId(collection().id);
+                        setEditingCollectionName(collection().name);
+                      }}
+                    />
+                  )}
+                </Show>
+              )}
             </Show>
 
             <Show when={mobileDetailOpen()}>
@@ -1388,6 +1927,82 @@ export const App = () => {
                   saveLibraryProviderPreference(providerId);
                 }}
               />
+            </Show>
+
+            <Show when={collectionDialogOpen()}>
+              <div
+                class="fixed inset-0 z-50 grid place-items-center bg-[#07100f]/78 p-4 backdrop-blur-sm"
+                role="dialog"
+                aria-modal="true"
+                aria-label="Create collection"
+                onClick={closeCollectionDialog}
+              >
+                <form
+                  class="w-full max-w-md border border-white/12 bg-[#101716] shadow-[0_30px_100px_#000]"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    void confirmCreateCollection();
+                  }}
+                  onClick={(event) => event.stopPropagation()}
+                >
+                  <header class="flex items-start gap-4 border-b border-white/8 px-5 py-4">
+                    <div class="min-w-0">
+                      <p class="text-[9px] font-bold tracking-[0.2em] text-[#d05b50] uppercase">Collection</p>
+                      <h2 class="mt-1 font-serif text-xl text-[#eee8dc]">Create new collection</h2>
+                    </div>
+                    <button
+                      class="ml-auto grid size-9 shrink-0 place-items-center text-[#87938e] transition hover:bg-white/5 hover:text-white"
+                      aria-label="Close collection dialog"
+                      disabled={collectionMutationBusy()}
+                      type="button"
+                      onClick={closeCollectionDialog}
+                    >
+                      <FiX size={17} />
+                    </button>
+                  </header>
+                  <div class="space-y-4 px-5 py-5">
+                    <label class="block">
+                      <span class="text-[9px] font-bold tracking-[0.14em] text-[#8f9b96] uppercase">Name</span>
+                      <input
+                        class="mt-2 h-11 w-full border border-white/12 bg-[#0a1110] px-3 text-sm text-[#f0ebdf] transition outline-none placeholder:text-[#4f5b57] focus:border-[#c7554b]"
+                        value={newCollectionName()}
+                        onInput={(event) => setNewCollectionName(event.currentTarget.value)}
+                        placeholder="Late night reads"
+                        maxlength={100}
+                        autofocus
+                      />
+                    </label>
+                  </div>
+                  <footer class="flex items-center justify-end gap-2 border-t border-white/8 px-5 py-4">
+                    <button
+                      class="h-10 px-4 text-[10px] font-bold tracking-[0.08em] text-[#98a39e] uppercase transition hover:bg-white/5 hover:text-white"
+                      disabled={collectionMutationBusy()}
+                      type="button"
+                      onClick={closeCollectionDialog}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      class="flex h-10 items-center gap-2 bg-[#ece6d8] px-4 text-[10px] font-bold tracking-[0.08em] text-[#17201e] uppercase transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-40"
+                      disabled={collectionMutationBusy() || newCollectionName().trim().length === 0}
+                      type="submit"
+                    >
+                      {collectionMutationBusy() ? "Saving…" : "Create"}
+                    </button>
+                  </footer>
+                </form>
+              </div>
+            </Show>
+
+            <Show when={collectionPendingDelete()}>
+              {(collection) => (
+                <DeleteCollectionDialog
+                  busy={collectionMutationBusy()}
+                  collectionName={collection().name}
+                  onCancel={closeCollectionDeleteDialog}
+                  onConfirm={() => void confirmDeleteCollection()}
+                />
+              )}
             </Show>
           </div>
         </Show>

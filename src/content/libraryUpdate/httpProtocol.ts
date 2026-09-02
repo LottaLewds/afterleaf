@@ -13,6 +13,7 @@ export const LIBRARY_ROOT_ENROLL_ENDPOINT = "/api/library/root-enroll";
 export const LIBRARY_BROWSE_ENDPOINT = "/api/library/browse";
 export const LIBRARY_ROMS_ENDPOINT = "/api/library/roms";
 export const LIBRARY_ROM_FILE_ENDPOINT = "/api/library/roms/file";
+export const LIBRARY_COLLECTIONS_ENDPOINT = "/api/library/collections";
 export const MAX_LIBRARY_OPERATION_BODY_BYTES = 64 * 1_024;
 export const MAX_LIBRARY_OPERATION_RESPONSE_BYTES = 1024 * 1_024;
 export const DEFAULT_LIBRARY_FETCH_LIMIT = 20;
@@ -27,7 +28,12 @@ const MAX_PASTED_TEXT_LENGTH = 16_384;
 const MAX_BLOCKED_TAG_COUNT = 100;
 const MAX_BLOCKED_TAG_LENGTH = 100;
 const MAX_RESPONSE_STRING_LENGTH = 2_048;
+const MAX_COLLECTION_COUNT = 200;
+const MAX_COLLECTION_NAME_LENGTH = 100;
+const MAX_PUBLICATION_IDS_PER_COLLECTION = 10_000;
+const MAX_TOTAL_COLLECTION_PUBLICATION_IDS = 100_000;
 const JOB_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
+const COLLECTION_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 const PUBLICATION_ID_PATTERN = /^[a-z0-9][a-z0-9._-]{0,199}$/u;
 const PROVIDER_ID_PATTERN = /^[a-z][a-z0-9-]{0,63}$/u;
 
@@ -95,6 +101,40 @@ export type LibraryBlacklistListHttpSuccess = {
   publicationIds: readonly string[];
 };
 
+export type LibraryCollection = {
+  id: string;
+  name: string;
+  createdAt: string;
+  publicationIds: readonly string[];
+  color?: string;
+};
+
+export type LibraryCollectionsListHttpSuccess = {
+  collections: readonly LibraryCollection[];
+  ok: true;
+};
+
+export type LibraryCollectionCreateHttpSuccess = {
+  collection: LibraryCollection;
+  ok: true;
+};
+
+export type LibraryCollectionUpdateHttpSuccess = {
+  collection: LibraryCollection;
+  ok: true;
+};
+
+export type LibraryCollectionDeleteHttpSuccess = {
+  ok: true;
+};
+
+export type LibraryCollectionsHttpResponse =
+  | LibraryCollectionsListHttpSuccess
+  | LibraryCollectionCreateHttpSuccess
+  | LibraryCollectionUpdateHttpSuccess
+  | LibraryCollectionDeleteHttpSuccess
+  | LibraryOperationHttpFailure;
+
 export type LibraryOperationHttpFailure = {
   error: {
     code: string;
@@ -134,6 +174,7 @@ export type LibraryOperationStatusHttpSuccess =
 export type LibraryOperationHttpResponse =
   | LibraryBlacklistHttpSuccess
   | LibraryBlacklistListHttpSuccess
+  | LibraryCollectionsHttpResponse
   | LibraryOperationHttpFailure
   | LibraryOperationStartHttpSuccess
   | LibraryOperationStatusHttpSuccess
@@ -492,6 +533,178 @@ export const parseLibraryBlacklistListHttpResponse = (
   if (new Set(publicationIds).size !== publicationIds.length)
     throw new Error("Library blacklist-list response contains duplicate IDs");
   return {ok: true, publicationIds};
+};
+
+const collectionId = (value: unknown, field = "id") => {
+  if (typeof value !== "string" || !COLLECTION_ID_PATTERN.test(value))
+    throw new Error(`${field} must be a collection UUID`);
+  return value.toLowerCase();
+};
+
+const collectionName = (value: unknown, field = "name") => {
+  if (typeof value !== "string" || value.trim().length === 0 || value.length > MAX_COLLECTION_NAME_LENGTH)
+    throw new Error(`${field} must be a non-empty string of at most ${MAX_COLLECTION_NAME_LENGTH} characters`);
+  return value.trim();
+};
+
+const collectionCreatedAt = (value: unknown, field = "createdAt") => {
+  if (typeof value !== "string" || !Number.isFinite(Date.parse(value)))
+    throw new Error(`${field} must be a valid date`);
+  return value;
+};
+
+const collectionColor = (value: unknown, field = "color") => {
+  if (value === undefined) return undefined;
+  if (typeof value !== "string" || !/^#[0-9a-fA-F]{6}$/u.test(value))
+    throw new Error(`${field} must be a 6-digit hex color`);
+  return value.toLowerCase();
+};
+
+const parseCollection = (value: unknown, index: number): LibraryCollection => {
+  if (!isRecord(value)) throw new Error(`collections[${index}] must be an object`);
+  const field = (name: string) => `collections[${index}].${name}`;
+  const id = collectionId(value.id, field("id"));
+  const name = collectionName(value.name, field("name"));
+  const createdAt = collectionCreatedAt(value.createdAt, field("createdAt"));
+  const color = collectionColor(value.color, field("color"));
+  if (!Array.isArray(value.publicationIds)) throw new Error(`${field("publicationIds")} must be an array`);
+  if (value.publicationIds.length > MAX_PUBLICATION_IDS_PER_COLLECTION)
+    throw new Error(`${field("publicationIds")} must contain at most ${MAX_PUBLICATION_IDS_PER_COLLECTION} IDs`);
+  const publicationIds = value.publicationIds.map((pid, pidIndex) =>
+    publicationId(pid, `${field("publicationIds")}[${pidIndex}]`),
+  );
+  if (new Set(publicationIds).size !== publicationIds.length)
+    throw new Error(`${field("publicationIds")} contains duplicates`);
+  return {id, name, createdAt, publicationIds, ...(color === undefined ? {} : {color})};
+};
+
+export const parseLibraryCollectionsListHttpResponse = (
+  value: unknown,
+): LibraryCollectionsListHttpSuccess | LibraryOperationHttpFailure => {
+  if (!isRecord(value)) throw new Error("Library collections response must be an object");
+  const failure = parseFailure(value);
+  if (failure) return failure;
+  if (value.ok !== true || !Array.isArray(value.collections))
+    throw new Error("Library collections list response is malformed");
+  if (value.collections.length > MAX_COLLECTION_COUNT)
+    throw new Error(`Library collections list response supports at most ${MAX_COLLECTION_COUNT} collections`);
+  const ids = new Set<string>();
+  const names = new Set<string>();
+  let totalPublicationIds = 0;
+  const collections = value.collections.map(parseCollection);
+  for (const collection of collections) {
+    if (ids.has(collection.id)) throw new Error("Library collections list response contains duplicate IDs");
+    if (names.has(collection.name.toLowerCase()))
+      throw new Error("Library collections list response contains duplicate names");
+    ids.add(collection.id);
+    names.add(collection.name.toLowerCase());
+    totalPublicationIds += collection.publicationIds.length;
+  }
+  if (totalPublicationIds > MAX_TOTAL_COLLECTION_PUBLICATION_IDS)
+    throw new Error("Library collections list response contains too many publication IDs");
+  return {collections, ok: true};
+};
+
+export const parseLibraryCollectionCreateHttpResponse = (
+  value: unknown,
+): LibraryCollectionCreateHttpSuccess | LibraryOperationHttpFailure => {
+  if (!isRecord(value)) throw new Error("Library collection create response must be an object");
+  const failure = parseFailure(value);
+  if (failure) return failure;
+  if (value.ok !== true || !isRecord(value.collection))
+    throw new Error("Library collection create response is malformed");
+  return {collection: parseCollection(value.collection, 0), ok: true};
+};
+
+export const parseLibraryCollectionUpdateHttpResponse = (
+  value: unknown,
+): LibraryCollectionUpdateHttpSuccess | LibraryOperationHttpFailure => {
+  if (!isRecord(value)) throw new Error("Library collection update response must be an object");
+  const failure = parseFailure(value);
+  if (failure) return failure;
+  if (value.ok !== true || !isRecord(value.collection))
+    throw new Error("Library collection update response is malformed");
+  return {collection: parseCollection(value.collection, 0), ok: true};
+};
+
+export const parseLibraryCollectionDeleteHttpResponse = (
+  value: unknown,
+): LibraryCollectionDeleteHttpSuccess | LibraryOperationHttpFailure => {
+  if (!isRecord(value)) throw new Error("Library collection delete response must be an object");
+  const failure = parseFailure(value);
+  if (failure) return failure;
+  if (value.ok !== true) throw new Error("Library collection delete response is malformed");
+  return {ok: true};
+};
+
+export const parseLibraryCollectionRequest = (value: unknown): {name: string; publicationIds?: readonly string[]} => {
+  const request = requireExactKeys(
+    value,
+    ["name", ...(isRecord(value) && value.publicationIds !== undefined ? ["publicationIds"] : [])],
+    "collection",
+  );
+  const name = collectionName(request.name, "name");
+  if (request.publicationIds === undefined) return {name};
+  if (!Array.isArray(request.publicationIds)) throw new Error("publicationIds must be an array");
+  if (request.publicationIds.length > MAX_PUBLICATION_IDS_PER_COLLECTION)
+    throw new Error(`publicationIds must contain at most ${MAX_PUBLICATION_IDS_PER_COLLECTION} IDs`);
+  const publicationIds = request.publicationIds.map((pid, index) => publicationId(pid, `publicationIds[${index}]`));
+  if (new Set(publicationIds).size !== publicationIds.length) throw new Error("publicationIds contains duplicates");
+  return {name, publicationIds};
+};
+
+export const parseLibraryCollectionUpdateRequest = (
+  value: unknown,
+): {
+  addPublicationIds?: readonly string[];
+  color?: string;
+  name?: string;
+  publicationIds?: readonly string[];
+  removePublicationIds?: readonly string[];
+} => {
+  const fields = ["addPublicationIds", "color", "name", "publicationIds", "removePublicationIds"] as const;
+  const request = requireExactKeys(
+    value,
+    fields.filter((field) => isRecord(value) && value[field] !== undefined),
+    "collection update",
+  );
+  if (Object.keys(request).length === 0) throw new Error("Library collection update request must contain a change");
+  const result: {
+    addPublicationIds?: readonly string[];
+    color?: string;
+    name?: string;
+    publicationIds?: readonly string[];
+    removePublicationIds?: readonly string[];
+  } = {};
+  if (request.name !== undefined) result.name = collectionName(request.name, "name");
+  if (request.color !== undefined) {
+    const color = collectionColor(request.color, "color");
+    if (color !== undefined) result.color = color;
+  }
+  if (request.publicationIds !== undefined) {
+    if (!Array.isArray(request.publicationIds)) throw new Error("publicationIds must be an array");
+    if (request.publicationIds.length > MAX_PUBLICATION_IDS_PER_COLLECTION)
+      throw new Error(`publicationIds must contain at most ${MAX_PUBLICATION_IDS_PER_COLLECTION} IDs`);
+    result.publicationIds = request.publicationIds.map((pid, index) => publicationId(pid, `publicationIds[${index}]`));
+    if (new Set(result.publicationIds).size !== result.publicationIds.length)
+      throw new Error("publicationIds contains duplicates");
+  }
+  for (const field of ["addPublicationIds", "removePublicationIds"] as const) {
+    const valueForField = request[field];
+    if (valueForField === undefined) continue;
+    if (!Array.isArray(valueForField)) throw new Error(`${field} must be an array`);
+    if (valueForField.length > MAX_PUBLICATION_IDS_PER_COLLECTION)
+      throw new Error(`${field} must contain at most ${MAX_PUBLICATION_IDS_PER_COLLECTION} IDs`);
+    const ids = valueForField.map((pid, index) => publicationId(pid, `${field}[${index}]`));
+    if (new Set(ids).size !== ids.length) throw new Error(`${field} contains duplicates`);
+    result[field] = ids;
+  }
+  if (
+    result.publicationIds !== undefined &&
+    (result.addPublicationIds !== undefined || result.removePublicationIds !== undefined)
+  )
+    throw new Error("publicationIds cannot be combined with add or remove operations");
+  return result;
 };
 
 /** Reduces a snapshot CLI's detailed result to the browser-visible contract. */

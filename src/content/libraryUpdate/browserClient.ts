@@ -1,5 +1,6 @@
 import {
   LIBRARY_BLACKLIST_ENDPOINT,
+  LIBRARY_COLLECTIONS_ENDPOINT,
   LIBRARY_CONFIG_ENDPOINT,
   LIBRARY_BROWSE_ENDPOINT,
   LIBRARY_FETCH_MORE_ENDPOINT,
@@ -12,12 +13,17 @@ import {
   MAX_LIBRARY_OPERATION_RESPONSE_BYTES,
   parseLibraryBlacklistHttpResponse,
   parseLibraryBlacklistListHttpResponse,
+  parseLibraryCollectionCreateHttpResponse,
+  parseLibraryCollectionDeleteHttpResponse,
+  parseLibraryCollectionUpdateHttpResponse,
+  parseLibraryCollectionsListHttpResponse,
   parseLibraryOperationStartHttpResponse,
   parseLibraryPasteResolveHttpResponse,
   parseLibraryProvidersHttpResponse,
   parseLibrarySourceStatusHttpResponse,
   parseLibraryOperationStatusHttpResponse,
   type LibraryBlacklistRequest,
+  type LibraryCollection,
   type LibraryFetchMoreRequest,
   type LibraryOperationHttpFailure,
   type LibraryPasteImportMatch,
@@ -447,4 +453,111 @@ export const browseLibraryLocation = async (
     path: string;
   };
   return {...listing, drives: listing.drives ?? []};
+};
+
+export const loadCollections = async (
+  fetcher: LibraryOperationFetch = fetch,
+): Promise<readonly LibraryCollection[]> => {
+  const {response, value} = await requestJson(LIBRARY_COLLECTIONS_ENDPOINT, {method: "GET"}, fetcher);
+  let result;
+  try {
+    result = parseLibraryCollectionsListHttpResponse(value);
+  } catch {
+    throw new BrowserLibraryOperationError(
+      "The collections server returned an invalid response",
+      "invalid_response",
+      response.status,
+    );
+  }
+  throwResponseError(response, result);
+  if (!result.ok)
+    throw new BrowserLibraryOperationError("Could not load collections", "operation_failed", response.status);
+  return result.collections;
+};
+
+export const createCollection = async (
+  name: string,
+  publicationIds: readonly string[] = [],
+  fetcher: LibraryOperationFetch = fetch,
+): Promise<LibraryCollection> => {
+  const {response, value} = await requestJson(
+    LIBRARY_COLLECTIONS_ENDPOINT,
+    {
+      body: JSON.stringify({name, publicationIds}),
+      headers: {"Content-Type": "application/json"},
+      method: "POST",
+    },
+    fetcher,
+  );
+  let result;
+  try {
+    result = parseLibraryCollectionCreateHttpResponse(value);
+  } catch {
+    throw new BrowserLibraryOperationError(
+      "The collections server returned an invalid response",
+      "invalid_response",
+      response.status,
+    );
+  }
+  throwResponseError(response, result);
+  if (!result.ok)
+    throw new BrowserLibraryOperationError("Could not create collection", "operation_failed", response.status);
+  return result.collection;
+};
+
+export const updateCollection = async (
+  id: string,
+  changes: {
+    addPublicationIds?: readonly string[];
+    color?: string;
+    name?: string;
+    publicationIds?: readonly string[];
+    removePublicationIds?: readonly string[];
+  },
+  fetcher: LibraryOperationFetch = fetch,
+): Promise<LibraryCollection> => {
+  const {response, value} = await requestJson(
+    `${LIBRARY_COLLECTIONS_ENDPOINT}?id=${encodeURIComponent(id)}`,
+    {
+      body: JSON.stringify(changes),
+      headers: {"Content-Type": "application/json"},
+      method: "PUT",
+    },
+    fetcher,
+  );
+  let result;
+  try {
+    result = parseLibraryCollectionUpdateHttpResponse(value);
+  } catch {
+    throw new BrowserLibraryOperationError(
+      "The collections server returned an invalid response",
+      "invalid_response",
+      response.status,
+    );
+  }
+  throwResponseError(response, result);
+  if (!result.ok)
+    throw new BrowserLibraryOperationError("Could not update collection", "operation_failed", response.status);
+  return result.collection;
+};
+
+export const deleteCollection = async (id: string, fetcher: LibraryOperationFetch = fetch): Promise<void> => {
+  const {response, value} = await requestJson(
+    `${LIBRARY_COLLECTIONS_ENDPOINT}?id=${encodeURIComponent(id)}`,
+    {method: "DELETE"},
+    fetcher,
+  );
+  let result;
+  try {
+    result = parseLibraryCollectionDeleteHttpResponse(value);
+  } catch {
+    throw new BrowserLibraryOperationError(
+      "The collections server returned an invalid response",
+      "invalid_response",
+      response.status,
+    );
+  }
+  throwResponseError(response, result);
+  if (!result.ok)
+    throw new BrowserLibraryOperationError("Could not delete collection", "operation_failed", response.status);
 };
