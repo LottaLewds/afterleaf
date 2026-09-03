@@ -60,9 +60,9 @@ export const ARCADE_SYSTEMS: readonly ArcadeSystem[] = [
   },
   {
     id: "arcade",
-    label: "Arcade · MAME 2003+",
+    label: "Arcade · FBNeo",
     shortLabel: "Arcade",
-    core: "mame2003",
+    core: "arcade",
     extensions: ["zip"],
     controlHints: [
       {keys: "Arrows", action: "Joystick"},

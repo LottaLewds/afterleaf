@@ -176,7 +176,7 @@ describe("hideNavigatorGamepads / restoreNavigatorGamepads", () => {
     expect(globalThis.navigator.getGamepads()).toEqual([]);
     restoreNavigatorGamepads();
     // All sessions ended: the getter is restored.
-    expect(globalThis.navigator.getGamepads()).toEqual([{id: "pad"}]);
+    expect(globalThis.navigator.getGamepads()).toEqual([{id: "pad"}] as (Gamepad | null)[]);
   });
 
   test("restores the getter even when it was never replaced", () => {

@@ -106,9 +106,23 @@ export const ArcadeBrowser = (props: ArcadeBrowserProps) => {
   const playRow = async (row: ArcadeRomRow) => {
     setError(undefined);
     if (!row.savedId) {
+      let romUrl = arcadeFolderRomUrl(selectedSystemId(), row.name);
+      // Arcade cores (FBNeo, MAME) resolve the driver from the ROM file name.
+      // Folder ROMs are served through a query-string URL whose final path
+      // segment is "file", so build a named blob URL for arcade systems only.
+      if (selectedSystemId() === "arcade") {
+        try {
+          const response = await fetch(romUrl);
+          if (!response.ok) throw new Error("The ROM could not be loaded.");
+          romUrl = URL.createObjectURL(new File([await response.blob()], row.name));
+        } catch (cause) {
+          setError(cause instanceof Error ? cause.message : "The ROM could not be loaded.");
+          return;
+        }
+      }
       props.onPlay({
         name: row.name,
-        romUrl: arcadeFolderRomUrl(selectedSystemId(), row.name),
+        romUrl,
         systemId: selectedSystemId(),
       });
       return;

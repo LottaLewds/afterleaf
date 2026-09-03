@@ -102,7 +102,8 @@ export const buildForwardedKeyInit = (down: boolean, event: ForwardedKeyEvent): 
  * keeps working through navigator.getGamepads().
  */
 export const disableEmulatorJSGamepadPolling = (): void => {
-  const handler = (globalThis as unknown as {GamepadHandler?: {prototype: {getGamepads?: () => (Gamepad | null)[]}}}).GamepadHandler;
+  const handler = (globalThis as unknown as {GamepadHandler?: {prototype: {getGamepads?: () => (Gamepad | null)[]}}})
+    .GamepadHandler;
   if (!handler?.prototype?.getGamepads) return;
   handler.prototype.getGamepads = () => [];
 };

@@ -35,7 +35,7 @@ export const EMULATOR_DATA_URL_PATH = "/api/runtime/emulatorjs/data/";
 const CORE_PACKAGE_BY_EJS_CORE: Record<string, string> = {
   nes: "fceumm",
   snes: "snes9x",
-  mame2003: "mame2003_plus",
+  arcade: "fbneo",
   gb: "gambatte",
   gba: "mgba",
   n64: "mupen64plus_next",
