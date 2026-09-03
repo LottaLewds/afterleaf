@@ -142,11 +142,10 @@ export class InteractionScanner {
     publicationId: string | undefined,
   ): ShelfTargetSelection | undefined {
     const host = this.#host;
-    const shelfId = target.userData.shelfId;
-    if (typeof shelfId !== "string") return undefined;
-    const shelf = host.spineShelfDefinitions().get(shelfId);
+    const shelfTarget = this.#visibleShelfTarget(target);
     const carriedRecord = publicationId !== undefined ? host.booksById().get(publicationId) : undefined;
-    if (!shelf || !carriedRecord || publicationId === undefined) return undefined;
+    if (!shelfTarget || !carriedRecord || publicationId === undefined) return undefined;
+    const {shelf, shelfId} = shelfTarget;
     const offset = this.#shelfTargetOffset.copy(point).sub(shelf.frontCenter).dot(shelf.axis);
     const presentation = host.shelfPresentation();
     const shelfBooks = shelfBookCandidates(host.booksById(), shelfId);
@@ -166,6 +165,35 @@ export class InteractionScanner {
       shelfId,
       slotIndex: insertion.slotIndex,
     };
+  }
+
+  #isShelfFaceVisible(shelf: SpineShelfDefinition) {
+    const host = this.#host;
+    // Shelf proxies exist on both faces, but only the face toward the camera
+    // can be seen or interacted with through the shelf backing.
+    return this.#shelfTargetOffset.copy(host.camera().position).sub(shelf.frontCenter).dot(shelf.normal) > 0;
+  }
+
+  #visibleShelfTarget(target: Object3D) {
+    const shelfId = target.userData.shelfId;
+    if (typeof shelfId !== "string") return undefined;
+    const shelf = this.#host.spineShelfDefinitions().get(shelfId);
+    if (!shelf || !this.#isShelfFaceVisible(shelf)) return undefined;
+    return {shelf, shelfId};
+  }
+
+  #isVisibleShelfBookTarget(publicationId: string) {
+    const host = this.#host;
+    const record = host.booksById().get(publicationId);
+    if (record?.state.status !== "shelved") return false;
+    const shelf = host.spineShelfDefinitions().get(record.state.shelfId);
+    return shelf === undefined || this.#isShelfFaceVisible(shelf);
+  }
+
+  #visibleShelfBookPublicationId(intersection: ReturnType<Raycaster["intersectObjects"]>[number]) {
+    const publicationId = intersection.object.userData.publicationId;
+    if (typeof publicationId !== "string" || !this.#isVisibleShelfBookTarget(publicationId)) return undefined;
+    return publicationId;
   }
 
   #shelfSignKeyForTarget(shelfId: string, offset?: number) {
@@ -217,8 +245,9 @@ export class InteractionScanner {
     const intersections = host.raycaster().intersectObjects(scratch, false);
     for (const intersection of intersections) {
       if (intersection.distance > SHELF_INTERACTION_DISTANCE) break;
-      const candidateId = intersection.object.userData.publicationId;
-      if (typeof candidateId === "string") return candidateId;
+      const candidateId = this.#visibleShelfBookPublicationId(intersection);
+      if (!candidateId) continue;
+      return candidateId;
     }
     return undefined;
   }
