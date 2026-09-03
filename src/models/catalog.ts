@@ -1,5 +1,6 @@
 import {lstat, readdir, realpath} from "node:fs/promises";
 import {basename, extname, relative, resolve, sep} from "node:path";
+import {LibraryIgnoreFilter, updateIgnoreFilterFromEntries} from "~/content/libraryIgnore";
 
 import type {ModelAsset} from "~/models/protocol";
 
@@ -22,7 +23,15 @@ const modelLabel = (id: string) =>
     .map((word) => `${word[0]?.toUpperCase() ?? ""}${word.slice(1)}`)
     .join(" ");
 
-const modelFilesIn = async (rootDirectory: string, directory = rootDirectory): Promise<string[]> => {
+const modelFilesIn = async (
+  rootDirectory: string,
+  directory = rootDirectory,
+  ignore?: LibraryIgnoreFilter,
+): Promise<string[]> => {
+  const filter = ignore ?? new LibraryIgnoreFilter(rootDirectory);
+  const directoryRel = relative(rootDirectory, directory).split(sep).join("/");
+  const normalizedRel = directoryRel === "" ? "" : directoryRel;
+  if (normalizedRel !== "" && filter.isIgnored(normalizedRel, true)) return [];
   let entries;
   try {
     entries = await readdir(directory, {withFileTypes: true});
@@ -31,12 +40,19 @@ const modelFilesIn = async (rootDirectory: string, directory = rootDirectory): P
     if (code === "ENOENT" || code === "ENOTDIR") return [];
     throw error;
   }
+  if (await updateIgnoreFilterFromEntries(filter, directory, normalizedRel, entries)) return [];
   const files: string[] = [];
   for (const entry of entries.sort((left, right) => compareNames(left.name, right.name))) {
     if (entry.name.startsWith(".") || entry.isSymbolicLink()) continue;
     const entryPath = resolve(directory, entry.name);
-    if (entry.isDirectory()) files.push(...(await modelFilesIn(rootDirectory, entryPath)));
-    else if (entry.isFile() && extname(entry.name).toLowerCase() === ".glb") files.push(entryPath);
+    const entryRel = normalizedRel === "" ? entry.name : `${normalizedRel}/${entry.name}`;
+    if (entry.isDirectory()) {
+      if (filter.isIgnored(entryRel, true)) continue;
+      files.push(...(await modelFilesIn(rootDirectory, entryPath, filter)));
+    } else if (entry.isFile() && extname(entry.name).toLowerCase() === ".glb") {
+      if (filter.isIgnored(entryRel, false)) continue;
+      files.push(entryPath);
+    }
   }
   return files;
 };

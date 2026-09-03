@@ -12,6 +12,7 @@ import {
   scanFailuresLogPath,
 } from "~/content/dataRoot";
 import {prepareLocalCatalog, type ContentPrepareDiagnostic} from "~/content/prepare";
+import {createIgnoreDirectoryCache, isAbsolutePathIgnoredByRoot} from "~/content/libraryIgnore";
 import {parseLocalPublicationDocument} from "~/content/validation";
 
 export {LIBRARY_CONFIG_FILE_NAME};
@@ -123,6 +124,7 @@ const pruneMissingArchives = async (outputDirectory: string, authoritativeDirect
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return 0;
     throw error;
   }
+  const ignoreCache = createIgnoreDirectoryCache();
 
   let removedCount = 0;
   for (const entry of entries) {
@@ -146,15 +148,20 @@ const pruneMissingArchives = async (outputDirectory: string, authoritativeDirect
     } catch {
       continue;
     }
-    if (!authoritativeDirectories.some((directory) => pathIsWithin(directory, sourcePath))) continue;
+    const authoritativeRoot = authoritativeDirectories.find((directory) => pathIsWithin(directory, sourcePath));
+    if (!authoritativeRoot) continue;
     try {
       await stat(sourcePath);
-      continue;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      await rm(publicationDirectory, {force: true, recursive: true});
+      removedCount += 1;
+      continue;
     }
-    await rm(publicationDirectory, {force: true, recursive: true});
-    removedCount += 1;
+    if (await isAbsolutePathIgnoredByRoot(authoritativeRoot, sourcePath, false, ignoreCache)) {
+      await rm(publicationDirectory, {force: true, recursive: true});
+      removedCount += 1;
+    }
   }
   return removedCount;
 };

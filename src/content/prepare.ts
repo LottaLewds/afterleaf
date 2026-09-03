@@ -2,6 +2,7 @@ import {createHash, randomUUID} from "node:crypto";
 import {access, mkdir, readFile, readdir, rename, rm, writeFile} from "node:fs/promises";
 import {basename, dirname, extname, relative, resolve, sep} from "node:path";
 import {discoverLocalMedia} from "~/content/localMediaDiscovery";
+import {LibraryIgnoreFilter, updateIgnoreFilterFromEntries} from "~/content/libraryIgnore";
 import {normalizeTag, normalizeTags} from "~/content/normalize";
 import {
   CONTENT_SCHEMA_VERSION,
@@ -189,17 +190,28 @@ export const detectPreparedPublicationReadingDirection = (directoryName: string)
   READING_DIRECTION_HINTS.find((hint) => hint.pattern.test(directoryName))?.direction;
 
 const findImages = async (publicationDirectory: string, diagnostics: ContentPrepareDiagnostic[]) => {
-  const pendingDirectories = [publicationDirectory];
+  const root = resolve(publicationDirectory);
+  const ignore = new LibraryIgnoreFilter(root);
+  const pendingDirectories = [root];
   const paths: string[] = [];
 
   while (pendingDirectories.length > 0) {
     const directory = pendingDirectories.pop();
     if (!directory) break;
+    const directoryRel = toPortablePath(relative(root, directory));
+    const normalizedRel = directoryRel === "" ? "" : directoryRel;
+    if (normalizedRel !== "" && ignore.isIgnored(normalizedRel, true)) continue;
     const entries = await readdir(directory, {withFileTypes: true});
+    if (await updateIgnoreFilterFromEntries(ignore, directory, normalizedRel, entries)) {
+      if (normalizedRel === "") return [];
+      continue;
+    }
     entries.sort((left, right) => NATURAL_COLLATOR.compare(left.name, right.name));
     for (const entry of entries) {
       const path = resolve(directory, entry.name);
+      const entryRel = toPortablePath(relative(root, path));
       if (entry.isSymbolicLink()) {
+        if (ignore.isIgnored(entryRel, false)) continue;
         diagnostics.push({
           code: "skipped-symlink",
           directory: toPortablePath(relative(publicationDirectory, dirname(path))),
@@ -208,10 +220,14 @@ const findImages = async (publicationDirectory: string, diagnostics: ContentPrep
         continue;
       }
       if (entry.isDirectory()) {
+        if (ignore.isIgnored(entryRel, true)) continue;
         pendingDirectories.push(path);
         continue;
       }
-      if (entry.isFile() && IMAGE_EXTENSIONS.has(extname(entry.name).toLowerCase())) paths.push(path);
+      if (entry.isFile() && IMAGE_EXTENSIONS.has(extname(entry.name).toLowerCase())) {
+        if (ignore.isIgnored(entryRel, false)) continue;
+        paths.push(path);
+      }
     }
   }
 

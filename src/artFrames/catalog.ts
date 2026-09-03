@@ -4,6 +4,7 @@ import {basename, extname, relative, resolve, sep} from "node:path";
 import sharp, {type Metadata} from "../media/sharpRuntime";
 
 import {ART_FRAME_MAX_DIMENSION} from "./image";
+import {LibraryIgnoreFilter, updateIgnoreFilterFromEntries} from "../content/libraryIgnore";
 import type {ArtFrameChannel, ArtFrameImage} from "./protocol";
 import {renderCachedWebpImage, renderWebpImage, type WebpDerivativeCreator} from "../media/webp";
 
@@ -52,6 +53,7 @@ const discoverArtFrameChannelsIn = async (
   mediaUrl: ArtFrameMediaUrlBuilder,
 ): Promise<readonly DiscoveredArtFrameChannel[]> => {
   const root = resolve(framesDirectory);
+  const ignore = new LibraryIgnoreFilter(root);
   let entries;
   try {
     entries = await readdir(root, {withFileTypes: true});
@@ -60,11 +62,13 @@ const discoverArtFrameChannelsIn = async (
     if (code === "ENOENT" || code === "ENOTDIR") return [];
     throw error;
   }
+  if (await updateIgnoreFilterFromEntries(ignore, root, "", entries)) return [];
   const channels = await Promise.all(
     entries
       .filter((entry) => !entry.name.startsWith(".") && !entry.isSymbolicLink() && entry.isDirectory())
       .sort((left, right) => compareNames(left.name, right.name))
       .map(async (entry): Promise<DiscoveredArtFrameChannel | undefined> => {
+        if (ignore.isIgnored(entry.name, true)) return;
         const channelDirectory = resolve(root, entry.name);
         let channelEntries;
         try {
@@ -76,10 +80,12 @@ const discoverArtFrameChannelsIn = async (
           if (code === "ENOENT" || code === "ENOTDIR") return;
           throw error;
         }
+        if (await updateIgnoreFilterFromEntries(ignore, channelDirectory, entry.name, channelEntries)) return;
         const imageEntries = channelEntries
           .filter(
             (imageEntry) => !imageEntry.name.startsWith(".") && !imageEntry.isSymbolicLink() && imageEntry.isFile(),
           )
+          .filter((imageEntry) => !ignore.isIgnored(`${entry.name}/${imageEntry.name}`, false))
           .sort((left, right) => compareNames(left.name, right.name));
         const images = await Promise.all(
           imageEntries.map(async (imageEntry): Promise<DiscoveredArtFrameImage | undefined> => {

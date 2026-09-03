@@ -2,6 +2,7 @@ import type {Dirent} from "node:fs";
 import {readdir} from "node:fs/promises";
 import {extname, relative, resolve, sep} from "node:path";
 import {isContentArchivePath} from "./archiveReader";
+import {LibraryIgnoreFilter, updateIgnoreFilterFromEntries} from "./libraryIgnore";
 
 export const LOCAL_PUBLICATION_MANIFEST = "publication.json";
 
@@ -44,12 +45,15 @@ export const discoverLocalMedia = async (rootDirectory: string): Promise<LocalMe
   const nodes = new Map<string, DirectoryNode>();
   const results = new Map<string, DirectoryResult>();
   const pending: Array<{directory: string; visited: boolean}> = [{directory: root, visited: false}];
+  const ignore = new LibraryIgnoreFilter(root);
 
   while (pending.length > 0) {
     const current = pending.pop();
     if (!current) break;
 
     if (!current.visited) {
+      const currentRel = toPortablePath(relative(root, current.directory));
+      if (currentRel !== "" && ignore.isIgnored(currentRel, true)) continue;
       let entries: Dirent[];
       try {
         entries = await readdir(current.directory, {withFileTypes: true});
@@ -57,6 +61,11 @@ export const discoverLocalMedia = async (rootDirectory: string): Promise<LocalMe
         // Roots may not exist yet on a fresh install; they are simply empty.
         if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
         throw error;
+      }
+      const selfIgnored = await updateIgnoreFilterFromEntries(ignore, current.directory, currentRel, entries);
+      if (selfIgnored) {
+        if (currentRel === "") return {archives: [], diagnostics, publicationDirectories: []};
+        continue;
       }
       entries.sort((left, right) => NATURAL_COLLATOR.compare(left.name, right.name));
       const childDirectories: string[] = [];
@@ -66,27 +75,36 @@ export const discoverLocalMedia = async (rootDirectory: string): Promise<LocalMe
 
       for (const entry of entries) {
         const path = resolve(current.directory, entry.name);
+        const entryRel = toPortablePath(relative(root, path));
         if (entry.isSymbolicLink()) {
+          if (ignore.isIgnored(entryRel, false)) continue;
           diagnostics.push({
             code: "skipped-symlink",
-            path: toPortablePath(relative(root, path)),
+            path: entryRel,
           });
           continue;
         }
         if (entry.isDirectory()) {
-          if (!entry.name.startsWith(".")) childDirectories.push(path);
+          if (entry.name.startsWith(".")) continue;
+          if (ignore.isIgnored(entryRel, true)) continue;
+          childDirectories.push(path);
           continue;
         }
         if (!entry.isFile()) continue;
         if (entry.name === LOCAL_PUBLICATION_MANIFEST) {
+          if (ignore.isIgnored(entryRel, false)) continue;
           hasManifest = true;
           continue;
         }
         if (isContentArchivePath(entry.name)) {
+          if (ignore.isIgnored(entryRel, false)) continue;
           archives.push(path);
           continue;
         }
-        if (IMAGE_EXTENSIONS.has(extname(entry.name).toLowerCase())) directImageCount += 1;
+        if (IMAGE_EXTENSIONS.has(extname(entry.name).toLowerCase())) {
+          if (ignore.isIgnored(entryRel, false)) continue;
+          directImageCount += 1;
+        }
       }
 
       nodes.set(current.directory, {

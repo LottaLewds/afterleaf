@@ -4,6 +4,7 @@ import {basename, extname, relative, resolve, sep} from "node:path";
 import sharp, {type Metadata} from "../media/sharpRuntime";
 
 import {renderCachedWebpImage, renderWebpImage, type WebpDerivativeCreator} from "../media/webp";
+import {LibraryIgnoreFilter, updateIgnoreFilterFromEntries} from "../content/libraryIgnore";
 import {POSTER_MAX_DIMENSION} from "./image";
 import type {PosterAsset} from "./protocol";
 
@@ -42,7 +43,15 @@ const metadataAspectRatio = (metadata: Metadata) => {
   return rotated ? metadata.height / metadata.width : metadata.width / metadata.height;
 };
 
-const posterFilesIn = async (rootDirectory: string, directory = rootDirectory): Promise<string[]> => {
+const posterFilesIn = async (
+  rootDirectory: string,
+  directory = rootDirectory,
+  ignore?: LibraryIgnoreFilter,
+): Promise<string[]> => {
+  const filter = ignore ?? new LibraryIgnoreFilter(rootDirectory);
+  const directoryRel = relative(rootDirectory, directory).split(sep).join("/");
+  const normalizedRel = directoryRel === "" ? "" : directoryRel;
+  if (normalizedRel !== "" && filter.isIgnored(normalizedRel, true)) return [];
   let entries;
   try {
     entries = await readdir(directory, {withFileTypes: true});
@@ -51,12 +60,19 @@ const posterFilesIn = async (rootDirectory: string, directory = rootDirectory): 
     if (code === "ENOENT" || code === "ENOTDIR") return [];
     throw error;
   }
+  if (await updateIgnoreFilterFromEntries(filter, directory, normalizedRel, entries)) return [];
   const files: string[] = [];
   for (const entry of entries.sort((left, right) => compareNames(left.name, right.name))) {
     if (entry.name.startsWith(".") || entry.isSymbolicLink()) continue;
     const entryPath = resolve(directory, entry.name);
-    if (entry.isDirectory()) files.push(...(await posterFilesIn(rootDirectory, entryPath)));
-    else if (entry.isFile()) files.push(entryPath);
+    const entryRel = normalizedRel === "" ? entry.name : `${normalizedRel}/${entry.name}`;
+    if (entry.isDirectory()) {
+      if (filter.isIgnored(entryRel, true)) continue;
+      files.push(...(await posterFilesIn(rootDirectory, entryPath, filter)));
+    } else if (entry.isFile()) {
+      if (filter.isIgnored(entryRel, false)) continue;
+      files.push(entryPath);
+    }
   }
   return files;
 };

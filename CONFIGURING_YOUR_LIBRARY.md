@@ -49,7 +49,45 @@ Book roots are scanned recursively to any depth:
 - A folder containing nested books is an organizational folder, not a book.
   Loose images directly inside that organizational folder are ignored.
 - Hidden folders and symbolic links are not followed.
+- Folders and files matched by `.afterleaf-ignore` are skipped (see below).
 - Supported images are AVIF, JPEG, PNG, and WebP.
+
+### Ignoring folders with `.afterleaf-ignore`
+
+Place a file named `.afterleaf-ignore` inside any folder you want the scanner
+to skip without moving or deleting it. An empty file (or one containing only
+blank lines and `#` comments) ignores that folder and everything below it,
+like `.gdignore` or `.nomedia`:
+
+```text
+/media/Manga/
+  unsorted/
+    .afterleaf-ignore   # empty: skip unsorted and all of its books
+    random-download.cbz
+```
+
+For finer control, add one pattern per line. Patterns work like a small,
+hierarchical `.gitignore`: `#` starts a comment, `!` negates a match, a
+trailing `/` matches directories only, a leading `/` anchors the pattern to
+the folder containing the ignore file, and patterns without `/` match the file
+or folder name at any depth below it. `*` matches any characters including
+`/`, `?` matches a single character, and `[abc]` matches a character class.
+Ignore files in subfolders add to (and may override with `!`) the rules from
+their parents. Ignored directories are pruned, so a negated pattern cannot
+re-include content below an ignored folder.
+
+```text
+# in /media/Manga/.afterleaf-ignore:
+unsorted/
+*.tmp
+!keep-this.cbz
+```
+
+The same file filters book archives, image-folder books, posters, art-frame
+images, TV videos, and models. Ignored archive books are removed from the
+prepared catalog on the next **Scan new**, while ignored image folders keep
+their on-disk `publication.json` but disappear from the library until the
+ignore rule is removed.
 
 Afterleaf writes `publication.json` into an image-folder book. That manifest
 stores its stable ID, display title, metadata, and page order. Keep it with the

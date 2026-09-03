@@ -1,5 +1,6 @@
 import {lstat, readdir} from "node:fs/promises";
 import {extname, relative, resolve} from "node:path";
+import {LibraryIgnoreFilter, updateIgnoreFilterFromEntries} from "../content/libraryIgnore";
 
 import type {ActivePictureRect} from "./activePicture";
 import type {TvChannel, TvChannelManifest, TvVideo} from "./protocol";
@@ -34,6 +35,7 @@ export const discoverTvChannels = async (
 ): Promise<TvChannelManifest> => {
   const channels = new Map<string, TvChannel & {videoIds: Set<string>; videos: TvVideo[]}>();
   for (const channelsDirectory of channelsDirectories) {
+    const ignore = new LibraryIgnoreFilter(resolve(channelsDirectory));
     let channelEntries;
     try {
       channelEntries = await readdir(channelsDirectory, {withFileTypes: true});
@@ -42,9 +44,12 @@ export const discoverTvChannels = async (
       if (code === "ENOENT" || code === "ENOTDIR") continue;
       throw error;
     }
+    if (await updateIgnoreFilterFromEntries(ignore, resolve(channelsDirectory), "", channelEntries)) continue;
 
     for (const channelEntry of channelEntries.sort((left, right) => compareNames(left.name, right.name))) {
       if (!channelEntry.isDirectory() || channelEntry.name.startsWith(".")) continue;
+      if (channelEntry.isSymbolicLink()) continue;
+      if (ignore.isIgnored(channelEntry.name, true)) continue;
       let entries;
       try {
         entries = await readdir(resolve(channelsDirectory, channelEntry.name), {
@@ -55,10 +60,21 @@ export const discoverTvChannels = async (
         if (code === "ENOENT" || code === "ENOTDIR") continue;
         throw error;
       }
+      if (
+        await updateIgnoreFilterFromEntries(
+          ignore,
+          resolve(channelsDirectory, channelEntry.name),
+          channelEntry.name,
+          entries,
+        )
+      )
+        continue;
       const videoEntries = entries
         .filter(
           (entry) => entry.isFile() && !entry.name.startsWith(".") && tvVideoContentType(entry.name) !== undefined,
         )
+        .filter((entry) => !entry.isSymbolicLink())
+        .filter((entry) => !ignore.isIgnored(`${channelEntry.name}/${entry.name}`, false))
         .sort((left, right) => compareNames(left.name, right.name));
       const existing = channels.get(channelEntry.name);
       const channel =

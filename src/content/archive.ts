@@ -30,6 +30,7 @@ import {
   type SupportedLanguage,
 } from "~/content/schema";
 import {parseLocalPublicationDocument} from "~/content/validation";
+import {LibraryIgnoreFilter, updateIgnoreFilterFromEntries} from "~/content/libraryIgnore";
 import sharp from "~/media/sharpRuntime";
 
 export {ARCHIVE_SOURCE_PROVIDER, inspectContentArchive, readContentArchiveImage};
@@ -150,12 +151,16 @@ const findArchives = async (
   configuredReadingDirection?: "ltr" | "rtl",
 ) => {
   const archives: DiscoveredArchive[] = [];
+  const ignore = new LibraryIgnoreFilter(archivesDirectory);
   const scanDirectory = async (directory: string, prefix: string, readingDirection: "ltr" | "rtl" | undefined) => {
+    if (prefix !== "" && ignore.isIgnored(prefix, true)) return;
     const entries = await readdir(directory, {withFileTypes: true});
+    if (await updateIgnoreFilterFromEntries(ignore, directory, prefix, entries)) return;
     for (const entry of entries) {
       if (entry.name.startsWith(".")) continue;
       const archiveName = prefix ? `${prefix}/${entry.name}` : entry.name;
       if (entry.isSymbolicLink()) {
+        if (ignore.isIgnored(archiveName, false)) continue;
         diagnostics.push({
           archive: archiveName,
           code: "skipped-symlink",
@@ -165,6 +170,7 @@ const findArchives = async (
       }
       const path = resolve(directory, entry.name);
       if (entry.isFile() && isContentArchivePath(entry.name)) {
+        if (ignore.isIgnored(archiveName, false)) continue;
         archives.push({
           archiveName,
           archivePath: path,
@@ -173,6 +179,7 @@ const findArchives = async (
         continue;
       }
       if (!entry.isDirectory()) continue;
+      if (ignore.isIgnored(archiveName, true)) continue;
       const direction =
         readingDirection ?? DIRECTION_DIRECTORIES[entry.name.toLowerCase() as keyof typeof DIRECTION_DIRECTORIES];
       await scanDirectory(path, archiveName, direction);
