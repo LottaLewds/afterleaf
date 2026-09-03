@@ -215,8 +215,8 @@ paste its first image in the dialog. The paste creates its folder beneath
 its locked physical aspect ratio when its displayed image is replaced by a
 paste.
 
-Aim at a placed frame and press `E` to move it or `G` to remove it. Press `C` to
-change channel, `F` to shuffle immediately, `R` to switch contain/cover, or `T`
+Aim at a placed frame and press `T` to move it or `Del` to remove it. Press `Q`/`E` to
+change channel, `F`/`G` for the previous/next image, `R` to switch contain/cover, or `I`
 to change its timer. Paste while aiming at a frame to add the image to its
 current channel and display it immediately. Press `N` while aiming at it to name
 a new channel, then paste that channel's first image in the dialog. Each frame

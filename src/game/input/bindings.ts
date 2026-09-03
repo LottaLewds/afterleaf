@@ -46,6 +46,9 @@ export type ShortcutAction =
   | "artFrameNextChannel"
   | "artFrameInterval"
   | "artFrameFit"
+  // Targeted media programs (TV videos and art-frame images)
+  | "prevMedia"
+  | "nextMedia"
   // Posters / props / frames removal (whatever is targeted)
   | "removeTargeted"
   // Placement mode
@@ -229,6 +232,8 @@ export const ACTION_DISPATCH_ORDER: readonly ShortcutAction[] = [
   "artFrameFit",
   "tvPreviousChannel",
   "tvMute",
+  "prevMedia",
+  "nextMedia",
   "toggleShelfPresentation",
   "propPinToggle",
   "interact",
@@ -252,7 +257,7 @@ export const SHORTCUT_LABELS: Record<ShortcutAction, string> = {
   crouch: "Crouch",
   sprint: "Sprint",
   interact: "Interact / use",
-  throw: "Throw / charge / skip",
+  throw: "Throw / charge",
   drop: "Drop / remove",
   pickUpCancel: "Pick up / cancel",
   propPinToggle: "Pin / release prop",
@@ -271,6 +276,8 @@ export const SHORTCUT_LABELS: Record<ShortcutAction, string> = {
   tvMute: "TV: mute",
   artFramePreviousChannel: "Art frame: previous channel",
   artFrameNextChannel: "Art frame: next channel",
+  prevMedia: "Previous video / image",
+  nextMedia: "Next video / image",
   artFrameInterval: "Art frame: interval",
   artFrameFit: "Art frame: fit",
   removeTargeted: "Remove targeted item",
@@ -312,6 +319,10 @@ export const SHORTCUT_CATEGORIES: Record<string, {label: string; actions: Shortc
   artFrame: {
     label: "Digital art frames",
     actions: ["artFramePreviousChannel", "artFrameNextChannel", "artFrameInterval", "artFrameFit"],
+  },
+  media: {
+    label: "Media",
+    actions: ["prevMedia", "nextMedia"],
   },
   remove: {
     label: "Removal",
@@ -376,6 +387,8 @@ export const DEFAULT_SHORTCUTS: ShortcutsConfig = {
   artFrameNextChannel: [keyboard("KeyE"), gamepad("RB")],
   artFrameInterval: [keyboard("KeyI"), gamepad("Back")],
   artFrameFit: [keyboard("KeyR"), gamepad("Y")],
+  prevMedia: [keyboard("KeyF"), gamepad("X")],
+  nextMedia: [keyboard("KeyG"), gamepad("Y")],
   removeTargeted: [keyboard("Delete"), keyboard("Backspace"), gamepad("RB")],
   placementCycleLeft: [keyboard("KeyQ"), gamepad("LB")],
   placementCycleRight: [keyboard("KeyE"), gamepad("RB")],

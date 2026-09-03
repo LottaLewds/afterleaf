@@ -240,14 +240,14 @@ The physical television needs interactions for:
 
 - power on/off;
 - previous/next channel; and
-- skip current program.
+- previous/next program.
 
 The television has separate physical power, channel, and skip buttons. Aimed
 buttons highlight individually and can be pressed with a left click; the button
 visibly depresses and the power lamp reflects power state while its local
 mechanical click plays through a short positional sound. While targeting any
 screen or controls, `Q` changes to the previous channel, `E` changes to the next
-channel, and `F` skips the current program. The mouse wheel scrubs an active
+channel, `F` returns to the previous program, and `G` skips to the next program. The mouse wheel scrubs an active
 program backward or forward, starting at three seconds per notch and ramping
 through 5, 10, 15, and 30 seconds while repeatedly wheeling in one direction.
 Changing direction or pausing the wheel resets the ramp. Clicking the screen or

@@ -227,7 +227,7 @@ const resolvePropPrompt = (state: InteractionUiState) => {
 
 const resolveArtFramePrompt = (state: InteractionUiState) => {
   const frame = state.artFrames.targetedId ? state.artFrames.records.get(state.artFrames.targetedId)?.frame : undefined;
-  return `Paste → ${resolveArtFramePasteChannel(state, frame)} · N new channel · T move · Del remove · Q/E channel · F shuffle · R ${frame?.fit() ?? "contain"} · I ${resolveArtFrameTimerPrompt(frame)}`;
+  return `Paste → ${resolveArtFramePasteChannel(state, frame)} · N new channel · T move · Del remove · Q/E channel · F/G previous/next · R ${frame?.fit() ?? "contain"} · I ${resolveArtFrameTimerPrompt(frame)}`;
 };
 
 const resolveArtFramePasteChannel = (state: InteractionUiState, frame: DigitalArtFrame | undefined) => {
@@ -541,7 +541,7 @@ const televisionInteractionControls = (
     label: "Previous channel",
     actions: ["tvPreviousChannel"] as const,
   },
-  {key: "F", label: "Skip", actions: ["throw"] as const},
+  {key: "F / G", label: "Previous / next video", actions: ["prevMedia", "nextMedia"] as const},
   {key: "N", label: "New channel", actions: ["channelEditorOpen"] as const},
   {
     key: "M",
@@ -647,7 +647,7 @@ const artFrameInteractions = (state: InteractionUiState): InteractionResult => {
         label: "Previous / next channel",
         actions: ["artFramePreviousChannel", "artFrameNextChannel"] as const,
       },
-      {key: "F", label: "Next image", actions: ["throw"] as const},
+      {key: "F / G", label: "Previous / next image", actions: ["prevMedia", "nextMedia"] as const},
       {
         key: "I",
         label: `Timing: ${interval === 0 ? "Off" : `${interval}s`}`,

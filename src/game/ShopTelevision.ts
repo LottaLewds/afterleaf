@@ -53,6 +53,7 @@ const SCREEN_CENTER_Z = BEZEL_FRONT_Z + 0.042;
 const CONTROL_CENTER_X = 1.36;
 const TELEVISION_MAX_VOLUME = 0.72;
 const TELEVISION_VOLUME_STEP = 0.05;
+const TV_VIDEO_HISTORY_LIMIT = 50;
 const DEFAULT_MODEL_CENTER = [0, 0.2265, 0.183] as const;
 const DEFAULT_MODEL_AUDIO_POSITION = [0.08, 0.055, -0.025] as const;
 const ACTIVE_PICTURE_ANALYSIS_MAX_WIDTH = 160;
@@ -505,6 +506,7 @@ export class ShopTelevision {
   #screenLightingUnavailable = false;
   #suspended = false;
   #targetedInteraction: ShopTelevisionInteraction | undefined;
+  #videoHistory: string[] = [];
   #volume = 1;
 
   #configureVideoListeners() {
@@ -689,20 +691,21 @@ uniform sampler2D afterleafScreenOverlay;\n${shader.fragmentShader}`;
     volumeControl: string,
   ) {
     const channelControl = this.#channels.length > 1 ? " · Q/E previous/next channel" : "";
+    const videoControl = this.#powered && this.#currentVideo ? " · F/G previous/next video" : "";
     if (interaction === "body" && this.#movable)
       return `E pick up ${this.#modelLabel} · Aim at its screen or controls to use it${scrubControl}${volumeControl}`;
-    if (interaction === "power") return this.#powerPrompt(channelControl, scrubControl, volumeControl);
+    if (interaction === "power") return this.#powerPrompt(channelControl, videoControl, scrubControl, volumeControl);
     if (interaction === "channel")
-      return `Click · next channel · Q/E previous/next · ${channel.label}${scrubControl}${volumeControl}`;
+      return `Click · next channel · Q/E previous/next${videoControl} · ${channel.label}${scrubControl}${volumeControl}`;
     if (interaction === "skip")
-      return `Click · skip${channelControl} · ${channel.label}${scrubControl}${volumeControl}`;
+      return `Click · skip${channelControl}${videoControl} · ${channel.label}${scrubControl}${volumeControl}`;
     if (!this.#powered) return `Click to turn on TV${channelControl} · ${channel.label}${volumeControl}`;
-    return `Click to turn off TV${channelControl} · F skip${scrubControl} · ${channel.label}${volumeControl}`;
+    return `Click to turn off TV${channelControl}${videoControl}${scrubControl} · ${channel.label}${volumeControl}`;
   }
 
-  #powerPrompt(channelControl: string, scrubControl: string, volumeControl: string) {
+  #powerPrompt(channelControl: string, videoControl: string, scrubControl: string, volumeControl: string) {
     const powerPrompt = this.#powered ? `Click · power off${channelControl}` : `Click · power on${channelControl}`;
-    return `${powerPrompt}${scrubControl}${volumeControl}`;
+    return `${powerPrompt}${videoControl}${scrubControl}${volumeControl}`;
   }
 
   resolveInteractionTarget(object: Object3D) {
@@ -862,6 +865,14 @@ uniform sampler2D afterleafScreenOverlay;\n${shader.fragmentShader}`;
     const channel = this.#ensureDefaultChannel(channelId, channelLabel);
     if (!channel || channel.id !== channelId) return false;
     const {video, videoIndex} = this.#addOrFindChannelVideo(channel, importedVideo);
+    // Pastes stay in the current channel, so the replaced program remains
+    // reachable through previous-video.
+    if (
+      this.#currentVideo &&
+      this.#currentVideo.id !== video.id &&
+      channel.videos.some((candidate) => candidate.id === this.#currentVideo?.id)
+    )
+      this.#pushVideoHistory(this.#currentVideo);
     this.#bag = [];
     this.#failedVideoIds.delete(video.id);
     this.#loadError = undefined;
@@ -893,6 +904,10 @@ uniform sampler2D afterleafScreenOverlay;\n${shader.fragmentShader}`;
   playImportedChannel(channelId: string, importedVideo: TvVideo, channelLabel = channelId) {
     if (this.#disposed) return false;
     const previousChannelId = this.#channels[this.#channelIndex]?.id;
+    const channelSwitched = previousChannelId !== undefined && previousChannelId !== channelId;
+    // Previous-video stays within one channel, so a channel switch starts a
+    // fresh history instead of pointing back at another channel.
+    if (channelSwitched) this.#videoHistory = [];
     const channelIndex = this.#channels.findIndex((channel) => channel.id === channelId);
     if (channelIndex >= 0) this.#channelIndex = channelIndex;
     else {
@@ -921,6 +936,39 @@ uniform sampler2D afterleafScreenOverlay;\n${shader.fragmentShader}`;
     if (this.#disposed || !this.#powered || !this.#currentVideo) return;
     this.#pressButton("skip");
     this.#advanceVideo();
+  }
+
+  previousVideo() {
+    const currentVideo = this.#currentVideo;
+    const channel = this.#channels[this.#channelIndex];
+    if (this.#disposed || !this.#powered || !currentVideo || !channel) return;
+    const target = this.#takePreviousVideo(channel, currentVideo.id);
+    if (!target) return;
+    // Queue the current program so the next skip returns to it.
+    if (this.#currentVideoIndex !== undefined) {
+      this.#bag = [this.#currentVideoIndex, ...this.#bag.filter((candidate) => candidate !== target.videoIndex)];
+      this.#lastVideoIndex = this.#currentVideoIndex;
+    } else this.#bag = this.#bag.filter((candidate) => candidate !== target.videoIndex);
+    this.#pressButton("skip");
+    this.#startVideo(target.video, target.videoIndex);
+  }
+
+  #takePreviousVideo(channel: TvChannel, currentVideoId: string) {
+    while (this.#videoHistory.length > 0) {
+      const videoId = this.#videoHistory.pop();
+      if (!videoId || videoId === currentVideoId || this.#failedVideoIds.has(videoId)) continue;
+      const videoIndex = channel.videos.findIndex((video) => video.id === videoId);
+      const video = videoIndex >= 0 ? channel.videos[videoIndex] : undefined;
+      if (videoIndex < 0 || !video) continue;
+      return {video, videoIndex};
+    }
+  }
+
+  #pushVideoHistory(video: TvVideo | undefined) {
+    if (!video || this.#failedVideoIds.has(video.id)) return;
+    if (this.#videoHistory.at(-1) === video.id) return;
+    this.#videoHistory.push(video.id);
+    if (this.#videoHistory.length > TV_VIDEO_HISTORY_LIMIT) this.#videoHistory.shift();
   }
 
   scrub(deltaSeconds: number) {
@@ -1469,6 +1517,7 @@ uniform sampler2D afterleafScreenOverlay;\n${shader.fragmentShader}`;
     this.#currentVideo = undefined;
     this.#currentVideoIndex = undefined;
     this.#lastVideoIndex = undefined;
+    this.#videoHistory = [];
     this.#resetActivePictureDetection();
     this.#showNoSignal();
     if (this.#powered) this.#advanceVideo();
@@ -1479,6 +1528,7 @@ uniform sampler2D afterleafScreenOverlay;\n${shader.fragmentShader}`;
     this.#video.pause();
     this.#loadError = undefined;
     this.#bag = [];
+    this.#videoHistory = [];
     this.#currentVideo = undefined;
     this.#currentVideoIndex = undefined;
     this.#lastVideoIndex = undefined;
@@ -1494,6 +1544,7 @@ uniform sampler2D afterleafScreenOverlay;\n${shader.fragmentShader}`;
       return;
     }
 
+    this.#pushVideoHistory(this.#currentVideo);
     if (this.#currentVideoIndex !== undefined) this.#lastVideoIndex = this.#currentVideoIndex;
     if (this.#bag.length === 0) this.#bag = createShuffleBag(channel.videos.length, this.#lastVideoIndex, this.#random);
 

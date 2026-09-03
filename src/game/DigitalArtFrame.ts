@@ -19,6 +19,7 @@ const FRAME_BORDER = 0.045;
 const FRAME_DEPTH = 0.055;
 const SCREEN_OFFSET = 0.031;
 const PRELOAD_AFTER_TRANSITION_DELAY_SECONDS = 0.75;
+const IMAGE_HISTORY_LIMIT = 50;
 
 export type DigitalArtFrameOptions = {
   aspectRatio: number;
@@ -69,6 +70,7 @@ export class DigitalArtFrame {
   #displayImage: ArtFrameImage | undefined;
   #disposed = false;
   #fit: ArtFrameFit;
+  #imageHistory: string[] = [];
   #intervalSeconds: number;
   #preloadDelaySeconds = 0;
   #remainingSeconds: number;
@@ -194,6 +196,7 @@ export class DigitalArtFrame {
     this.#releasePreloadedImage();
     this.#channelId = channel.id;
     this.#shuffleBag = [];
+    this.#imageHistory = [];
     this.#remainingSeconds = this.#intervalSeconds;
     void this.#showImage(image, true);
     return true;
@@ -201,9 +204,27 @@ export class DigitalArtFrame {
 
   skip() {
     const image = this.#preloadedImage?.image ?? this.#takeShuffledImage();
-    if (image?.id === this.#currentImage?.id) return;
-    if (image) void this.#showImage(image, true);
+    if (!image || image.id === this.#currentImage?.id) return;
+    this.#pushImageHistory(this.#currentImage?.id);
+    void this.#showImage(image, true);
     this.#remainingSeconds = this.#intervalSeconds;
+  }
+
+  previousImage() {
+    const currentImage = this.#currentImage;
+    if (!currentImage) return;
+    const images = this.#channel()?.images ?? [];
+    while (this.#imageHistory.length > 0) {
+      const imageId = this.#imageHistory.pop();
+      if (!imageId || imageId === currentImage.id) continue;
+      const image = images.find((candidate) => candidate.id === imageId);
+      if (!image) continue;
+      // Queue the current image so the next skip returns to it.
+      this.#shuffleBag = [...this.#shuffleBag.filter((candidate) => candidate !== image.id), currentImage.id];
+      this.#remainingSeconds = this.#intervalSeconds;
+      void this.#showImage(image, true);
+      return;
+    }
   }
 
   update(deltaSeconds: number) {
@@ -259,6 +280,12 @@ export class DigitalArtFrame {
     }
     const imageId = this.#shuffleBag.pop();
     return images.find((image) => image.id === imageId) ?? images[0];
+  }
+
+  #pushImageHistory(imageId: string | undefined) {
+    if (!imageId || this.#imageHistory.at(-1) === imageId) return;
+    this.#imageHistory.push(imageId);
+    if (this.#imageHistory.length > IMAGE_HISTORY_LIMIT) this.#imageHistory.shift();
   }
 
   #applyLoadedImage(image: ArtFrameImage, loadedTexture: Texture, notify: boolean) {

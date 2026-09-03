@@ -4,8 +4,10 @@ import type {CatalogItem} from "~/catalog";
 import {SpotLight} from "three";
 import type {ArtFrameSystem} from "~/game/artFrameSystem";
 import type {BookRecord} from "~/game/bookFactory";
+import type {DigitalArtFrame} from "~/game/DigitalArtFrame";
 import type {PosterSystem} from "~/game/posters/PosterSystem";
 import type {ShopArcadeCabinet} from "~/game/ShopArcadeCabinet";
+import type {ShopTelevision} from "~/game/ShopTelevision";
 import {
   resolveShopInteractionMode,
   resolveShopInteractionView,
@@ -144,6 +146,46 @@ describe("shop interaction view", () => {
     expect(view.interactions[0]).toEqual({
       key: "Ctrl+wheel",
       label: "Light intensity (840 lm)",
+    });
+  });
+
+  test("offers previous/next video for a targeted television", () => {
+    const television = {
+      powered: () => true,
+      selectedChannelId: () => "late-night",
+      selectedChannelLabel: () => "Late Night",
+      volumePercent: () => 100,
+    } as unknown as ShopTelevision;
+
+    const view = resolveShopInteractionView(createState({targetedTelevision: television, televisionTargeted: true}));
+
+    expect(view.mode).toBe("television");
+    expect(view.interactions).toContainEqual({
+      key: "F / G",
+      label: "Previous / next video",
+      actions: ["prevMedia", "nextMedia"],
+    });
+  });
+
+  test("offers previous/next image for a targeted art frame", () => {
+    const frame = {
+      channelLabel: () => "Night Scenes",
+      fit: () => "contain",
+      intervalSeconds: () => 0,
+    } as unknown as DigitalArtFrame;
+    const artFrames = {
+      placement: undefined,
+      records: new Map([["frame-1", {frame}]]),
+      targetedId: "frame-1",
+    } as unknown as ArtFrameSystem;
+
+    const view = resolveShopInteractionView(createState({artFrames}));
+
+    expect(view.mode).toBe("art-frame");
+    expect(view.interactions).toContainEqual({
+      key: "F / G",
+      label: "Previous / next image",
+      actions: ["prevMedia", "nextMedia"],
     });
   });
 });

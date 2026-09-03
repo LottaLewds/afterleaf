@@ -921,6 +921,10 @@ export class ShopInputController {
         return this.#changeTargetedTelevisionChannel();
       case "tvMute":
         return this.#toggleTargetedTelevisionMute();
+      case "prevMedia":
+        return this.#handlePreviousVideo();
+      case "nextMedia":
+        return this.#handleNextVideo();
       default:
         return false;
     }
@@ -959,6 +963,30 @@ export class ShopInputController {
     return true;
   }
 
+  // Declining when no media is targeted lets the shared-key fallbacks
+  // (throw/drop) still run, so F and G keep working away from screens.
+  #handlePreviousVideo() {
+    if (this.#host.televisionTargeted()) {
+      this.#host.targetedTelevision()?.previousVideo();
+      return true;
+    }
+    const targetedId = this.#host.artFrames().targetedId;
+    if (!targetedId) return false;
+    this.#host.artFrames().records.get(targetedId)?.frame.previousImage();
+    return true;
+  }
+
+  #handleNextVideo() {
+    if (this.#host.televisionTargeted()) {
+      this.#host.targetedTelevision()?.skip();
+      return true;
+    }
+    const targetedId = this.#host.artFrames().targetedId;
+    if (!targetedId) return false;
+    this.#host.artFrames().records.get(targetedId)?.frame.skip();
+    return true;
+  }
+
   #handleTargetPropertyAction(action: ShortcutAction): boolean {
     if (action === "toggleShelfPresentation") return this.#toggleShelfPresentation();
     if (action !== "propPinToggle") return false;
@@ -992,13 +1020,8 @@ export class ShopInputController {
   }
 
   #handleThrowAction() {
-    if (this.#host.televisionTargeted()) this.#host.targetedTelevision()?.skip();
-    else {
-      const targetedId = this.#host.artFrames().targetedId;
-      if (targetedId) this.#host.artFrames().records.get(targetedId)?.frame.skip();
-      else if (this.#host.props().carriedProp) this.#host.props().dropCarriedProp(true);
-      else if (this.#host.carriedPublicationId()) this.#host.bookActions().startThrowCharge();
-    }
+    if (this.#host.props().carriedProp) this.#host.props().dropCarriedProp(true);
+    else if (this.#host.carriedPublicationId()) this.#host.bookActions().startThrowCharge();
     // Held throw state drives shelf browsing; isActionDown covers it.
   }
 
