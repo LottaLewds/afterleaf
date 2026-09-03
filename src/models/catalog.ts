@@ -1,6 +1,8 @@
 import {lstat, readdir, realpath} from "node:fs/promises";
 import {basename, extname, relative, resolve, sep} from "node:path";
-import {LibraryIgnoreFilter, updateIgnoreFilterFromEntries} from "~/content/libraryIgnore";
+// Relative: vite.config.ts imports this file, and config bundling leaves
+// bare ~/ imports unresolved at runtime.
+import {LibraryIgnoreFilter, updateIgnoreFilterFromEntries} from "../content/libraryIgnore";
 
 import type {ModelAsset} from "~/models/protocol";
 
