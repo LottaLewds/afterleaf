@@ -5,7 +5,10 @@ import {
   buildEmulatorConfig,
   buildForwardedKeyInit,
   describeKeyboardEvent,
+  disableEmulatorJSGamepadPolling,
   EMULATORJS_DATA_URL,
+  hideNavigatorGamepads,
+  restoreNavigatorGamepads,
 } from "~/arcade/emulatorHost";
 
 describe("describeKeyboardEvent", () => {
@@ -124,5 +127,60 @@ describe("buildEmulatorConfig", () => {
 describe("buildEmulatorButtonOptions", () => {
   test("is stable across calls so sessions share one shape", () => {
     expect(buildEmulatorButtonOptions()).toEqual(buildEmulatorButtonOptions());
+  });
+});
+
+describe("disableEmulatorJSGamepadPolling", () => {
+  test("makes every GamepadHandler instance see an empty gamepad list", () => {
+    const getGamepads = () => [{id: "pad"}] as (Gamepad | null)[];
+    const GamepadHandler = function () {} as unknown as {
+      prototype: {getGamepads: () => (Gamepad | null)[]};
+      new (): {getGamepads: () => (Gamepad | null)[]};
+    };
+    GamepadHandler.prototype = {getGamepads};
+    Object.assign(globalThis, {GamepadHandler});
+
+    expect(new GamepadHandler().getGamepads().length).toBe(1);
+    disableEmulatorJSGamepadPolling();
+    expect(new GamepadHandler().getGamepads().length).toBe(0);
+  });
+
+  test("is a no-op when EmulatorJS has not loaded yet", () => {
+    // @ts-expect-error intentionally deleting the global for the test.
+    delete globalThis.GamepadHandler;
+    expect(() => disableEmulatorJSGamepadPolling()).not.toThrow();
+  });
+});
+
+describe("hideNavigatorGamepads / restoreNavigatorGamepads", () => {
+  const defineGetter = (value: () => (Gamepad | null)[]) =>
+    Object.defineProperty(globalThis.navigator, "getGamepads", {
+      configurable: true,
+      value,
+    });
+
+  test("hides gamepads from navigator.getGamepads()", () => {
+    defineGetter(() => [{id: "pad"}] as (Gamepad | null)[]);
+    hideNavigatorGamepads();
+    expect(globalThis.navigator.getGamepads()).toEqual([]);
+    restoreNavigatorGamepads();
+  });
+
+  test("keeps a reference-count for concurrent sessions", () => {
+    defineGetter(() => [{id: "pad"}] as (Gamepad | null)[]);
+    hideNavigatorGamepads();
+    hideNavigatorGamepads();
+    expect(globalThis.navigator.getGamepads()).toEqual([]);
+    restoreNavigatorGamepads();
+    // Still hidden because one session remains active.
+    expect(globalThis.navigator.getGamepads()).toEqual([]);
+    restoreNavigatorGamepads();
+    // All sessions ended: the getter is restored.
+    expect(globalThis.navigator.getGamepads()).toEqual([{id: "pad"}]);
+  });
+
+  test("restores the getter even when it was never replaced", () => {
+    defineGetter(() => []);
+    expect(() => restoreNavigatorGamepads()).not.toThrow();
   });
 });

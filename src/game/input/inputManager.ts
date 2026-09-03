@@ -270,9 +270,11 @@ export class InputManager {
    */
   #forwardLeftStickArrows(forward: (name: GamepadButtonName, down: boolean) => void) {
     const {forward: moveForward, right: moveRight} = this.gamepad.movement;
+    // GamepadMonitor reports positive forward for stick-up and positive right
+    // for stick-right, so the arrow bits must match that polarity.
     const wanted =
-      (moveForward < -LEFT_STICK_ARROW_THRESHOLD ? 1 : 0) |
-      (moveForward > LEFT_STICK_ARROW_THRESHOLD ? 2 : 0) |
+      (moveForward > LEFT_STICK_ARROW_THRESHOLD ? 1 : 0) |
+      (moveForward < -LEFT_STICK_ARROW_THRESHOLD ? 2 : 0) |
       (moveRight < -LEFT_STICK_ARROW_THRESHOLD ? 4 : 0) |
       (moveRight > LEFT_STICK_ARROW_THRESHOLD ? 8 : 0);
     for (let slot = 0; slot < STICK_ARROW_SLOTS.length; slot++) {

@@ -17,6 +17,8 @@
  * (`window.EJS_Runtime`) when they execute; two cores initializing
  * concurrently could hand the wrong runtime to a booting session.
  */
+import {isNativeGamepadReadingAllowed} from "~/game/input/gamepadNativeAccess";
+
 // Served by the emulator-data plugin (dev/preview middleware + build copy);
 // see ~/arcade/emulatorAssets for how the files are vendored.
 export const EMULATORJS_DATA_URL = "/api/runtime/emulatorjs/data/";
@@ -86,6 +88,58 @@ export const buildForwardedKeyInit = (down: boolean, event: ForwardedKeyEvent): 
   shiftKey: event.shiftKey,
   keyCode: Number(event.keyCode) || 0,
 });
+
+/**
+ * Prevents EmulatorJS's built-in GamepadHandler from polling physical pads.
+ *
+ * Afterleaf reads the gamepad itself and forwards inputs through synthetic
+ * keyboard events (see ShopScene's setRawGamepadForward). If EmulatorJS also
+ * reads navigator.getGamepads(), the same physical input reaches the core
+ * twice: once as a forwarded key event and once as a native gamepad event,
+ * causing inverted axes, duplicated D-pad presses, or silent inputs depending
+ * on the core. Patching the handler's prototype makes every EmulatorJS
+ * instance see an empty gamepad list while Afterleaf's own GamepadMonitor
+ * keeps working through navigator.getGamepads().
+ */
+export const disableEmulatorJSGamepadPolling = (): void => {
+  const handler = (globalThis as unknown as {GamepadHandler?: {prototype: {getGamepads?: () => (Gamepad | null)[]}}}).GamepadHandler;
+  if (!handler?.prototype?.getGamepads) return;
+  handler.prototype.getGamepads = () => [];
+};
+
+// -- Native gamepad hiding ----------------------------------------------------
+//
+// EmulatorJS can also reach navigator.getGamepads() directly (its bundled
+// gamepad.js does). Hiding physical gamepads from that API while a session is
+// active guarantees Afterleaf's forwarded inputs are the only ones the core
+// sees. Afterleaf's own GamepadMonitor wraps its call in readNativeGamepads()
+// so the block lets Afterleaf through while keeping EmulatorJS in the dark.
+
+let originalNavigatorGetGamepads: (() => (Gamepad | null)[]) | undefined;
+let navigatorGamepadHideDepth = 0;
+
+/** Hides physical gamepads from navigator.getGamepads() for EmulatorJS. */
+export const hideNavigatorGamepads = (): void => {
+  if (navigatorGamepadHideDepth++ > 0) return;
+  const getter = navigator.getGamepads?.bind(navigator);
+  if (!getter) return;
+  originalNavigatorGetGamepads = getter;
+  Object.defineProperty(navigator, "getGamepads", {
+    configurable: true,
+    value: () => (isNativeGamepadReadingAllowed() ? getter() : []),
+  });
+};
+
+/** Restores navigator.getGamepads() once the last session ends. */
+export const restoreNavigatorGamepads = (): void => {
+  if (navigatorGamepadHideDepth === 0 || --navigatorGamepadHideDepth > 0) return;
+  if (!originalNavigatorGetGamepads) return;
+  Object.defineProperty(navigator, "getGamepads", {
+    configurable: true,
+    value: originalNavigatorGetGamepads,
+  });
+  originalNavigatorGetGamepads = undefined;
+};
 
 /** Bottom-bar buttons surfaced on the (offscreen) emulator UI. */
 export const buildEmulatorButtonOptions = (): Record<string, boolean> => ({
@@ -193,7 +247,12 @@ const loadEmulatorRuntime = (): Promise<void> => {
 
     const script = document.createElement("script");
     script.src = `${EMULATORJS_DATA_URL}emulator.min.js`;
-    script.addEventListener("load", () => resolve());
+    script.addEventListener("load", () => {
+      // Afterleaf forwards pad inputs itself; stop EmulatorJS from reading
+      // the same physical gamepads and doubling inputs.
+      disableEmulatorJSGamepadPolling();
+      resolve();
+    });
     script.addEventListener("error", () => {
       // Allow a retry on the next boot attempt instead of caching failure.
       runtimePromise = undefined;
@@ -317,6 +376,7 @@ const CONTAINER_HEIGHT_PX = 240;
  */
 export const launchEmulator = (options: EmulatorLaunchOptions): EmulatorSession => {
   if (options.safeAudioContext) installAudioInterceptor(options.safeAudioContext);
+  hideNavigatorGamepads();
   let destroyed = false;
   let bootWatchdogHandle: ReturnType<typeof setTimeout> | undefined;
   let emulator: EmulatorJsInstance | undefined;
@@ -353,6 +413,7 @@ export const launchEmulator = (options: EmulatorLaunchOptions): EmulatorSession 
     if (destroyed) return;
     destroyed = true;
     disarmBootWatchdog();
+    restoreNavigatorGamepads();
     abortController.abort();
     // The GameManager "exit" hook saves SRAM, stops the core main loop,
     // unmounts its filesystems, and aborts the wasm module shortly after.
@@ -369,6 +430,7 @@ export const launchEmulator = (options: EmulatorLaunchOptions): EmulatorSession 
     if (destroyed) return;
     destroyed = true;
     disarmBootWatchdog();
+    restoreNavigatorGamepads();
     abortController.abort();
     try {
       if (emulator?.started && !emulator.failedToStart) emulator.callEvent("exit");
