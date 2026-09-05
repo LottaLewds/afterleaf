@@ -76,6 +76,7 @@ const createManager = (config: ShortcutsConfig = DEFAULT_SHORTCUTS, consumedActi
 };
 
 const mockPadButtons = new Uint8Array(16);
+const mockPadAxes = [0, 0, 0, 0];
 let padConnected = false;
 
 const installMockGamepad = () => {
@@ -85,7 +86,7 @@ const installMockGamepad = () => {
       padConnected
         ? [
             {
-              axes: [0, 0, 0, 0],
+              axes: [...mockPadAxes],
               buttons: Array.from(mockPadButtons, (down) => ({
                 pressed: down === 1,
                 touched: false,
@@ -117,6 +118,7 @@ beforeEach(() => {
   installWindowStub();
   padConnected = true;
   mockPadButtons.fill(0);
+  mockPadAxes.fill(0);
   installMockGamepad();
 });
 
@@ -278,6 +280,29 @@ describe("InputManager", () => {
       ["Back", true],
       ["Back", false],
     ]);
+  });
+
+  test("arcade mode forwards left-stick deflection as the matching D-pad edge", () => {
+    const {manager} = createManager();
+    const forwarded: Array<[GamepadButtonName, boolean]> = [];
+    manager.setRawGamepadForward((name, down) => forwarded.push([name, down]));
+
+    // Stick pushed up (axis 1 negative) should forward DpadUp, not DpadDown.
+    mockPadAxes[1] = -1;
+    manager.update("arcade");
+    expect(forwarded).toContainEqual(["DpadUp", true]);
+    expect(forwarded).not.toContainEqual(["DpadDown", true]);
+
+    forwarded.length = 0;
+    mockPadAxes[1] = 1;
+    manager.update("arcade");
+    expect(forwarded).toContainEqual(["DpadUp", false]);
+    expect(forwarded).toContainEqual(["DpadDown", true]);
+
+    forwarded.length = 0;
+    mockPadAxes[1] = 0;
+    manager.update("arcade");
+    expect(forwarded).toContainEqual(["DpadDown", false]);
   });
 
   test("suspend releases held keys and analog state", () => {

@@ -25,6 +25,7 @@ describe("findArcadeSystem", () => {
   test("resolves known systems and rejects unknown ones", () => {
     expect(findArcadeSystem("nes")?.shortLabel).toBe("NES");
     expect(findArcadeSystem("segaMD")?.core).toBe("segaMD");
+    expect(findArcadeSystem("arcade")?.core).toBe("arcade");
     expect(findArcadeSystem("dreamcast")).toBeUndefined();
   });
 });

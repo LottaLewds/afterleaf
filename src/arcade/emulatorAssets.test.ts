@@ -21,6 +21,7 @@ describe("requiredEmulatorCorePackages", () => {
     expect(packageNames.length).toBe(11);
     expect(packageNames).toContain("snes9x");
     expect(packageNames).toContain("genesis_plus_gx");
+    expect(packageNames).toContain("fbneo");
     for (const packageName of packageNames)
       expect(existsSync(path.join(nodeModulesDirectory, "@emulatorjs", `core-${packageName}`))).toBe(true);
   });
@@ -43,6 +44,11 @@ describe("resolveEmulatorDataFile", () => {
     expect(
       resolveEmulatorDataFile(nodeModulesDirectory, "cores/reports/snes9x.json")?.endsWith(
         path.join("reports", "snes9x.json"),
+      ),
+    ).toBe(true);
+    expect(
+      resolveEmulatorDataFile(nodeModulesDirectory, "cores/reports/fbneo.json")?.endsWith(
+        path.join("reports", "fbneo.json"),
       ),
     ).toBe(true);
   });

@@ -139,6 +139,7 @@ export class ShopArcadeCabinet {
   #sessionStatus: ArcadeSessionStatus | undefined;
   #sessionDetail: string | undefined;
   #sessionRomName: string | undefined;
+  #sessionRomUrl: string | undefined;
   #sessionSystemId: string | undefined;
   #host: EmulatorSession | undefined;
   #arcadeAudio: PositionalStreamAudioHandle | undefined;
@@ -326,6 +327,7 @@ export class ShopArcadeCabinet {
       return;
     }
     this.#sessionSystemId = system.id;
+    this.#sessionRomUrl = request.romUrl;
     if (this.#host) this.destroyHost();
     this.#setSession("launching", "Booting the cabinet…", request.name);
     const host = launchEmulator({
@@ -543,6 +545,10 @@ export class ShopArcadeCabinet {
     this.#arcadeAudio = undefined;
     this.#host?.destroy();
     this.#host = undefined;
+    if (this.#sessionRomUrl?.startsWith("blob:")) {
+      URL.revokeObjectURL(this.#sessionRomUrl);
+      this.#sessionRomUrl = undefined;
+    }
   }
 
   #drawAttractFrame(timeSeconds: number) {

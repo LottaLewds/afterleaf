@@ -1,5 +1,6 @@
 import type {PlanarMovementInput} from "~/game/shopGameplay";
 import {detectGamepadStyle, gamepadButtonIndex, type GamepadButtonName, type GamepadStyle} from "~/game/input/bindings";
+import {readNativeGamepads} from "~/game/input/gamepadNativeAccess";
 
 /**
  * Zero-allocation per-frame gamepad polling.
@@ -135,7 +136,7 @@ const clampToUnit = (value: number) => Math.min(Math.max(value, -1), 1);
 
 /** First connected pad, or undefined. Allocation-free beyond the API array. */
 const findGamepad = (): Gamepad | undefined => {
-  const gamepads = navigator.getGamepads?.();
+  const gamepads = readNativeGamepads(() => navigator.getGamepads?.() ?? []);
   if (!gamepads) return undefined;
   for (let index = 0; index < gamepads.length; index++) {
     const gamepad = gamepads[index];
